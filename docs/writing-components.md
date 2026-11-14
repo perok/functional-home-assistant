@@ -84,6 +84,12 @@ that does not show leaves a trailing space, which HTML ignores. A piece that is 
 finished text, `""` when there is nothing, as `historyReadings` sets `postfix`
 to `" °C"`. And every slot you set must be placed somewhere in the template.
 
+A value your card's own JavaScript does arithmetic on, such as a position or
+a range end, is a `slotMod.number("pos")` slot. The build refuses a reading that
+is not a number, and the value reaches your script as a number:
+`\(pos.jsValue)` reads `180`, not `'180'`, so there is no `Number(…)` to write.
+In the markup, `\(pos)` prints it as usual.
+
 The `banner(...)` function at the bottom is just a friendlier way to write
 `new Banner { text = "..." }`. Every shipped component has one.
 

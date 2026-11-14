@@ -162,7 +162,7 @@ class EntitySlider extends sliderBase.Slider {
   glyph = if (icon != null) icons.mdiClass(icon!!) else null
   // An unavailable entity reads "0", not "unavailable".
   position =
-    (if (element != null) slotMod.celReading("\(valueExpr).optMap(v, str(math.round(v))).orValue('0')")
+    (if (element != null) slotMod.celReading("\(valueExpr).optMap(v, math.round(v)).orValue(0.0)")
     else simpleMod.attr(valueAttr)) {
       default = "0"
     }

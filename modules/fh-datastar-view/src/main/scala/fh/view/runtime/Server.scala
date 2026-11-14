@@ -3059,6 +3059,7 @@ object Server {
       }.toMap
     def spelt(v: SlotValue) = v match
       case b: Boolean => Json.fromBoolean(b)
+      case d: Double  => Json.fromDoubleOrString(d)
       case s: String  => Json.fromString(s)
     val expected = now.map((f, v) => f.name -> v).toMap
     shown.keys.toList.sorted.find(!expected.contains(_)) match

@@ -196,7 +196,7 @@ const function wireInput(v: nodes.Input): Any =
 open class Slot {
   name: String(!contains("."))
   /// A literal, a [[Reading]], or null: not set.
-  value: (String|Boolean|Reading)? = null
+  value: (String|Boolean|Number|Reading)? = null
   /// Carry the value as a Datastar signal rather than bytes, so a change costs a
   /// frame entry instead of a re-render (ADR 0017). The template must place
   /// [[bind]]; the backend rejects it otherwise. Only a [[Reading]] moves.
@@ -251,7 +251,7 @@ open class Slot {
   function ifTrueElse(yes: String, no: String): String = ifTrue(yes) + ifFalse(no)
 
   /// This slot holding `v`.
-  function of(v: (String|Boolean|Reading)?): this = (this) { value = v }
+  function of(v: (String|Boolean|Number|Reading)?): this = (this) { value = v }
   /// A flag on a [[bool]] slot: set while `b` holds, for a template that reads
   /// it with [[ifSet]]/[[ifUnset]]. Not `of(Boolean)`, since a value can be a real
   /// `false` (`attr:disabled`).
@@ -265,6 +265,11 @@ const function slot(n: String): Slot = new { name = n }
 /// A slot the template reads as on or off, where the string `"false"` would
 /// be truthy: a Boolean, or a reading the build checks yields one.
 const function bool(n: String): Slot = new { name = n; type = "bool" }
+
+/// A slot holding a number, carried unquoted in its signal and its seed so a
+/// binding reads it as one; a text hole prints it. The build refuses a reading
+/// that is not an int or a real.
+const function number(n: String): Slot = new { name = n; type = "number" }
 
 /// A slot the template places in a raw hole, `{{{n}}}` ([[Slot.raw]]): markup
 /// or a script the value already is.
@@ -288,7 +293,7 @@ abstract class Fetch {
   hidden dependsOn: List<String> = List()
 }
 
-typealias SlotType = "text"|"textRaw"|"bool"
+typealias SlotType = "text"|"textRaw"|"bool"|"number"
 
 /// Where a signal slot's value lands in the DOM (`fh.view.model.SignalBind`,
 /// whose case `kind` names). Build one with the `as…` helpers below.

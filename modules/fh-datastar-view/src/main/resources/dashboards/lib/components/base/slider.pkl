@@ -17,9 +17,9 @@ import "button.pkl" as buttonMod
 
 // The slots a slider's head and text place; `Slot`-suffixed where the class
 // has an input of the same name.
-const local minSlot: slotMod.Slot = slotMod.slot("min")
-const local maxSlot: slotMod.Slot = slotMod.slot("max")
-const local valueSlot: slotMod.Slot = slotMod.slot("value")
+const local minSlot: slotMod.Slot = slotMod.number("min")
+const local maxSlot: slotMod.Slot = slotMod.number("max")
+const local valueSlot: slotMod.Slot = slotMod.number("value")
 const local fillSlot: slotMod.Slot = slotMod.slot("fill")
 const local fillColorSlot: slotMod.Slot = slotMod.slot("fillColor")
 const local stateSlot: slotMod.Slot = slotMod.slot("state")
@@ -90,7 +90,7 @@ const local dragPaint: String =
 
 // The dragged number, led into a list where the key's value is one (a hue).
 const local dragged: String =
-  valueRestSlot.ifTrue("[") + "Number($\(slideSig))" + valueRestSlot.ifTrue("\(valueRestSlot)]")
+  valueRestSlot.ifTrue("[") + "$\(slideSig)" + valueRestSlot.ifTrue("\(valueRestSlot)]")
 
 /// What a release posts, a number or a hue's list: a commit says which, and
 /// which field of HA's it fills (`tapMod.Call.posting`).
@@ -102,7 +102,7 @@ const local commitOnRelease: String =
 const local rangeInput: String = """
   <input type="range" min="\(minSlot)" max="\(maxSlot)" value="\(valueSlot)"
         \(valueSlot.bind)
-        data-signals__ifmissing="{ \(slideSig): '\(valueSlot)' }"
+        data-signals__ifmissing="{ \(slideSig): \(valueSlot.jsValue) }"
         data-bind="\(slideSig)"
         \(adoptCommitted)
         \(restoreOnDeadStream)
@@ -360,8 +360,8 @@ open class Slider extends nodes.Node {
     kelvinTrackSlot.setIf(kelvinTrack)
     greyedSlot.setIf(greyed)
     ...tapMod.tapRoute(press ?? commit ?? throw("A slider needs a commit or a press."))
-    minSlot.of("\(rangeMin)")
-    maxSlot.of("\(rangeMax)")
+    minSlot.of(rangeMin)
+    maxSlot.of(rangeMax)
   }
   hidden textSlots: Listing<slotMod.Slot> = new {
     slotMod.subject.of(subject)

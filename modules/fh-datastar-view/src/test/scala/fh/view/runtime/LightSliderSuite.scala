@@ -89,7 +89,7 @@ class LightSliderSuite extends CatsEffectSuite {
           List("colourTemp")
         )
         assert(brightness.exists(html.contains), clue = html)
-        assert(html.contains("{'slide': Number("), clue = html)
+        assert(html.contains("{'slide': $_"), clue = html)
         // A panel not shown is not rendered.
         assert(hue.nonEmpty && kelvin.nonEmpty, clue = (hue, kelvin))
         assert(!(hue ++ kelvin).exists(html.contains), clue = html)
@@ -116,7 +116,7 @@ class LightSliderSuite extends CatsEffectSuite {
           .map(_.flatMap(_.data).mkString("\n"))
       } yield {
         assertEquals(result._1, Status.NoContent, clue = result._2)
-        assert(sent.contains("{'slide': [Number($"), clue = sent)
+        assert(sent.contains("{'slide': [$_"), clue = sent)
         assert(sent.contains(",100]}, seen: "), clue = sent)
         // `hs_color[0]`, rounded: the handle starts where the light is.
         assert(sent.contains("""value="31""""), clue = sent)
@@ -225,7 +225,7 @@ class LightSliderSuite extends CatsEffectSuite {
           assertEquals(result._1, Status.NoContent, clue = result._2)
           // The head and the colour row both slide the hue now.
           assertEquals(
-            "\\{'slide': \\[Number\\(\\$".r.findAllMatchIn(sent).size,
+            "\\{'slide': \\[\\$_".r.findAllMatchIn(sent).size,
             2,
             clue = sent
           )
@@ -243,7 +243,7 @@ class LightSliderSuite extends CatsEffectSuite {
         brightness <- callsSetting(ts, "brightness")
       } yield {
         assert(brightness.exists(html.contains), clue = html)
-        assert(html.contains("{'slide': Number("), clue = html)
+        assert(html.contains("{'slide': $_"), clue = html)
         assertEquals(controlRoute.findAllMatchIn(html).size, 0, clue = html)
       }
     }

@@ -478,6 +478,7 @@ object ValueType:
     case SlotType.Text    => shown(out)
     case SlotType.TextRaw => shown(out) || out == TextRaw
     case SlotType.Bool    => out == Bool || out == Dyn
+    case SlotType.Number  => out == Int || out == Real || out == Dyn
 
 /** A literal as Pkl wrote it. A number is typed by its spelling: a Pkl `Float`
   * `2.0` and an `Int` `2` are one value, and CEL's compiler types them apart.

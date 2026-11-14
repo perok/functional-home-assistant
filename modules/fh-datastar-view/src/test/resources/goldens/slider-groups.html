@@ -3,7 +3,7 @@
 <article class="fh-cell fh-card fh-slider-card fh-slider-group" id="c_0"
   data-fh-url:control="['v.c_0.control', $_var_c_0__control, 'brightness']"><div class="fh-slider-controls" id="c_0_head_0"><div id="c_0_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body fh-active" id="s_c_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp: {t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
+  data-signals="{_e: {light: {lamp: {t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: true}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -26,7 +26,7 @@
   data-class:fh-error="$_s_c_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp.t#3"
-      data-signals__ifmissing="{ _s_c_0_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_0_head_0_m0__c__slide: $_e.light.lamp.t#3 }"
       data-bind="_s_c_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#3$/}"
   data-on-signal-patch="$_s_c_0_head_0_m0__c__slide = $_e.light.lamp.t#3"
@@ -36,7 +36,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
 </div></div></div><div class="fh-slider-pill" id="c_0_head_0_0"><button class="fh-cell fh-chip fh-circle fh-hug fh-active" id="c_0_head_0_0_0"
@@ -62,7 +62,7 @@
   data-fh-node="s_c_0_head_0_0_1_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div><div class="fh-slider-members">
 <article class="fh-cell fh-card fh-slider-card " id="c_0_0"><div class="fh-slider-controls" id="c_0_0_head_0"><div id="c_0_0_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body fh-active" id="s_c_0_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp2: {t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#6: '59 %'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#6: '59 %', t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: true}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -78,7 +78,7 @@
   data-class:fh-error="$_s_c_0_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp2.t#3"
-      data-signals__ifmissing="{ _s_c_0_0_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_0_0_head_0_m0__c__slide: $_e.light.lamp2.t#3 }"
       data-bind="_s_c_0_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#3$/}"
   data-on-signal-patch="$_s_c_0_0_head_0_m0__c__slide = $_e.light.lamp2.t#3"
@@ -88,13 +88,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_0_head_0_m0__c"
       data-on:input="$_e.light.lamp2.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp2.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_0_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_0_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp2.t#4"
   data-style:background="$_e.light.lamp2.t#5"></span>
 </div></div></div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_0_1"><div class="fh-slider-controls" id="c_0_1_head_0"><div id="c_0_1_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body fh-active" id="s_c_0_1_head_0_m0__c"
-  data-signals="{_e: {light: {dimmer: {t#1: true, t#2: false, t#3: '90', t#4: '64.9606299213%', t#6: '35 %'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#6: '35 %', t#3: 90, t#2: false, t#4: '64.9606299213%', t#1: true}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Dimmer</span></strong></div>
@@ -110,7 +110,7 @@
   data-class:fh-error="$_s_c_0_1_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="90"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _s_c_0_1_head_0_m0__c__slide: '90' }"
+      data-signals__ifmissing="{ _s_c_0_1_head_0_m0__c__slide: $_e.light.dimmer.t#3 }"
       data-bind="_s_c_0_1_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m0__c__slide = $_e.light.dimmer.t#3"
@@ -120,12 +120,12 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m0__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 ? '' : $_s_c_0_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_1_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 ? '' : $_s_c_0_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_1_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div></div></div><div class="fh-slider-members"></div></article></div></article>
 <article class="fh-cell fh-card fh-slider-card fh-slider-group" id="c_1">
 <div class="fh-cell fh-slider-body fh-active" id="c_1_head_0"
-  data-signals="{_e: {light: {dimmer: {t#1: true, t#2: false, t#3: '90', t#4: '64.9606299213%'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#3: 90, t#2: false, t#4: '64.9606299213%', t#1: true}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_c_1_head_0__busy_change || $_e.light.dimmer.t#2"
@@ -163,7 +163,7 @@
   data-class:fh-error="$_c_1_head_0__error">
 <input type="range" min="1" max="255" value="90"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _c_1_head_0__slide: '90' }"
+      data-signals__ifmissing="{ _c_1_head_0__slide: $_e.light.dimmer.t#3 }"
       data-bind="_c_1_head_0__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_c_1_head_0__slide = $_e.light.dimmer.t#3"
@@ -173,13 +173,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0__error = ''))"
   data-fh-node="c_1_head_0"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.dimmer.t#2 ? '' : $_c_1_head_0__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=c_1_head_0', {payload: {posted: {'slide': Number($_c_1_head_0__slide)}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 ? '' : $_c_1_head_0__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=c_1_head_0', {payload: {posted: {'slide': $_c_1_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div><div class="fh-slider-members">
 <article class="fh-cell fh-card fh-slider-card " id="c_1_0"
   data-fh-url:control="['v.c_1_0.control', $_var_c_1_0__control, 'brightness']"><div class="fh-slider-controls" id="c_1_0_head_0"><div id="c_1_0_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body fh-active" id="s_c_1_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp: {t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#6: '59 %'}}}}"
+  data-signals="{_e: {light: {lamp: {t#6: '59 %', t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: true}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></strong></div>
@@ -195,7 +195,7 @@
   data-class:fh-error="$_s_c_1_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp.t#3"
-      data-signals__ifmissing="{ _s_c_1_0_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_1_0_head_0_m0__c__slide: $_e.light.lamp.t#3 }"
       data-bind="_s_c_1_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#3$/}"
   data-on-signal-patch="$_s_c_1_0_head_0_m0__c__slide = $_e.light.lamp.t#3"
@@ -205,7 +205,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_1_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_1_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_1_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_1_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
 </div></div></div><div class="fh-slider-pill" id="c_1_0_head_0_0">
@@ -217,7 +217,7 @@
 <article class="fh-cell fh-card fh-slider-card " id="c_1_1"
   data-fh-url:control="['v.c_1_1.control', $_var_c_1_1__control, 'brightness']"><div class="fh-slider-controls" id="c_1_1_head_0"><div id="c_1_1_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body fh-active" id="s_c_1_1_head_0_m0__c"
-  data-signals="{_e: {light: {lamp2: {t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#6: '59 %'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#6: '59 %', t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: true}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -233,7 +233,7 @@
   data-class:fh-error="$_s_c_1_1_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp2.t#3"
-      data-signals__ifmissing="{ _s_c_1_1_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_1_1_head_0_m0__c__slide: $_e.light.lamp2.t#3 }"
       data-bind="_s_c_1_1_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#3$/}"
   data-on-signal-patch="$_s_c_1_1_head_0_m0__c__slide = $_e.light.lamp2.t#3"
@@ -243,7 +243,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_1_head_0_m0__c"
       data-on:input="$_e.light.lamp2.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp2.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_1_1_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_1_1_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_1_1_head_0_m0__c', {payload: {posted: {'slide': $_s_c_1_1_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp2.t#4"
   data-style:background="$_e.light.lamp2.t#5"></span>
 </div></div></div><div class="fh-slider-pill" id="c_1_1_head_0_0">
@@ -254,7 +254,7 @@
   data-fh-node="s_c_1_1_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div><div class="fh-slider-members"></div></article></div></article>
 <article class="fh-cell fh-card fh-slider-card fh-slider-group" id="c_2">
 <div class="fh-cell fh-slider-body fh-active" id="c_2_head_0"
-  data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false, t#3: '180', t#4: '29.5275590551%'}}}}"
+  data-signals="{_e: {light: {kitchen: {t#3: 180, t#2: false, t#4: '29.5275590551%', t#1: true}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_c_2_head_0__busy_change || $_e.light.kitchen.t#2"
@@ -277,7 +277,7 @@
   data-class:fh-error="$_c_2_head_0__error">
 <input type="range" min="1" max="255" value="180"
       data-attr:value="$_e.light.kitchen.t#3"
-      data-signals__ifmissing="{ _c_2_head_0__slide: '180' }"
+      data-signals__ifmissing="{ _c_2_head_0__slide: $_e.light.kitchen.t#3 }"
       data-bind="_c_2_head_0__slide"
       data-on-signal-patch-filter="{include:/^_e.light.kitchen.t#3$/}"
   data-on-signal-patch="$_c_2_head_0__slide = $_e.light.kitchen.t#3"
@@ -287,7 +287,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2_head_0__error = ''))"
   data-fh-node="c_2_head_0"
       data-on:input="$_e.light.kitchen.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_2_head_0__busy_change ? '' : @post('sse/call/slider-groups/call_6?node=c_2_head_0', {payload: {posted: {'slide': Number($_c_2_head_0__slide)}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
+      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_2_head_0__busy_change ? '' : @post('sse/call/slider-groups/call_6?node=c_2_head_0', {payload: {posted: {'slide': $_c_2_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#4" ></span>
 </div></div><div class="fh-slider-members">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_2_0"
@@ -308,7 +308,7 @@
   data-text="$_e.light.living_room.t#7">off</span></span></span></div></article></div></article></div>
 <!-- ==== as fixtured · surface c_0_0_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_0_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp2: {t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#6: '59 %'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#6: '59 %', t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: true}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -324,7 +324,7 @@
   data-class:fh-error="$_s_c_0_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp2.t#3"
-      data-signals__ifmissing="{ _s_c_0_0_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_0_0_head_0_m0__c__slide: $_e.light.lamp2.t#3 }"
       data-bind="_s_c_0_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#3$/}"
   data-on-signal-patch="$_s_c_0_0_head_0_m0__c__slide = $_e.light.lamp2.t#3"
@@ -334,13 +334,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_0_head_0_m0__c"
       data-on:input="$_e.light.lamp2.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp2.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_0_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_0_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp2.t#4"
   data-style:background="$_e.light.lamp2.t#5"></span>
 </div></div>
 <!-- ==== as fixtured · surface c_0_0_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_0_0_head_0_m1__c"
-  data-signals="{_e: {light: {lamp2: {t#1: true, t#2: false, t#8: '22 %', t#9: '3000', t#10: '77.7777777778%', t#11: 'rgb(243,179,124)'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#11: 'rgb(243,179,124)', t#2: false, t#9: 3000, t#8: '22 %', t#1: true, t#10: '77.7777777778%'}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_0_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -356,7 +356,7 @@
   data-class:fh-error="$_s_c_0_0_head_0_m1__c__error">
 <input type="range" min="2000" max="6500" value="3000"
       data-attr:value="$_e.light.lamp2.t#9"
-      data-signals__ifmissing="{ _s_c_0_0_head_0_m1__c__slide: '3000' }"
+      data-signals__ifmissing="{ _s_c_0_0_head_0_m1__c__slide: $_e.light.lamp2.t#9 }"
       data-bind="_s_c_0_0_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#9$/}"
   data-on-signal-patch="$_s_c_0_0_head_0_m1__c__slide = $_e.light.lamp2.t#9"
@@ -366,13 +366,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_0_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_0_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_0_head_0_m1__c"
       data-on:input="$_e.light.lamp2.t#10 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp2.t#8 = Math.round(((evt.target.value - 2000) * 100 / (6500 - 2000))) + ' %'; $_e.light.lamp2.t#11 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_8?node=s_c_0_0_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_0_0_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_8?node=s_c_0_0_head_0_m1__c', {payload: {posted: {'slide': $_s_c_0_0_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
   data-style:--fh-fill="$_e.light.lamp2.t#10"
   data-style:background="$_e.light.lamp2.t#11"></span>
 </div></div>
 <!-- ==== as fixtured · surface c_0_0_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_0_0_head_0_m2__c"
-  data-signals="{_e: {light: {lamp2: {t#1: true, t#2: false, t#12: '8 %', t#13: '30', t#14: '91.6666666667%', t#15: 'hsl(30,100%,50%)'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#13: 30, t#2: false, t#15: 'hsl(30,100%,50%)', t#12: '8 %', t#14: '91.6666666667%', t#1: true}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_0_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -388,7 +388,7 @@
   data-class:fh-error="$_s_c_0_0_head_0_m2__c__error">
 <input type="range" min="0" max="360" value="30"
       data-attr:value="$_e.light.lamp2.t#13"
-      data-signals__ifmissing="{ _s_c_0_0_head_0_m2__c__slide: '30' }"
+      data-signals__ifmissing="{ _s_c_0_0_head_0_m2__c__slide: $_e.light.lamp2.t#13 }"
       data-bind="_s_c_0_0_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#13$/}"
   data-on-signal-patch="$_s_c_0_0_head_0_m2__c__slide = $_e.light.lamp2.t#13"
@@ -398,13 +398,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_0_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_0_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_0_head_0_m2__c"
       data-on:input="$_e.light.lamp2.t#14 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp2.t#12 = Math.round(((evt.target.value - 0) * 100 / (360 - 0))) + ' %'; $_e.light.lamp2.t#15 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_9?node=s_c_0_0_head_0_m2__c', {payload: {posted: {'slide': [Number($_s_c_0_0_head_0_m2__c__slide),100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_9?node=s_c_0_0_head_0_m2__c', {payload: {posted: {'slide': [$_s_c_0_0_head_0_m2__c__slide,100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
   data-style:--fh-fill="$_e.light.lamp2.t#14"
   data-style:background="$_e.light.lamp2.t#15"></span>
 </div></div>
 <!-- ==== as fixtured · surface c_0_1_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_0_1_head_0_m0__c"
-  data-signals="{_e: {light: {dimmer: {t#1: true, t#2: false, t#3: '90', t#4: '64.9606299213%', t#6: '35 %'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#6: '35 %', t#3: 90, t#2: false, t#4: '64.9606299213%', t#1: true}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Dimmer</span></strong></div>
@@ -420,7 +420,7 @@
   data-class:fh-error="$_s_c_0_1_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="90"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _s_c_0_1_head_0_m0__c__slide: '90' }"
+      data-signals__ifmissing="{ _s_c_0_1_head_0_m0__c__slide: $_e.light.dimmer.t#3 }"
       data-bind="_s_c_0_1_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m0__c__slide = $_e.light.dimmer.t#3"
@@ -430,12 +430,12 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m0__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 ? '' : $_s_c_0_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_1_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 ? '' : $_s_c_0_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_1_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div>
 <!-- ==== as fixtured · surface c_0_1_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_0_1_head_0_m1__c"
-  data-signals="{_e: {light: {dimmer: {t#1: true, t#2: false, t#3: '90', t#4: '64.9606299213%', t#6: '35 %'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#6: '35 %', t#3: 90, t#2: false, t#4: '64.9606299213%', t#1: true}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head fh-slider-greyed">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_1_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Dimmer</span></strong></div>
@@ -451,7 +451,7 @@
   data-class:fh-error="$_s_c_0_1_head_0_m1__c__error">
 <input type="range" min="1" max="255" value="90"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _s_c_0_1_head_0_m1__c__slide: '90' }"
+      data-signals__ifmissing="{ _s_c_0_1_head_0_m1__c__slide: $_e.light.dimmer.t#3 }"
       data-bind="_s_c_0_1_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m1__c__slide = $_e.light.dimmer.t#3"
@@ -460,12 +460,12 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m1__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_0_1_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m1__c', {payload: {posted: {'slide': $_s_c_0_1_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div>
 <!-- ==== as fixtured · surface c_0_1_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_0_1_head_0_m2__c"
-  data-signals="{_e: {light: {dimmer: {t#1: true, t#2: false, t#3: '90', t#4: '64.9606299213%', t#6: '35 %'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#6: '35 %', t#3: 90, t#2: false, t#4: '64.9606299213%', t#1: true}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head fh-slider-greyed">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_1_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Dimmer</span></strong></div>
@@ -481,7 +481,7 @@
   data-class:fh-error="$_s_c_0_1_head_0_m2__c__error">
 <input type="range" min="1" max="255" value="90"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _s_c_0_1_head_0_m2__c__slide: '90' }"
+      data-signals__ifmissing="{ _s_c_0_1_head_0_m2__c__slide: $_e.light.dimmer.t#3 }"
       data-bind="_s_c_0_1_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m2__c__slide = $_e.light.dimmer.t#3"
@@ -490,7 +490,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m2__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m2__c', {payload: {posted: {'slide': Number($_s_c_0_1_head_0_m2__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m2__c', {payload: {posted: {'slide': $_s_c_0_1_head_0_m2__c__slide}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div>
 <!-- ==== as fixtured · surface c_0_head_0_0_1_o0 ==== -->
@@ -513,7 +513,7 @@
   data-fh-node="s_c_0_head_0_0_1_o2__c" title="Colour" aria-label="Colour"><i class="mdi mdi-palette"></i></button>
 <!-- ==== as fixtured · surface c_0_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp: {t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
+  data-signals="{_e: {light: {lamp: {t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: true}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -536,7 +536,7 @@
   data-class:fh-error="$_s_c_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp.t#3"
-      data-signals__ifmissing="{ _s_c_0_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_0_head_0_m0__c__slide: $_e.light.lamp.t#3 }"
       data-bind="_s_c_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#3$/}"
   data-on-signal-patch="$_s_c_0_head_0_m0__c__slide = $_e.light.lamp.t#3"
@@ -546,13 +546,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
 </div></div>
 <!-- ==== as fixtured · surface c_0_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_0_head_0_m1__c"
-  data-signals="{_e: {light: {lamp: {t#1: true, t#2: false, t#9: '3000', t#10: '77.7777777778%', t#11: 'rgb(243,179,124)'}}}}"
+  data-signals="{_e: {light: {lamp: {t#11: 'rgb(243,179,124)', t#2: false, t#9: 3000, t#1: true, t#10: '77.7777777778%'}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
@@ -575,7 +575,7 @@
   data-class:fh-error="$_s_c_0_head_0_m1__c__error">
 <input type="range" min="2000" max="6500" value="3000"
       data-attr:value="$_e.light.lamp.t#9"
-      data-signals__ifmissing="{ _s_c_0_head_0_m1__c__slide: '3000' }"
+      data-signals__ifmissing="{ _s_c_0_head_0_m1__c__slide: $_e.light.lamp.t#9 }"
       data-bind="_s_c_0_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#9$/}"
   data-on-signal-patch="$_s_c_0_head_0_m1__c__slide = $_e.light.lamp.t#9"
@@ -585,13 +585,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_head_0_m1__c"
       data-on:input="$_e.light.lamp.t#10 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp.t#11 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_10?node=s_c_0_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_0_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_10?node=s_c_0_head_0_m1__c', {payload: {posted: {'slide': $_s_c_0_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
   data-style:--fh-fill="$_e.light.lamp.t#10"
   data-style:background="$_e.light.lamp.t#11"></span>
 </div></div>
 <!-- ==== as fixtured · surface c_0_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_0_head_0_m2__c"
-  data-signals="{_e: {light: {lamp: {t#1: true, t#2: false, t#13: '30', t#14: '91.6666666667%', t#15: 'hsl(30,100%,50%)'}}}}"
+  data-signals="{_e: {light: {lamp: {t#13: 30, t#2: false, t#15: 'hsl(30,100%,50%)', t#14: '91.6666666667%', t#1: true}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
@@ -614,7 +614,7 @@
   data-class:fh-error="$_s_c_0_head_0_m2__c__error">
 <input type="range" min="0" max="360" value="30"
       data-attr:value="$_e.light.lamp.t#13"
-      data-signals__ifmissing="{ _s_c_0_head_0_m2__c__slide: '30' }"
+      data-signals__ifmissing="{ _s_c_0_head_0_m2__c__slide: $_e.light.lamp.t#13 }"
       data-bind="_s_c_0_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#13$/}"
   data-on-signal-patch="$_s_c_0_head_0_m2__c__slide = $_e.light.lamp.t#13"
@@ -624,7 +624,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_head_0_m2__c"
       data-on:input="$_e.light.lamp.t#14 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp.t#15 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_11?node=s_c_0_head_0_m2__c', {payload: {posted: {'slide': [Number($_s_c_0_head_0_m2__c__slide),100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_11?node=s_c_0_head_0_m2__c', {payload: {posted: {'slide': [$_s_c_0_head_0_m2__c__slide,100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
   data-style:--fh-fill="$_e.light.lamp.t#14"
   data-style:background="$_e.light.lamp.t#15"></span>
 </div></div>
@@ -648,7 +648,7 @@
   data-fh-node="s_c_1_0_head_0_0_0_o2__c" title="Colour" aria-label="Colour"><i class="mdi mdi-palette"></i></button>
 <!-- ==== as fixtured · surface c_1_0_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_1_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp: {t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#6: '59 %'}}}}"
+  data-signals="{_e: {light: {lamp: {t#6: '59 %', t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: true}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></strong></div>
@@ -664,7 +664,7 @@
   data-class:fh-error="$_s_c_1_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp.t#3"
-      data-signals__ifmissing="{ _s_c_1_0_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_1_0_head_0_m0__c__slide: $_e.light.lamp.t#3 }"
       data-bind="_s_c_1_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#3$/}"
   data-on-signal-patch="$_s_c_1_0_head_0_m0__c__slide = $_e.light.lamp.t#3"
@@ -674,13 +674,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_1_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_1_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_1_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_1_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
 </div></div>
 <!-- ==== as fixtured · surface c_1_0_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_1_0_head_0_m1__c"
-  data-signals="{_e: {light: {lamp: {t#1: true, t#2: false, t#8: '22 %', t#9: '3000', t#10: '77.7777777778%', t#11: 'rgb(243,179,124)'}}}}"
+  data-signals="{_e: {light: {lamp: {t#11: 'rgb(243,179,124)', t#2: false, t#9: 3000, t#8: '22 %', t#1: true, t#10: '77.7777777778%'}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_0_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></strong></div>
@@ -696,7 +696,7 @@
   data-class:fh-error="$_s_c_1_0_head_0_m1__c__error">
 <input type="range" min="2000" max="6500" value="3000"
       data-attr:value="$_e.light.lamp.t#9"
-      data-signals__ifmissing="{ _s_c_1_0_head_0_m1__c__slide: '3000' }"
+      data-signals__ifmissing="{ _s_c_1_0_head_0_m1__c__slide: $_e.light.lamp.t#9 }"
       data-bind="_s_c_1_0_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#9$/}"
   data-on-signal-patch="$_s_c_1_0_head_0_m1__c__slide = $_e.light.lamp.t#9"
@@ -706,13 +706,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_0_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_0_head_0_m1__c__error = ''))"
   data-fh-node="s_c_1_0_head_0_m1__c"
       data-on:input="$_e.light.lamp.t#10 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp.t#8 = Math.round(((evt.target.value - 2000) * 100 / (6500 - 2000))) + ' %'; $_e.light.lamp.t#11 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_10?node=s_c_1_0_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_1_0_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_10?node=s_c_1_0_head_0_m1__c', {payload: {posted: {'slide': $_s_c_1_0_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
   data-style:--fh-fill="$_e.light.lamp.t#10"
   data-style:background="$_e.light.lamp.t#11"></span>
 </div></div>
 <!-- ==== as fixtured · surface c_1_0_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_1_0_head_0_m2__c"
-  data-signals="{_e: {light: {lamp: {t#1: true, t#2: false, t#12: '8 %', t#13: '30', t#14: '91.6666666667%', t#15: 'hsl(30,100%,50%)'}}}}"
+  data-signals="{_e: {light: {lamp: {t#13: 30, t#2: false, t#15: 'hsl(30,100%,50%)', t#12: '8 %', t#14: '91.6666666667%', t#1: true}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_0_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></strong></div>
@@ -728,7 +728,7 @@
   data-class:fh-error="$_s_c_1_0_head_0_m2__c__error">
 <input type="range" min="0" max="360" value="30"
       data-attr:value="$_e.light.lamp.t#13"
-      data-signals__ifmissing="{ _s_c_1_0_head_0_m2__c__slide: '30' }"
+      data-signals__ifmissing="{ _s_c_1_0_head_0_m2__c__slide: $_e.light.lamp.t#13 }"
       data-bind="_s_c_1_0_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#13$/}"
   data-on-signal-patch="$_s_c_1_0_head_0_m2__c__slide = $_e.light.lamp.t#13"
@@ -738,7 +738,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_0_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_0_head_0_m2__c__error = ''))"
   data-fh-node="s_c_1_0_head_0_m2__c"
       data-on:input="$_e.light.lamp.t#14 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp.t#12 = Math.round(((evt.target.value - 0) * 100 / (360 - 0))) + ' %'; $_e.light.lamp.t#15 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_11?node=s_c_1_0_head_0_m2__c', {payload: {posted: {'slide': [Number($_s_c_1_0_head_0_m2__c__slide),100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_11?node=s_c_1_0_head_0_m2__c', {payload: {posted: {'slide': [$_s_c_1_0_head_0_m2__c__slide,100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
   data-style:--fh-fill="$_e.light.lamp.t#14"
   data-style:background="$_e.light.lamp.t#15"></span>
 </div></div>
@@ -762,7 +762,7 @@
   data-fh-node="s_c_1_1_head_0_0_0_o2__c" title="Colour" aria-label="Colour"><i class="mdi mdi-palette"></i></button>
 <!-- ==== as fixtured · surface c_1_1_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_1_1_head_0_m0__c"
-  data-signals="{_e: {light: {lamp2: {t#1: true, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#6: '59 %'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#6: '59 %', t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: true}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -778,7 +778,7 @@
   data-class:fh-error="$_s_c_1_1_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp2.t#3"
-      data-signals__ifmissing="{ _s_c_1_1_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_1_1_head_0_m0__c__slide: $_e.light.lamp2.t#3 }"
       data-bind="_s_c_1_1_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#3$/}"
   data-on-signal-patch="$_s_c_1_1_head_0_m0__c__slide = $_e.light.lamp2.t#3"
@@ -788,13 +788,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_1_head_0_m0__c"
       data-on:input="$_e.light.lamp2.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp2.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_1_1_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_1_1_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_1_1_head_0_m0__c', {payload: {posted: {'slide': $_s_c_1_1_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp2.t#4"
   data-style:background="$_e.light.lamp2.t#5"></span>
 </div></div>
 <!-- ==== as fixtured · surface c_1_1_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_1_1_head_0_m1__c"
-  data-signals="{_e: {light: {lamp2: {t#1: true, t#2: false, t#8: '22 %', t#9: '3000', t#10: '77.7777777778%', t#11: 'rgb(243,179,124)'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#11: 'rgb(243,179,124)', t#2: false, t#9: 3000, t#8: '22 %', t#1: true, t#10: '77.7777777778%'}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_1_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -810,7 +810,7 @@
   data-class:fh-error="$_s_c_1_1_head_0_m1__c__error">
 <input type="range" min="2000" max="6500" value="3000"
       data-attr:value="$_e.light.lamp2.t#9"
-      data-signals__ifmissing="{ _s_c_1_1_head_0_m1__c__slide: '3000' }"
+      data-signals__ifmissing="{ _s_c_1_1_head_0_m1__c__slide: $_e.light.lamp2.t#9 }"
       data-bind="_s_c_1_1_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#9$/}"
   data-on-signal-patch="$_s_c_1_1_head_0_m1__c__slide = $_e.light.lamp2.t#9"
@@ -820,13 +820,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_1_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_1_head_0_m1__c__error = ''))"
   data-fh-node="s_c_1_1_head_0_m1__c"
       data-on:input="$_e.light.lamp2.t#10 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp2.t#8 = Math.round(((evt.target.value - 2000) * 100 / (6500 - 2000))) + ' %'; $_e.light.lamp2.t#11 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_8?node=s_c_1_1_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_1_1_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_8?node=s_c_1_1_head_0_m1__c', {payload: {posted: {'slide': $_s_c_1_1_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
   data-style:--fh-fill="$_e.light.lamp2.t#10"
   data-style:background="$_e.light.lamp2.t#11"></span>
 </div></div>
 <!-- ==== as fixtured · surface c_1_1_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body fh-active" id="s_c_1_1_head_0_m2__c"
-  data-signals="{_e: {light: {lamp2: {t#1: true, t#2: false, t#12: '8 %', t#13: '30', t#14: '91.6666666667%', t#15: 'hsl(30,100%,50%)'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#13: 30, t#2: false, t#15: 'hsl(30,100%,50%)', t#12: '8 %', t#14: '91.6666666667%', t#1: true}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_1_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -842,7 +842,7 @@
   data-class:fh-error="$_s_c_1_1_head_0_m2__c__error">
 <input type="range" min="0" max="360" value="30"
       data-attr:value="$_e.light.lamp2.t#13"
-      data-signals__ifmissing="{ _s_c_1_1_head_0_m2__c__slide: '30' }"
+      data-signals__ifmissing="{ _s_c_1_1_head_0_m2__c__slide: $_e.light.lamp2.t#13 }"
       data-bind="_s_c_1_1_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#13$/}"
   data-on-signal-patch="$_s_c_1_1_head_0_m2__c__slide = $_e.light.lamp2.t#13"
@@ -852,7 +852,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_1_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_1_head_0_m2__c__error = ''))"
   data-fh-node="s_c_1_1_head_0_m2__c"
       data-on:input="$_e.light.lamp2.t#14 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp2.t#12 = Math.round(((evt.target.value - 0) * 100 / (360 - 0))) + ' %'; $_e.light.lamp2.t#15 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_9?node=s_c_1_1_head_0_m2__c', {payload: {posted: {'slide': [Number($_s_c_1_1_head_0_m2__c__slide),100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_9?node=s_c_1_1_head_0_m2__c', {payload: {posted: {'slide': [$_s_c_1_1_head_0_m2__c__slide,100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
   data-style:--fh-fill="$_e.light.lamp2.t#14"
   data-style:background="$_e.light.lamp2.t#15"></span>
 </div></div>
@@ -981,7 +981,7 @@
 <article class="fh-cell fh-card fh-slider-card fh-slider-group" id="c_0"
   data-fh-url:control="['v.c_0.control', $_var_c_0__control, 'brightness']"><div class="fh-slider-controls" id="c_0_head_0"><div id="c_0_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body" id="s_c_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
+  data-signals="{_e: {light: {lamp: {t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -1004,7 +1004,7 @@
   data-class:fh-error="$_s_c_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp.t#3"
-      data-signals__ifmissing="{ _s_c_0_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_0_head_0_m0__c__slide: $_e.light.lamp.t#3 }"
       data-bind="_s_c_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#3$/}"
   data-on-signal-patch="$_s_c_0_head_0_m0__c__slide = $_e.light.lamp.t#3"
@@ -1014,7 +1014,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
 </div></div></div><div class="fh-slider-pill" id="c_0_head_0_0"><button class="fh-cell fh-chip fh-circle fh-hug" id="c_0_head_0_0_0"
@@ -1040,7 +1040,7 @@
   data-fh-node="s_c_0_head_0_0_1_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div><div class="fh-slider-members">
 <article class="fh-cell fh-card fh-slider-card " id="c_0_0"><div class="fh-slider-controls" id="c_0_0_head_0"><div id="c_0_0_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body" id="s_c_0_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#6: '59 %'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#6: '59 %', t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -1056,7 +1056,7 @@
   data-class:fh-error="$_s_c_0_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp2.t#3"
-      data-signals__ifmissing="{ _s_c_0_0_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_0_0_head_0_m0__c__slide: $_e.light.lamp2.t#3 }"
       data-bind="_s_c_0_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#3$/}"
   data-on-signal-patch="$_s_c_0_0_head_0_m0__c__slide = $_e.light.lamp2.t#3"
@@ -1066,13 +1066,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_0_head_0_m0__c"
       data-on:input="$_e.light.lamp2.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp2.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_0_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_0_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp2.t#4"
   data-style:background="$_e.light.lamp2.t#5"></span>
 </div></div></div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_0_1"><div class="fh-slider-controls" id="c_0_1_head_0"><div id="c_0_1_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body" id="s_c_0_1_head_0_m0__c"
-  data-signals="{_e: {light: {dimmer: {t#1: false, t#2: false, t#3: '90', t#4: '64.9606299213%', t#6: '35 %'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#6: '35 %', t#3: 90, t#2: false, t#4: '64.9606299213%', t#1: false}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Dimmer</span></strong></div>
@@ -1088,7 +1088,7 @@
   data-class:fh-error="$_s_c_0_1_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="90"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _s_c_0_1_head_0_m0__c__slide: '90' }"
+      data-signals__ifmissing="{ _s_c_0_1_head_0_m0__c__slide: $_e.light.dimmer.t#3 }"
       data-bind="_s_c_0_1_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m0__c__slide = $_e.light.dimmer.t#3"
@@ -1098,12 +1098,12 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m0__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 ? '' : $_s_c_0_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_1_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 ? '' : $_s_c_0_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_1_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div></div></div><div class="fh-slider-members"></div></article></div></article>
 <article class="fh-cell fh-card fh-slider-card fh-slider-group" id="c_1">
 <div class="fh-cell fh-slider-body" id="c_1_head_0"
-  data-signals="{_e: {light: {dimmer: {t#1: false, t#2: false, t#3: '90', t#4: '64.9606299213%'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#3: 90, t#2: false, t#4: '64.9606299213%', t#1: false}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_c_1_head_0__busy_change || $_e.light.dimmer.t#2"
@@ -1141,7 +1141,7 @@
   data-class:fh-error="$_c_1_head_0__error">
 <input type="range" min="1" max="255" value="90"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _c_1_head_0__slide: '90' }"
+      data-signals__ifmissing="{ _c_1_head_0__slide: $_e.light.dimmer.t#3 }"
       data-bind="_c_1_head_0__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_c_1_head_0__slide = $_e.light.dimmer.t#3"
@@ -1151,13 +1151,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0__error = ''))"
   data-fh-node="c_1_head_0"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.dimmer.t#2 ? '' : $_c_1_head_0__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=c_1_head_0', {payload: {posted: {'slide': Number($_c_1_head_0__slide)}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 ? '' : $_c_1_head_0__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=c_1_head_0', {payload: {posted: {'slide': $_c_1_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div><div class="fh-slider-members">
 <article class="fh-cell fh-card fh-slider-card " id="c_1_0"
   data-fh-url:control="['v.c_1_0.control', $_var_c_1_0__control, 'brightness']"><div class="fh-slider-controls" id="c_1_0_head_0"><div id="c_1_0_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body" id="s_c_1_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#6: '59 %'}}}}"
+  data-signals="{_e: {light: {lamp: {t#6: '59 %', t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></strong></div>
@@ -1173,7 +1173,7 @@
   data-class:fh-error="$_s_c_1_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp.t#3"
-      data-signals__ifmissing="{ _s_c_1_0_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_1_0_head_0_m0__c__slide: $_e.light.lamp.t#3 }"
       data-bind="_s_c_1_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#3$/}"
   data-on-signal-patch="$_s_c_1_0_head_0_m0__c__slide = $_e.light.lamp.t#3"
@@ -1183,7 +1183,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_1_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_1_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_1_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_1_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
 </div></div></div><div class="fh-slider-pill" id="c_1_0_head_0_0">
@@ -1195,7 +1195,7 @@
 <article class="fh-cell fh-card fh-slider-card " id="c_1_1"
   data-fh-url:control="['v.c_1_1.control', $_var_c_1_1__control, 'brightness']"><div class="fh-slider-controls" id="c_1_1_head_0"><div id="c_1_1_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body" id="s_c_1_1_head_0_m0__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#6: '59 %'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#6: '59 %', t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -1211,7 +1211,7 @@
   data-class:fh-error="$_s_c_1_1_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp2.t#3"
-      data-signals__ifmissing="{ _s_c_1_1_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_1_1_head_0_m0__c__slide: $_e.light.lamp2.t#3 }"
       data-bind="_s_c_1_1_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#3$/}"
   data-on-signal-patch="$_s_c_1_1_head_0_m0__c__slide = $_e.light.lamp2.t#3"
@@ -1221,7 +1221,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_1_head_0_m0__c"
       data-on:input="$_e.light.lamp2.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp2.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_1_1_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_1_1_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_1_1_head_0_m0__c', {payload: {posted: {'slide': $_s_c_1_1_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp2.t#4"
   data-style:background="$_e.light.lamp2.t#5"></span>
 </div></div></div><div class="fh-slider-pill" id="c_1_1_head_0_0">
@@ -1232,7 +1232,7 @@
   data-fh-node="s_c_1_1_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div><div class="fh-slider-members"></div></article></div></article>
 <article class="fh-cell fh-card fh-slider-card fh-slider-group" id="c_2">
 <div class="fh-cell fh-slider-body" id="c_2_head_0"
-  data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false, t#3: '180', t#4: '29.5275590551%'}}}}"
+  data-signals="{_e: {light: {kitchen: {t#3: 180, t#2: false, t#4: '29.5275590551%', t#1: false}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_c_2_head_0__busy_change || $_e.light.kitchen.t#2"
@@ -1255,7 +1255,7 @@
   data-class:fh-error="$_c_2_head_0__error">
 <input type="range" min="1" max="255" value="180"
       data-attr:value="$_e.light.kitchen.t#3"
-      data-signals__ifmissing="{ _c_2_head_0__slide: '180' }"
+      data-signals__ifmissing="{ _c_2_head_0__slide: $_e.light.kitchen.t#3 }"
       data-bind="_c_2_head_0__slide"
       data-on-signal-patch-filter="{include:/^_e.light.kitchen.t#3$/}"
   data-on-signal-patch="$_c_2_head_0__slide = $_e.light.kitchen.t#3"
@@ -1265,7 +1265,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2_head_0__error = ''))"
   data-fh-node="c_2_head_0"
       data-on:input="$_e.light.kitchen.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_2_head_0__busy_change ? '' : @post('sse/call/slider-groups/call_6?node=c_2_head_0', {payload: {posted: {'slide': Number($_c_2_head_0__slide)}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
+      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_2_head_0__busy_change ? '' : @post('sse/call/slider-groups/call_6?node=c_2_head_0', {payload: {posted: {'slide': $_c_2_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#4" ></span>
 </div></div><div class="fh-slider-members">
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="c_2_0"
@@ -1286,7 +1286,7 @@
   data-text="$_e.light.living_room.t#7">on</span></span></span></div></article></div></article></div>
 <!-- ==== flipped · surface c_0_0_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#6: '59 %'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#6: '59 %', t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -1302,7 +1302,7 @@
   data-class:fh-error="$_s_c_0_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp2.t#3"
-      data-signals__ifmissing="{ _s_c_0_0_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_0_0_head_0_m0__c__slide: $_e.light.lamp2.t#3 }"
       data-bind="_s_c_0_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#3$/}"
   data-on-signal-patch="$_s_c_0_0_head_0_m0__c__slide = $_e.light.lamp2.t#3"
@@ -1312,13 +1312,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_0_head_0_m0__c"
       data-on:input="$_e.light.lamp2.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp2.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_0_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_0_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp2.t#4"
   data-style:background="$_e.light.lamp2.t#5"></span>
 </div></div>
 <!-- ==== flipped · surface c_0_0_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_0_head_0_m1__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: false, t#8: '22 %', t#9: '3000', t#10: '77.7777777778%', t#11: 'rgb(243,179,124)'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#11: 'rgb(243,179,124)', t#2: false, t#9: 3000, t#8: '22 %', t#1: false, t#10: '77.7777777778%'}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_0_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -1334,7 +1334,7 @@
   data-class:fh-error="$_s_c_0_0_head_0_m1__c__error">
 <input type="range" min="2000" max="6500" value="3000"
       data-attr:value="$_e.light.lamp2.t#9"
-      data-signals__ifmissing="{ _s_c_0_0_head_0_m1__c__slide: '3000' }"
+      data-signals__ifmissing="{ _s_c_0_0_head_0_m1__c__slide: $_e.light.lamp2.t#9 }"
       data-bind="_s_c_0_0_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#9$/}"
   data-on-signal-patch="$_s_c_0_0_head_0_m1__c__slide = $_e.light.lamp2.t#9"
@@ -1344,13 +1344,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_0_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_0_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_0_head_0_m1__c"
       data-on:input="$_e.light.lamp2.t#10 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp2.t#8 = Math.round(((evt.target.value - 2000) * 100 / (6500 - 2000))) + ' %'; $_e.light.lamp2.t#11 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_8?node=s_c_0_0_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_0_0_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_8?node=s_c_0_0_head_0_m1__c', {payload: {posted: {'slide': $_s_c_0_0_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
   data-style:--fh-fill="$_e.light.lamp2.t#10"
   data-style:background="$_e.light.lamp2.t#11"></span>
 </div></div>
 <!-- ==== flipped · surface c_0_0_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_0_head_0_m2__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: false, t#12: '8 %', t#13: '30', t#14: '91.6666666667%', t#15: 'hsl(30,100%,50%)'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#13: 30, t#2: false, t#15: 'hsl(30,100%,50%)', t#12: '8 %', t#14: '91.6666666667%', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_0_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -1366,7 +1366,7 @@
   data-class:fh-error="$_s_c_0_0_head_0_m2__c__error">
 <input type="range" min="0" max="360" value="30"
       data-attr:value="$_e.light.lamp2.t#13"
-      data-signals__ifmissing="{ _s_c_0_0_head_0_m2__c__slide: '30' }"
+      data-signals__ifmissing="{ _s_c_0_0_head_0_m2__c__slide: $_e.light.lamp2.t#13 }"
       data-bind="_s_c_0_0_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#13$/}"
   data-on-signal-patch="$_s_c_0_0_head_0_m2__c__slide = $_e.light.lamp2.t#13"
@@ -1376,13 +1376,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_0_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_0_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_0_head_0_m2__c"
       data-on:input="$_e.light.lamp2.t#14 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp2.t#12 = Math.round(((evt.target.value - 0) * 100 / (360 - 0))) + ' %'; $_e.light.lamp2.t#15 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_9?node=s_c_0_0_head_0_m2__c', {payload: {posted: {'slide': [Number($_s_c_0_0_head_0_m2__c__slide),100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_9?node=s_c_0_0_head_0_m2__c', {payload: {posted: {'slide': [$_s_c_0_0_head_0_m2__c__slide,100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
   data-style:--fh-fill="$_e.light.lamp2.t#14"
   data-style:background="$_e.light.lamp2.t#15"></span>
 </div></div>
 <!-- ==== flipped · surface c_0_1_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_1_head_0_m0__c"
-  data-signals="{_e: {light: {dimmer: {t#1: false, t#2: false, t#3: '90', t#4: '64.9606299213%', t#6: '35 %'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#6: '35 %', t#3: 90, t#2: false, t#4: '64.9606299213%', t#1: false}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Dimmer</span></strong></div>
@@ -1398,7 +1398,7 @@
   data-class:fh-error="$_s_c_0_1_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="90"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _s_c_0_1_head_0_m0__c__slide: '90' }"
+      data-signals__ifmissing="{ _s_c_0_1_head_0_m0__c__slide: $_e.light.dimmer.t#3 }"
       data-bind="_s_c_0_1_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m0__c__slide = $_e.light.dimmer.t#3"
@@ -1408,12 +1408,12 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m0__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 ? '' : $_s_c_0_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_1_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 ? '' : $_s_c_0_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_1_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div>
 <!-- ==== flipped · surface c_0_1_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_1_head_0_m1__c"
-  data-signals="{_e: {light: {dimmer: {t#1: false, t#2: false, t#3: '90', t#4: '64.9606299213%', t#6: '35 %'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#6: '35 %', t#3: 90, t#2: false, t#4: '64.9606299213%', t#1: false}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head fh-slider-greyed">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_1_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Dimmer</span></strong></div>
@@ -1429,7 +1429,7 @@
   data-class:fh-error="$_s_c_0_1_head_0_m1__c__error">
 <input type="range" min="1" max="255" value="90"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _s_c_0_1_head_0_m1__c__slide: '90' }"
+      data-signals__ifmissing="{ _s_c_0_1_head_0_m1__c__slide: $_e.light.dimmer.t#3 }"
       data-bind="_s_c_0_1_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m1__c__slide = $_e.light.dimmer.t#3"
@@ -1438,12 +1438,12 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m1__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_0_1_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m1__c', {payload: {posted: {'slide': $_s_c_0_1_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div>
 <!-- ==== flipped · surface c_0_1_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_1_head_0_m2__c"
-  data-signals="{_e: {light: {dimmer: {t#1: false, t#2: false, t#3: '90', t#4: '64.9606299213%', t#6: '35 %'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#6: '35 %', t#3: 90, t#2: false, t#4: '64.9606299213%', t#1: false}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head fh-slider-greyed">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_1_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Dimmer</span></strong></div>
@@ -1459,7 +1459,7 @@
   data-class:fh-error="$_s_c_0_1_head_0_m2__c__error">
 <input type="range" min="1" max="255" value="90"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _s_c_0_1_head_0_m2__c__slide: '90' }"
+      data-signals__ifmissing="{ _s_c_0_1_head_0_m2__c__slide: $_e.light.dimmer.t#3 }"
       data-bind="_s_c_0_1_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m2__c__slide = $_e.light.dimmer.t#3"
@@ -1468,7 +1468,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m2__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m2__c', {payload: {posted: {'slide': Number($_s_c_0_1_head_0_m2__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m2__c', {payload: {posted: {'slide': $_s_c_0_1_head_0_m2__c__slide}, seen: {} } })" />  <span style="--fh-fill: 64.9606299213%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div>
 <!-- ==== flipped · surface c_0_head_0_0_1_o0: as fixtured ==== -->
@@ -1476,7 +1476,7 @@
 <!-- ==== flipped · surface c_0_head_0_0_1_o2: as fixtured ==== -->
 <!-- ==== flipped · surface c_0_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)'}}}}"
+  data-signals="{_e: {light: {lamp: {t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -1499,7 +1499,7 @@
   data-class:fh-error="$_s_c_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp.t#3"
-      data-signals__ifmissing="{ _s_c_0_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_0_head_0_m0__c__slide: $_e.light.lamp.t#3 }"
       data-bind="_s_c_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#3$/}"
   data-on-signal-patch="$_s_c_0_head_0_m0__c__slide = $_e.light.lamp.t#3"
@@ -1509,13 +1509,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
 </div></div>
 <!-- ==== flipped · surface c_0_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_head_0_m1__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: false, t#9: '3000', t#10: '77.7777777778%', t#11: 'rgb(243,179,124)'}}}}"
+  data-signals="{_e: {light: {lamp: {t#11: 'rgb(243,179,124)', t#2: false, t#9: 3000, t#1: false, t#10: '77.7777777778%'}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
@@ -1538,7 +1538,7 @@
   data-class:fh-error="$_s_c_0_head_0_m1__c__error">
 <input type="range" min="2000" max="6500" value="3000"
       data-attr:value="$_e.light.lamp.t#9"
-      data-signals__ifmissing="{ _s_c_0_head_0_m1__c__slide: '3000' }"
+      data-signals__ifmissing="{ _s_c_0_head_0_m1__c__slide: $_e.light.lamp.t#9 }"
       data-bind="_s_c_0_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#9$/}"
   data-on-signal-patch="$_s_c_0_head_0_m1__c__slide = $_e.light.lamp.t#9"
@@ -1548,13 +1548,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_head_0_m1__c"
       data-on:input="$_e.light.lamp.t#10 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp.t#11 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_10?node=s_c_0_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_0_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_10?node=s_c_0_head_0_m1__c', {payload: {posted: {'slide': $_s_c_0_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
   data-style:--fh-fill="$_e.light.lamp.t#10"
   data-style:background="$_e.light.lamp.t#11"></span>
 </div></div>
 <!-- ==== flipped · surface c_0_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_head_0_m2__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: false, t#13: '30', t#14: '91.6666666667%', t#15: 'hsl(30,100%,50%)'}}}}"
+  data-signals="{_e: {light: {lamp: {t#13: 30, t#2: false, t#15: 'hsl(30,100%,50%)', t#14: '91.6666666667%', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
@@ -1577,7 +1577,7 @@
   data-class:fh-error="$_s_c_0_head_0_m2__c__error">
 <input type="range" min="0" max="360" value="30"
       data-attr:value="$_e.light.lamp.t#13"
-      data-signals__ifmissing="{ _s_c_0_head_0_m2__c__slide: '30' }"
+      data-signals__ifmissing="{ _s_c_0_head_0_m2__c__slide: $_e.light.lamp.t#13 }"
       data-bind="_s_c_0_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#13$/}"
   data-on-signal-patch="$_s_c_0_head_0_m2__c__slide = $_e.light.lamp.t#13"
@@ -1587,7 +1587,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_head_0_m2__c"
       data-on:input="$_e.light.lamp.t#14 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp.t#15 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_11?node=s_c_0_head_0_m2__c', {payload: {posted: {'slide': [Number($_s_c_0_head_0_m2__c__slide),100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_11?node=s_c_0_head_0_m2__c', {payload: {posted: {'slide': [$_s_c_0_head_0_m2__c__slide,100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
   data-style:--fh-fill="$_e.light.lamp.t#14"
   data-style:background="$_e.light.lamp.t#15"></span>
 </div></div>
@@ -1596,7 +1596,7 @@
 <!-- ==== flipped · surface c_1_0_head_0_0_0_o2: as fixtured ==== -->
 <!-- ==== flipped · surface c_1_0_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_1_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#6: '59 %'}}}}"
+  data-signals="{_e: {light: {lamp: {t#6: '59 %', t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></strong></div>
@@ -1612,7 +1612,7 @@
   data-class:fh-error="$_s_c_1_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp.t#3"
-      data-signals__ifmissing="{ _s_c_1_0_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_1_0_head_0_m0__c__slide: $_e.light.lamp.t#3 }"
       data-bind="_s_c_1_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#3$/}"
   data-on-signal-patch="$_s_c_1_0_head_0_m0__c__slide = $_e.light.lamp.t#3"
@@ -1622,13 +1622,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_1_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_1_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_1_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_1_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
 </div></div>
 <!-- ==== flipped · surface c_1_0_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_1_0_head_0_m1__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: false, t#8: '22 %', t#9: '3000', t#10: '77.7777777778%', t#11: 'rgb(243,179,124)'}}}}"
+  data-signals="{_e: {light: {lamp: {t#11: 'rgb(243,179,124)', t#2: false, t#9: 3000, t#8: '22 %', t#1: false, t#10: '77.7777777778%'}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_0_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></strong></div>
@@ -1644,7 +1644,7 @@
   data-class:fh-error="$_s_c_1_0_head_0_m1__c__error">
 <input type="range" min="2000" max="6500" value="3000"
       data-attr:value="$_e.light.lamp.t#9"
-      data-signals__ifmissing="{ _s_c_1_0_head_0_m1__c__slide: '3000' }"
+      data-signals__ifmissing="{ _s_c_1_0_head_0_m1__c__slide: $_e.light.lamp.t#9 }"
       data-bind="_s_c_1_0_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#9$/}"
   data-on-signal-patch="$_s_c_1_0_head_0_m1__c__slide = $_e.light.lamp.t#9"
@@ -1654,13 +1654,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_0_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_0_head_0_m1__c__error = ''))"
   data-fh-node="s_c_1_0_head_0_m1__c"
       data-on:input="$_e.light.lamp.t#10 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp.t#8 = Math.round(((evt.target.value - 2000) * 100 / (6500 - 2000))) + ' %'; $_e.light.lamp.t#11 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_10?node=s_c_1_0_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_1_0_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_10?node=s_c_1_0_head_0_m1__c', {payload: {posted: {'slide': $_s_c_1_0_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
   data-style:--fh-fill="$_e.light.lamp.t#10"
   data-style:background="$_e.light.lamp.t#11"></span>
 </div></div>
 <!-- ==== flipped · surface c_1_0_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_1_0_head_0_m2__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: false, t#12: '8 %', t#13: '30', t#14: '91.6666666667%', t#15: 'hsl(30,100%,50%)'}}}}"
+  data-signals="{_e: {light: {lamp: {t#13: 30, t#2: false, t#15: 'hsl(30,100%,50%)', t#12: '8 %', t#14: '91.6666666667%', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_0_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></strong></div>
@@ -1676,7 +1676,7 @@
   data-class:fh-error="$_s_c_1_0_head_0_m2__c__error">
 <input type="range" min="0" max="360" value="30"
       data-attr:value="$_e.light.lamp.t#13"
-      data-signals__ifmissing="{ _s_c_1_0_head_0_m2__c__slide: '30' }"
+      data-signals__ifmissing="{ _s_c_1_0_head_0_m2__c__slide: $_e.light.lamp.t#13 }"
       data-bind="_s_c_1_0_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#13$/}"
   data-on-signal-patch="$_s_c_1_0_head_0_m2__c__slide = $_e.light.lamp.t#13"
@@ -1686,7 +1686,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_0_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_0_head_0_m2__c__error = ''))"
   data-fh-node="s_c_1_0_head_0_m2__c"
       data-on:input="$_e.light.lamp.t#14 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp.t#12 = Math.round(((evt.target.value - 0) * 100 / (360 - 0))) + ' %'; $_e.light.lamp.t#15 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_11?node=s_c_1_0_head_0_m2__c', {payload: {posted: {'slide': [Number($_s_c_1_0_head_0_m2__c__slide),100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_11?node=s_c_1_0_head_0_m2__c', {payload: {posted: {'slide': [$_s_c_1_0_head_0_m2__c__slide,100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
   data-style:--fh-fill="$_e.light.lamp.t#14"
   data-style:background="$_e.light.lamp.t#15"></span>
 </div></div>
@@ -1695,7 +1695,7 @@
 <!-- ==== flipped · surface c_1_1_head_0_0_0_o2: as fixtured ==== -->
 <!-- ==== flipped · surface c_1_1_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_1_1_head_0_m0__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: false, t#3: '150', t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#6: '59 %'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#6: '59 %', t#3: 150, t#2: false, t#4: '41.3385826772%', t#5: 'rgb(255,179,102)', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -1711,7 +1711,7 @@
   data-class:fh-error="$_s_c_1_1_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="150"
       data-attr:value="$_e.light.lamp2.t#3"
-      data-signals__ifmissing="{ _s_c_1_1_head_0_m0__c__slide: '150' }"
+      data-signals__ifmissing="{ _s_c_1_1_head_0_m0__c__slide: $_e.light.lamp2.t#3 }"
       data-bind="_s_c_1_1_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#3$/}"
   data-on-signal-patch="$_s_c_1_1_head_0_m0__c__slide = $_e.light.lamp2.t#3"
@@ -1721,13 +1721,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_1_head_0_m0__c"
       data-on:input="$_e.light.lamp2.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp2.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_1_1_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_1_1_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_1_1_head_0_m0__c', {payload: {posted: {'slide': $_s_c_1_1_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 41.3385826772%;background:rgb(255,179,102)"
   data-style:--fh-fill="$_e.light.lamp2.t#4"
   data-style:background="$_e.light.lamp2.t#5"></span>
 </div></div>
 <!-- ==== flipped · surface c_1_1_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_1_1_head_0_m1__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: false, t#8: '22 %', t#9: '3000', t#10: '77.7777777778%', t#11: 'rgb(243,179,124)'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#11: 'rgb(243,179,124)', t#2: false, t#9: 3000, t#8: '22 %', t#1: false, t#10: '77.7777777778%'}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_1_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -1743,7 +1743,7 @@
   data-class:fh-error="$_s_c_1_1_head_0_m1__c__error">
 <input type="range" min="2000" max="6500" value="3000"
       data-attr:value="$_e.light.lamp2.t#9"
-      data-signals__ifmissing="{ _s_c_1_1_head_0_m1__c__slide: '3000' }"
+      data-signals__ifmissing="{ _s_c_1_1_head_0_m1__c__slide: $_e.light.lamp2.t#9 }"
       data-bind="_s_c_1_1_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#9$/}"
   data-on-signal-patch="$_s_c_1_1_head_0_m1__c__slide = $_e.light.lamp2.t#9"
@@ -1753,13 +1753,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_1_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_1_head_0_m1__c__error = ''))"
   data-fh-node="s_c_1_1_head_0_m1__c"
       data-on:input="$_e.light.lamp2.t#10 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp2.t#8 = Math.round(((evt.target.value - 2000) * 100 / (6500 - 2000))) + ' %'; $_e.light.lamp2.t#11 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_8?node=s_c_1_1_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_1_1_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_8?node=s_c_1_1_head_0_m1__c', {payload: {posted: {'slide': $_s_c_1_1_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 77.7777777778%;background:rgb(243,179,124)"
   data-style:--fh-fill="$_e.light.lamp2.t#10"
   data-style:background="$_e.light.lamp2.t#11"></span>
 </div></div>
 <!-- ==== flipped · surface c_1_1_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_1_1_head_0_m2__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: false, t#12: '8 %', t#13: '30', t#14: '91.6666666667%', t#15: 'hsl(30,100%,50%)'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#13: 30, t#2: false, t#15: 'hsl(30,100%,50%)', t#12: '8 %', t#14: '91.6666666667%', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_1_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -1775,7 +1775,7 @@
   data-class:fh-error="$_s_c_1_1_head_0_m2__c__error">
 <input type="range" min="0" max="360" value="30"
       data-attr:value="$_e.light.lamp2.t#13"
-      data-signals__ifmissing="{ _s_c_1_1_head_0_m2__c__slide: '30' }"
+      data-signals__ifmissing="{ _s_c_1_1_head_0_m2__c__slide: $_e.light.lamp2.t#13 }"
       data-bind="_s_c_1_1_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#13$/}"
   data-on-signal-patch="$_s_c_1_1_head_0_m2__c__slide = $_e.light.lamp2.t#13"
@@ -1785,7 +1785,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_1_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_1_head_0_m2__c__error = ''))"
   data-fh-node="s_c_1_1_head_0_m2__c"
       data-on:input="$_e.light.lamp2.t#14 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp2.t#12 = Math.round(((evt.target.value - 0) * 100 / (360 - 0))) + ' %'; $_e.light.lamp2.t#15 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_9?node=s_c_1_1_head_0_m2__c', {payload: {posted: {'slide': [Number($_s_c_1_1_head_0_m2__c__slide),100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_9?node=s_c_1_1_head_0_m2__c', {payload: {posted: {'slide': [$_s_c_1_1_head_0_m2__c__slide,100]}, seen: {} } })" />  <span style="--fh-fill: 91.6666666667%;background:hsl(30,100%,50%)"
   data-style:--fh-fill="$_e.light.lamp2.t#14"
   data-style:background="$_e.light.lamp2.t#15"></span>
 </div></div>
@@ -1822,7 +1822,7 @@
 <article class="fh-cell fh-card fh-slider-card fh-slider-group" id="c_0"
   data-fh-url:control="['v.c_0.control', $_var_c_0__control, 'brightness']"><div class="fh-slider-controls" id="c_0_head_0"><div id="c_0_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body" id="s_c_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor'}}}}"
+  data-signals="{_e: {light: {lamp: {t#3: 0, t#2: true, t#4: '100%', t#5: 'currentcolor', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -1845,7 +1845,7 @@
   data-class:fh-error="$_s_c_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.lamp.t#3"
-      data-signals__ifmissing="{ _s_c_0_head_0_m0__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_0_head_0_m0__c__slide: $_e.light.lamp.t#3 }"
       data-bind="_s_c_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#3$/}"
   data-on-signal-patch="$_s_c_0_head_0_m0__c__slide = $_e.light.lamp.t#3"
@@ -1854,7 +1854,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
 </div></div></div><div class="fh-slider-pill" id="c_0_head_0_0"><button class="fh-cell fh-chip fh-circle fh-hug" id="c_0_head_0_0_0"
@@ -1879,7 +1879,7 @@
   data-fh-node="s_c_0_head_0_0_1_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div><div class="fh-slider-members">
 <article class="fh-cell fh-card fh-slider-card " id="c_0_0"><div class="fh-slider-controls" id="c_0_0_head_0"><div id="c_0_0_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body" id="s_c_0_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor', t#6: '0 %'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#6: '0 %', t#3: 0, t#2: true, t#4: '100%', t#5: 'currentcolor', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -1895,7 +1895,7 @@
   data-class:fh-error="$_s_c_0_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.lamp2.t#3"
-      data-signals__ifmissing="{ _s_c_0_0_head_0_m0__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_0_0_head_0_m0__c__slide: $_e.light.lamp2.t#3 }"
       data-bind="_s_c_0_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#3$/}"
   data-on-signal-patch="$_s_c_0_0_head_0_m0__c__slide = $_e.light.lamp2.t#3"
@@ -1904,13 +1904,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_0_head_0_m0__c"
       data-on:input="$_e.light.lamp2.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp2.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_0_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_0_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.lamp2.t#4"
   data-style:background="$_e.light.lamp2.t#5"></span>
 </div></div></div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_0_1"><div class="fh-slider-controls" id="c_0_1_head_0"><div id="c_0_1_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body" id="s_c_0_1_head_0_m0__c"
-  data-signals="{_e: {light: {dimmer: {t#1: false, t#2: true, t#3: '0', t#4: '100%', t#6: '0 %'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#6: '0 %', t#3: 0, t#2: true, t#4: '100%', t#1: false}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Dimmer</span></strong></div>
@@ -1926,7 +1926,7 @@
   data-class:fh-error="$_s_c_0_1_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _s_c_0_1_head_0_m0__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_0_1_head_0_m0__c__slide: $_e.light.dimmer.t#3 }"
       data-bind="_s_c_0_1_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m0__c__slide = $_e.light.dimmer.t#3"
@@ -1935,12 +1935,12 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m0__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 ? '' : $_s_c_0_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_1_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 ? '' : $_s_c_0_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_1_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div></div></div><div class="fh-slider-members"></div></article></div></article>
 <article class="fh-cell fh-card fh-slider-card fh-slider-group" id="c_1">
 <div class="fh-cell fh-slider-body" id="c_1_head_0"
-  data-signals="{_e: {light: {dimmer: {t#1: false, t#2: true, t#3: '0', t#4: '100%'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#3: 0, t#2: true, t#4: '100%', t#1: false}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_c_1_head_0__busy_change || $_e.light.dimmer.t#2"
@@ -1977,7 +1977,7 @@
   data-class:fh-error="$_c_1_head_0__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _c_1_head_0__slide: '0' }"
+      data-signals__ifmissing="{ _c_1_head_0__slide: $_e.light.dimmer.t#3 }"
       data-bind="_c_1_head_0__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_c_1_head_0__slide = $_e.light.dimmer.t#3"
@@ -1986,13 +1986,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0__error = ''))"
   data-fh-node="c_1_head_0"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.dimmer.t#2 ? '' : $_c_1_head_0__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=c_1_head_0', {payload: {posted: {'slide': Number($_c_1_head_0__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 ? '' : $_c_1_head_0__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=c_1_head_0', {payload: {posted: {'slide': $_c_1_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div><div class="fh-slider-members">
 <article class="fh-cell fh-card fh-slider-card " id="c_1_0"
   data-fh-url:control="['v.c_1_0.control', $_var_c_1_0__control, 'brightness']"><div class="fh-slider-controls" id="c_1_0_head_0"><div id="c_1_0_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body" id="s_c_1_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor', t#6: '0 %'}}}}"
+  data-signals="{_e: {light: {lamp: {t#6: '0 %', t#3: 0, t#2: true, t#4: '100%', t#5: 'currentcolor', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></strong></div>
@@ -2008,7 +2008,7 @@
   data-class:fh-error="$_s_c_1_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.lamp.t#3"
-      data-signals__ifmissing="{ _s_c_1_0_head_0_m0__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_1_0_head_0_m0__c__slide: $_e.light.lamp.t#3 }"
       data-bind="_s_c_1_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#3$/}"
   data-on-signal-patch="$_s_c_1_0_head_0_m0__c__slide = $_e.light.lamp.t#3"
@@ -2017,7 +2017,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_1_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_1_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_1_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_1_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
 </div></div></div><div class="fh-slider-pill" id="c_1_0_head_0_0">
@@ -2029,7 +2029,7 @@
 <article class="fh-cell fh-card fh-slider-card " id="c_1_1"
   data-fh-url:control="['v.c_1_1.control', $_var_c_1_1__control, 'brightness']"><div class="fh-slider-controls" id="c_1_1_head_0"><div id="c_1_1_head_0_panel" class="fh-slider-controls-panel">
 <div class="fh-cell fh-slider-body" id="s_c_1_1_head_0_m0__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor', t#6: '0 %'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#6: '0 %', t#3: 0, t#2: true, t#4: '100%', t#5: 'currentcolor', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -2045,7 +2045,7 @@
   data-class:fh-error="$_s_c_1_1_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.lamp2.t#3"
-      data-signals__ifmissing="{ _s_c_1_1_head_0_m0__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_1_1_head_0_m0__c__slide: $_e.light.lamp2.t#3 }"
       data-bind="_s_c_1_1_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#3$/}"
   data-on-signal-patch="$_s_c_1_1_head_0_m0__c__slide = $_e.light.lamp2.t#3"
@@ -2054,7 +2054,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_1_head_0_m0__c"
       data-on:input="$_e.light.lamp2.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp2.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_1_1_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_1_1_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_1_1_head_0_m0__c', {payload: {posted: {'slide': $_s_c_1_1_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.lamp2.t#4"
   data-style:background="$_e.light.lamp2.t#5"></span>
 </div></div></div><div class="fh-slider-pill" id="c_1_1_head_0_0">
@@ -2065,7 +2065,7 @@
   data-fh-node="s_c_1_1_head_0_0_0_o0__c" title="Brightness" aria-label="Brightness"><i class="mdi mdi-brightness-6"></i></button></div></div></div></div><div class="fh-slider-members"></div></article></div></article>
 <article class="fh-cell fh-card fh-slider-card fh-slider-group" id="c_2">
 <div class="fh-cell fh-slider-body" id="c_2_head_0"
-  data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#3: '0', t#4: '100%'}}}}"
+  data-signals="{_e: {light: {kitchen: {t#3: 0, t#2: true, t#4: '100%', t#1: false}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_c_2_head_0__busy_change || $_e.light.kitchen.t#2"
@@ -2088,7 +2088,7 @@
   data-class:fh-error="$_c_2_head_0__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.kitchen.t#3"
-      data-signals__ifmissing="{ _c_2_head_0__slide: '0' }"
+      data-signals__ifmissing="{ _c_2_head_0__slide: $_e.light.kitchen.t#3 }"
       data-bind="_c_2_head_0__slide"
       data-on-signal-patch-filter="{include:/^_e.light.kitchen.t#3$/}"
   data-on-signal-patch="$_c_2_head_0__slide = $_e.light.kitchen.t#3"
@@ -2097,7 +2097,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2_head_0__error = ''))"
   data-fh-node="c_2_head_0"
       data-on:input="$_e.light.kitchen.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_2_head_0__busy_change ? '' : @post('sse/call/slider-groups/call_6?node=c_2_head_0', {payload: {posted: {'slide': Number($_c_2_head_0__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_2_head_0__busy_change ? '' : @post('sse/call/slider-groups/call_6?node=c_2_head_0', {payload: {posted: {'slide': $_c_2_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#4" ></span>
 </div></div><div class="fh-slider-members">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_2_0"
@@ -2118,7 +2118,7 @@
   data-text="$_e.light.living_room.t#7">unavailable</span></span></span></div></article></div></article></div>
 <!-- ==== unavailable · surface c_0_0_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor', t#6: '0 %'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#6: '0 %', t#3: 0, t#2: true, t#4: '100%', t#5: 'currentcolor', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -2134,7 +2134,7 @@
   data-class:fh-error="$_s_c_0_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.lamp2.t#3"
-      data-signals__ifmissing="{ _s_c_0_0_head_0_m0__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_0_0_head_0_m0__c__slide: $_e.light.lamp2.t#3 }"
       data-bind="_s_c_0_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#3$/}"
   data-on-signal-patch="$_s_c_0_0_head_0_m0__c__slide = $_e.light.lamp2.t#3"
@@ -2143,13 +2143,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_0_head_0_m0__c"
       data-on:input="$_e.light.lamp2.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp2.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_0_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_0_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.lamp2.t#4"
   data-style:background="$_e.light.lamp2.t#5"></span>
 </div></div>
 <!-- ==== unavailable · surface c_0_0_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_0_head_0_m1__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: true, t#8: '0 %', t#9: '0', t#10: '100%', t#11: 'transparent'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#11: 'transparent', t#2: true, t#9: 0, t#8: '0 %', t#1: false, t#10: '100%'}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_0_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -2165,7 +2165,7 @@
   data-class:fh-error="$_s_c_0_0_head_0_m1__c__error">
 <input type="range" min="2000" max="6500" value="0"
       data-attr:value="$_e.light.lamp2.t#9"
-      data-signals__ifmissing="{ _s_c_0_0_head_0_m1__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_0_0_head_0_m1__c__slide: $_e.light.lamp2.t#9 }"
       data-bind="_s_c_0_0_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#9$/}"
   data-on-signal-patch="$_s_c_0_0_head_0_m1__c__slide = $_e.light.lamp2.t#9"
@@ -2174,13 +2174,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_0_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_0_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_0_head_0_m1__c"
       data-on:input="$_e.light.lamp2.t#10 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp2.t#8 = Math.round(((evt.target.value - 2000) * 100 / (6500 - 2000))) + ' %'; $_e.light.lamp2.t#11 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_8?node=s_c_0_0_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_0_0_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:transparent"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_8?node=s_c_0_0_head_0_m1__c', {payload: {posted: {'slide': $_s_c_0_0_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:transparent"
   data-style:--fh-fill="$_e.light.lamp2.t#10"
   data-style:background="$_e.light.lamp2.t#11"></span>
 </div></div>
 <!-- ==== unavailable · surface c_0_0_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_0_head_0_m2__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: true, t#12: '0 %', t#13: '0', t#14: '100%', t#15: '#fff'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#13: 0, t#2: true, t#15: '#fff', t#12: '0 %', t#14: '100%', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_0_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -2196,7 +2196,7 @@
   data-class:fh-error="$_s_c_0_0_head_0_m2__c__error">
 <input type="range" min="0" max="360" value="0"
       data-attr:value="$_e.light.lamp2.t#13"
-      data-signals__ifmissing="{ _s_c_0_0_head_0_m2__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_0_0_head_0_m2__c__slide: $_e.light.lamp2.t#13 }"
       data-bind="_s_c_0_0_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#13$/}"
   data-on-signal-patch="$_s_c_0_0_head_0_m2__c__slide = $_e.light.lamp2.t#13"
@@ -2205,13 +2205,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_0_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_0_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_0_head_0_m2__c"
       data-on:input="$_e.light.lamp2.t#14 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp2.t#12 = Math.round(((evt.target.value - 0) * 100 / (360 - 0))) + ' %'; $_e.light.lamp2.t#15 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_9?node=s_c_0_0_head_0_m2__c', {payload: {posted: {'slide': [Number($_s_c_0_0_head_0_m2__c__slide),100]}, seen: {} } })" />  <span style="--fh-fill: 100%;background:#fff"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_0_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_9?node=s_c_0_0_head_0_m2__c', {payload: {posted: {'slide': [$_s_c_0_0_head_0_m2__c__slide,100]}, seen: {} } })" />  <span style="--fh-fill: 100%;background:#fff"
   data-style:--fh-fill="$_e.light.lamp2.t#14"
   data-style:background="$_e.light.lamp2.t#15"></span>
 </div></div>
 <!-- ==== unavailable · surface c_0_1_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_1_head_0_m0__c"
-  data-signals="{_e: {light: {dimmer: {t#1: false, t#2: true, t#3: '0', t#4: '100%', t#6: '0 %'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#6: '0 %', t#3: 0, t#2: true, t#4: '100%', t#1: false}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Dimmer</span></strong></div>
@@ -2227,7 +2227,7 @@
   data-class:fh-error="$_s_c_0_1_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _s_c_0_1_head_0_m0__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_0_1_head_0_m0__c__slide: $_e.light.dimmer.t#3 }"
       data-bind="_s_c_0_1_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m0__c__slide = $_e.light.dimmer.t#3"
@@ -2236,12 +2236,12 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m0__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 ? '' : $_s_c_0_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_1_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 ? '' : $_s_c_0_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_1_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div>
 <!-- ==== unavailable · surface c_0_1_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_1_head_0_m1__c"
-  data-signals="{_e: {light: {dimmer: {t#1: false, t#2: true, t#3: '0', t#4: '100%', t#6: '0 %'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#6: '0 %', t#3: 0, t#2: true, t#4: '100%', t#1: false}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head fh-slider-greyed">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_1_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Dimmer</span></strong></div>
@@ -2257,7 +2257,7 @@
   data-class:fh-error="$_s_c_0_1_head_0_m1__c__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _s_c_0_1_head_0_m1__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_0_1_head_0_m1__c__slide: $_e.light.dimmer.t#3 }"
       data-bind="_s_c_0_1_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m1__c__slide = $_e.light.dimmer.t#3"
@@ -2266,12 +2266,12 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m1__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_0_1_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m1__c', {payload: {posted: {'slide': $_s_c_0_1_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div>
 <!-- ==== unavailable · surface c_0_1_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_1_head_0_m2__c"
-  data-signals="{_e: {light: {dimmer: {t#1: false, t#2: true, t#3: '0', t#4: '100%', t#6: '0 %'}}}}"
+  data-signals="{_e: {light: {dimmer: {t#6: '0 %', t#3: 0, t#2: true, t#4: '100%', t#1: false}}}}"
   data-class:fh-active="$_e.light.dimmer.t#1"><div class="fh-slider-head fh-slider-greyed">
   
   <div class="fh-cell fh-slider-text" id="s_c_0_1_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Dimmer</span></strong></div>
@@ -2287,7 +2287,7 @@
   data-class:fh-error="$_s_c_0_1_head_0_m2__c__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.dimmer.t#3"
-      data-signals__ifmissing="{ _s_c_0_1_head_0_m2__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_0_1_head_0_m2__c__slide: $_e.light.dimmer.t#3 }"
       data-bind="_s_c_0_1_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.dimmer.t#3$/}"
   data-on-signal-patch="$_s_c_0_1_head_0_m2__c__slide = $_e.light.dimmer.t#3"
@@ -2296,7 +2296,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_1_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_1_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_1_head_0_m2__c"
       data-on:input="$_e.light.dimmer.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.dimmer.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m2__c', {payload: {posted: {'slide': Number($_s_c_0_1_head_0_m2__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.dimmer.t#2 || true ? '' : $_s_c_0_1_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_4?node=s_c_0_1_head_0_m2__c', {payload: {posted: {'slide': $_s_c_0_1_head_0_m2__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.dimmer.t#4" ></span>
 </div></div>
 <!-- ==== unavailable · surface c_0_head_0_0_1_o0: as fixtured ==== -->
@@ -2304,7 +2304,7 @@
 <!-- ==== unavailable · surface c_0_head_0_0_1_o2: as fixtured ==== -->
 <!-- ==== unavailable · surface c_0_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor'}}}}"
+  data-signals="{_e: {light: {lamp: {t#3: 0, t#2: true, t#4: '100%', t#5: 'currentcolor', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m0__c__busy_change || $_e.light.lamp.t#2"
@@ -2327,7 +2327,7 @@
   data-class:fh-error="$_s_c_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.lamp.t#3"
-      data-signals__ifmissing="{ _s_c_0_head_0_m0__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_0_head_0_m0__c__slide: $_e.light.lamp.t#3 }"
       data-bind="_s_c_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#3$/}"
   data-on-signal-patch="$_s_c_0_head_0_m0__c__slide = $_e.light.lamp.t#3"
@@ -2336,13 +2336,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
 </div></div>
 <!-- ==== unavailable · surface c_0_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_head_0_m1__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: true, t#9: '0', t#10: '100%', t#11: 'transparent'}}}}"
+  data-signals="{_e: {light: {lamp: {t#11: 'transparent', t#2: true, t#9: 0, t#1: false, t#10: '100%'}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m1__c__busy_change || $_e.light.lamp.t#2"
@@ -2365,7 +2365,7 @@
   data-class:fh-error="$_s_c_0_head_0_m1__c__error">
 <input type="range" min="2000" max="6500" value="0"
       data-attr:value="$_e.light.lamp.t#9"
-      data-signals__ifmissing="{ _s_c_0_head_0_m1__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_0_head_0_m1__c__slide: $_e.light.lamp.t#9 }"
       data-bind="_s_c_0_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#9$/}"
   data-on-signal-patch="$_s_c_0_head_0_m1__c__slide = $_e.light.lamp.t#9"
@@ -2374,13 +2374,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m1__c__error = ''))"
   data-fh-node="s_c_0_head_0_m1__c"
       data-on:input="$_e.light.lamp.t#10 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp.t#11 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_10?node=s_c_0_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_0_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:transparent"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_10?node=s_c_0_head_0_m1__c', {payload: {posted: {'slide': $_s_c_0_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:transparent"
   data-style:--fh-fill="$_e.light.lamp.t#10"
   data-style:background="$_e.light.lamp.t#11"></span>
 </div></div>
 <!-- ==== unavailable · surface c_0_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_0_head_0_m2__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: true, t#13: '0', t#14: '100%', t#15: '#fff'}}}}"
+  data-signals="{_e: {light: {lamp: {t#13: 0, t#2: true, t#15: '#fff', t#14: '100%', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   <span class="fh-badge fh-icon-shape fh-slider-icon fh-onoff"
   data-class:fh-disabled="$_s_c_0_head_0_m2__c__busy_change || $_e.light.lamp.t#2"
@@ -2403,7 +2403,7 @@
   data-class:fh-error="$_s_c_0_head_0_m2__c__error">
 <input type="range" min="0" max="360" value="0"
       data-attr:value="$_e.light.lamp.t#13"
-      data-signals__ifmissing="{ _s_c_0_head_0_m2__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_0_head_0_m2__c__slide: $_e.light.lamp.t#13 }"
       data-bind="_s_c_0_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#13$/}"
   data-on-signal-patch="$_s_c_0_head_0_m2__c__slide = $_e.light.lamp.t#13"
@@ -2412,7 +2412,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_head_0_m2__c__error = ''))"
   data-fh-node="s_c_0_head_0_m2__c"
       data-on:input="$_e.light.lamp.t#14 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp.t#15 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_11?node=s_c_0_head_0_m2__c', {payload: {posted: {'slide': [Number($_s_c_0_head_0_m2__c__slide),100]}, seen: {} } })" />  <span style="--fh-fill: 100%;background:#fff"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_11?node=s_c_0_head_0_m2__c', {payload: {posted: {'slide': [$_s_c_0_head_0_m2__c__slide,100]}, seen: {} } })" />  <span style="--fh-fill: 100%;background:#fff"
   data-style:--fh-fill="$_e.light.lamp.t#14"
   data-style:background="$_e.light.lamp.t#15"></span>
 </div></div>
@@ -2421,7 +2421,7 @@
 <!-- ==== unavailable · surface c_1_0_head_0_0_0_o2: as fixtured ==== -->
 <!-- ==== unavailable · surface c_1_0_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_1_0_head_0_m0__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor', t#6: '0 %'}}}}"
+  data-signals="{_e: {light: {lamp: {t#6: '0 %', t#3: 0, t#2: true, t#4: '100%', t#5: 'currentcolor', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_0_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></strong></div>
@@ -2437,7 +2437,7 @@
   data-class:fh-error="$_s_c_1_0_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.lamp.t#3"
-      data-signals__ifmissing="{ _s_c_1_0_head_0_m0__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_1_0_head_0_m0__c__slide: $_e.light.lamp.t#3 }"
       data-bind="_s_c_1_0_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#3$/}"
   data-on-signal-patch="$_s_c_1_0_head_0_m0__c__slide = $_e.light.lamp.t#3"
@@ -2446,13 +2446,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_0_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_0_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_0_head_0_m0__c"
       data-on:input="$_e.light.lamp.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_1_0_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_1_0_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_1?node=s_c_1_0_head_0_m0__c', {payload: {posted: {'slide': $_s_c_1_0_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.lamp.t#4"
   data-style:background="$_e.light.lamp.t#5"></span>
 </div></div>
 <!-- ==== unavailable · surface c_1_0_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_1_0_head_0_m1__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: true, t#8: '0 %', t#9: '0', t#10: '100%', t#11: 'transparent'}}}}"
+  data-signals="{_e: {light: {lamp: {t#11: 'transparent', t#2: true, t#9: 0, t#8: '0 %', t#1: false, t#10: '100%'}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_0_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></strong></div>
@@ -2468,7 +2468,7 @@
   data-class:fh-error="$_s_c_1_0_head_0_m1__c__error">
 <input type="range" min="2000" max="6500" value="0"
       data-attr:value="$_e.light.lamp.t#9"
-      data-signals__ifmissing="{ _s_c_1_0_head_0_m1__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_1_0_head_0_m1__c__slide: $_e.light.lamp.t#9 }"
       data-bind="_s_c_1_0_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#9$/}"
   data-on-signal-patch="$_s_c_1_0_head_0_m1__c__slide = $_e.light.lamp.t#9"
@@ -2477,13 +2477,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_0_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_0_head_0_m1__c__error = ''))"
   data-fh-node="s_c_1_0_head_0_m1__c"
       data-on:input="$_e.light.lamp.t#10 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp.t#8 = Math.round(((evt.target.value - 2000) * 100 / (6500 - 2000))) + ' %'; $_e.light.lamp.t#11 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_10?node=s_c_1_0_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_1_0_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:transparent"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_10?node=s_c_1_0_head_0_m1__c', {payload: {posted: {'slide': $_s_c_1_0_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:transparent"
   data-style:--fh-fill="$_e.light.lamp.t#10"
   data-style:background="$_e.light.lamp.t#11"></span>
 </div></div>
 <!-- ==== unavailable · surface c_1_0_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_1_0_head_0_m2__c"
-  data-signals="{_e: {light: {lamp: {t#1: false, t#2: true, t#12: '0 %', t#13: '0', t#14: '100%', t#15: '#fff'}}}}"
+  data-signals="{_e: {light: {lamp: {t#13: 0, t#2: true, t#15: '#fff', t#12: '0 %', t#14: '100%', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_0_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen Ceiling Spotlights Above The Sink</span></strong></div>
@@ -2499,7 +2499,7 @@
   data-class:fh-error="$_s_c_1_0_head_0_m2__c__error">
 <input type="range" min="0" max="360" value="0"
       data-attr:value="$_e.light.lamp.t#13"
-      data-signals__ifmissing="{ _s_c_1_0_head_0_m2__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_1_0_head_0_m2__c__slide: $_e.light.lamp.t#13 }"
       data-bind="_s_c_1_0_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp.t#13$/}"
   data-on-signal-patch="$_s_c_1_0_head_0_m2__c__slide = $_e.light.lamp.t#13"
@@ -2508,7 +2508,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_0_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_0_head_0_m2__c__error = ''))"
   data-fh-node="s_c_1_0_head_0_m2__c"
       data-on:input="$_e.light.lamp.t#14 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp.t#12 = Math.round(((evt.target.value - 0) * 100 / (360 - 0))) + ' %'; $_e.light.lamp.t#15 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_11?node=s_c_1_0_head_0_m2__c', {payload: {posted: {'slide': [Number($_s_c_1_0_head_0_m2__c__slide),100]}, seen: {} } })" />  <span style="--fh-fill: 100%;background:#fff"
+      data-on:change="$_e.light.lamp.t#2 ? '' : $_s_c_1_0_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_11?node=s_c_1_0_head_0_m2__c', {payload: {posted: {'slide': [$_s_c_1_0_head_0_m2__c__slide,100]}, seen: {} } })" />  <span style="--fh-fill: 100%;background:#fff"
   data-style:--fh-fill="$_e.light.lamp.t#14"
   data-style:background="$_e.light.lamp.t#15"></span>
 </div></div>
@@ -2517,7 +2517,7 @@
 <!-- ==== unavailable · surface c_1_1_head_0_0_0_o2: as fixtured ==== -->
 <!-- ==== unavailable · surface c_1_1_head_0_m0 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_1_1_head_0_m0__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: true, t#3: '0', t#4: '100%', t#5: 'currentcolor', t#6: '0 %'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#6: '0 %', t#3: 0, t#2: true, t#4: '100%', t#5: 'currentcolor', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_1_head_0_m0__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -2533,7 +2533,7 @@
   data-class:fh-error="$_s_c_1_1_head_0_m0__c__error">
 <input type="range" min="1" max="255" value="0"
       data-attr:value="$_e.light.lamp2.t#3"
-      data-signals__ifmissing="{ _s_c_1_1_head_0_m0__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_1_1_head_0_m0__c__slide: $_e.light.lamp2.t#3 }"
       data-bind="_s_c_1_1_head_0_m0__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#3$/}"
   data-on-signal-patch="$_s_c_1_1_head_0_m0__c__slide = $_e.light.lamp2.t#3"
@@ -2542,13 +2542,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_1_head_0_m0__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_1_head_0_m0__c__error = ''))"
   data-fh-node="s_c_1_1_head_0_m0__c"
       data-on:input="$_e.light.lamp2.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.lamp2.t#6 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_1_1_head_0_m0__c', {payload: {posted: {'slide': Number($_s_c_1_1_head_0_m0__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m0__c__busy_change ? '' : @post('sse/call/slider-groups/call_3?node=s_c_1_1_head_0_m0__c', {payload: {posted: {'slide': $_s_c_1_1_head_0_m0__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.lamp2.t#4"
   data-style:background="$_e.light.lamp2.t#5"></span>
 </div></div>
 <!-- ==== unavailable · surface c_1_1_head_0_m1 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_1_1_head_0_m1__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: true, t#8: '0 %', t#9: '0', t#10: '100%', t#11: 'transparent'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#11: 'transparent', t#2: true, t#9: 0, t#8: '0 %', t#1: false, t#10: '100%'}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_1_head_0_m1__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -2564,7 +2564,7 @@
   data-class:fh-error="$_s_c_1_1_head_0_m1__c__error">
 <input type="range" min="2000" max="6500" value="0"
       data-attr:value="$_e.light.lamp2.t#9"
-      data-signals__ifmissing="{ _s_c_1_1_head_0_m1__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_1_1_head_0_m1__c__slide: $_e.light.lamp2.t#9 }"
       data-bind="_s_c_1_1_head_0_m1__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#9$/}"
   data-on-signal-patch="$_s_c_1_1_head_0_m1__c__slide = $_e.light.lamp2.t#9"
@@ -2573,13 +2573,13 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_1_head_0_m1__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_1_head_0_m1__c__error = ''))"
   data-fh-node="s_c_1_1_head_0_m1__c"
       data-on:input="$_e.light.lamp2.t#10 = (100 - ((evt.target.value - 2000) * 100 / (6500 - 2000))) + '%'; $_e.light.lamp2.t#8 = Math.round(((evt.target.value - 2000) * 100 / (6500 - 2000))) + ' %'; $_e.light.lamp2.t#11 = (evt.target.value >= 2000 ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - 2000) * 100 / (6500 - 2000)) / 100)) + ')' : 'transparent')"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_8?node=s_c_1_1_head_0_m1__c', {payload: {posted: {'slide': Number($_s_c_1_1_head_0_m1__c__slide)}, seen: {} } })" />  <span style="--fh-fill: 100%;background:transparent"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m1__c__busy_change ? '' : @post('sse/call/slider-groups/call_8?node=s_c_1_1_head_0_m1__c', {payload: {posted: {'slide': $_s_c_1_1_head_0_m1__c__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:transparent"
   data-style:--fh-fill="$_e.light.lamp2.t#10"
   data-style:background="$_e.light.lamp2.t#11"></span>
 </div></div>
 <!-- ==== unavailable · surface c_1_1_head_0_m2 ==== -->
 <div class="fh-cell fh-slider-body" id="s_c_1_1_head_0_m2__c"
-  data-signals="{_e: {light: {lamp2: {t#1: false, t#2: true, t#12: '0 %', t#13: '0', t#14: '100%', t#15: '#fff'}}}}"
+  data-signals="{_e: {light: {lamp2: {t#13: 0, t#2: true, t#15: '#fff', t#12: '0 %', t#14: '100%', t#1: false}}}}"
   data-class:fh-active="$_e.light.lamp2.t#1"><div class="fh-slider-head ">
   
   <div class="fh-cell fh-slider-text" id="s_c_1_1_head_0_m2__c_text_0"><strong class="fh-text"><span class="fh-text-run">Lamp 2</span></strong></div>
@@ -2595,7 +2595,7 @@
   data-class:fh-error="$_s_c_1_1_head_0_m2__c__error">
 <input type="range" min="0" max="360" value="0"
       data-attr:value="$_e.light.lamp2.t#13"
-      data-signals__ifmissing="{ _s_c_1_1_head_0_m2__c__slide: '0' }"
+      data-signals__ifmissing="{ _s_c_1_1_head_0_m2__c__slide: $_e.light.lamp2.t#13 }"
       data-bind="_s_c_1_1_head_0_m2__c__slide"
       data-on-signal-patch-filter="{include:/^_e.light.lamp2.t#13$/}"
   data-on-signal-patch="$_s_c_1_1_head_0_m2__c__slide = $_e.light.lamp2.t#13"
@@ -2604,7 +2604,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_1_head_0_m2__c__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_1_head_0_m2__c__error = ''))"
   data-fh-node="s_c_1_1_head_0_m2__c"
       data-on:input="$_e.light.lamp2.t#14 = (100 - ((evt.target.value - 0) * 100 / (360 - 0))) + '%'; $_e.light.lamp2.t#12 = Math.round(((evt.target.value - 0) * 100 / (360 - 0))) + ' %'; $_e.light.lamp2.t#15 = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'"
-      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_9?node=s_c_1_1_head_0_m2__c', {payload: {posted: {'slide': [Number($_s_c_1_1_head_0_m2__c__slide),100]}, seen: {} } })" />  <span style="--fh-fill: 100%;background:#fff"
+      data-on:change="$_e.light.lamp2.t#2 ? '' : $_s_c_1_1_head_0_m2__c__busy_change ? '' : @post('sse/call/slider-groups/call_9?node=s_c_1_1_head_0_m2__c', {payload: {posted: {'slide': [$_s_c_1_1_head_0_m2__c__slide,100]}, seen: {} } })" />  <span style="--fh-fill: 100%;background:#fff"
   data-style:--fh-fill="$_e.light.lamp2.t#14"
   data-style:background="$_e.light.lamp2.t#15"></span>
 </div></div>

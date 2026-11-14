@@ -91,13 +91,18 @@ object SignalId {
   * would disable the control in the plain form. A union rather than an ADT: no
   * allocation per value on every paint.
   */
-type SlotValue = String | Boolean
+type SlotValue = String | Boolean | Double
 
 object SlotValue {
 
   def text(v: SlotValue): String = v match
     case s: String  => s
     case b: Boolean => b.toString
+    case d: Double  => number(d)
+
+  /** As JavaScript and CEL print it: a whole number has no `.0`. */
+  def number(d: Double): String =
+    if (d.isWhole && d.abs < 1e15) d.toLong.toString else d.toString
 
   /** Boxed, not stringified: mustache.java drives a section off
     * `java.lang.Boolean`.
@@ -105,9 +110,11 @@ object SlotValue {
   def scoped(v: SlotValue): AnyRef = v match
     case s: String  => s
     case b: Boolean => java.lang.Boolean.valueOf(b)
+    case d: Double  => number(d)
 
   /** As `data-class` reads it, so the document form agrees with the binding. */
   def truthy(v: SlotValue): Boolean = v match
     case s: String  => s.nonEmpty
     case b: Boolean => b
+    case d: Double  => d != 0
 }

@@ -1749,7 +1749,11 @@ class Renderer(validated: Dashboard.Validated) {
       source: Ready.Slot,
       shared: Shared
   ): Planned = source.constant match
-    case Some(flag: Boolean)   => Planned.Constant(flag, Datastar.jsValue(flag))
+    case Some(flag: Boolean) => Planned.Constant(flag, Datastar.jsValue(flag))
+    case Some(n: Double)     => Planned.Constant(n, Datastar.jsValue(n))
+    case Some(literal: String) if source.isNumber =>
+      val n = slotValueOf(source, literal)
+      Planned.Constant(n, Datastar.jsValue(n))
     case Some(literal: String) =>
       val text = classed(source, literal)
       Planned.Constant(text, Datastar.jsLiteral(text))
@@ -2056,7 +2060,12 @@ class Renderer(validated: Dashboard.Validated) {
     * a text slot with nothing to show takes its default.
     */
   private def slotValueOf(source: Ready.Slot, v: Any): SlotValue =
-    if (source.isBool)
+    if (source.isNumber)
+      Renderer
+        .number(v)
+        .orElse(source.default.flatMap(l => Renderer.number(l.raw)))
+        .getOrElse("")
+    else if (source.isBool)
       v match
         case b: Boolean => b
         case _          =>
@@ -2091,6 +2100,14 @@ object Renderer {
       data: ListMap[String, Any],
       seen: List[(CallField, SlotValue)]
   )
+
+  /** A number slot's value: a number, or text that is one. */
+  def number(v: Any): Option[Double] = v match
+    case n: Long   => Some(n.toDouble)
+    case n: Int    => Some(n.toDouble)
+    case d: Double => Option.when(!d.isNaN && !d.isInfinite)(d)
+    case s: String => s.trim.toDoubleOption
+    case _         => None
 
   /** A target entry's ids: one, a list of them, or none. */
   def ids(v: Any): List[String] = v match

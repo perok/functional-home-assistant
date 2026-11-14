@@ -146,8 +146,8 @@ binds the slot, beside `signal` — the card says how its template reads the val
 has no binding of its own (`docs/terminology.md`). The build checks every place a template puts a
 slot against its type, so escaping is removed only where a card writes `textRaw` down: a live
 `onclick` handler, a service spliced into one, a chart's SVG. A `class:` binding is a bool by
-kind. One field rather than a per-card list, so another type is one more case: `"number"`, once a
-signal can carry a JSON number (a slot value is `String | Boolean` today).
+kind. One field rather than a per-card list, so another type is one more case, as `"number"` was:
+an int, a real or a `dyn`, carried as a number in its signal (ADR 0017).
 
 Text, a number, a bool and `dyn` become text where a value meets its slot, and only there: they
 fit `text` and `textRaw`, a bool printing `true` or `false`, which a client library can read.

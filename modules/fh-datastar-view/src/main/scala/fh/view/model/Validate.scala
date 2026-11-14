@@ -288,7 +288,8 @@ private[model] object Validate:
     ): List[String] =
       cardReads.get(cardName).flatMap(_.toOption).toList.flatMap { reads =>
         val wrong = src.`type` match
-          case SlotType.Text    => Option.when(reads.raw(name))(s"{{{$name}}}")
+          case SlotType.Text | SlotType.Number =>
+            Option.when(reads.raw(name))(s"{{{$name}}}")
           case SlotType.TextRaw =>
             Option.when(reads.escaped(name))(s"{{$name}}")
           case SlotType.Bool =>
@@ -299,9 +300,9 @@ private[model] object Validate:
           s"$nodeId: card '$cardName' places slot '$name' as $hole, but the " +
             s"slot is ${src.`type`.wire}, which is placed as " +
             (src.`type` match
-              case SlotType.Text    => s"{{$name}}"
-              case SlotType.TextRaw => s"{{{$name}}}"
-              case SlotType.Bool    => s"a section, {{#$name}}") +
+              case SlotType.Text | SlotType.Number => s"{{$name}}"
+              case SlotType.TextRaw                => s"{{{$name}}}"
+              case SlotType.Bool => s"a section, {{#$name}}") +
             " — declare the type the card means"
         )
       }
@@ -491,7 +492,9 @@ private[model] object Validate:
       def bareAttr(src: BoundSlot) = (src.expr.source, src.expr.steps) match
         case (Value.Entity(_, _: Part.Attr, _, _), Nil) => true
         case _                                          => false
-      def hint(out: ValueType) = out match
+      def hint(out: ValueType, to: SlotType) = out match
+        case _ if to == SlotType.Number =>
+          "make it a number, `double(…)` or `int(…)`"
         case ValueType.Json             => "place it with a jsonText step"
         case ValueType.TextRaw          => "declare the slot textRaw"
         case o if o == ValueType.Series =>
@@ -509,7 +512,7 @@ private[model] object Validate:
             Option
               .unless(ValueType.fits(t.out, src.`type`))(
                 s"$nodeId: slot '$name' holds a ${t.out.name} literal, " +
-                  "which a bool slot does not take"
+                  s"which a ${src.`type`.wire} slot does not take"
               )
               .toList
           case Right(t)
@@ -522,7 +525,7 @@ private[model] object Validate:
                   "(`on > 0`), or use a condition"
               else
                 s"$nodeId: slot '$name' yields a ${t.out.name}, which a " +
-                  s"${src.`type`.wire} slot does not take — ${hint(t.out)}"
+                  s"${src.`type`.wire} slot does not take — ${hint(t.out, src.`type`)}"
             )
           case _ => Nil
       } ++ labelled(slots).collect {

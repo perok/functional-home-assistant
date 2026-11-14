@@ -466,6 +466,11 @@ enum SlotType(val wire: String) derives CanEqual:
   case TextRaw extends SlotType("textRaw")
   case Bool extends SlotType("bool")
 
+  /** A number at both ends: unquoted in a signal and a seed, so a binding reads
+    * it as one (a range input's `data-bind` keeps a string a string).
+    */
+  case Number extends SlotType("number")
+
 object SlotType:
   given Decoder[SlotType] = Decoder[String].emap(s =>
     values.find(_.wire == s).toRight(s"unknown slot type: $s")

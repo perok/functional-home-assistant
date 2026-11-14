@@ -107,6 +107,7 @@ object Ready:
     val valueKey: String = bound.valueKey
     val signal: Option[SignalBind] = bound.signal
     val isBool: Boolean = bound.isBool
+    val isNumber: Boolean = bound.`type` == SlotType.Number
     val bypassUnavailable: Boolean = bound.bypassUnavailable
     val gate: Option[Fetching.Gate] =
       valueWhile.map(w => Fetching.Gate(w, w.entityId))
@@ -260,10 +261,10 @@ object Ready:
                 e,
                 Map.empty,
                 signal = Some(SignalBind.Handler),
-                `type` =
-                  if (e.typed(Nil).exists(_.out == ValueType.Bool))
-                    SlotType.Bool
-                  else SlotType.Text
+                `type` = e.typed(Nil).map(_.out) match
+                  case Right(ValueType.Bool)                 => SlotType.Bool
+                  case Right(ValueType.Int | ValueType.Real) => SlotType.Number
+                  case _                                     => SlotType.Text
               )
           }
         )

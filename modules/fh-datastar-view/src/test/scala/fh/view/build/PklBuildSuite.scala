@@ -2430,7 +2430,7 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(
       row.bound("value").expr.cels.headOption.map(_._1),
       Some(
-        "value.attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, str(math.round(v))).orValue('0')"
+        "value.attr[?'hs_color'].optMap(hs, double(hs[0])).optMap(v, math.round(v)).orValue(0.0)"
       )
     )
     assertEquals(

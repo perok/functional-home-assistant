@@ -287,7 +287,7 @@ client must compute from two moving values at click time is out of scope — tha
 state itself, and the second declaration this avoids. Nothing wants it yet, and the shape to reach
 for first is another handler signal.
 
-### A slot value is `String | Boolean`, and the boolean is load-bearing
+### A slot value is `String | Boolean | Double`, and the boolean is load-bearing
 
 A boolean attribute is absent or present, and the value has to be able to say which. Datastar's attr
 plugin implements the DOM's own model — `l===""||l===!0 → setAttribute(a,"")`,
@@ -295,9 +295,15 @@ plugin implements the DOM's own model — `l===""||l===!0 → setAttribute(a,"")
 string SETS, and while `""` was the only falsy value a slot could produce, `attr:` could turn a
 boolean attribute on and never off again.
 
-A real `false` is what turns it off, so `SlotValue = String | Boolean`
+A real `false` is what turns it off, so a slot value can be a `Boolean`
 (`Step.Match`'s arms, and any CEL expression whose result is a `bool`). The binding
 stays bare, and the mechanism is the plugin's own branch rather than anything invented here.
+
+A `number` slot's value is a `Double` for the same reason at the other end: a range input's
+`data-bind` writes `+el.value`, a number, unless the signal it binds already holds a string, which
+it then keeps (the pinned bundle's `tn`). So a slider's position travels unquoted in the frame and
+the seed, the slide signal seeds from it, and a drag posts a number with no `Number(…)` undoing
+a quote. A whole number prints without its `.0`, as JavaScript prints it.
 
 **Both ends have to carry it, and they fail independently:**
 
