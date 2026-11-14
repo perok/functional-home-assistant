@@ -1,10 +1,12 @@
 package fh.view.runtime
 
+import fh.view.build.{PklBuild, PklLspProject}
 import fh.view.telemetry.Logging
 import cats.effect.IO
 import cats.effect.std.Queue
 import fs2.{Chunk, Pipe, Pull, Stream}
 import fs2.io.process.ProcessBuilder
+import io.circe.Json
 import org.http4s.Response
 import org.http4s.server.websocket.WebSocketBuilder2
 import org.http4s.websocket.WebSocketFrame
@@ -14,15 +16,17 @@ import java.nio.charset.StandardCharsets
 
 /** Bridges the browser's LSP client (bare JSON per WebSocket frame) to pkl-lsp
   * run as a subprocess per connection, not embedded: the 16 MB shaded jar would
-  * drag kotlin-stdlib, lsp4j and a native grammar into the assembly. The only
-  * translation is `Content-Length` framing on the child's stdio. The process
-  * dies with the socket, as a resource of `send`.
+  * drag kotlin-stdlib, lsp4j and a native grammar into the assembly. Besides
+  * `Content-Length` framing on the child's stdio, it names the workspace in the
+  * client's `initialize` ([[withWorkspace]]). The process dies with the socket,
+  * as a resource of `send`.
   */
 object LspBridge {
 
   def wsResponse(
       wsb: WebSocketBuilder2[IO],
       pklLspJar: os.Path,
+      workspace: os.Path,
       loggerFactory: LoggerFactory[IO] = Logging.console
   ): IO[Response[IO]] =
     Queue.unbounded[IO, WebSocketFrame].flatMap { fromClient =>
@@ -33,7 +37,7 @@ object LspBridge {
         Stream
           .fromQueueUnterminated(fromClient)
           .collect { case t: WebSocketFrame.Text => t.str }
-          .through(session(pklLspJar, l => log.debug(l)))
+          .through(session(pklLspJar, workspace, l => log.debug(l)))
           .map(WebSocketFrame.Text(_))
       wsb.build(send, receive)
     }
@@ -43,11 +47,13 @@ object LspBridge {
     */
   private[view] def session(
       jar: os.Path,
+      workspace: os.Path,
       stderr: String => IO[Unit]
   ): Pipe[IO, String, String] = fromClient =>
-    Stream.resource(spawn(jar)).flatMap { proc =>
+    Stream.resource(spawn(jar, workspace)).flatMap { proc =>
       val toStdin: Stream[IO, Nothing] =
         fromClient
+          .map(withWorkspace(_, workspace))
           .map(encodeFrame)
           .flatMap(Stream.chunk)
           .through(proc.stdin)
@@ -66,9 +72,55 @@ object LspBridge {
         .concurrently(drainStderr)
     }
 
-  // The jar's manifest enables native access, so no extra flags.
-  private def spawn(jar: os.Path) =
-    ProcessBuilder(javaExecutable, "-jar", jar.toString).spawn[IO]
+  /** `initialize` with the workspace as its root and only folder, so pkl-lsp
+    * loads the project the build keeps synced (`PklLspProject`): without a
+    * declared folder it loads none, and resolves no package import.
+    * `@codemirror/lsp-client` sends neither. Any other message passes as is.
+    */
+  private[runtime] def withWorkspace(
+      message: String,
+      workspace: os.Path
+  ): String =
+    io.circe.parser.parse(message).toOption match
+      case Some(json)
+          if json.hcursor
+            .downField("method")
+            .as[String]
+            .contains("initialize") =>
+        val uri =
+          Json.fromString(workspace.toNIO.toUri.toString.stripSuffix("/"))
+        json
+          .deepMerge(
+            Json.obj(
+              "params" -> Json.obj(
+                "rootUri" -> uri,
+                "workspaceFolders" -> Json.arr(
+                  Json.obj(
+                    "uri" -> uri,
+                    "name" -> Json.fromString(workspace.last)
+                  )
+                ),
+                "capabilities" -> Json.obj(
+                  "workspace" -> Json.obj("workspaceFolders" -> Json.True)
+                )
+              )
+            )
+          )
+          .noSpaces
+      case _ => message
+
+  // The jar's manifest enables native access, so no extra flags. Its cache is
+  // the workspace's, through the link the build keeps (`PklLspProject`).
+  private def spawn(jar: os.Path, workspace: os.Path) =
+    ProcessBuilder(javaExecutable, "-jar", jar.toString)
+      .withExtraEnv(
+        Map(
+          "XDG_CACHE_HOME" -> PklLspProject
+            .cacheHome(PklBuild.workspaceCacheDir(workspace))
+            .toString
+        )
+      )
+      .spawn[IO]
 
   /** pkl-lsp needs JDK 23+, and this app may run on an older one, so neither
     * `PATH` nor this JVM is trusted blindly: `PKL_LSP_JAVA`, this JVM if new

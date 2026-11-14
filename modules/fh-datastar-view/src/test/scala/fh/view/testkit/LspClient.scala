@@ -68,6 +68,7 @@ object LspClient {
     */
   def spawn(
       jar: os.Path,
+      workspace: os.Path,
       answer: (String, Json) => Either[Json, Json],
       stderr: String => IO[Unit] = _ => IO.unit,
       notified: (String, Json) => IO[Unit] = (_, _) => IO.unit
@@ -81,7 +82,7 @@ object LspClient {
       diags <- Resource.eval(Ref.of[IO, Map[String, Json]](Map.empty))
       _ <- Stream
         .fromQueueUnterminated(out)
-        .through(LspBridge.session(jar, stderr))
+        .through(LspBridge.session(jar, workspace, stderr))
         .evalMap { text =>
           val msg = parse(text).getOrElse(Json.Null).hcursor
           val id = msg.downField("id").focus

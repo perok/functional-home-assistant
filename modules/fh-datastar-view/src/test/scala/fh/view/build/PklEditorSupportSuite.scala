@@ -36,102 +36,101 @@ class PklEditorSupportSuite extends munit.CatsEffectSuite {
        |
        |""".stripMargin
 
-  private val noProject = Status.Gap(
-    "pkl-lsp loads no project: the handshake declares no workspace folder, " +
-      "and nothing writes its `.pkl-lsp/projects.json`"
-  )
-
   val cases: List[Case] = List(
     Case(
       "a card's builders after a layout builder",
       "card = c.entityCard(light).columns(3).‸",
       """label("Hall")""",
       Ask.Completion(Set("label", "tapAction", "icon")),
-      noProject
+      Status.Works
     ),
     Case(
       "a subclass's builders after one it inherits",
       "card = c.entitySlider(light).disabled(false).‸",
       """readout("percent")""",
       Ask.Completion(Set("readout", "fromChooser")),
-      noProject
+      Status.Works
     ),
     Case(
       "the components through the package import",
       "card = c.‸",
       "entityCard(light)",
       Ask.Completion(Set("entityCard", "entitySlider", "column")),
-      noProject
+      Status.Works
     ),
     Case(
       "a string-literal union's values",
       """card = c.entityCard(light).stick("‸")""",
       "top",
       Ask.Completion(Set("top", "bottom")),
-      noProject
+      Status.Works
     ),
     Case(
       "a set's entity inside `render((l) -> …)`",
       "card = (c.column) { children { q.from(dump.lights.all).render((l) -> c.entityCard(l).label(l.‸)).build() } }",
       "entity_id",
       Ask.Completion(Set("entity_id")),
-      noProject
+      Status.Works
     ),
     Case(
       "a builder's doc comment on hover",
       "card = c.entityCard(light).colu‸mns(3)",
       "",
       Ask.Hover("surrounding grid"),
-      noProject
+      Status.Works
     ),
     Case(
       "go to a component's definition",
       "card = c.entity‸Card(light)",
       "",
       Ask.Definition("/components.pkl"),
-      noProject
+      Status.Works
     ),
     Case(
       "a value outside a union, flagged before the build",
       """card = c.entityCard(light).stick("le‸ft")""",
       "",
       Ask.Diagnostic("left"),
-      noProject
+      Status.Works
     ),
     Case(
       "a number outside a constraint, flagged before the build",
       "card = c.entityCard(light).columns(1‸3)",
       "",
       Ask.Diagnostic("13"),
-      noProject
+      Status.Works
     ),
     Case(
       "the dump's entities",
       "card = c.entityCard(dump.entities.‸)",
       HouseFixture.kitchenLight.dumpKey,
       Ask.Completion(Set(HouseFixture.kitchenLight.dumpKey)),
-      noProject
+      Status.Works
     ),
     Case(
       "an entity's kind on hover",
       s"card = c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey.patch(3, "‸", 0)})",
       "",
       Ask.Hover("Light"),
-      noProject
+      Status.Gap(
+        "the hover names the dump's class per entity (`E_light_kitchen`), not the kind it extends"
+      )
     ),
     Case(
       "an entity's fields inside a CEL string",
       """card = c.entityCard(light).secondary(c.expr("value.‸"))""",
       "state",
       Ask.Completion(Set("state", "attr")),
-      noProject
+      Status.Gap("CEL is a string to Pkl: nothing inside it completes")
     ),
     Case(
       "a CEL typo, flagged before the build",
       """card = c.entityCard(light).secondary(c.expr("value.stat‸"))""",
       "",
       Ask.Diagnostic("stat"),
-      noProject
+      Status.Gap(
+        "CEL compiles in the build's validate, which the editor does not run"
+      )
     )
   )
 
@@ -353,7 +352,7 @@ object PklEditorSupportSuite {
           ws
         })
         // `@codemirror/lsp-client` replies to every server request this way.
-        lsp <- LspClient.spawn(jar, (m, _) => Left(methodNotFound(m)))
+        lsp <- LspClient.spawn(jar, ws, (m, _) => Left(methodNotFound(m)))
         _ <- Resource.eval(
           lsp.request("initialize", editInitialize) >>
             lsp.notify("initialized", Json.obj())

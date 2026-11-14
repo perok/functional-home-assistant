@@ -84,7 +84,7 @@ final class EditorRoutes(
 
       case GET -> Root / "lsp" / "pkl" =>
         (pklLspJar match {
-          case Some(jar) => LspBridge.wsResponse(wsb, jar)
+          case Some(jar) => LspBridge.wsResponse(wsb, jar, dashboardsDir)
           case None      =>
             ServiceUnavailable("""{"error":"pkl-lsp jar not available"}""")
         })
