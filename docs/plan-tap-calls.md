@@ -83,34 +83,40 @@ switch, say):
 
 - `posted`: the values the card supplies, the drag's brightness or the wheel's hue. These are
   the inputs. Each is read by a `Posted(key, type)` source (C).
-- `seen`: what the node painted of what the call DOES, as one JSON value.
+- `seen`: the output, as the page holds it, of each field of what the call DOES whose reads the
+  node paints, keyed by field: `{service: "lock/unlock"}`.
 
-**What `seen` holds is decided per node, at build.** For each node and each call it places,
-the `Ready` walk takes the reads of the call's `service` and `data` fields (a read is an entity
-and the part read: its state, one attribute, or the whole) and splits them:
+**Which fields are seen is decided per node, at build.** For each node and each call it places,
+the `Ready` walk takes the call's `service` and each `data` field that reads state. A read is an
+entity and the part read: its state, one attribute, or the whole. A field is seen on that node
+when one of the node's painted slots reads one of its reads. A slot is painted unless it is a
+`Handler`, which paints nothing (`tapDisabled`).
 
-- the reads the node's painted slots also read. A slot is painted unless it is a `Handler`,
-  which paints nothing (`tapDisabled`). These go into the node's `<name>.seen`: a signal slot the
-  walk adds, whose value is those reads as JSON, `{"lock.front_door": {"state": "locked"}}`. It
-  is named by what it reads, so it moves in the same frame as the slots that paint them;
-- the reads no slot paints. The viewer never saw them, so they are decided at the press.
+- **A seen field** gets a slot the walk adds: the field's own value expression, as a `Handler`
+  signal. The template has no hole for it and the card never declares it; it rides the node's
+  seed and the signal frames like any signal slot. It is named by what it reads, as every
+  display signal is, so equal fields on two nodes share one signal. It moves only when the
+  field's output moves, in the same frame as the slots that paint its reads (ADR 0016).
+  `<name>.seen` is filled with its reads: `{service: $_e.lock.front_door.t9c2e}`.
+- **A field that is not seen** gets no signal. The viewer never saw what it reads, so it is
+  decided at the press.
 
-A node that paints nothing the call reads has no `seen` signal and posts `{}`. Only the parts
-read count, so a tile's icon (a `Match` over the state) does not matter to it, and an attribute
-the call does not read never refuses a press. Target and `exclude` are not in it at all: what a
+A literal field and a posted value are never seen. Target and `exclude` are not either: what a
 call reaches is decided at the press, as a set call is (ADR 0023). A "lights off" whose label
-counts the lights it reaches is never refused for a light changing.
+counts the lights it reaches is never refused for a light changing, and a node that sees nothing
+posts `seen: {}`. This slot replaces today's state-picked `service` route slot, so a page carries
+the signals it carries today.
 
 **What the server does at the press:**
 
-1. **Look up the id** in `Dashboard.calls`, and the node's `seen` for it. A miss on either is
-   refused: admission by declaration is ADR 0023's rule, and a node that does not place the call
-   has no `seen` to check against.
+1. **Look up the id** in `Dashboard.calls`, and which of its fields the node sees. A miss on
+   either is refused: admission by declaration is ADR 0023's rule, and a node that does not place
+   the call has nothing to check against.
 2. **Decode each `posted` value** as its source's declared type, and run the fields. A field
    that ends with no value (a failed `Check`, C) refuses the press and names the field.
-3. **Evaluate the node's `seen` and every field now.** A field that reads a fetch has it answered
-   first, as a set call's guard has today (`Server.decided`). The posted `seen` must equal the
-   `seen` evaluated now; a mismatch is refused.
+3. **Evaluate every field now.** A field that reads a fetch has it answered first, as a set
+   call's guard has today (`Server.decided`). Each field the node sees must give exactly what
+   `seen` posted for it; a mismatch or a missing key is refused.
 4. **Call HA** with what the server evaluated.
 
 **Trust.** The server only ever runs its own evaluation of a declared call:
@@ -141,9 +147,10 @@ A lock tile, `c.entityCard(door).tapAction(c.tap.toggle(door))`:
   "service": { "source": { "kind": "Entity", "of": "lock.front_door" },
                "steps": [{ "kind": "Match", "cases": { "locked": "lock/unlock" }, "otherwise": "lock/lock" }] },
   "target":  { "entity_id": ["lock.front_door"] } } }
-// build: service reads lock.front_door's state, which `value` paints → tap.seen reads it
-// page:  @post('sse/call/taps/4be03a91c2d0e6f7?node=c_6', {payload: {seen: $_e.s.7f30a2}})
-//        $_e.s.7f30a2 = {"lock.front_door": {"state": "locked"}}
+// build: service reads lock.front_door's state, which `value` paints → service is seen; the
+//        walk adds it as a Handler slot, signal $_e.lock.front_door.t9c2e. The icon does not matter.
+// page:  @post('sse/call/taps/4be03a91c2d0e6f7?node=c_6', {payload: {seen: {service: $_e.lock.front_door.t9c2e}}})
+// press: the service evaluated now must be "lock/unlock", the value the signal held
 ```
 
 A slider, `c.entitySlider(dump.lights.kjokken)`:
@@ -168,7 +175,8 @@ a string inside a slot.
 **Scala.**
 
 - `Dashboard.calls: Map[CallId, CallDecl]` is the allowlist, read off the nodes' `calls`.
-- `Ready` compiles every field, computes each id, and adds each node's `seen` slots.
+- `Ready` compiles every field, computes each id, and adds a `Handler` slot for each field a node
+  sees.
 - The route is `POST /sse/call/:slug/:callId`.
 - Every call field's entities join `watchedEntities`, which narrows what the feed asks HA for.
 - `validate` refuses:
@@ -195,8 +203,8 @@ a string inside a slot.
 **Tests:**
 
 - a property: equal declarations share an id, and different ones never do;
-- a property: a node's `seen` holds exactly the reads both its painted slots and the call's
-  `service`/`data` make;
+- a property: a node sees exactly the `service`/`data` fields that share a read with one of its
+  painted slots;
 - presses that are refused:
   - an unknown id;
   - a node that does not place the call;
@@ -349,9 +357,11 @@ All on 2026-11-14:
   by the renderer.
 - Every field is a value expression: the `Match` is reused, with no `ByState` type.
 - The server runs its own evaluation:
-  - `seen` holds the reads of what the call does (`service`, `data`) that the node paints,
-    decided per node at build, and a mismatch is refused;
-  - reads the node does not paint, and what the call reaches, are decided at the press;
+  - `seen` holds the output of each field of what the call does (`service`, `data`) that reads
+    something the node paints, decided per node at build. Each is a `Handler` slot the build
+    adds, and a mismatch is refused;
+  - a field reading nothing the node paints, and what the call reaches, are decided at the
+    press;
   - only `posted` values are client input to HA.
 - A call field may read a fetch, answered at the press.
 - Putting every tap on one post with `conn` is a later step, not this plan.
