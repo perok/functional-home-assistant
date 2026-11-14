@@ -235,8 +235,8 @@ candidate today, which matters for big sets, not for B.
 ```
 
 **At the press**, the server evaluates `exclude` with the rest, unconfirmed (A), and sends it to
-HA as `exclude`. HA resolves it against every target, an entity list included, so the server
-subtracts nothing. A set target with no member present is still the `NoContent` it is today.
+HA as `exclude`, which HA resolves against the target. A set target with no member present is
+still the `NoContent` it is today.
 
 The entities a guard reads join `watchedEntities`, as a set call's guards do.
 
@@ -331,6 +331,6 @@ All on 2026-11-14:
 - Validation is a `Check` step, not a call-level condition.
 - No call field reads a node variable yet; the shape allows it later.
 - `tapMod.post` builds the body from the call.
-- HA resolves `exclude`; the server subtracts nothing.
+- `exclude` goes to HA for every kind of target, and HA resolves it.
 - The order is A with C's posted value, then the `Check` step, then B, then the `number` slot
   type, then point 4.
