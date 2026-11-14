@@ -73,8 +73,10 @@ it, which is how `setId` is built today:
 - The node's wire field `fixed calls` is computed from its slots, as `templateSlots` is, so no
   card changes.
 - The template places one piece, `tapMod.post`, which writes the URL
-  `'sse/call/{{dashboardSlug}}/' + callId.jsValue + '?node={{id}}'` and the body. It replaces the
-  three spellings above, so the slider and the wheel stop knowing the route.
+  `'sse/call/{{dashboardSlug}}/' + callId.jsValue + '?node={{id}}'` and builds the body from the
+  same call: `posted` from its `Posted` sources, `seen` from its confirmed fields. No card spells a
+  body key. It replaces the three spellings above, so the slider and the wheel stop knowing the
+  route.
 
 **What the page sends.** The press posts the call id and a body of two halves:
 
@@ -154,7 +156,11 @@ a string inside a slot.
 - `validate` refuses:
   - one id with two different declarations;
   - a `Posted` source outside a call;
-  - a declaration whose entity read names no entity.
+  - a declaration whose entity read names no entity;
+  - a call field that reads a node variable. The press is answered as a decision, and a decision
+    reads no viewer's variable. A later round can allow it by having the press carry its viewer;
+  - a `data` key named like a target key or `exclude`, since HA merges a call's target into its
+    data.
 
 **Goes:**
 
@@ -179,6 +185,10 @@ a string inside a slot.
 
 **Measure:** every tap's bytes change, so run RenderBench before and after (`page`,
 `tickRender`), plus the goldens.
+
+**Goldens:** they hold call ids numbered by first appearance (`call_1`, …), and
+`dashboardGoldensVs` numbers them the same way. A change to one declaration then shows in the wire
+snapshot, not in every golden that renders a tap.
 
 ## B. Exclude
 
@@ -224,9 +234,9 @@ candidate today, which matters for big sets, not for B.
                                             "steps": [{ "kind": "Compare", "op": "eq", "to": "on" }] } } } }] }
 ```
 
-**At the press**, the server evaluates `exclude` with the rest, unconfirmed (A). For a target
-that is already an entity list (a set call), the exclusion is subtracted here, and an empty
-result is the `NoContent` it is today. Otherwise the exclusion goes to HA as `exclude`.
+**At the press**, the server evaluates `exclude` with the rest, unconfirmed (A), and sends it to
+HA as `exclude`. HA resolves it against every target, an entity list included, so the server
+subtracts nothing. A set target with no member present is still the `NoContent` it is today.
 
 The entities a guard reads join `watchedEntities`, as a set call's guards do.
 
@@ -291,7 +301,10 @@ place a `jsValue`, or a number or bool slot.
 
 - ADR 0023: admission by declared id, and the trust paragraph above;
 - ADR 0016: "you act on what you saw, or not at all", with the `Match` in the declaration;
-- ADR 0024: the mismatch refusal;
+- ADR 0024: the mismatch refusal, and one effect of it. Datastar retries a press whose answer
+  was lost. If HA had acted, the retry is refused once the state has moved, so the viewer sees a
+  refusal for a press that worked. A literal service has no `seen`, so its retry acts again, as
+  today;
 - ADR 0035: the `Posted` source and the `Check` step;
 - `writing-dashboards.md`: exclude;
 - `writing-components.md`: `tapMod.post` and the number slot;
@@ -316,5 +329,8 @@ All on 2026-11-14:
 - `Posted(key, type)` is the source for a posted value, not `Var`.
 - Every entity read in a declaration names its entity.
 - Validation is a `Check` step, not a call-level condition.
+- No call field reads a node variable yet; the shape allows it later.
+- `tapMod.post` builds the body from the call.
+- HA resolves `exclude`; the server subtracts nothing.
 - The order is A with C's posted value, then the `Check` step, then B, then the `number` slot
   type, then point 4.
