@@ -10,7 +10,7 @@ import io.circe.parser.parse
 
 import scala.concurrent.duration.*
 
-/** pkl-lsp over its stdio, as `/edit`'s socket drives it through [[LspBridge]]:
+/** An LSP client on [[LspBridge.session]], the pipe `/edit`'s socket feeds:
   * requests matched to replies by id, the server's own requests answered by
   * `answer`, and the last diagnostics per document kept.
   */
@@ -68,13 +68,11 @@ object LspClient {
     */
   def spawn(
       jar: os.Path,
-      env: Map[String, String],
       answer: (String, Json) => Either[Json, Json],
       stderr: String => IO[Unit] = _ => IO.unit,
       notified: (String, Json) => IO[Unit] = (_, _) => IO.unit
   ): Resource[IO, LspClient] =
     for {
-      proc <- LspBridge.spawn(jar, env)
       out <- Resource.eval(Queue.unbounded[IO, String])
       nextId <- Resource.eval(Ref.of[IO, Long](1L))
       pending <- Resource.eval(
@@ -83,21 +81,7 @@ object LspClient {
       diags <- Resource.eval(Ref.of[IO, Map[String, Json]](Map.empty))
       _ <- Stream
         .fromQueueUnterminated(out)
-        .map(LspBridge.encodeFrame)
-        .flatMap(Stream.chunk)
-        .through(proc.stdin)
-        .compile
-        .drain
-        .background
-      _ <- proc.stderr
-        .through(fs2.text.utf8.decode)
-        .through(fs2.text.lines)
-        .evalMap(stderr)
-        .compile
-        .drain
-        .background
-      _ <- proc.stdout
-        .through(LspBridge.toFrames)
+        .through(LspBridge.session(jar, stderr))
         .evalMap { text =>
           val msg = parse(text).getOrElse(Json.Null).hcursor
           val id = msg.downField("id").focus

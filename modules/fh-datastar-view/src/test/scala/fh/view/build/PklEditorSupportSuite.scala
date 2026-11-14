@@ -1,16 +1,17 @@
 package fh.view.build
 
-import cats.effect.{Deferred, IO, Resource}
+import cats.effect.{IO, Resource}
 import fh.view.testkit.{HouseFixture, LspClient, PklFixture, PklWorkspace}
 import io.circe.{ACursor, Json}
 
 import scala.concurrent.duration.*
 
-/** What an author's editor offers through the library: each case asks pkl-lsp,
-  * the jar `/edit` runs, about one cursor position (`‸`) in a module of a
-  * bootstrapped workspace, and is either [[Status.Works]] or a recorded
-  * [[Status.Gap]]. A gap that starts working fails as well, so
-  * `docs/pkl-editor-support.md`, rendered from the cases, stays true both ways.
+/** What `/edit` offers through the library: each case asks pkl-lsp, through
+  * [[fh.view.runtime.LspBridge.session]] as the page's `@codemirror/lsp-client`
+  * connects, about one cursor position (`‸`) in a workspace the backend has
+  * prepared, and is either [[Status.Works]] or a recorded [[Status.Gap]]. A gap
+  * that starts working fails as well, so `docs/pkl-editor-support.md`, rendered
+  * from the cases, stays true both ways.
   *
   * Each case's source also goes through the dashboard build, with `insert` at
   * the cursor, so no case asks about code the build refuses (a diagnostic case
@@ -35,117 +36,107 @@ class PklEditorSupportSuite extends munit.CatsEffectSuite {
        |
        |""".stripMargin
 
+  private val noProject = Status.Gap(
+    "pkl-lsp loads no project: the handshake declares no workspace folder, " +
+      "and nothing writes its `.pkl-lsp/projects.json`"
+  )
+
   val cases: List[Case] = List(
     Case(
       "a card's builders after a layout builder",
       "card = c.entityCard(light).columns(3).‸",
       """label("Hall")""",
       Ask.Completion(Set("label", "tapAction", "icon")),
-      Status.Works
+      noProject
     ),
     Case(
       "a subclass's builders after one it inherits",
       "card = c.entitySlider(light).disabled(false).‸",
       """readout("percent")""",
       Ask.Completion(Set("readout", "fromChooser")),
-      Status.Works
+      noProject
     ),
     Case(
       "the components through the package import",
       "card = c.‸",
       "entityCard(light)",
       Ask.Completion(Set("entityCard", "entitySlider", "column")),
-      Status.Works
+      noProject
     ),
     Case(
       "a string-literal union's values",
       """card = c.entityCard(light).stick("‸")""",
       "top",
       Ask.Completion(Set("top", "bottom")),
-      Status.Works
+      noProject
     ),
     Case(
       "a set's entity inside `render((l) -> …)`",
       "card = (c.column) { children { q.from(dump.lights.all).render((l) -> c.entityCard(l).label(l.‸)).build() } }",
       "entity_id",
       Ask.Completion(Set("entity_id")),
-      Status.Works
+      noProject
     ),
     Case(
       "a builder's doc comment on hover",
       "card = c.entityCard(light).colu‸mns(3)",
       "",
       Ask.Hover("surrounding grid"),
-      Status.Works
+      noProject
     ),
     Case(
       "go to a component's definition",
       "card = c.entity‸Card(light)",
       "",
       Ask.Definition("/components.pkl"),
-      Status.Works
+      noProject
     ),
     Case(
       "a value outside a union, flagged before the build",
       """card = c.entityCard(light).stick("le‸ft")""",
       "",
       Ask.Diagnostic("left"),
-      Status.Works
+      noProject
     ),
     Case(
       "a number outside a constraint, flagged before the build",
       "card = c.entityCard(light).columns(1‸3)",
       "",
       Ask.Diagnostic("13"),
-      Status.Works
+      noProject
     ),
     Case(
       "the dump's entities",
       "card = c.entityCard(dump.entities.‸)",
       HouseFixture.kitchenLight.dumpKey,
       Ask.Completion(Set(HouseFixture.kitchenLight.dumpKey)),
-      Status.Works
+      noProject
     ),
     Case(
       "an entity's kind on hover",
       s"card = c.entityCard(dump.entities.${HouseFixture.kitchenLight.dumpKey.patch(3, "‸", 0)})",
       "",
       Ask.Hover("Light"),
-      Status.Gap(
-        "the hover names the dump's class per entity (`E_light_kitchen`), not the kind it extends"
-      )
+      noProject
     ),
     Case(
       "an entity's fields inside a CEL string",
       """card = c.entityCard(light).secondary(c.expr("value.‸"))""",
       "state",
       Ask.Completion(Set("state", "attr")),
-      Status.Gap("CEL is a string to Pkl: nothing inside it completes")
+      noProject
     ),
     Case(
       "a CEL typo, flagged before the build",
       """card = c.entityCard(light).secondary(c.expr("value.stat‸"))""",
       "",
       Ask.Diagnostic("stat"),
-      Status.Gap(
-        "CEL compiles in the build's validate, which the editor does not run"
-      )
+      noProject
     )
   )
 
-  // No desktop session without the CLI: pkl-lsp would fall back to an older
-  // `pkl`. `/edit` gets none in production either.
-  private val desktop = ResourceSuiteLocalFixture(
-    "pkl-lsp as a desktop editor drives it",
-    Session.cli.fold(Resource.pure[IO, Option[Session]](None))(cli =>
-      Session.resource(Client.Desktop, Some(cli)).map(Some(_))
-    )
-  )
-  private val edit = ResourceSuiteLocalFixture(
-    "pkl-lsp as /edit drives it",
-    Session.resource(Client.Edit, None).map(Some(_))
-  )
-  override def munitFixtures = List(desktop, edit)
+  private val session = ResourceSuiteLocalFixture("pkl-lsp", Session.resource)
+  override def munitFixtures = List(session)
 
   cases.foreach { k =>
     test(s"${k.name}: the build agrees") {
@@ -167,25 +158,17 @@ class PklEditorSupportSuite extends munit.CatsEffectSuite {
             fail(s"the build refuses the case:\n$module\n$e")
           )
     }
-    List(Client.Desktop -> desktop, Client.Edit -> edit).foreach {
-      (client, session) =>
-        test(s"${k.name}: ${client.label}") {
-          // Skipped locally, never in CI, where a skip would hide the record.
-          if (client == Client.Desktop && Session.cli.isEmpty)
-            if (sys.env.contains("CI")) fail(Session.noCli)
-            else assume(false, Session.noCli)
-          val lsp = session().getOrElse(fail("no pkl-lsp session"))
-          lsp.answer(k, header).map { answer =>
-            k.status(client) match
-              case Status.Works =>
-                assert(answer.holds, s"pkl-lsp answered ${answer.seen}")
-              case Status.Gap(_) =>
-                assert(
-                  !answer.holds,
-                  "now works: mark it Status.Works and update docs/pkl-editor-support.md"
-                )
-          }
-        }
+    test(s"${k.name}: /edit") {
+      session().answer(k, header).map { answer =>
+        k.status match
+          case Status.Works =>
+            assert(answer.holds, s"pkl-lsp answered ${answer.seen}")
+          case Status.Gap(_) =>
+            assert(
+              !answer.holds,
+              "now works: mark it Status.Works and update docs/pkl-editor-support.md"
+            )
+      }
     }
   }
 
@@ -224,66 +207,32 @@ object PklEditorSupportSuite {
     case Works
     case Gap(why: String)
 
-  /** Who drives pkl-lsp: their handshakes differ in what makes it sync. */
-  enum Client(val label: String) derives CanEqual:
-    /** VS Code or Neovim with the Pkl extension: workspace folders, real
-      * configuration, a `pkl` CLI and `pkl/syncProjects`.
-      */
-    case Desktop extends Client("a desktop editor")
-
-    /** The add-on's page, as `@codemirror/lsp-client` connects: no root, no
-      * workspace folders, `workspace/configuration` unanswered, no sync, and no
-      * `pkl` CLI in the image.
-      */
-    case Edit extends Client("/edit")
-
   final case class Case(
       name: String,
       source: String,
       insert: String,
       ask: Ask,
-      desktop: Status,
-      edit: Status = EditUnsynced
-  ) {
-    def status(c: Client): Status = c match
-      case Client.Desktop => desktop
-      case Client.Edit    => edit
-  }
-
-  /** Every case's on `/edit` (2026-11-14): pkl-lsp answered nothing at all, not
-    * one diagnostic.
-    */
-  val EditUnsynced: Status = Status.Gap(
-    "/edit never syncs the project: no root or workspace folders, configuration " +
-      "unanswered, no `pkl/syncProjects`, no `pkl` CLI in the image"
+      status: Status
   )
 
   final case class Answer(holds: Boolean, seen: String)
 
   def table(cases: List[Case]): String =
-    def cell(s: Status) = s match
-      case Status.Works  => "works"
-      case Status.Gap(_) => "**gap**"
     val rows = cases.map { k =>
       val ask = k.ask match
         case Ask.Completion(_) => "completion"
         case Ask.Hover(_)      => "hover"
         case Ask.Definition(_) => "definition"
         case Ask.Diagnostic(_) => "diagnostic"
-      // `/edit`'s shared reason is the doc's prose, not every row's.
-      val why = List(Client.Desktop, Client.Edit)
-        .map(c => c -> k.status(c))
-        .collect {
-          case (c, g @ Status.Gap(w)) if g != EditUnsynced => s"${c.label}: $w"
-        }
-        .mkString("; ")
-      s"| ${k.name} | $ask | `${k.source.replace("|", "\\|")}` | " +
-        s"${cell(k.desktop)} | ${cell(k.edit)} | $why |"
+      val (status, why) = k.status match
+        case Status.Works    => ("works", "")
+        case Status.Gap(why) => ("**gap**", why)
+      s"| ${k.name} | $ask | `${k.source.replace("|", "\\|")}` | $status | $why |"
     }
-    ("| Case | Asks | Source (`‸` the cursor) | Desktop editor | `/edit` | Why |" ::
-      "|---|---|---|---|---|---|" :: rows).mkString("\n")
+    ("| Case | Asks | Source (`‸` the cursor) | `/edit` | Why |" ::
+      "|---|---|---|---|---|" :: rows).mkString("\n")
 
-  /** One pkl-lsp for the suite, over a workspace synced once. */
+  /** One pkl-lsp for the suite, as one `/edit` page holds one. */
   final class Session(lsp: LspClient, ws: os.Path) {
     private var n = 0
 
@@ -380,125 +329,41 @@ object PklEditorSupportSuite {
 
   object Session {
 
-    /** The `pkl` CLI pkl-lsp syncs a project with, which must read this
-      * library: 0.32 fails the sync. CI installs 0.33.
-      */
-    private val onPath: List[(os.Path, String)] =
-      sys.env
-        .getOrElse("PATH", "")
-        .split(java.io.File.pathSeparatorChar)
-        .toList
-        .filter(_.startsWith("/"))
-        .map(d => os.Path(d) / "pkl")
-        .filter(p => os.isFile(p) && java.nio.file.Files.isExecutable(p.toNIO))
-        .distinct
-        .map(p =>
-          p -> scala.util
-            .Try(os.proc(p, "--version").call(stderr = os.Pipe).out.text())
-            .getOrElse("")
-            .split(' ')
-            .lift(1)
-            .getOrElse("")
-        )
-
-    val cli: Option[String] =
-      onPath.collectFirst {
-        case (p, v) if v.split('.').take(2).map(_.toIntOption) match
-              case Array(Some(0), Some(minor)) => minor >= 33
-              case Array(Some(major), _)       => major > 0
-              case _                           => false
-            =>
-          p.toString
-      }
-
-    val noCli =
-      "no `pkl` CLI 0.33+ on the sbt server's PATH, so pkl-lsp cannot sync " +
-        s"the workspace; found: ${onPath.map((p, v) => s"$p $v").mkString(", ")}"
-
     private def jar: os.Path =
       os.Path(
-        scala.io.Source
-          .fromResource("pkl-lsp-jar.txt")
-          .mkString
-          .trim
+        scala.io.Source.fromResource("pkl-lsp-jar.txt").mkString.trim
       )
 
-    def resource(client: Client, cli: Option[String]): Resource[IO, Session] =
+    /** A workspace as the add-on serves it: bootstrapped, a dump seeded, and
+      * built once, which resolves the project the way every build does.
+      */
+    def resource: Resource[IO, Session] =
       for {
-        root <- Resource.eval(IO.blocking(os.temp.dir()))
-        ws = root / "ws"
-        // pkl-lsp syncs through the CLI, which reads only its default cache:
-        // pointed at the workspace's, the bundled package resolves offline.
-        xdg = root / "xdg"
-        _ <- Resource.eval(IO.blocking {
+        ws <- Resource.eval(IO.blocking {
+          val root = os.temp.dir()
+          val ws = root / "ws"
           val bundled = LibPackage.build(PklWorkspace.resourcesLib)
-          val _ = PklWorkspace.bootstrapInto(ws, bundled, xdg / "pkl")
+          val _ = PklWorkspace.bootstrapInto(ws, bundled, root / "cache")
           val _ = DumpPackage.seedFromText(
             ws,
             PklDump.render(HouseFixture.transformedDump),
             Some(bundled)
           )
+          val _ = PklBuild.eval(ws, Site.EntryFile)
+          ws
         })
-        synced <- Resource.eval(Deferred[IO, Either[String, Unit]])
-        lsp <- LspClient.spawn(
-          jar,
-          Map("XDG_CACHE_HOME" -> xdg.toString),
-          client match
-            case Client.Desktop => desktopAnswers(cli.getOrElse(""))
-            case Client.Edit    => (_, _) => Left(methodNotFound),
-          notified = (m, p) =>
-            if (m != "window/showMessage") IO.unit
-            else {
-              val text = p.hcursor.downField("message").as[String].getOrElse("")
-              if (text.contains("sync successful"))
-                synced.complete(Right(())).void
-              else if (text.contains("Failed to sync"))
-                synced.complete(Left(text)).void
-              else IO.unit
-            }
+        // `@codemirror/lsp-client` replies to every server request this way.
+        lsp <- LspClient.spawn(jar, (m, _) => Left(methodNotFound(m)))
+        _ <- Resource.eval(
+          lsp.request("initialize", editInitialize) >>
+            lsp.notify("initialized", Json.obj())
         )
-        wsUri = ws.toNIO.toUri.toString.stripSuffix("/")
-        _ <- Resource.eval(client match
-          case Client.Desktop =>
-            lsp.request("initialize", initialize(wsUri)) >>
-              lsp.notify("initialized", Json.obj()) >>
-              // After the configuration reply, or the sync runs without a CLI.
-              IO.sleep(2.seconds) >>
-              lsp.request("pkl/syncProjects", Json.Null) >>
-              synced.get.timeout(90.seconds).flatMap {
-                case Right(_)  => IO.unit
-                case Left(why) => IO.raiseError(RuntimeException(why))
-              }
-          case Client.Edit =>
-            lsp.request("initialize", editInitialize) >>
-              lsp.notify("initialized", Json.obj()) >>
-              IO.sleep(2.seconds))
       } yield Session(lsp, ws)
 
-    private val methodNotFound = Json.obj(
+    private def methodNotFound(method: String) = Json.obj(
       "code" -> Json.fromInt(-32601),
-      "message" -> Json.fromString("Method not implemented")
+      "message" -> Json.fromString(s"Method not implemented: $method")
     )
-
-    // Real values, never null: one null fails pkl-lsp's cast and drops them all.
-    private def desktopAnswers(cli: String)(
-        method: String,
-        params: Json
-    ): Either[Json, Json] =
-      if (method != "workspace/configuration") Right(Json.Null)
-      else
-        Right(
-          Json.arr(
-            params.hcursor.downField("items").values.toList.flatten.map {
-              item =>
-                item.hcursor.downField("section").as[String].getOrElse("") match
-                  case "pkl.cli.path" => Json.fromString(cli)
-                  case "pkl.modulepath" | "pkl.projects.excludedDirectories" =>
-                    Json.arr()
-                  case _ => Json.fromString("")
-            }*
-          )
-        )
 
     /** `@codemirror/lsp-client`'s `initialize` as `editor/app.js` connects: no
       * `rootUri` passed, so null.
@@ -511,31 +376,6 @@ object PklEditorSupportSuite {
         ),
         "rootUri" -> Json.Null,
         "capabilities" -> Json.obj(
-          "textDocument" -> Json.obj(
-            "completion" -> Json.obj(),
-            "hover" -> Json.obj(),
-            "definition" -> Json.obj(),
-            "publishDiagnostics" -> Json.obj()
-          )
-        )
-      )
-
-    // Without `workspaceFolders`, pkl-lsp ignores the workspace's project.
-    private def initialize(wsUri: String): Json =
-      Json.obj(
-        "processId" -> Json.Null,
-        "rootUri" -> Json.fromString(wsUri),
-        "workspaceFolders" -> Json.arr(
-          Json.obj(
-            "uri" -> Json.fromString(wsUri),
-            "name" -> Json.fromString("ws")
-          )
-        ),
-        "capabilities" -> Json.obj(
-          "workspace" -> Json.obj(
-            "workspaceFolders" -> Json.True,
-            "configuration" -> Json.True
-          ),
           "textDocument" -> Json.obj(
             "completion" -> Json.obj(),
             "hover" -> Json.obj(),

@@ -20,7 +20,6 @@ import java.nio.charset.StandardCharsets
   */
 object LspBridge {
 
-  /** The client's `initialize` carries the workspace and document URIs. */
   def wsResponse(
       wsb: WebSocketBuilder2[IO],
       pklLspJar: os.Path,
@@ -30,40 +29,46 @@ object LspBridge {
       val log = loggerFactory.getLoggerFromName("fh.view.runtime.LspBridge")
       val receive: Pipe[IO, WebSocketFrame, Unit] =
         _.evalMap(fromClient.offer)
-
       val send: Stream[IO, WebSocketFrame] =
-        Stream.resource(spawn(pklLspJar)).flatMap { proc =>
-          val toStdin: Stream[IO, Nothing] =
-            Stream
-              .fromQueueUnterminated(fromClient)
-              .collect { case t: WebSocketFrame.Text => t.str }
-              .map(encodeFrame)
-              .flatMap(Stream.chunk)
-              .through(proc.stdin)
-
-          val drainStderr: Stream[IO, Nothing] =
-            proc.stderr
-              .through(fs2.text.utf8.decode)
-              .through(fs2.text.lines)
-              .filter(_.nonEmpty)
-              .foreach(l => log.debug(l))
-              .drain
-
-          proc.stdout
-            .through(toFrames)
-            .map(WebSocketFrame.Text(_))
-            .concurrently(toStdin)
-            .concurrently(drainStderr)
-        }
-
+        Stream
+          .fromQueueUnterminated(fromClient)
+          .collect { case t: WebSocketFrame.Text => t.str }
+          .through(session(pklLspJar, l => log.debug(l)))
+          .map(WebSocketFrame.Text(_))
       wsb.build(send, receive)
     }
 
+  /** One pkl-lsp for the length of the stream: the client's JSON messages in,
+    * the server's out. `PklEditorSupportSuite` drives this, not the socket.
+    */
+  private[view] def session(
+      jar: os.Path,
+      stderr: String => IO[Unit]
+  ): Pipe[IO, String, String] = fromClient =>
+    Stream.resource(spawn(jar)).flatMap { proc =>
+      val toStdin: Stream[IO, Nothing] =
+        fromClient
+          .map(encodeFrame)
+          .flatMap(Stream.chunk)
+          .through(proc.stdin)
+
+      val drainStderr: Stream[IO, Nothing] =
+        proc.stderr
+          .through(fs2.text.utf8.decode)
+          .through(fs2.text.lines)
+          .filter(_.nonEmpty)
+          .foreach(stderr)
+          .drain
+
+      proc.stdout
+        .through(toFrames)
+        .concurrently(toStdin)
+        .concurrently(drainStderr)
+    }
+
   // The jar's manifest enables native access, so no extra flags.
-  private[view] def spawn(jar: os.Path, env: Map[String, String] = Map.empty) =
-    ProcessBuilder(javaExecutable, "-jar", jar.toString)
-      .withExtraEnv(env)
-      .spawn[IO]
+  private def spawn(jar: os.Path) =
+    ProcessBuilder(javaExecutable, "-jar", jar.toString).spawn[IO]
 
   /** pkl-lsp needs JDK 23+, and this app may run on an older one, so neither
     * `PATH` nor this JVM is trusted blindly: `PKL_LSP_JAVA`, this JVM if new
@@ -115,7 +120,7 @@ object LspBridge {
       .toOption
       .flatten
 
-  private[view] def encodeFrame(json: String): Chunk[Byte] = {
+  private def encodeFrame(json: String): Chunk[Byte] = {
     val body = json.getBytes(StandardCharsets.UTF_8)
     val header =
       s"Content-Length: ${body.length}\r\n\r\n"
@@ -124,7 +129,7 @@ object LspBridge {
   }
 
   // Only `Content-Length` is read; pkl-lsp sends no other header.
-  private[view] def toFrames: Pipe[IO, Byte, String] = in => {
+  private def toFrames: Pipe[IO, Byte, String] = in => {
     def go(buf: Chunk[Byte], s: Stream[IO, Byte]): Pull[IO, String, Unit] =
       extract(buf) match {
         case Some((json, rest)) => Pull.output1(json) >> go(rest, s)
