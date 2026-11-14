@@ -210,19 +210,19 @@ open class Button extends nodes.ActiveNode {
       ...tapMod.guardSlots(tapAction)
     }
   }
-  function label(l: String|slotMod.Reading): Button = let (self = this) (self) { label = l }
+  function label(l: String|slotMod.Reading): this = let (self = this) (self) { label = l }
   /// `c.button("Stue", tap).secondary("Turns off 4 lights")`.
-  function secondary(s: slotMod.Secondary): Button = let (self = this) (self) { secondary = s }
-  function icon(i: String): Button = let (self = this) (self) { icon = i }
+  function secondary(s: slotMod.Secondary): this = let (self = this) (self) { secondary = s }
+  function icon(i: String): this = let (self = this) (self) { icon = i }
   /// No glyph, not even the one an entity button reads off its entity.
-  function noIcon(): Button = let (self = this) (self) { glyph = null }
+  function noIcon(): this = let (self = this) (self) { glyph = null }
   /// `c.button("Stue", tap).size("medium")`.
-  function size(s: "small"|"medium"|"large"): Button = let (self = this) (self) { size = s }
-  function tapAction(a: tapMod.TapAction): Button = let (self = this) (self) { tapAction = a }
+  function size(s: "small"|"medium"|"large"): this = let (self = this) (self) { size = s }
+  function tapAction(a: tapMod.TapAction): this = let (self = this) (self) { tapAction = a }
   /// `c.entityButton(l).active(c.isOn(l))`.
-  function active(a: nodes.BooleanInput): Button = let (self = this) (self) { active = a }
+  function active(a: nodes.BooleanInput): this = let (self = this) (self) { active = a }
   /// `c.entityButton(l).disabled(c.stateIn(l, List("open")))`.
-  function disabled(r: nodes.BooleanInput): Button = let (self = this) (self) { disabled = r }
+  function disabled(r: nodes.BooleanInput): this = let (self = this) (self) { disabled = r }
 }
 
 /// A small button sized to what it shows: a label (an emoji is text), an MDI
@@ -267,14 +267,14 @@ class Pill extends nodes.ActiveNode {
       ...tapMod.guardSlots(tapAction)
     }
   }
-  function label(l: String|slotMod.Reading): Pill = let (self = this) (self) { label = l }
-  function icon(i: String): Pill = let (self = this) (self) { icon = i }
+  function label(l: String|slotMod.Reading): this = let (self = this) (self) { label = l }
+  function icon(i: String): this = let (self = this) (self) { icon = i }
   /// Text only, without the tap's icon: `c.pill(c.tap.toggle(k)).label("Kveld").noIcon()`.
-  function noIcon(): Pill = let (self = this) (self) { icon = null }
-  function tapAction(a: tapMod.TapAction): Pill = let (self = this) (self) { tapAction = a }
+  function noIcon(): this = let (self = this) (self) { icon = null }
+  function tapAction(a: tapMod.TapAction): this = let (self = this) (self) { tapAction = a }
   /// `c.pill(c.tap.activate(s)).active(latest.eq(s))`, where
   /// `latest = q.from(scenes).orderBy(q.desc(q.stateProp)).first()`.
-  function active(a: nodes.BooleanInput): Pill = let (self = this) (self) { active = a }
+  function active(a: nodes.BooleanInput): this = let (self = this) (self) { active = a }
 }
 
 /// `c.button("Close", c.view.closePopup())`.

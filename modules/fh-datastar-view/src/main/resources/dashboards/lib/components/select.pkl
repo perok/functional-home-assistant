@@ -103,7 +103,7 @@ abstract class Select extends nodes.Node {
 
   /// These options, in this order. On an entity, a subset of what it offers,
   /// relabelled or with icons; a value it does not offer names itself.
-  function options(os: List<String|Choice>): Select =
+  function options(os: List<String|Choice>): this =
     let (self = this) let (cs = os.map((o) -> choiceOf(o))) let (have = offered(self.target))
       let (stray = if (self.target is varMod.Variable) List() else cs.filter((ch) -> !have.contains(ch.value)))
         if (!stray.isEmpty)
@@ -380,7 +380,7 @@ class Chooser extends nodes.Node {
   // A section header over its cards, not a third of a grid row.
   layoutClasses { "fh-cols-full" }
 
-  function defaultingTo(v: varMod.Value): Chooser = let (self = this) let (d = v) (self) { defaultValue = d }
+  function defaultingTo(v: varMod.Value): this = let (self = this) let (d = v) (self) { defaultValue = d }
 }
 
 function chooser(s: Select): Chooser = new Chooser { bar = s }

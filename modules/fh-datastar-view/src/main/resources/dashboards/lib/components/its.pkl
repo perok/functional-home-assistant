@@ -81,9 +81,9 @@ class MainControlSwitch extends ItsButton {
   hidden styleChoice: selectMod.SelectStyle = "cycle"
   /// These, in this order, where the light has them: one left is that control
   /// alone, and none the slider's plain row (a plug has no main controls).
-  function options(cs: List<MainControl>): MainControlSwitch = let (self = this) (self) { only = cs }
+  function options(cs: List<MainControl>): this = let (self = this) (self) { only = cs }
   /// `"cycle"`, the default: one pill stepping round. Or `"dropdown"`, `"buttons"`.
-  function style(s: selectMod.SelectStyle): MainControlSwitch = let (self = this) (self) { styleChoice = s }
+  function style(s: selectMod.SelectStyle): this = let (self = this) (self) { styleChoice = s }
   function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)? =
     let (cs = h.mainControls)
       if (cs.length < 2) null

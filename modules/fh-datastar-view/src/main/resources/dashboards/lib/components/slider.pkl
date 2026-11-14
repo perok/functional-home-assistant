@@ -288,18 +288,18 @@ class EntitySlider extends sliderBase.Slider {
       controlHead(offeredControls[0], false, true)
     else super.headNode
 
-  function label(l: String|slotMod.Reading): EntitySlider = let (self = this) (self) { label = l }
-  function action(a: String): EntitySlider = let (self = this) (self) { action = a }
-  function key(k: String): EntitySlider = let (self = this) (self) { key = k }
-  function min(m: Int): EntitySlider = let (self = this) (self) { min = m }
-  function max(m: Int): EntitySlider = let (self = this) (self) { max = m }
-  function valueAttr(a: String): EntitySlider = let (self = this) (self) { valueAttr = a }
-  function readout(r: Readout|slotMod.Reading): EntitySlider = let (self = this) (self) { readout = r }
+  function label(l: String|slotMod.Reading): this = let (self = this) (self) { label = l }
+  function action(a: String): this = let (self = this) (self) { action = a }
+  function key(k: String): this = let (self = this) (self) { key = k }
+  function min(m: Int): this = let (self = this) (self) { min = m }
+  function max(m: Int): this = let (self = this) (self) { max = m }
+  function valueAttr(a: String): this = let (self = this) (self) { valueAttr = a }
+  function readout(r: Readout|slotMod.Reading): this = let (self = this) (self) { readout = r }
   /// No switch of its own: it shows the control chosen by the nearest switch
   /// above it, a group head's or [[controlChooser]]'s, greyed on one its light
   /// lacks. One press, the whole group on colour. A light with no main
   /// controls keeps its plain row.
-  function fromChooser(): EntitySlider = let (self = this) (self) { chosenAbove = true }
+  function fromChooser(): this = let (self = this) (self) { chosenAbove = true }
   /// The order to try as the page opens: the first axis the light is on then,
   /// else the first control. Read once; an open page does not follow the
   /// light. Without it the slider follows `defaults.light.opensOn`, which
@@ -307,7 +307,7 @@ class EntitySlider extends sliderBase.Slider {
   /// the mode the light is in:
   ///
   ///   c.entitySlider(l).opensOn(List(l.colourTemp, l.colour))
-  function opensOn(xs: List<hass.Axis?>): EntitySlider =
+  function opensOn(xs: List<hass.Axis?>): this =
     let (self = this) let (axs = xs.filterNonNull() as List<hass.Axis>) (self) { opensOnAxes = axs }
   /// The member rows, each composed by the caller:
   ///
@@ -316,16 +316,16 @@ class EntitySlider extends sliderBase.Slider {
   ///   )
   ///
   /// A member that is not a slider goes through `members` directly.
-  function withSubSliders(sliders: List<EntitySlider>): EntitySlider =
+  function withSubSliders(sliders: List<EntitySlider>): this =
     let (self = this) (self) { members = sliders.toListing() }
   /// `.icon(null)` renders no badge.
-  function icon(i: String?): EntitySlider = let (self = this) (self) { icon = i }
+  function icon(i: String?): this = let (self = this) (self) { icon = i }
   /// `.buttons(List(c.its.toggle, c.its.mainControl, c.its.colourWheel))`: on
   /// a light with main controls they are on its pill. Without
   /// `c.its.mainControl` the slider has one, its plain row.
-  function buttons(xs: List<sliderBase.SliderButton?>): EntitySlider =
+  function buttons(xs: List<sliderBase.SliderButton?>): this =
     let (self = this) (self) { buttons = xs }
-  function secondary(s: slotMod.Secondary): EntitySlider = let (self = this) (self) { secondary = s }
+  function secondary(s: slotMod.Secondary): this = let (self = this) (self) { secondary = s }
 }
 
 /// One switch over the light sliders beneath it that are

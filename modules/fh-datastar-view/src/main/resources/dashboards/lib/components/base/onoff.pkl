@@ -70,7 +70,7 @@ open class Switch extends nodes.ActiveNode {
     ...tapMod.guardSlots(tapAction)
     ...badgeMod.slots(active)
   }
-  function label(l: String|slotMod.Reading): Switch = let (self = this) (self) { label = l }
-  function tapAction(a: tapMod.TapAction): Switch = let (self = this) (self) { tapAction = a }
-  function active(a: nodes.BooleanInput): Switch = let (self = this) (self) { active = a }
+  function label(l: String|slotMod.Reading): this = let (self = this) (self) { label = l }
+  function tapAction(a: tapMod.TapAction): this = let (self = this) (self) { tapAction = a }
+  function active(a: nodes.BooleanInput): this = let (self = this) (self) { active = a }
 }

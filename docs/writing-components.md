@@ -60,6 +60,15 @@ Four things are going on:
 - `slots { message.of(text) }` is the per-copy half: what this particular
   banner says. A slot whose value is `null` is left out.
 
+To let a dashboard set an option in a chain, add a builder that returns `this`:
+
+```pkl
+  function text(t: String): this = let (self = this) (self) { text = t }
+```
+
+`this` is the class it is called on, a card extending `Banner` included, so
+`.columns(3)` and the card's own builders chain in any order.
+
 The build holds the two halves to each other. A slot placed outside every
 section, like `message` here, must be one the banner sets. Wrap anything
 optional: `\(icon.ifSet("<i>\(icon)</i>"))` shows the icon only when this node

@@ -421,10 +421,10 @@ open class Slider extends nodes.Node {
   }
 
   /// `.buttons(List(c.tap.toggle(l), c.view.colourWheel(l.colour!!)))`.
-  function buttons(xs: List<SliderButton?>): Slider =
+  function buttons(xs: List<SliderButton?>): this =
     let (self = this) (self) { buttons = xs }
-  function busyVisual(b: Boolean): Slider = let (self = this) (self) { busyVisual = b }
-  function disabled(d: nodes.BooleanInput): Slider = let (self = this) (self) { disabled = d }
+  function busyVisual(b: Boolean): this = let (self = this) (self) { busyVisual = b }
+  function disabled(d: nodes.BooleanInput): this = let (self = this) (self) { disabled = d }
   // BeerCSS's slider markup, `fh-slider` being its `.slider.max`: the wrapper
   // and a trailing `<span>` painted as the track, without `.tooltip`, whose
   // text bled through behind the track. The fill is ours, `--fh-fill` on the

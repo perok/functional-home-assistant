@@ -74,9 +74,8 @@ const wireRenderer: JsonRenderer = new {
 open class SubjectButton {}
 
 /// The builders follow HA's `grid_options`: inside a [[Grid]], `columns(n)` is
-/// a width in 12ths (default 4). They return [[LayoutNode]], so chain them
-/// AFTER card-specific ones:
-/// `c.entityCard(e).tapAction(c.tap.toggle(e)).columns(3)`.
+/// a width in 12ths (default 4). Like every builder they return `this`, so they
+/// chain in any order: `c.entityCard(e).columns(3).tapAction(c.tap.toggle(e))`.
 abstract class LayoutNode {
   kind: String
   /// Inputs each builder amends, so the order an author chains them in does not
@@ -123,28 +122,28 @@ abstract class LayoutNode {
       }
   /// Span `n` of the surrounding grid's 12 columns. No effect outside a
   /// [[Grid]] or a group.
-  function columns(n: Int(this >= 1 && this <= 12)): LayoutNode = addLayoutClass("fh-cols-\(n)")
-  function fullWidth(): LayoutNode = addLayoutClass("fh-cols-full")
+  function columns(n: Int(this >= 1 && this <= 12)): this = addLayoutClass("fh-cols-\(n)")
+  function fullWidth(): this = addLayoutClass("fh-cols-full")
   /// Shrink to the content instead of filling the cell's share.
-  function hug(): LayoutNode = addLayoutClass("fh-hug")
+  function hug(): this = addLayoutClass("fh-hug")
   /// Take the space the surrounding row or column leaves: the body between a
   /// header and a footer, or the rest of a wrapped row's line.
-  function grow(): LayoutNode = addLayoutClass("fh-grow")
+  function grow(): this = addLayoutClass("fh-grow")
   /// Stay on screen while the page scrolls, at that edge, for as long as the
   /// surrounding box is: a footer in the page's main column always is.
-  function stick(edge: Edge): LayoutNode = addLayoutClass("fh-stick-\(edge)")
+  function stick(edge: Edge): this = addLayoutClass("fh-stick-\(edge)")
   /// Wrap, clip or scroll a label too long for its box (`core/text.pkl`), for
   /// this node and everything under it. The dashboard default is `entry.pkl`'s
   /// `textOverflow`.
-  function textOverflow(o: textMod.Overflow): LayoutNode = addCellClass(textMod.cls(o))
+  function textOverflow(o: textMod.Overflow): this = addCellClass(textMod.cls(o))
   /// Any plain class token on the root; validated at build time.
-  function cellClass(cls: String): LayoutNode = addCellClass(cls)
+  function cellClass(cls: String): this = addCellClass(cls)
   /// [[cellClass]] while `when` holds, bound on the root so no template
   /// places it:
   ///
   ///     c.entityButton(l).cellClassWhen("warm", c.isOn(l))   // css: .fh-cell.warm>button
   ///     c.button(…).cellClassWhen("fh-some", lit.any())
-  function cellClassWhen(cls: String, `when`: BooleanInput): LayoutNode =
+  function cellClassWhen(cls: String, `when`: BooleanInput): this =
     let (self = this)
       if (`when` is Boolean) (if (`when`) self.addCellClass(cls) else self)
       else if (!(self is Node)) throw("cellClassWhen: a live class is a slot, which only a card node has — put it on the clause's node")
@@ -158,7 +157,7 @@ abstract class LayoutNode {
   ///
   /// A patch of the node leaves it out, so keep it live with the card's own
   /// `data-class` where the class must follow a change.
-  function cellClassAtRender(cls: String, `when`: slotMod.Expr): LayoutNode =
+  function cellClassAtRender(cls: String, `when`: slotMod.Expr): this =
     let (self = this)
       if (!(self is Node)) throw("cellClassAtRender: a class decided at render is a slot, which only a card node has — put it on the clause's node")
       else (self) { renderClasses { [cls] = booleanReading(`when`) } }
@@ -169,7 +168,7 @@ abstract class LayoutNode {
   ///     // css: button.fh-cell { background-size: var(--fh-fill) 100% }
   ///
   /// Only `--…`: a plain property would fight the theme's framework.
-  function cellStyle(name: String(startsWith("--")), reading: slotMod.Reading): LayoutNode =
+  function cellStyle(name: String(startsWith("--")), reading: slotMod.Reading): this =
     let (self = this)
       if (!(self is Node)) throw("cellStyle: a live style is a slot, which only a card node has — put it on the clause's node")
       else (self) { liveStyles { [name] = reading } }
@@ -177,10 +176,10 @@ abstract class LayoutNode {
   // would be decided by stylesheet order, not by the author's last word. This is
   // also what lets a card default its span, or a pill its hug, and still be
   // overridden.
-  function addCellClass(cls: String): LayoutNode =
+  function addCellClass(cls: String): this =
     let (self = this)
       (self) { cellClasses = withClass(self.cellClasses, cls) }
-  function addLayoutClass(cls: String): LayoutNode =
+  function addLayoutClass(cls: String): this =
     let (self = this)
       (self) { layoutClasses = withClass(self.layoutClasses, cls) }
 }
@@ -287,7 +286,7 @@ abstract class Node extends LayoutNode {
   ///     .inputs(new Mapping {
   ///       ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
   ///     })
-  function inputs(vs: Mapping<String, Input>): Node =
+  function inputs(vs: Mapping<String, Input>): this =
     let (self = this) (self) { inputs = vs }
 }
 

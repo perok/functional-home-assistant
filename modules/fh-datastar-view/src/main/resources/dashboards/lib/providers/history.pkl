@@ -25,7 +25,7 @@ class HistoryFetch extends slotMod.Fetch {
   /// Whatever reads this is read again when the sensor changes: a decision
   /// over it is made again, a slot re-rendered. Off, a history is read again
   /// only when something else it is read with moves.
-  function updateOnEntityChange(): HistoryFetch =
+  function updateOnEntityChange(): this =
     (this) { dependsOn = List(entity) }
 }
 
@@ -56,7 +56,7 @@ class Statistics extends Window {
   /// `state_class` has any, and without this such a chart draws nothing.
   fallback: Boolean = false
 
-  function orRaw(): Statistics = let (self = this) (self) { fallback = true }
+  function orRaw(): this = let (self = this) (self) { fallback = true }
 }
 
 /// A window picked by what `by` reads: the case whose `is` it equals, else

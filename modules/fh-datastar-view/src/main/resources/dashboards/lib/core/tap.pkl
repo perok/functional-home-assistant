@@ -89,7 +89,7 @@ class Call extends TapAction {
   dataValue: String? = null
   /// `call("light/turn_on", l).with("effect", "colorloop")`, or
   /// `.with("hs_color", List(120, 100))`. HA gets the value as typed here.
-  function with(key: String, value: CallValue): Call =
+  function with(key: String, value: CallValue): this =
     let (self = this)
       (self) {
         dataKey = key

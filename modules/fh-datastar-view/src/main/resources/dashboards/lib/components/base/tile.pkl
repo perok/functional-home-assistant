@@ -80,9 +80,9 @@ open class Tile extends nodes.ActiveNode {
     ...badgeMod.slots(active)
     nodes.disabledSlot(disabled)
   }
-  function disabled(d: nodes.BooleanInput): Tile = let (self = this) (self) { disabled = d }
+  function disabled(d: nodes.BooleanInput): this = let (self = this) (self) { disabled = d }
   /// `c.entityCard(l).features(List(latch))`.
-  function features(xs: List<nodes.LayoutNode>): Tile = let (self = this) (self) { features = xs.toListing() }
+  function features(xs: List<nodes.LayoutNode>): this = let (self = this) (self) { features = xs.toListing() }
   /// `c.entityCard(l).active(false)` for a badge with neither an on nor an off look.
-  function active(a: nodes.BooleanInput): Tile = let (self = this) (self) { active = a }
+  function active(a: nodes.BooleanInput): this = let (self = this) (self) { active = a }
 }
