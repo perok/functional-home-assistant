@@ -99,17 +99,21 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('**/build.sbt') }}
 
-      - name: Install Playwright Browsers
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: sbt 'fh-datastar-view/Test/runMain com.microsoft.playwright.CLI install --with-deps chromium'
-
       # The `pkl test` CLI, for the authoring-library suite below. Pinned to the
       # SAME version as the `org.pkl-lang:pkl-core` dep in build.sbt — the tests
       # exercise the library the server evaluates in-process, so a CLI on a
       # different version would be testing different semantics than we ship.
+      #
+      # BEFORE ANY sbt STEP, for the reason the visual failure dir gives:
+      # `PklEditorSupportSuite` hands pkl-lsp the `pkl` on the sbt server's
+      # PATH, and the server keeps the PATH of the step that started it.
       - uses: pkl-community/setup-pkl@v0
         with:
           pkl-version: "0.33.0"
+
+      - name: Install Playwright Browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: sbt 'fh-datastar-view/Test/runMain com.microsoft.playwright.CLI install --with-deps chromium'
 
       - parallel:
           - name: Fmt check
