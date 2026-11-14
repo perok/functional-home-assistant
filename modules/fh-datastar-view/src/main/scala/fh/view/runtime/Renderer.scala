@@ -1097,18 +1097,21 @@ class Renderer(validated: Dashboard.Validated) {
       clause: Option[Int]
   ): Map[String, SlotValue] = {
     val plan = planOf(id, c, shared)
-    val b = Map.newBuilder[String, SlotValue]
     val in = lookupAt(fragments, plan.id, shared.states)
-    plan.dynamic.foreach { case (slot, srcEntity, source) =>
-      // A live cell slot is always a signal, so only names reach here.
-      if (!plan.signalSlots.contains(slot))
-        b += (
-          (
-            SlotKey.label(slot),
-            resolveSlotValue(srcEntity, source, shared, fragments, plan.id, in)
-          )
-        )
-    }
+    byteValues(plan, clause)(s =>
+      resolveSlotValue(s.entity, s.live, shared, fragments, plan.id, in)
+    )
+  }
+
+  /** The one place a node's byte-slot values are put together, for the walk's
+    * `holds` and for the live path that compares with them: two builders could
+    * drift, and a session would then skip a node whose bytes moved.
+    */
+  private def byteValues(plan: NodePlan, clause: Option[Int])(
+      valueOf: ByteSlot => SlotValue
+  ): Map[String, SlotValue] = {
+    val b = Map.newBuilder[String, SlotValue]
+    plan.byteSlots.foreach(s => b += ((s.label, valueOf(s))))
     clause.foreach(n => b += ((Renderer.clauseKey(n), "")))
     b.result()
   }
@@ -1331,19 +1334,13 @@ class Renderer(validated: Dashboard.Validated) {
         bodyInto(out, SlotForm.Document)
 
         val own = Option.when(plan.ownRendering) {
-          // What [[byteSlotValues]] answers for this node, off the same paint.
-          val b = Map.newBuilder[String, SlotValue]
-          plan.dynamic.foreach { case (slot, _, _) =>
-            if (!plan.signalSlots.contains(slot))
-              resolved.paint
-                .get(slot)
-                .foreach(v => b += ((SlotKey.label(slot), v)))
-          }
-          within match
-            case m: WalkAt.InMember =>
-              b += ((Renderer.clauseKey(m.clause), ""))
-            case WalkAt.Static => ()
-          Painted(b.result(), resolved.signals)
+          val clause = within match
+            case m: WalkAt.InMember => Some(m.clause)
+            case WalkAt.Static      => None
+          Painted(
+            byteValues(plan, clause)(s => resolved.paint(s.key)),
+            resolved.signals
+          )
         }
         // Keyed by the plan's id, not this paint's: `holds` keeps the key per
         // session, and a fresh string each paint was a third of an entry.
@@ -1621,6 +1618,8 @@ class Renderer(validated: Dashboard.Validated) {
       constants: Map[SlotKey, SlotValue],
       jsConstants: Map[SlotKey, String],
       dynamic: List[(SlotKey, Option[String], Planned.Live)],
+      // The live slots the patch form carries: [[byteValues]]'s.
+      byteSlots: List[ByteSlot],
       // Every slot: what `x.has` asks.
       slots: Map[SlotKey, Planned],
       signalled: Map[SlotKey, Signalled],
@@ -1635,6 +1634,13 @@ class Renderer(validated: Dashboard.Validated) {
     // Not `keySet`: that view filters through a builder, per cell, per paint.
     val signalSlots: Set[SlotKey] = signalNameBySlot.keysIterator.toSet
   }
+
+  private final case class ByteSlot(
+      key: SlotKey,
+      label: String,
+      entity: Option[String],
+      live: Planned.Live
+  )
 
   /** A slot as its node's plan holds it: a value that never moves, folded once
     * with its JS spelling, or a live one, its source and steps composed into
@@ -1734,6 +1740,14 @@ class Renderer(validated: Dashboard.Validated) {
         slots.collect { case (k, Planned.Constant(_, js)) => k -> js },
       dynamic = slots.toList.collect { case (k, l: Planned.Live) =>
         (k, l.source.entityId, l)
+      },
+      // A live cell slot is always a signal, so only names are left.
+      byteSlots = {
+        val signalled = named.map(_._1).toSet
+        slots.toList.collect {
+          case (k, l: Planned.Live) if !signalled.contains(k) =>
+            ByteSlot(k, SlotKey.label(k), l.source.entityId, l)
+        }
       },
       slots = slots,
       signalled = named.map { case (slot, kind, signal) =>
