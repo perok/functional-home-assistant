@@ -38,7 +38,6 @@ class RegistryDumpSuite extends munit.FunSuite {
       disabled_by = None,
       entity_category = category,
       entity_id = ReadableEntityId.of(entityId),
-      has_entity_name = true,
       hidden_by = Option.when(hidden)(Json.fromString("user")),
       icon = None,
       id = EntityId.of(entityId),
