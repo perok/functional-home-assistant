@@ -39,7 +39,9 @@ case class Entity(
     disabled_by: Option[String],
     entity_category: Option[String],
     entity_id: ReadableEntityId,
-    has_entity_name: Boolean,
+    // Sent until HA 2026.10, gone from the list in 2026.11. Unread; declared
+    // so the decoder does not warn per entity on an older HA.
+    has_entity_name: Option[Boolean] = None,
     hidden_by: Option[Json],
     icon: Option[Json],
     id: EntityId,
