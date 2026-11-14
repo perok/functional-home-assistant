@@ -54,54 +54,64 @@ with nothing else changing; the dump has no labels yet. A fixed `.with` value is
 its `data` key, and a call may carry any number of `data` keys.
 
 **Every entity read is named.** A slot's wire leaves out `of` where it is the card's subject.
-A declaration has no subject, and it is hashed: two locks' declarations would otherwise be
-equal and share an id, and a press on one would act on the other.
+A declaration has no subject, and the id is a hash of it: two locks' declarations would
+otherwise be equal and share an id.
 
-**The id** is the first 16 hex characters of the SHA-256 of the declaration as the wire carries
-it, which is how `setId` is built today:
+**The id** is the first 16 hex characters of the SHA-256 of the decoded declaration. Scala
+computes it in the `Ready` walk, so Pkl never hashes, and a set's members cost no hashing in
+the eval. Pkl's `setId` goes the same way.
 
 - equal calls on two cards share one id;
 - an edit elsewhere keeps the id;
 - an edited call gets a new id, and a stale page's press with the old one is refused, as a stale
   URL is today.
 
-**Pkl.**
+**Pkl.** A node places its calls by name, and may place several (a slider's commit and its own
+switch, say):
 
-- `tapRoute` writes one placed slot, `callId`.
-- The declaration rides on that slot: a `CallSlot extends Slot` carrying
-  `hidden declares: Mapping<String, CallDecl>`.
-- The node's wire field `fixed calls` is computed from its slots, as `templateSlots` is, so no
-  card changes.
-- The template places one piece, `tapMod.post`, which writes the URL
-  `'sse/call/{{dashboardSlug}}/' + callId.jsValue + '?node={{id}}'` and builds the body from the
-  same call: `posted` from its `Posted` sources, `seen` from its confirmed fields. No card spells a
-  body key. It replaces the three spellings above, so the slider and the wheel stop knowing the
-  route.
+- A tap writes a `CallSlot` carrying `hidden declares: CallDecl`. The node's wire field `fixed
+  calls` is computed from its call slots, keyed by name, as `templateSlots` is, so no card
+  changes.
+- Each call has two names the renderer fills, as it fills `{{id}}`: `<name>.callId`, the id,
+  and `<name>.seen`, what the press confirms (below).
+- The template places one piece per call, `tapMod.post(call)`. It writes the URL
+  `'sse/call/{{dashboardSlug}}/{{{tap.callId}}}?node={{id}}'` and builds the body from the same
+  call: `posted` from its `Posted` sources, and `seen: {{{tap.seen}}}`. No card spells a body
+  key. It replaces the three spellings above, so the slider and the wheel stop knowing the route.
 
-**What the page sends.** The press posts the call id and a body of two halves:
+**What the page sends.** The press posts the call id, the node, and a body of two halves:
 
-- `posted`: the values the card supplies, the drag's brightness or the wheel's hue. Only these
-  reach HA from the client. Each is read by a `Posted(key, type)` source (C).
-- `seen`: what the page showed of what the call DOES, the output of each derived `service` or
-  `data` field. The renderer binds those fields' own expressions as handler signals, patched in
-  the frame that paints the state (ADR 0016), so they are written once, in the declaration.
+- `posted`: the values the card supplies, the drag's brightness or the wheel's hue. These are
+  the inputs. Each is read by a `Posted(key, type)` source (C).
+- `seen`: what the node painted of what the call DOES, as one JSON value.
 
-Target and `exclude` are never sent.
+**What `seen` holds is decided per node, at build.** For each node and each call it places,
+the `Ready` walk takes the reads of the call's `service` and `data` fields (a read is an entity
+and the part read: its state, one attribute, or the whole) and splits them:
+
+- the reads the node's painted slots also read. A slot is painted unless it is a `Handler`,
+  which paints nothing (`tapDisabled`). These go into the node's `<name>.seen`: a signal slot the
+  walk adds, whose value is those reads as JSON, `{"lock.front_door": {"state": "locked"}}`. It
+  is named by what it reads, so it moves in the same frame as the slots that paint them;
+- the reads no slot paints. The viewer never saw them, so they are decided at the press.
+
+A node that paints nothing the call reads has no `seen` signal and posts `{}`. Only the parts
+read count, so a tile's icon (a `Match` over the state) does not matter to it, and an attribute
+the call does not read never refuses a press. Target and `exclude` are not in it at all: what a
+call reaches is decided at the press, as a set call is (ADR 0023). A "lights off" whose label
+counts the lights it reaches is never refused for a light changing.
 
 **What the server does at the press:**
 
-1. **Look up the id** in `Dashboard.calls`. A miss is refused: admission by declaration is ADR
-   0023's rule, unchanged.
+1. **Look up the id** in `Dashboard.calls`, and the node's `seen` for it. A miss on either is
+   refused: admission by declaration is ADR 0023's rule, and a node that does not place the call
+   has no `seen` to check against.
 2. **Decode each `posted` value** as its source's declared type, and run the fields. A field
    that ends with no value (a failed `Check`, C) refuses the press and names the field.
-3. **Evaluate every field over the store now.** Each `seen` must equal what its field gives now;
-   a mismatch is refused.
+3. **Evaluate the node's `seen` and every field now.** A field that reads a fetch has it answered
+   first, as a set call's guard has today (`Server.decided`). The posted `seen` must equal the
+   `seen` evaluated now; a mismatch is refused.
 4. **Call HA** with what the server evaluated.
-
-**What is confirmed:** what a call does (its `service` and `data`) is checked against `seen`;
-what it reaches (its target and `exclude`) is decided at the press, as a set call is (ADR
-0023). The edge is a single target picked from state, such as the scene played last, which
-would be decided unconfirmed; no tap does that today.
 
 **Trust.** The server only ever runs its own evaluation of a declared call:
 
@@ -110,38 +120,45 @@ would be decided unconfirmed; no tap does that today.
 - `posted` values are the one client input that reaches HA, which is why they are typed and
   checked (C).
 
-`seen` is a race guard. A press that races a state change is refused with a toast (ADR 0024)
-rather than acting on state the screen did not show. A lock's double-tap therefore refuses the
-second tap, where today it sends unlock twice; neither does the opposite of what was shown.
-ADR 0016 becomes "you act on what you saw, or not at all".
+`seen` is a race guard. A press that races a state change the node shows is refused with a toast
+(ADR 0024) rather than acting on state the screen did not show. A lock's double-tap therefore
+refuses the second tap, where today it sends unlock twice; neither does the opposite of what was
+shown. ADR 0016 becomes "you act on what you saw, or not at all".
 
 The service no longer needs listable outputs, so a CEL may pick it. That closes #533.
 
-**The wire.** The ids below are illustrative, and the before forms are in
+**The wire.** The ids and signal names are illustrative, and the before forms are in
 `snapshots/taps.json` and `sliders.json`.
 
-```jsonc
-"templateSlots": { "callId": { "source": "4be03a91c2d0e6f7", "type": "textRaw" } },
-"calls": {
-  "4be03a91c2d0e6f7": {
-    "service": { "source": { "kind": "Entity", "of": "lock.front_door" },
-                 "steps": [{ "kind": "Match", "cases": { "locked": "lock/unlock" }, "otherwise": "lock/lock" }] },
-    "target":  { "entity_id": ["lock.front_door"] }
-  }
-}
-// page: @post('sse/call/taps/' + '4be03a91c2d0e6f7' + '?node=c_6', {payload: {seen: {service: $_e.lock.front_door.t9c2e}}})
+A lock tile, `c.entityCard(door).tapAction(c.tap.toggle(door))`:
 
-"51aa8e2f07c3d916": {
+```jsonc
+"templateSlots": {
+  "value": { "source": { "kind": "Entity" }, "signal": { "kind": "Text" } },   // paints the state
+  "icon":  { "source": { "kind": "Entity" }, "steps": [Match …], "signal": { "kind": "Attr", "name": "class" } }
+},
+"calls": { "tap": {
+  "service": { "source": { "kind": "Entity", "of": "lock.front_door" },
+               "steps": [{ "kind": "Match", "cases": { "locked": "lock/unlock" }, "otherwise": "lock/lock" }] },
+  "target":  { "entity_id": ["lock.front_door"] } } }
+// build: service reads lock.front_door's state, which `value` paints → tap.seen reads it
+// page:  @post('sse/call/taps/4be03a91c2d0e6f7?node=c_6', {payload: {seen: $_e.s.7f30a2}})
+//        $_e.s.7f30a2 = {"lock.front_door": {"state": "locked"}}
+```
+
+A slider, `c.entitySlider(dump.lights.kjokken)`:
+
+```jsonc
+"calls": { "commit": {
   "service": "light/turn_on",
-  "target":  { "entity_id": ["light.kitchen"] },
+  "target":  { "entity_id": ["light.kjokken"] },
   "data": {
     "brightness": { "source": { "kind": "Posted", "key": "brightness", "type": "int" },
                     "steps": [{ "kind": "Check", "steps": [{ "kind": "Compare", "op": "gte", "to": 1 }] },
                               { "kind": "Check", "steps": [{ "kind": "Compare", "op": "lte", "to": 255 }] }] },
-    "transition": 1
-  }
-}
-// page: @post('sse/call/sliders/' + '51aa8e2f07c3d916' + '?node=c_0_head_0', {payload: {posted: {brightness: Number($_c_0_head_0__slide)}}})
+    "transition": 1 } } }
+// build: no field of what it does reads state → no seen
+// page:  @post('sse/call/sliders/51aa8e2f07c3d916?node=c_0_head_0', {payload: {posted: {brightness: Number($_c_0_head_0__slide)}, seen: {}}})
 ```
 
 A plain call carries only literals and posts nothing. A set call's target is
@@ -151,10 +168,10 @@ a string inside a slot.
 **Scala.**
 
 - `Dashboard.calls: Map[CallId, CallDecl]` is the allowlist, read off the nodes' `calls`.
-- `Ready` compiles every field beside it.
+- `Ready` compiles every field, computes each id, and adds each node's `seen` slots.
 - The route is `POST /sse/call/:slug/:callId`.
+- Every call field's entities join `watchedEntities`, which narrows what the feed asks HA for.
 - `validate` refuses:
-  - one id with two different declarations;
   - a `Posted` source outside a call;
   - a declaration whose entity read names no entity;
   - a call field that reads a node variable. The press is answered as a decision, and a decision
@@ -164,24 +181,30 @@ a string inside a slot.
 
 **Goes:**
 
-- the six route slots and their `readByRenderer` entries;
+- the six route slots, the state-picked `service` handler slot, and their `readByRenderer`
+  entries;
 - `TapCall`, `TapCall.targetOf`, `CallSet`;
 - `declaredCalls`' slot reading;
 - `validate`'s `callSetErrors`;
 - `jsonLiteral`'s splice;
 - `withData`;
 - `Server.callData`'s one-key rule;
-- the route's `:domain/:service/:kind/:id`.
+- the route's `:domain/:service/:kind/:id`;
+- Pkl's `setId`.
 
 **Tests:**
 
 - a property: equal declarations share an id, and different ones never do;
+- a property: a node's `seen` holds exactly the reads both its painted slots and the call's
+  `service`/`data` make;
 - presses that are refused:
   - an unknown id;
+  - a node that does not place the call;
   - a `seen` that does not match now;
   - a forged `seen`;
   - a posted value of the wrong type;
-  - a missing posted key.
+  - a missing posted key;
+- a press that is not refused: a set call whose node counts the set, after a member changed.
 
 **Measure:** every tap's bytes change, so run RenderBench before and after (`page`,
 `tickRender`), plus the goldens.
@@ -287,8 +310,9 @@ place a `jsValue`, or a number or bool slot.
    - the Pkl `CallDecl`, `CallSlot` and node `calls`;
    - fields as value expressions;
    - the `Posted` source, typed;
-   - `posted` and `seen`, with the confirmation rule;
-   - the Scala decode, `Dashboard.calls` by id, the route and `tapMod.post`;
+   - `posted`, and each node's `seen` decided in the `Ready` walk;
+   - the Scala decode, the id computed there, `Dashboard.calls` by id, the route and
+     `tapMod.post`;
    - the deletions;
    - bench and goldens. Closes #533.
 3. **The `Check` step** (C), with the slider and the wheel checked to their ranges.
@@ -308,7 +332,7 @@ place a `jsValue`, or a number or bool slot.
 - ADR 0035: the `Posted` source and the `Check` step;
 - `writing-dashboards.md`: exclude;
 - `writing-components.md`: `tapMod.post` and the number slot;
-- `terminology.md`: declared call, call id, posted, seen, exclusion;
+- `terminology.md`: declared call, call id, posted, seen, painted slot, exclusion;
 - the module `CLAUDE.md` route paragraph.
 
 ## Decided
@@ -320,12 +344,17 @@ All on 2026-11-14:
 - No shortcut for one entity yet.
 - No HA version check.
 - Devices and labels come later, and the shape allows them.
-- The id is a content hash.
+- The id is a content hash, computed by Scala from the decoded declaration.
+- A node may place several calls, each by name, with `<name>.callId` and `<name>.seen` filled
+  by the renderer.
 - Every field is a value expression: the `Match` is reused, with no `ByState` type.
 - The server runs its own evaluation:
-  - `seen` confirms what the call does, and a mismatch is refused;
-  - what it reaches is decided at the press;
+  - `seen` holds the reads of what the call does (`service`, `data`) that the node paints,
+    decided per node at build, and a mismatch is refused;
+  - reads the node does not paint, and what the call reaches, are decided at the press;
   - only `posted` values are client input to HA.
+- A call field may read a fetch, answered at the press.
+- Putting every tap on one post with `conn` is a later step, not this plan.
 - `Posted(key, type)` is the source for a posted value, not `Var`.
 - Every entity read in a declaration names its entity.
 - Validation is a `Check` step, not a call-level condition.
