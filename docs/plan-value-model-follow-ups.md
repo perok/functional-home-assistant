@@ -68,13 +68,12 @@ is built, and the order below is a proposal.
   step's frames and keeps the old state). A CEL failure would become that error instead of a
   `"cel error: …"` string carried as a value, which is the one way a step meets an input its type
   rules out (`First`, `AllOf` or `AnyOf` over a non-list).
+- **A cache, or one render per change set:** a leaf's patch is shared through `RenderCache`
+  (one generation per node, single-flight, keyed by what the render read), because each session
+  pulls on its own fiber at its own store version (ADR 0012). Most viewers are awake at once, so
+  rendering each changed node once per recorded change set and handing the bytes to every session
+  at that version may be simpler. Stragglers, resumes and per-viewer visibility are what the cache
+  absorbs today; check what each would cost first. Measure with `RenderCacheContentionSuite` and
+  `tickRender`.
 - **The tap call design:** a declared call id in place of the URL a template spells out. A
   `number` slot type (slot-views point 4) waits on it.
-- **One machinery for "a value picks what fills a region":** a state `c.iff` is a bake group
-  chosen by `Activation.State` (`SurfaceGraph`, the flip); a set member picks its first holding
-  clause and the set its present members (`MemberGraph`, a Scala-written `fh-group` wrapper).
-  Both are "the first branch that holds renders", and tabs and `c.iff` over a variable are the
-  same with a per-viewer value. With every decision a value expression, a region filled by a value
-  (the branch a bool or a variable picks, or one node per id of a list) could serve all of them,
-  and `SetNode` would become a card. ADR 0007's "a member container is a per-entity
-  comprehension, not a gate" is the argument to answer. Goes with the regions round.
