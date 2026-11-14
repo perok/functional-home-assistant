@@ -1,19 +1,23 @@
 # Plan: a tap names a declared call, and a call can exclude
 
-Three things in one round. B needs A, because a press has to name which exclusion applies,
-and today's URL names a call only by service, target and value key. C's call value lives in A's
-declaration. C's `number` slot type needs neither.
+Three parts in one round:
 
-A. **A call is declared once and the page names it by id**, the design round
-   `plan-value-model-follow-ups.md` lists as "the tap call design". This was the maintainer's idea:
-   the call id is the only thing in the template besides live values.
-B. **HA 2026.11's `exclude`** (#692): a call on a floor or room can leave entities out. Those are
-   either fixed, or the ones a value expression picks at the press ("the kitchen light, while
-   it is night").
-C. **Numbers:** the `number` slot type that slot-views point 4 deferred to this round, and a
-   call's value typed by its declaration ("services/values are another layer").
+- **A. A call is declared once, as value expressions, and the page names it by id.** This is
+  the design round `plan-value-model-follow-ups.md` lists as "the tap call design". It is the
+  maintainer's idea: the call id is the only thing in the template besides live values.
+- **B. HA 2026.11's `exclude`** (#692): a call on a floor or a room can leave entities out.
+  What it leaves out is fixed, or picked at the press by a value expression ("the kitchen
+  light, while it is night").
+- **C. Numbers:**
+  - a value the page posts, typed and checked by its declaration;
+  - the `number` slot type that slot-views point 4 deferred to this round;
+  - point 4's own check.
 
-Nothing here is built. The parts are A, B and C; steps and questions are numbered.
+B needs A: a press has to name which exclusion applies, and today's URL names a call only by
+service, target and value key. C's posted value lives in A's declaration. C's `number` slot
+type needs neither.
+
+Nothing here is built.
 
 ## Today
 
@@ -24,64 +28,133 @@ Nothing here is built. The parts are A, B and C; steps and questions are numbere
 `TapCall(service, target, dataKey)` from it and admits the call only if `Dashboard.calls` has that
 key (ADR 0023).
 
-A set call's `targetSet` carries its tally, which the press narrows to the members present then
-(`Renderer.pressed`). The value is free: `Call.with(key, v)` splices `v` into the page, and the
-server forwards whatever the body says.
+A set call's `targetSet` carries its tally as a JSON string, and the press narrows it to the
+members present then (`Renderer.pressed`). The value is free: `Call.with(key, v)` splices `v`
+into the page, and the server forwards whatever the body's one key says.
 
-An exclusion has nowhere to go:
-
-- the URL cannot carry a condition;
-- the allowlist key cannot tell apart two calls that differ only in what they leave out.
+A service the state picks (the four `CallByState` domains) is a handler signal holding a
+`Match`'s output, spliced into the URL (ADR 0016).
 
 ## A. A declared call, named by id
 
+**The declaration.** Every part of an HA call is a value expression (`ValueExpr`, ADR 0035):
+
+- `service`;
+- each target key;
+- each `exclude` key (B);
+- each `data` key.
+
+Target and `exclude` keys are HA's own names, `entity_id`, `area_id` and `floor_id`. Each holds a
+list of value expressions, each a `text` or a `list(text)`, and the key's ids are their
+concatenation. A bare literal is a literal expression, so `"entity_id": ["light.kitchen"]` is
+valid. A set is its tally, a `Present`, which is already a `list(text)`.
+
+`device_id` and `label_id` join later as keys in the target, in `exclude` and in `ServiceTarget`,
+with nothing else changing; the dump has no labels yet. A fixed `.with` value is a literal under
+its `data` key, and a call may carry any number of `data` keys.
+
+**Every entity read is named.** A slot's wire leaves out `of` where it is the card's subject.
+A declaration has no subject, and it is hashed: two locks' declarations would otherwise be
+equal and share an id, and a press on one would act on the other.
+
+**The id** is the first 16 hex characters of the SHA-256 of the declaration as the wire carries
+it, which is how `setId` is built today:
+
+- equal calls on two cards share one id;
+- an edit elsewhere keeps the id;
+- an edited call gets a new id, and a stale page's press with the old one is refused, as a stale
+  URL is today.
+
 **Pkl.**
 
-- `tapRoute` writes one placed slot, `callId`. It also writes the call's declaration on that
-  slot: a `CallSlot extends Slot` with a `hidden declares: Mapping<String, CallDecl>`.
-- The node's wire field `fixed calls: Mapping<String, CallDecl>` is computed from its slots, as
-  `templateSlots` is. No card changes.
-- `CallDecl` is the call as data: `service`, `target`, `exclude` (B) and `data` (C).
-- The id is `renderValue(decl).sha256.take(16)`, as `setId` is today:
-  - equal calls on two cards share one id;
-  - an edit elsewhere in the dashboard keeps the id;
-  - an edited call gets a new id, which a stale page's press is refused for, as a stale URL is
-    today.
-- It is not node-keyed: `pathId` ids move on edit, and the maintainer ruled out a build
-  parameter on the press.
+- `tapRoute` writes one placed slot, `callId`.
+- The declaration rides on that slot: a `CallSlot extends Slot` carrying
+  `hidden declares: Mapping<String, CallDecl>`.
+- The node's wire field `fixed calls` is computed from its slots, as `templateSlots` is, so no
+  card changes.
+- The template places one piece, `tapMod.post`, which writes the URL
+  `'sse/call/{{dashboardSlug}}/' + callId.jsValue + '?node={{id}}'` and the body. It replaces the
+  three spellings above, so the slider and the wheel stop knowing the route.
 
-**The wire.** A declaration uses HA's target keys, each a list, so `device_id` and `label_id`
-can join later as keys and need no new shape. A set is our own key: it is narrowed at the
-press. Today the set's tally is a JSON string inside a slot; here it is decoded as an object.
+**What the page sends.** The press posts the call id and a body of two halves:
 
-```json
-"templateSlots": { "callId": { "source": "9c1e0b7a44d2f310", "type": "textRaw" } },
+- `posted`: the values the card supplies, the drag's brightness or the wheel's hue. Only these
+  reach HA from the client. Each is read by a `Posted(key, type)` source (C).
+- `seen`: what the page showed of what the call DOES, the output of each derived `service` or
+  `data` field. The renderer binds those fields' own expressions as handler signals, patched in
+  the frame that paints the state (ADR 0016), so they are written once, in the declaration.
+
+Target and `exclude` are never sent.
+
+**What the server does at the press:**
+
+1. **Look up the id** in `Dashboard.calls`. A miss is refused: admission by declaration is ADR
+   0023's rule, unchanged.
+2. **Decode each `posted` value** as its source's declared type, and run the fields. A field
+   that ends with no value (a failed `Check`, C) refuses the press and names the field.
+3. **Evaluate every field over the store now.** Each `seen` must equal what its field gives now;
+   a mismatch is refused.
+4. **Call HA** with what the server evaluated.
+
+**What is confirmed:** what a call does (its `service` and `data`) is checked against `seen`;
+what it reaches (its target and `exclude`) is decided at the press, as a set call is (ADR
+0023). The edge is a single target picked from state, such as the scene played last, which
+would be decided unconfirmed; no tap does that today.
+
+**Trust.** The server only ever runs its own evaluation of a declared call:
+
+- the call id selects among the dashboard's declared calls;
+- `seen` can only refuse;
+- `posted` values are the one client input that reaches HA, which is why they are typed and
+  checked (C).
+
+`seen` is a race guard. A press that races a state change is refused with a toast (ADR 0024)
+rather than acting on state the screen did not show. A lock's double-tap therefore refuses the
+second tap, where today it sends unlock twice; neither does the opposite of what was shown.
+ADR 0016 becomes "you act on what you saw, or not at all".
+
+The service no longer needs listable outputs, so a CEL may pick it. That closes #533.
+
+**The wire.** The ids below are illustrative, and the before forms are in
+`snapshots/taps.json` and `sliders.json`.
+
+```jsonc
+"templateSlots": { "callId": { "source": "4be03a91c2d0e6f7", "type": "textRaw" } },
 "calls": {
-  "9c1e0b7a44d2f310": {
-    "service": "light/turn_off",
-    "target": { "floor_id": ["loft"] },
-    "exclude": { "area_id": ["soverom"], "sets": [ { "kind": "Present", "candidates": ["light.kjokken"], "when": { … } } ] }
+  "4be03a91c2d0e6f7": {
+    "service": { "source": { "kind": "Entity", "of": "lock.front_door" },
+                 "steps": [{ "kind": "Match", "cases": { "locked": "lock/unlock" }, "otherwise": "lock/lock" }] },
+    "target":  { "entity_id": ["lock.front_door"] }
   }
 }
+// page: @post('sse/call/taps/' + '4be03a91c2d0e6f7' + '?node=c_6', {payload: {seen: {service: $_e.lock.front_door.t9c2e}}})
+
+"51aa8e2f07c3d916": {
+  "service": "light/turn_on",
+  "target":  { "entity_id": ["light.kitchen"] },
+  "data": {
+    "brightness": { "source": { "kind": "Posted", "key": "brightness", "type": "int" },
+                    "steps": [{ "kind": "Check", "steps": [{ "kind": "Compare", "op": "gte", "to": 1 }] },
+                              { "kind": "Check", "steps": [{ "kind": "Compare", "op": "lte", "to": 255 }] }] },
+    "transition": 1
+  }
+}
+// page: @post('sse/call/sliders/' + '51aa8e2f07c3d916' + '?node=c_0_head_0', {payload: {posted: {brightness: Number($_c_0_head_0__slide)}}})
 ```
 
-`data` is `{"kind": "Fixed", "key", "value"}` or `{"kind": "Supplied", "key", "type", …}` (C).
-
-**A service the state picks** (the four `CallByState` domains): `callId` is a handler signal over
-the same `Match`, but its arms are ids and each arm's call is declared. ADR 0016's "you send what
-you saw" holds as it does today: the signal arrives in the frame that paints the state.
-
-**The template** places one piece, `tapMod.post(value)`: `@post('sse/call/{{dashboardSlug}}/' +
-callId.jsValue + '?node={{id}}', …)`. It replaces the three spellings above, so the slider and
-the wheel stop knowing the route.
+A plain call carries only literals and posts nothing. A set call's target is
+`"entity_id": [{ "source": { "kind": "Present", … } }]`, decoded as an object where today it is
+a string inside a slot.
 
 **Scala.**
 
-- `Dashboard.calls: Map[CallId, CallDecl]` is the allowlist, read off the nodes' `calls`. In
-  `Ready`, each entry's set and exclusion are compiled beside it.
-- The route is `POST /sse/call/:slug/:callId`. A lookup miss is the refusal it is today.
-- `validate` refuses one id with two different declarations; content ids make that a collision
-  or a hand-built node.
+- `Dashboard.calls: Map[CallId, CallDecl]` is the allowlist, read off the nodes' `calls`.
+- `Ready` compiles every field beside it.
+- The route is `POST /sse/call/:slug/:callId`.
+- `validate` refuses:
+  - one id with two different declarations;
+  - a `Posted` source outside a call;
+  - a declaration whose entity read names no entity.
 
 **Goes:**
 
@@ -89,23 +162,35 @@ the wheel stop knowing the route.
 - `TapCall`, `TapCall.targetOf`, `CallSet`;
 - `declaredCalls`' slot reading;
 - `validate`'s `callSetErrors`;
+- `jsonLiteral`'s splice;
+- `withData`;
+- `Server.callData`'s one-key rule;
 - the route's `:domain/:service/:kind/:id`.
 
-**Measure:** every tap's bytes change. Run RenderBench before and after (`page`, `tickRender`),
-plus the goldens, which a press changes wholesale.
+**Tests:**
+
+- a property: equal declarations share an id, and different ones never do;
+- presses that are refused:
+  - an unknown id;
+  - a `seen` that does not match now;
+  - a forged `seen`;
+  - a posted value of the wrong type;
+  - a missing posted key.
+
+**Measure:** every tap's bytes change, so run RenderBench before and after (`page`,
+`tickRender`), plus the goldens.
 
 ## B. Exclude
 
-**HA** (core#187290, in 2026.11): a target takes `exclude:` with the target's own keys (`entity_id`,
-`device_id`, `area_id`, `floor_id`, `label_id`).
+**HA** (core#187290, in 2026.11): a target takes `exclude:` with the target's own keys.
 
 - It is resolved every time the call runs, so a light added to an excluded room later stays
   excluded.
 - An exclusion that matches nothing has no effect.
 - An exclude-only target is invalid.
-- `ENTITY_SERVICE_FIELDS` gained it, and in 2026.11.1 the WS `call_service` validates `target`
-  with exactly that, so our call path takes it as it is. So does the REST path, which merges
-  the target into the data.
+- `cv.ENTITY_SERVICE_FIELDS` gained it, and in 2026.11.1 the WS `call_service` validates
+  `target` with exactly that. So our call path takes it as it is, and so does the REST path,
+  which merges the target into the data.
 
 **Pkl.** `Call.exclude(x)` takes an entity, a room, a floor or a set:
 
@@ -118,103 +203,118 @@ c.tap.lights.off(dump.floors.loft)
   .exclude(q.from(List(dump.lights.kjokken)).where((e) -> q.entity(dump.entities.binary_sensor_natt).stateIs("on")))
 ```
 
-The `where` belongs to the set, not to the call: the exclusion IS the set, and what it leaves
+The `where` belongs to the set, not to the call. The exclusion IS the set, and what it leaves
 out is its members present at the press. A guard can then differ per member (each light's own
-motion sensor), and the same set can be counted in a label. A shortcut for one entity under
-one condition, whose lambda ignores its member, is a later design.
+motion sensor), and the same set can be counted in a label.
 
-A set lowers to its tally (`Value.Present`): candidates, and a guard per candidate. Any
-condition is a guard: the simple shapes, CEL, an entity named with `q.entity`, a count. So the
-exclusion is whatever the value expressions can decide. Time is only an example: an HA helper
-such as Times of the Day or Schedule turns it into an entity's state, which the store already
-follows. Nothing new is needed in the value language.
+Any condition is a guard: the simple shapes, CEL, an entity named with `q.entity`, a count. Time
+is only an example of one. An HA helper such as Times of the Day or Schedule turns time into an
+entity's state, which the store already follows.
 
-**At the press**, decided then by the set call's rule rather than ADR 0016's "you send what
-you saw". ADR 0016's case is a service that inverts, where fresh state does the opposite of what
-was shown. An exclusion is membership, which a set call already decides at the press.
+A shortcut for one entity under one condition, whose lambda ignores its member, is a later
+design. So is one guard shared by many candidates: the wire writes a set's guard once per
+candidate today, which matters for big sets, not for B.
 
-- fixed exclusions go to HA as they are;
-- each set is narrowed by `presentOf`, the code a set call uses, to `exclude.entity_id`;
-- for a target that is already an entity list (a set call), the exclusion is subtracted here,
-  and an empty result is the `NoContent` it is today, rather than a call HA would answer with
-  "nothing referenced".
+**The wire.**
 
-**Safety:** an exclusion only narrows a call and never reaches the browser, so admission is
-unchanged. Entities a guard reads join `watchedEntities`, as a set call's guards do.
+```jsonc
+"exclude": { "area_id": ["soverom"],
+             "entity_id": [{ "source": { "kind": "Present", "candidates": ["light.kjokken"],
+               "when": { "light.kjokken": { "source": { "kind": "Entity", "of": "binary_sensor.natt" },
+                                            "steps": [{ "kind": "Compare", "op": "eq", "to": "on" }] } } } }] }
+```
 
-**ha-api.** `ServiceTarget` becomes HA's shape: id lists per key, plus an exclude of the same
-shape. `Entities` is a list.
+**At the press**, the server evaluates `exclude` with the rest, unconfirmed (A). For a target
+that is already an entity list (a set call), the exclusion is subtracted here, and an empty
+result is the `NoContent` it is today. Otherwise the exclusion goes to HA as `exclude`.
 
-**Not now, but the shape allows it:** devices and labels, in the target and in `exclude`. HA
-takes `device_id` and `label_id` in both. The dump has devices; labels would first need to join
-the dump. Each would be one more key in the declaration and in `ServiceTarget`.
+The entities a guard reads join `watchedEntities`, as a set call's guards do.
 
-**No HA version check.** HA before 2026.11 refuses `exclude`, and that refusal is the normal
-refused-press path (ADR 0024).
+**ha-api.** `ServiceTarget` becomes HA's shape: id lists per key, plus an `exclude` of the same
+shape.
+
+**No HA version check.** HA before 2026.11 refuses `exclude`, and that is the ordinary refused
+press (ADR 0024).
 
 ## C. Numbers
 
-**A call's value is declared.** `CallDecl.data` takes one of two forms:
+**A posted value.** `Posted(key, type)` is a source that reads the value the press posted under
+`posted.<key>`, decoded as `type` (a `ValueType`: `int`, `real`, `bool`, `text`, `list(real)`). It
+is not `Var`: a node variable is held by the server per viewer across requests and read by any
+slot, while a posted value lives for one request and only its call reads it. The key is the
+page's name, separate from HA's field, so `brightness_pct` can read `Posted("pct", int)`.
 
-- **fixed:** `.with("effect", "colorloop")`. The value is in the declaration and the page sends
-  nothing. `dataValue` and `jsonLiteral`'s splice go.
-- **supplied by the card:** a key and a type. The slider sends a `number`, with the range it
-  draws; the wheel sends a list of two numbers. The server checks the body against the
-  declared type and range, and refuses a mismatch as ADR 0024 refuses anything else.
+- **The slider** posts its drag as `int`, checked to its range.
+- **The wheel** posts `[h, s]` as `list(real)`.
 
-**A `number` slot type.** `slotMod.number(name)`:
+**A `Check` step.** It passes the value through while its test holds, and otherwise ends with no
+value. The test is steps over the incoming value: Compare, Match or CEL. Two bounds are two
+Checks in a row.
+
+"No value" already exists: unparseable input to `Percent` or `Duration` gives it, and a slot's
+`default` fills it. So in a slot a failed `Check` shows the default. At a call, a field with no
+value refuses the press (A).
+
+The range comes from the Pkl numbers the slider draws, so the two cannot disagree.
+
+**The `number` slot type.** `slotMod.number(name)`:
 
 - the build refuses a reading that is not `int` or `real`, as `bool` refuses a non-bool;
 - `jsValue` and a signal carry it unquoted, and a text hole prints it.
 
-`SlotValue` grows a number. The first customer is the slider: its seed `{slide: '\(valueSlot)'}`
-and `Number($slide)` at the commit.
+`SlotValue` grows a number. The first customer is the slider: its `min`/`max` slots, the seed
+`{slide: '180'}` and the `Number($slide)` that undoes it. Whether `Number(…)` can go also depends
+on what the pinned bundle's `data-bind` writes for a range input, which is spiked first.
 
-**Point 4, after it:** `validate` refuses a text slot's `{{x}}` inside a Datastar expression
-attribute (`data-on:*`, `data-effect`, …), where it is a string pasted into JavaScript. The rule
-is to place a `jsValue`, or a number or bool slot.
+**Point 4:** `validate` refuses a text slot's `{{x}}` inside a Datastar expression attribute
+(`data-on:*`, `data-effect`, …), where it is a string pasted into JavaScript. The rule is to
+place a `jsValue`, or a number or bool slot.
 
 ## Steps
 
 1. **ha-api `ServiceTarget`:** HA's shape with `exclude`. Pure, JSON-tested.
-2. **Declared calls and the id route** (A): Pkl `CallDecl`/`CallSlot`/node `calls`, the Scala
-   decode, `Dashboard.calls` by id, the route, `tapMod.post`, deletions. Bench and goldens.
-3. **Typed values** (C, first half): fixed values leave the page; card values are checked.
-4. **Exclude** (B): fixed and decided; `watchedEntities`; a `UseCaseSuite` case with a floor, an
-   excluded room and a guarded light.
-5. **The `number` slot type** (C, second half) and the slider moved onto it.
+2. **Declared calls** (A):
+   - the Pkl `CallDecl`, `CallSlot` and node `calls`;
+   - fields as value expressions;
+   - the `Posted` source, typed;
+   - `posted` and `seen`, with the confirmation rule;
+   - the Scala decode, `Dashboard.calls` by id, the route and `tapMod.post`;
+   - the deletions;
+   - bench and goldens. Closes #533.
+3. **The `Check` step** (C), with the slider and the wheel checked to their ranges.
+4. **Exclude** (B), fixed and decided, plus `watchedEntities`. A `UseCaseSuite` case covers a
+   floor, an excluded room and a guarded light. Closes #692.
+5. **The `number` slot type** (C), with the slider moved onto it.
 6. **Point 4's check**, if 5 lands clean.
 
 **Docs, with the steps:**
 
-- ADR 0023: admission by declared id;
-- ADR 0016: the handler signal holds ids;
-- ADR 0024, if the route moves its refusal wording;
+- ADR 0023: admission by declared id, and the trust paragraph above;
+- ADR 0016: "you act on what you saw, or not at all", with the `Match` in the declaration;
+- ADR 0024: the mismatch refusal;
+- ADR 0035: the `Posted` source and the `Check` step;
 - `writing-dashboards.md`: exclude;
-- `writing-components.md`: `tapMod.post`, the number slot;
-- `terminology.md`: declared call, call id, exclusion;
+- `writing-components.md`: `tapMod.post` and the number slot;
+- `terminology.md`: declared call, call id, posted, seen, exclusion;
 - the module `CLAUDE.md` route paragraph.
 
-**Issue:** close #692 with step 4.
+## Decided
 
-## Questions
+All on 2026-11-14:
 
-Decided on 2026-11-14:
-
-- an exclusion is decided at the press;
-- C is what "the number addition" meant;
-- no shortcut yet;
-- no HA version check;
-- devices and labels come later, with the shape allowing them (B);
-- the call id is the first 16 hex characters of the SHA-256 of the declaration as the wire
-  carries it, as `setId` is today.
-
-Open:
-
-1. **Order:** land C's call value with the declared calls in step 2 (recommended), since its
-   `data` field is shaped there. The `number` slot type depends on nothing and stays after
-   exclude.
-2. **A service the state picks:** one declaration whose `service` is the `CallByState` table,
-   with the page sending the state it showed (recommended), instead of an id per arm.
-3. **`data` as a map of keys,** each fixed or supplied, so one call can mix the two: a drag's
-   brightness with a fixed transition.
+- An exclusion is decided at the press.
+- C is what "the number addition" meant.
+- No shortcut for one entity yet.
+- No HA version check.
+- Devices and labels come later, and the shape allows them.
+- The id is a content hash.
+- Every field is a value expression: the `Match` is reused, with no `ByState` type.
+- The server runs its own evaluation:
+  - `seen` confirms what the call does, and a mismatch is refused;
+  - what it reaches is decided at the press;
+  - only `posted` values are client input to HA.
+- `Posted(key, type)` is the source for a posted value, not `Var`.
+- Every entity read in a declaration names its entity.
+- Validation is a `Check` step, not a call-level condition.
+- The order is A with C's posted value, then the `Check` step, then B, then the `number` slot
+  type, then point 4.
