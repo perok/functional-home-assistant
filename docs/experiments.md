@@ -273,3 +273,23 @@ leaders per tick.
 
 **Worth asking again if** a profile shows `Keys.into` or `Keys.compare` in a tick's top frames,
 or sets grow to hundreds of candidates.
+
+## cel-java's Pratt parser
+
+2026-11-14, cel-015. **No effect here.**
+
+**Question.** cel 0.15 adds `CelOptions.enablePrattParser`, announced as parsing 6–13x faster
+with 5–7x fewer allocations. Would validation get cheaper?
+
+**How.** `ValidateBench.validated` over its four fixtures, the option off and on through a
+system-property switch in one build: B/op with escape analysis off, µs with it on, two forks.
+
+**Numbers.** Allocation equal to within 800 B (taps 3,576,463 → 3,576,450 B/op, branches
+1,113,298 → 1,112,498); every time inside the error bars (taps 1,279 ± 85 → 1,434 ± 265 µs,
+starter 832 ± 91 → 802 ± 61).
+
+**Verdict.** `Cel` memoizes each source's parse and AST process-wide (`asts`, `names`), so a
+source is parsed once per process and validation never shows the parser.
+
+**Worth asking again if** those caches go (per-validation scoping), or a profile of a cold start
+shows CEL parsing.

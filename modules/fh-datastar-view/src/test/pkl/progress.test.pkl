@@ -85,7 +85,7 @@ facts {
     // The whole is a live CEL slot on the countdown, reading its history.
     local whole = bar.slotsByName["of"].value as slotMod.Reading
     whole.entityId == "sensor.rem"
-    (whole.steps.toList().last as simpleMod.Cel).src.contains("past.transformList")
+    (whole.steps.toList().last as simpleMod.Cel).src.contains("past.map")
     (whole.steps.toList().last as simpleMod.Cel).inputs.toMap() == Map("past", p.history.of(left, p.history.raw(24.h)))
     // A countdown on no device gets the same bar.
     ((barOf(c.progress(left)).slotsByName["of"].value as slotMod.Reading).steps.toList().last as simpleMod.Cel).inputs.toMap()

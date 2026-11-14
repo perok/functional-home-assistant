@@ -256,7 +256,7 @@ peak.of(new slotMod.Reading {
   entityId = entity.entity_id
   steps {
     new simpleMod.Cel {
-      src = "str(math.greatest(past.transformList(i, p, true, p[1])))"
+      src = "str(math.greatest(past.map(p, p[1])))"
       inputs = new Mapping { ["past"] = p.history.of(entity, p.history.raw(7.d)) }
     }
   }
@@ -274,8 +274,9 @@ It is fetched when the slot is read — when its entity changes, or when the
 card is drawn — and kept a while (a 720th of the span for readings, at least
 a minute; one period for statistics), so reading it on every change costs
 nothing. It does not change on its own: nothing redraws a card because
-new history was written. Use `transformList(i, p, keep, value)` to filter and
-map; this CEL has no `filter` or `map`.
+new history was written. `past.filter(p, keep)`, `past.map(p, value)` and
+`past.map(p, keep, value)` filter and map it; `has(value.attr.x)` asks whether
+an attribute is there.
 
 A card of your own that takes a window the way `c.history.chart` does takes
 `p.HistoryWindow` and resolves it with `p.historyWindow(w)`: either a window,
