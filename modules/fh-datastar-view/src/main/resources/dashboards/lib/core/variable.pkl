@@ -114,11 +114,11 @@ class Declaration {
 
   /// Kept out of the page URL: a choice a refresh may forget, such as one
   /// light's control in a set of many. A link naming it is still read.
-  function notInUrl(): Declaration = let (self = this) (self) { inUrl = false }
+  function notInUrl(): this = (this) { inUrl = false }
 
   /// Opened by CEL over `e`'s state, run once as a session opens; it does not
   /// follow the entity afterwards. A result no reader takes keeps [[default]].
-  function withInitialTransform(e: hass.Entity, cel: String): Declaration =
+  function withInitialTransform(e: hass.Entity, cel: String): this =
     let (self = this) let (id = e.entity_id)
       (self) { initialTransform = new InitialTransform { entityId = id; transform = cel } }
 }

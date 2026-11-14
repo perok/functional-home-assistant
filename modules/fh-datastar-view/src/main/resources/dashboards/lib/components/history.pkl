@@ -52,16 +52,16 @@ class HistoryChart extends nodes.Node {
 
   /// A window from the providers, imported or handed in:
   /// `.over((p) -> p.history.statistics(7.d, "hour"))`.
-  function over(w: providersMod.HistoryWindow): HistoryChart =
-    let (self = this) (self) { window = providersMod.historyWindow(w) }
+  function over(w: providersMod.HistoryWindow): this =
+    (this) { window = providersMod.historyWindow(w) }
 
   /// Draw at `w`×`h` instead of the default — wider for a full-width panel,
   /// narrower so labels read larger on a small cell.
-  function size(w: Int(isPositive), h: Int(isPositive)): HistoryChart =
-    let (self = this) (self) { chartWidth = w; chartHeight = h }
+  function size(w: Int(isPositive), h: Int(isPositive)): this =
+    (this) { chartWidth = w; chartHeight = h }
 
   /// Read the window from the nearest [[chooser]] above this chart.
-  function fromChooser(): HistoryChart =
+  function fromChooser(): this =
     over(historyProv.chosen(windowVar, historyProv.presets))
 }
 
