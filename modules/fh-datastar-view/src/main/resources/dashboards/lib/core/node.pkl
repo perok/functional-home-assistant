@@ -287,7 +287,7 @@ abstract class Node extends LayoutNode {
   ///       ["lights_on"] = q.from(lights).where(q.eq(q.stateProp, "on")).count()
   ///     })
   function inputs(vs: Mapping<String, Input>): this =
-    let (self = this) (self) { inputs = vs }
+    (this) { inputs = vs }
 }
 
 /// The entries of `vs` some CEL reading in `slots` names. Values are

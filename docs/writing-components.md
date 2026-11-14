@@ -63,7 +63,7 @@ Four things are going on:
 To let a dashboard set an option in a chain, add a builder that returns `this`:
 
 ```pkl
-  function text(t: String): this = let (self = this) (self) { text = t }
+  function text(t: String): this = (this) { text = t }
 ```
 
 `this` is the class it is called on, a card extending `Banner` included, so

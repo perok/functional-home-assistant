@@ -220,7 +220,7 @@ class Slot {
   function ifTrueElse(yes: String, no: String): String = ifTrue(yes) + ifFalse(no)
 
   /// This slot holding `v`.
-  function of(v: (String|Boolean|Reading)?): this = let (self = this) (self) { value = v }
+  function of(v: (String|Boolean|Reading)?): this = (this) { value = v }
   /// A flag on a [[bool]] slot: set while `b` holds, for a template that reads
   /// it with [[ifSet]]/[[ifUnset]]. Not `of(Boolean)`, since a value can be a real
   /// `false` (`attr:disabled`).

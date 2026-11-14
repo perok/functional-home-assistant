@@ -379,14 +379,15 @@ slot key remains `"class"`.
   that is imported, never rendered.
 - A fluent method returning `new SomeClass { … this … }` needs `let (l = this)`
   first: a bare `this` inside the `new {}` body rebinds to the freshly-built
-  object, not the receiver. The same guard applies to a **self-amending builder
-  method** (`function tapAction(t) = let (self = this) (self) { tapAction = t }`): capture the
-  receiver before the amend body, and name the parameter differently from the
-  property it sets (a same-named param self-references in the amend).
-- **Pkl has no default method parameters**, and a bare `new { … }` cannot infer
-  its parent from a method's parameter type ("Cannot tell which parent to
-  amend") — so a `Listing`-typed argument is passed as `new Listing { … }`, one
-  element at a time, or via the amend form. `then` is a legal identifier;
+  object, not the receiver. A **self-amending builder method** needs the guard
+  only when its body reads the receiver (`let (self = this) (self) { cls = self.cls + … }`);
+  otherwise `function tapAction(t: TapAction): this = (this) { tapAction = t }`, since
+  the amended `(this)` is evaluated outside the body. Either way, name the
+  parameter differently from the property it sets (a same-named param
+  self-references in the amend).
+- **Pkl has no default method parameters.** Since Pkl 0.33 a bare `new { … }`
+  infers its parent from a method's parameter type, so a `Listing`-typed
+  argument can be written `new { … }`. `then` is a legal identifier;
   `else` is reserved and needs backticks at the declaration, in an amend body,
   and at every call site (ADR 0007's `iff` builder is the case that proved it).
 - **`const` is transitive**: a `const` property (or any reference from a class

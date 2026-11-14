@@ -84,10 +84,10 @@ class ProgressCard extends entityMod.EntityCard {
       else if (percent?.device_class == "battery" || running == true) new Listing { bar }
       else new Listing { surfaces.iff(running).then(bar!!) }
 
-  function percent(p: hass.SensorEntity): this = let (self = this) (self) { percent = p }
+  function percent(p: hass.SensorEntity): this = (this) { percent = p }
   /// Also drops a found [[percent]], so the bar is the one asked for.
-  function total(t: hass.SensorEntity): this = let (self = this) (self) { total = t; percent = null }
-  function status(s: hass.SensorEntity): this = let (self = this) (self) { status = s }
+  function total(t: hass.SensorEntity): this = (this) { total = t; percent = null }
+  function status(s: hass.SensorEntity): this = (this) { status = s }
 }
 
 /// Whether it runs, live: `left` above 0, else `percent` between 0 and 100

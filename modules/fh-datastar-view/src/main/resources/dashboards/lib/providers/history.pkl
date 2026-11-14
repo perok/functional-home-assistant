@@ -56,7 +56,7 @@ class Statistics extends Window {
   /// `state_class` has any, and without this such a chart draws nothing.
   fallback: Boolean = false
 
-  function orRaw(): this = let (self = this) (self) { fallback = true }
+  function orRaw(): this = (this) { fallback = true }
 }
 
 /// A window picked by what `by` reads: the case whose `is` it equals, else

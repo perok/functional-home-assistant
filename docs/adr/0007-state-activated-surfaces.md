@@ -178,8 +178,8 @@ say the same thing about the set the author named.
 
 `else` is a Pkl reserved word — backticks at the property, the method, and
 every call site (spike-verified; ADR 0006's gotchas). `.then(..)`/`` .`else`(..) `` take
-`LayoutNode|Listing<LayoutNode>` (Pkl has no default method parameters; a bare
-`new {…}` cannot infer `Listing` from the parameter type, so multi-child
+`LayoutNode|Listing<LayoutNode>` (Pkl has no default method parameters, and a
+bare `new {…}` cannot instantiate a union, even on 0.33, so multi-child
 branches pass `new Listing {…}` or use the amend form). Both members emit
 `bakeAs = "branch"` — `resolveBake` reads the first member's `bakeAs`, so one
 group shares one bake var. Demo entry: `pkl-if.pkl`.
