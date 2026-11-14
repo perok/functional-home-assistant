@@ -2,7 +2,7 @@
 <div class="fh-cell fh-col" id="c">
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="c_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false, t#3: 'on'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=c_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_1?node=c_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0__error = ''))"
   data-fh-node="c_0"
@@ -64,7 +64,7 @@
   data-attr:aria-busy="$_c_3__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">on</span></span></span></div></article><button class="fh-cell fh-press fh-size-large " id="c_4"
-  data-on:click="$_c_4__busy ? '' : @post('sse/call/taps/' + 'light/turn_off' + '/set/59218c0f5861fcb2?node=c_4', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_c_4__busy ? '' : @post('sse/call/taps/call_2?node=c_4', {payload: {posted: {}, seen: {} } })"
   data-indicator="_c_4__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_4__error = ''))"
   data-fh-node="c_4"
@@ -97,7 +97,7 @@
   data-text="$_e.lock.front_door.t#6">locked</span></span></span></div>
 <div class="fh-cell fh-row" id="c_6_features_0"><button class="fh-cell fh-press fh-size-large fh-badged" id="c_6_features_0_0"
   data-signals="{_e: {lock: {front_door: {t#7: true}}}}"
-  data-on:click="$_c_6_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/' + 'lock/lock' + '/entity/lock.front_door?node=c_6_features_0_0', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#7"
+  data-on:click="$_c_6_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/call_3?node=c_6_features_0_0', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#7"
   data-indicator="_c_6_features_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_features_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_features_0_0__error = ''))"
   data-fh-node="c_6_features_0_0"
@@ -110,7 +110,7 @@
   data-class:fh-busy-spin="$_c_6_features_0_0__busy_slow"
   data-attr:aria-busy="$_c_6_features_0_0__busy_slow"><i class="mdi mdi-lock" ></i></span><span class="fh-text"><span class="fh-text-run">Lock</span></span></button><button class="fh-cell fh-press fh-size-large fh-badged" id="c_6_features_0_1"
   data-signals="{_e: {lock: {front_door: {t#8: false}}}}"
-  data-on:click="$_c_6_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/' + 'lock/unlock' + '/entity/lock.front_door?node=c_6_features_0_1', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_c_6_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/call_4?node=c_6_features_0_1', {payload: {posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#8"
   data-indicator="_c_6_features_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_features_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_features_0_1__error = ''))"
@@ -145,7 +145,7 @@
 <div class="fh-cell fh-col" id="s_c_1_self__c_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="s_c_1_self__c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false, t#3: 'on'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_1_self__c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'light/toggle' + '/entity/light.kitchen?node=s_c_1_self__c_0_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_1_self__c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_5?node=s_c_1_self__c_0_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_s_c_1_self__c_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_self__c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_self__c_0_0__error = ''))"
   data-fh-node="s_c_1_self__c_0_0"
@@ -162,7 +162,7 @@
 <div class="fh-cell fh-col" id="s_c_1_self__c_0_1">
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="s_c_1_self__c_0_1_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false, t#3: 'on'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_1_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=s_c_1_self__c_0_1_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_1_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_1?node=s_c_1_self__c_0_1_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_s_c_1_self__c_0_1_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_self__c_0_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_self__c_0_1_0__error = ''))"
   data-fh-node="s_c_1_self__c_0_1_0"
@@ -186,7 +186,7 @@
 <div class="fh-cell fh-col" id="s_c_2_self__c_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="s_c_2_self__c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false, t#3: 'on'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_2_self__c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'light/toggle' + '/entity/light.kitchen?node=s_c_2_self__c_0_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_2_self__c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_5?node=s_c_2_self__c_0_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_s_c_2_self__c_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_2_self__c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_2_self__c_0_0__error = ''))"
   data-fh-node="s_c_2_self__c_0_0"
@@ -203,7 +203,7 @@
 <div class="fh-cell fh-col" id="s_c_2_self__c_0_1">
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="s_c_2_self__c_0_1_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false, t#3: 'on'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_2_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=s_c_2_self__c_0_1_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_2_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_1?node=s_c_2_self__c_0_1_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_s_c_2_self__c_0_1_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_2_self__c_0_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_2_self__c_0_1_0__error = ''))"
   data-fh-node="s_c_2_self__c_0_1_0"
@@ -234,7 +234,7 @@
 <div class="fh-cell fh-col" id="s_c_6_features_1_self__c_0"><h2 class="fh-cell fh-section fh-text" id="s_c_6_features_1_self__c_0_0"><span class="fh-text-run">Open the door?</span></h2>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_6_features_1_self__c_0_1"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'locked', t#10: false, t#11: 'lock/unlock'}}}}"
-  data-class:fh-active="$_e.lock.front_door.t#4">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_6_features_1_self__c_0_1__busy ? '' : $_e.lock.front_door.t#10 ? '' : @post('sse/call/taps/' + $_e.lock.front_door.t#11 + '/entity/lock.front_door?node=s_c_6_features_1_self__c_0_1', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.lock.front_door.t#4">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_6_features_1_self__c_0_1__busy ? '' : $_e.lock.front_door.t#10 ? '' : @post('sse/call/taps/call_6?node=s_c_6_features_1_self__c_0_1', {payload: {posted: {}, seen: {service: $_e.lock.front_door.t#11} } })"
   data-indicator="_s_c_6_features_1_self__c_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_features_1_self__c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_features_1_self__c_0_1__error = ''))"
   data-fh-node="s_c_6_features_1_self__c_0_1"
@@ -250,7 +250,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.lock.front_door.t#6">locked</span></span></span></div></article><button class="fh-cell fh-press fh-size-large " id="s_c_6_features_1_self__c_0_2"
   data-signals="{_e: {lock: {front_door: {t#12: false}}}}"
-  data-on:click="$_s_c_6_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#12 ? '' : @post('sse/call/taps/' + 'lock/open' + '/entity/lock.front_door?node=s_c_6_features_1_self__c_0_2', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_s_c_6_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#12 ? '' : @post('sse/call/taps/call_7?node=s_c_6_features_1_self__c_0_2', {payload: {posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#12"
   data-indicator="_s_c_6_features_1_self__c_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_features_1_self__c_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_features_1_self__c_0_2__error = ''))"
@@ -273,7 +273,7 @@
   data-text="$_e.lock.front_door.t#6">locked</span></span></span></div>
 <div class="fh-cell fh-row" id="s_c_6_self__c_0_0_features_0"><button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_0_0"
   data-signals="{_e: {lock: {front_door: {t#7: true}}}}"
-  data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/' + 'lock/lock' + '/entity/lock.front_door?node=s_c_6_self__c_0_0_features_0_0', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#7"
+  data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/call_3?node=s_c_6_self__c_0_0_features_0_0', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#7"
   data-indicator="_s_c_6_self__c_0_0_features_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_0_0__error = ''))"
   data-fh-node="s_c_6_self__c_0_0_features_0_0"
@@ -286,7 +286,7 @@
   data-class:fh-busy-spin="$_s_c_6_self__c_0_0_features_0_0__busy_slow"
   data-attr:aria-busy="$_s_c_6_self__c_0_0_features_0_0__busy_slow"><i class="mdi mdi-lock" ></i></span><span class="fh-text"><span class="fh-text-run">Lock</span></span></button><button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_0_1"
   data-signals="{_e: {lock: {front_door: {t#8: false}}}}"
-  data-on:click="$_s_c_6_self__c_0_0_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/' + 'lock/unlock' + '/entity/lock.front_door?node=s_c_6_self__c_0_0_features_0_1', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_s_c_6_self__c_0_0_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/call_4?node=s_c_6_self__c_0_0_features_0_1', {payload: {posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#8"
   data-indicator="_s_c_6_self__c_0_0_features_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_0_1__error = ''))"
@@ -329,7 +329,7 @@
 <div class="fh-cell fh-col" id="s_s_c_6_self__c_0_0_features_1_self__c_0"><h2 class="fh-cell fh-section fh-text" id="s_s_c_6_self__c_0_0_features_1_self__c_0_0"><span class="fh-text-run">Open the door?</span></h2>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_s_c_6_self__c_0_0_features_1_self__c_0_1"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'locked', t#10: false, t#11: 'lock/unlock'}}}}"
-  data-class:fh-active="$_e.lock.front_door.t#4">  <div class="fh-tile fh-tappable "  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_1__busy ? '' : $_e.lock.front_door.t#10 ? '' : @post('sse/call/taps/' + $_e.lock.front_door.t#11 + '/entity/lock.front_door?node=s_s_c_6_self__c_0_0_features_1_self__c_0_1', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.lock.front_door.t#4">  <div class="fh-tile fh-tappable "  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_1__busy ? '' : $_e.lock.front_door.t#10 ? '' : @post('sse/call/taps/call_6?node=s_s_c_6_self__c_0_0_features_1_self__c_0_1', {payload: {posted: {}, seen: {service: $_e.lock.front_door.t#11} } })"
   data-indicator="_s_s_c_6_self__c_0_0_features_1_self__c_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_s_c_6_self__c_0_0_features_1_self__c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_s_c_6_self__c_0_0_features_1_self__c_0_1__error = ''))"
   data-fh-node="s_s_c_6_self__c_0_0_features_1_self__c_0_1"
@@ -345,7 +345,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.lock.front_door.t#6">locked</span></span></span></div></article><button class="fh-cell fh-press fh-size-large " id="s_s_c_6_self__c_0_0_features_1_self__c_0_2"
   data-signals="{_e: {lock: {front_door: {t#12: false}}}}"
-  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#12 ? '' : @post('sse/call/taps/' + 'lock/open' + '/entity/lock.front_door?node=s_s_c_6_self__c_0_0_features_1_self__c_0_2', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#12 ? '' : @post('sse/call/taps/call_7?node=s_s_c_6_self__c_0_0_features_1_self__c_0_2', {payload: {posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#12"
   data-indicator="_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error = ''))"
@@ -356,7 +356,7 @@
   data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></dialog></div>
 <!-- ==== as fixtured · patch c_4 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="c_4"
-  data-on:click="$_c_4__busy ? '' : @post('sse/call/taps/' + 'light/turn_off' + '/set/59218c0f5861fcb2?node=c_4', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_c_4__busy ? '' : @post('sse/call/taps/call_2?node=c_4', {payload: {posted: {}, seen: {} } })"
   data-indicator="_c_4__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_4__error = ''))"
   data-fh-node="c_4"
@@ -374,7 +374,7 @@
   data-class:fh-error="$_c_5__error"><span class="fh-text"><span class="fh-text-run">Inline…</span></span></button>
 <!-- ==== as fixtured · patch c_6_features_0_0 ==== -->
 <button class="fh-cell fh-press fh-size-large fh-badged" id="c_6_features_0_0"
-  data-on:click="$_c_6_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/' + 'lock/lock' + '/entity/lock.front_door?node=c_6_features_0_0', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_c_6_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/call_3?node=c_6_features_0_0', {payload: {posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#7"
   data-indicator="_c_6_features_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_features_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_features_0_0__error = ''))"
@@ -389,7 +389,7 @@
   data-attr:aria-busy="$_c_6_features_0_0__busy_slow"><i class="mdi mdi-lock" ></i></span><span class="fh-text"><span class="fh-text-run">Lock</span></span></button>
 <!-- ==== as fixtured · patch c_6_features_0_1 ==== -->
 <button class="fh-cell fh-press fh-size-large fh-badged" id="c_6_features_0_1"
-  data-on:click="$_c_6_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/' + 'lock/unlock' + '/entity/lock.front_door?node=c_6_features_0_1', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_c_6_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/call_4?node=c_6_features_0_1', {payload: {posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#8"
   data-indicator="_c_6_features_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_features_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_features_0_1__error = ''))"
@@ -438,7 +438,7 @@
 <h2 class="fh-cell fh-section fh-text" id="s_c_6_features_1_self__c_0_0"><span class="fh-text-run">Open the door?</span></h2>
 <!-- ==== as fixtured · patch s_c_6_features_1_self__c_0_2 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="s_c_6_features_1_self__c_0_2"
-  data-on:click="$_s_c_6_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#12 ? '' : @post('sse/call/taps/' + 'lock/open' + '/entity/lock.front_door?node=s_c_6_features_1_self__c_0_2', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_s_c_6_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#12 ? '' : @post('sse/call/taps/call_7?node=s_c_6_features_1_self__c_0_2', {payload: {posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#12"
   data-indicator="_s_c_6_features_1_self__c_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_features_1_self__c_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_features_1_self__c_0_2__error = ''))"
@@ -451,7 +451,7 @@
   data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button>
 <!-- ==== as fixtured · patch s_c_6_self__c_0_0_features_0_0 ==== -->
 <button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_0_0"
-  data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/' + 'lock/lock' + '/entity/lock.front_door?node=s_c_6_self__c_0_0_features_0_0', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/call_3?node=s_c_6_self__c_0_0_features_0_0', {payload: {posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#7"
   data-indicator="_s_c_6_self__c_0_0_features_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_0_0__error = ''))"
@@ -466,7 +466,7 @@
   data-attr:aria-busy="$_s_c_6_self__c_0_0_features_0_0__busy_slow"><i class="mdi mdi-lock" ></i></span><span class="fh-text"><span class="fh-text-run">Lock</span></span></button>
 <!-- ==== as fixtured · patch s_c_6_self__c_0_0_features_0_1 ==== -->
 <button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_0_1"
-  data-on:click="$_s_c_6_self__c_0_0_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/' + 'lock/unlock' + '/entity/lock.front_door?node=s_c_6_self__c_0_0_features_0_1', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_s_c_6_self__c_0_0_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/call_4?node=s_c_6_self__c_0_0_features_0_1', {payload: {posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#8"
   data-indicator="_s_c_6_self__c_0_0_features_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_0_1__error = ''))"
@@ -508,7 +508,7 @@
 <h2 class="fh-cell fh-section fh-text" id="s_s_c_6_self__c_0_0_features_1_self__c_0_0"><span class="fh-text-run">Open the door?</span></h2>
 <!-- ==== as fixtured · patch s_s_c_6_self__c_0_0_features_1_self__c_0_2 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="s_s_c_6_self__c_0_0_features_1_self__c_0_2"
-  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#12 ? '' : @post('sse/call/taps/' + 'lock/open' + '/entity/lock.front_door?node=s_s_c_6_self__c_0_0_features_1_self__c_0_2', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#12 ? '' : @post('sse/call/taps/call_7?node=s_s_c_6_self__c_0_0_features_1_self__c_0_2', {payload: {posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#12"
   data-indicator="_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error = ''))"
@@ -523,7 +523,7 @@
 <div class="fh-cell fh-col" id="c">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false, t#3: 'off'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=c_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_1?node=c_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0__error = ''))"
   data-fh-node="c_0"
@@ -585,7 +585,7 @@
   data-attr:aria-busy="$_c_3__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">off</span></span></span></div></article><button class="fh-cell fh-press fh-size-large " id="c_4"
-  data-on:click="$_c_4__busy ? '' : @post('sse/call/taps/' + 'light/turn_off' + '/set/59218c0f5861fcb2?node=c_4', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_c_4__busy ? '' : @post('sse/call/taps/call_2?node=c_4', {payload: {posted: {}, seen: {} } })"
   data-indicator="_c_4__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_4__error = ''))"
   data-fh-node="c_4"
@@ -618,7 +618,7 @@
   data-text="$_e.lock.front_door.t#6">locked</span></span></span></div>
 <div class="fh-cell fh-row" id="c_6_features_0"><button class="fh-cell fh-press fh-size-large fh-badged" id="c_6_features_0_0"
   data-signals="{_e: {lock: {front_door: {t#7: true}}}}"
-  data-on:click="$_c_6_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/' + 'lock/lock' + '/entity/lock.front_door?node=c_6_features_0_0', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#7"
+  data-on:click="$_c_6_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/call_3?node=c_6_features_0_0', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#7"
   data-indicator="_c_6_features_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_features_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_features_0_0__error = ''))"
   data-fh-node="c_6_features_0_0"
@@ -631,7 +631,7 @@
   data-class:fh-busy-spin="$_c_6_features_0_0__busy_slow"
   data-attr:aria-busy="$_c_6_features_0_0__busy_slow"><i class="mdi mdi-lock" ></i></span><span class="fh-text"><span class="fh-text-run">Lock</span></span></button><button class="fh-cell fh-press fh-size-large fh-badged" id="c_6_features_0_1"
   data-signals="{_e: {lock: {front_door: {t#8: false}}}}"
-  data-on:click="$_c_6_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/' + 'lock/unlock' + '/entity/lock.front_door?node=c_6_features_0_1', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_c_6_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/call_4?node=c_6_features_0_1', {payload: {posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#8"
   data-indicator="_c_6_features_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_features_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_features_0_1__error = ''))"
@@ -666,7 +666,7 @@
 <div class="fh-cell fh-col" id="s_c_1_self__c_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_1_self__c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false, t#3: 'off'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_1_self__c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'light/toggle' + '/entity/light.kitchen?node=s_c_1_self__c_0_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_1_self__c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_5?node=s_c_1_self__c_0_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_s_c_1_self__c_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_self__c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_self__c_0_0__error = ''))"
   data-fh-node="s_c_1_self__c_0_0"
@@ -683,7 +683,7 @@
 <div class="fh-cell fh-col" id="s_c_1_self__c_0_1">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_1_self__c_0_1_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false, t#3: 'off'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_1_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=s_c_1_self__c_0_1_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_1_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_1?node=s_c_1_self__c_0_1_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_s_c_1_self__c_0_1_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_self__c_0_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_self__c_0_1_0__error = ''))"
   data-fh-node="s_c_1_self__c_0_1_0"
@@ -707,7 +707,7 @@
 <div class="fh-cell fh-col" id="s_c_2_self__c_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_2_self__c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false, t#3: 'off'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_2_self__c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'light/toggle' + '/entity/light.kitchen?node=s_c_2_self__c_0_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_2_self__c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_5?node=s_c_2_self__c_0_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_s_c_2_self__c_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_2_self__c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_2_self__c_0_0__error = ''))"
   data-fh-node="s_c_2_self__c_0_0"
@@ -724,7 +724,7 @@
 <div class="fh-cell fh-col" id="s_c_2_self__c_0_1">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_2_self__c_0_1_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false, t#3: 'off'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_2_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=s_c_2_self__c_0_1_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable "  data-on:click="$_s_c_2_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_1?node=s_c_2_self__c_0_1_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_s_c_2_self__c_0_1_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_2_self__c_0_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_2_self__c_0_1_0__error = ''))"
   data-fh-node="s_c_2_self__c_0_1_0"
@@ -774,7 +774,7 @@
 <div class="fh-cell fh-col" id="c">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#3: 'unavailable'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=c_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_1?node=c_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0__error = ''))"
   data-fh-node="c_0"
@@ -836,7 +836,7 @@
   data-attr:aria-busy="$_c_3__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Kitchen</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">unavailable</span></span></span></div></article><button class="fh-cell fh-press fh-size-large " id="c_4"
-  data-on:click="$_c_4__busy ? '' : @post('sse/call/taps/' + 'light/turn_off' + '/set/59218c0f5861fcb2?node=c_4', {filterSignals:{exclude:'.*'}})"
+  data-on:click="$_c_4__busy ? '' : @post('sse/call/taps/call_2?node=c_4', {payload: {posted: {}, seen: {} } })"
   data-indicator="_c_4__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_4__error = ''))"
   data-fh-node="c_4"
@@ -869,7 +869,7 @@
   data-text="$_e.lock.front_door.t#6">unavailable</span></span></span></div>
 <div class="fh-cell fh-row" id="c_6_features_0"><button class="fh-cell fh-press fh-size-large fh-badged" id="c_6_features_0_0"
   data-signals="{_e: {lock: {front_door: {t#7: true}}}}"
-  data-on:click="$_c_6_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/' + 'lock/lock' + '/entity/lock.front_door?node=c_6_features_0_0', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#7"
+  data-on:click="$_c_6_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/call_3?node=c_6_features_0_0', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#7"
   data-indicator="_c_6_features_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_features_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_features_0_0__error = ''))"
   data-fh-node="c_6_features_0_0"
@@ -882,7 +882,7 @@
   data-class:fh-busy-spin="$_c_6_features_0_0__busy_slow"
   data-attr:aria-busy="$_c_6_features_0_0__busy_slow"><i class="mdi mdi-lock" ></i></span><span class="fh-text"><span class="fh-text-run">Lock</span></span></button><button class="fh-cell fh-press fh-size-large fh-badged" id="c_6_features_0_1"
   data-signals="{_e: {lock: {front_door: {t#8: true}}}}"
-  data-on:click="$_c_6_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/' + 'lock/unlock' + '/entity/lock.front_door?node=c_6_features_0_1', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#8"
+  data-on:click="$_c_6_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/call_4?node=c_6_features_0_1', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#8"
   data-indicator="_c_6_features_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_features_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_features_0_1__error = ''))"
   data-fh-node="c_6_features_0_1"
@@ -916,7 +916,7 @@
 <div class="fh-cell fh-col" id="s_c_1_self__c_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_1_self__c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#3: 'unavailable'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_c_1_self__c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'light/toggle' + '/entity/light.kitchen?node=s_c_1_self__c_0_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_c_1_self__c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_5?node=s_c_1_self__c_0_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_s_c_1_self__c_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_self__c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_self__c_0_0__error = ''))"
   data-fh-node="s_c_1_self__c_0_0"
@@ -933,7 +933,7 @@
 <div class="fh-cell fh-col" id="s_c_1_self__c_0_1">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_1_self__c_0_1_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#3: 'unavailable'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_c_1_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=s_c_1_self__c_0_1_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_c_1_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_1?node=s_c_1_self__c_0_1_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_s_c_1_self__c_0_1_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_self__c_0_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_self__c_0_1_0__error = ''))"
   data-fh-node="s_c_1_self__c_0_1_0"
@@ -957,7 +957,7 @@
 <div class="fh-cell fh-col" id="s_c_2_self__c_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_2_self__c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#3: 'unavailable'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_c_2_self__c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'light/toggle' + '/entity/light.kitchen?node=s_c_2_self__c_0_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_c_2_self__c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_5?node=s_c_2_self__c_0_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_s_c_2_self__c_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_2_self__c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_2_self__c_0_0__error = ''))"
   data-fh-node="s_c_2_self__c_0_0"
@@ -974,7 +974,7 @@
 <div class="fh-cell fh-col" id="s_c_2_self__c_0_1">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_2_self__c_0_1_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#3: 'unavailable'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_c_2_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/' + 'homeassistant/toggle' + '/entity/light.kitchen?node=s_c_2_self__c_0_1_0', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.light.kitchen.t#1">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_c_2_self__c_0_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/taps/call_1?node=s_c_2_self__c_0_1_0', {payload: {posted: {}, seen: {} } })"
   data-indicator="_s_c_2_self__c_0_1_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_2_self__c_0_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_2_self__c_0_1_0__error = ''))"
   data-fh-node="s_c_2_self__c_0_1_0"
@@ -999,7 +999,7 @@
 <div class="fh-cell fh-col" id="s_c_6_features_1_self__c_0"><h2 class="fh-cell fh-section fh-text" id="s_c_6_features_1_self__c_0_0"><span class="fh-text-run">Open the door?</span></h2>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_6_features_1_self__c_0_1"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'unavailable', t#10: true, t#11: 'lock/lock'}}}}"
-  data-class:fh-active="$_e.lock.front_door.t#4">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_c_6_features_1_self__c_0_1__busy ? '' : $_e.lock.front_door.t#10 ? '' : @post('sse/call/taps/' + $_e.lock.front_door.t#11 + '/entity/lock.front_door?node=s_c_6_features_1_self__c_0_1', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.lock.front_door.t#4">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_c_6_features_1_self__c_0_1__busy ? '' : $_e.lock.front_door.t#10 ? '' : @post('sse/call/taps/call_6?node=s_c_6_features_1_self__c_0_1', {payload: {posted: {}, seen: {service: $_e.lock.front_door.t#11} } })"
   data-indicator="_s_c_6_features_1_self__c_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_features_1_self__c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_features_1_self__c_0_1__error = ''))"
   data-fh-node="s_c_6_features_1_self__c_0_1"
@@ -1015,7 +1015,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.lock.front_door.t#6">unavailable</span></span></span></div></article><button class="fh-cell fh-press fh-size-large " id="s_c_6_features_1_self__c_0_2"
   data-signals="{_e: {lock: {front_door: {t#12: true}}}}"
-  data-on:click="$_s_c_6_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#12 ? '' : @post('sse/call/taps/' + 'lock/open' + '/entity/lock.front_door?node=s_c_6_features_1_self__c_0_2', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#12"
+  data-on:click="$_s_c_6_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#12 ? '' : @post('sse/call/taps/call_7?node=s_c_6_features_1_self__c_0_2', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#12"
   data-indicator="_s_c_6_features_1_self__c_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_features_1_self__c_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_features_1_self__c_0_2__error = ''))"
   data-fh-node="s_c_6_features_1_self__c_0_2"
@@ -1037,7 +1037,7 @@
   data-text="$_e.lock.front_door.t#6">unavailable</span></span></span></div>
 <div class="fh-cell fh-row" id="s_c_6_self__c_0_0_features_0"><button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_0_0"
   data-signals="{_e: {lock: {front_door: {t#7: true}}}}"
-  data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/' + 'lock/lock' + '/entity/lock.front_door?node=s_c_6_self__c_0_0_features_0_0', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#7"
+  data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/call_3?node=s_c_6_self__c_0_0_features_0_0', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#7"
   data-indicator="_s_c_6_self__c_0_0_features_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_0_0__error = ''))"
   data-fh-node="s_c_6_self__c_0_0_features_0_0"
@@ -1050,7 +1050,7 @@
   data-class:fh-busy-spin="$_s_c_6_self__c_0_0_features_0_0__busy_slow"
   data-attr:aria-busy="$_s_c_6_self__c_0_0_features_0_0__busy_slow"><i class="mdi mdi-lock" ></i></span><span class="fh-text"><span class="fh-text-run">Lock</span></span></button><button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_0_1"
   data-signals="{_e: {lock: {front_door: {t#8: true}}}}"
-  data-on:click="$_s_c_6_self__c_0_0_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/' + 'lock/unlock' + '/entity/lock.front_door?node=s_c_6_self__c_0_0_features_0_1', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#8"
+  data-on:click="$_s_c_6_self__c_0_0_features_0_1__busy ? '' : $_e.lock.front_door.t#8 ? '' : @post('sse/call/taps/call_4?node=s_c_6_self__c_0_0_features_0_1', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#8"
   data-indicator="_s_c_6_self__c_0_0_features_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_0_1__error = ''))"
   data-fh-node="s_c_6_self__c_0_0_features_0_1"
@@ -1087,7 +1087,7 @@
 <div class="fh-cell fh-col" id="s_s_c_6_self__c_0_0_features_1_self__c_0"><h2 class="fh-cell fh-section fh-text" id="s_s_c_6_self__c_0_0_features_1_self__c_0_0"><span class="fh-text-run">Open the door?</span></h2>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_s_c_6_self__c_0_0_features_1_self__c_0_1"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'unavailable', t#10: true, t#11: 'lock/lock'}}}}"
-  data-class:fh-active="$_e.lock.front_door.t#4">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_1__busy ? '' : $_e.lock.front_door.t#10 ? '' : @post('sse/call/taps/' + $_e.lock.front_door.t#11 + '/entity/lock.front_door?node=s_s_c_6_self__c_0_0_features_1_self__c_0_1', {filterSignals:{exclude:'.*'}})"
+  data-class:fh-active="$_e.lock.front_door.t#4">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_1__busy ? '' : $_e.lock.front_door.t#10 ? '' : @post('sse/call/taps/call_6?node=s_s_c_6_self__c_0_0_features_1_self__c_0_1', {payload: {posted: {}, seen: {service: $_e.lock.front_door.t#11} } })"
   data-indicator="_s_s_c_6_self__c_0_0_features_1_self__c_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_s_c_6_self__c_0_0_features_1_self__c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_s_c_6_self__c_0_0_features_1_self__c_0_1__error = ''))"
   data-fh-node="s_s_c_6_self__c_0_0_features_1_self__c_0_1"
@@ -1103,7 +1103,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.lock.front_door.t#6">unavailable</span></span></span></div></article><button class="fh-cell fh-press fh-size-large " id="s_s_c_6_self__c_0_0_features_1_self__c_0_2"
   data-signals="{_e: {lock: {front_door: {t#12: true}}}}"
-  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#12 ? '' : @post('sse/call/taps/' + 'lock/open' + '/entity/lock.front_door?node=s_s_c_6_self__c_0_0_features_1_self__c_0_2', {filterSignals:{exclude:'.*'}})" disabled data-attr:disabled="$_e.lock.front_door.t#12"
+  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#12 ? '' : @post('sse/call/taps/call_7?node=s_s_c_6_self__c_0_0_features_1_self__c_0_2', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#12"
   data-indicator="_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error = ''))"
   data-fh-node="s_s_c_6_self__c_0_0_features_1_self__c_0_2"

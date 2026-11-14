@@ -147,14 +147,18 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         clue = html
       )
       assert(
-        html.contains(
-          "? '' : @post('sse/call/fixture-home/' + 'light/toggle'"
-        ),
+        raw"""\? '' : @post\('sse/call/fixture-home/[0-9a-f]{16}\?node=c_2'""".r
+          .findFirstIn(html)
+          .isDefined,
         clue = html
       )
-      // The busy signal is created client-side by the indicator, so only
-      // no-signals POSTs keep it out of the request body.
-      assert(html.contains("{filterSignals:{exclude:'.*'}}"), clue = html)
+      // The busy signal is created client-side by the indicator, so only a
+      // payload, which the bundle sends in place of the signals, keeps it out
+      // of the request body.
+      assert(
+        html.contains("{payload: {posted: {}, seen: {} } })"),
+        clue = html
+      )
       // A more-info tap is guarded too: the open answers once the popup's
       // fetches have resolved, and a chart's fetch is a wait (issue #412).
       assert(html.contains("data-indicator=\"_c_1__busy\""), clue = html)
@@ -187,7 +191,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           )
           assert(
             html.contains(s"data-on:change=\"$refusal") && html.contains(
-              s"? '' : $$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-slider/light/turn_on/entity/"
+              s"? '' : $$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-slider/"
             ),
             clue = html
           )
@@ -304,7 +308,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             )
             assert(
               html.contains(s"data-on:change=\"$refusal") && html.contains(
-                s"? '' : $$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-quiet-slider/light/turn_on/entity/"
+                s"? '' : $$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-quiet-slider/"
               ),
               clue = html
             )
@@ -696,15 +700,11 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         ts.page().map { html =>
           assert(html.contains("class=\"fh-slider-toggle\""), clue = html)
           assert(!html.contains("type=\"range\""), clue = html)
-          // The service is spliced as a quoted literal, the spelling a
-          // state-dependent tap fills with a signal read, so one template
-          // serves both (ADR 0017).
           // The refusal's signal is named by a hash of what it reads.
           assert(
             (raw"""data-on:click="\$$_c_0_head_0__busy_change \? '' : """ +
               raw"""\$$_e\.light\.plug\.t[0-9a-f]{8} \? '' : """ +
-              raw"""@post\('sse/call/fixture-plug/' \+ 'light/toggle' \+ """ +
-              raw"""'/entity/light\.plug\?node=c_0_head_0'""").r
+              raw"""@post\('sse/call/fixture-plug/[0-9a-f]{16}\?node=c_0_head_0'""").r
               .findFirstIn(html)
               .isDefined,
             clue = html
@@ -765,7 +765,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         (html, click.getOrElse(fail(s"no action click in: $html")))
       })
 
-  test("a lock's tap reads its service from a signal, not from the markup") {
+  test("a lock's tap confirms the service it showed, from a signal") {
     (lockPage("locked"), lockPage("unlocked"))
       .mapN {
         case ((lockedHtml, lockedClick), (unlockedHtml, unlockedClick)) => {
@@ -773,7 +773,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // lock/unlock costs a signals frame, not a repaint.
           assertEquals(lockedClick, unlockedClick)
           assert(
-            lockedClick.contains("+ $_e.lock.front_door."),
+            lockedClick.contains("seen: {service: $_e.lock.front_door."),
             clue = lockedClick
           )
           assert(!lockedClick.contains("lock/unlock"), clue = lockedClick)

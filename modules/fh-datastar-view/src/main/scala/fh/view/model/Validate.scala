@@ -574,6 +574,31 @@ private[model] object Validate:
         )
       }
 
+    // Only its call reads a posted value: a slot has no press.
+    def postedErrors(where: String, e: ValueExpr): List[String] =
+      Option
+        .when(e.all.exists(_.source match
+          case _: Value.Posted => true
+          case _               => false))(
+          s"$where reads a posted value, which only a call can"
+        )
+        .toList
+
+    def placedCallErrors(
+        nodeId: String,
+        c: LayoutNode.Component
+    ): List[String] =
+      c.calls.keySet
+        .intersect(c.templateSlots.keySet)
+        .toList
+        .sorted
+        .map(n => s"$nodeId: '$n' is both a slot and a call — rename one") ++
+        c.bound.toList.flatMap((k, b) =>
+          (b.expr :: b.inputs.values.toList).flatMap(
+            postedErrors(s"$nodeId: slot '${SlotKey.label(k)}'", _)
+          )
+        )
+
     /** `<slot>.jsValue` has no answer for a live non-signal slot (ADR 0017);
       * without this the var renders empty and the handler is silently
       * malformed.
@@ -769,7 +794,7 @@ private[model] object Validate:
         scope: Map[String, String]
     ): List[String] =
       node match
-        case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _) =>
+        case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _, _) =>
           val layoutErrors = Option
             .when(
               cards.get(card).exists(!_.layoutCell) &&
@@ -788,9 +813,10 @@ private[model] object Validate:
           templateErrors(
             nodeId,
             card,
-            slots.keySet,
+            slots.keySet ++ c.calls.keySet,
             c.regions.keySet
-          ) ++ slotErrors(nodeId, card, checked, here) ++
+          ) ++ placedCallErrors(nodeId, c) ++
+            slotErrors(nodeId, card, checked, here) ++
             varErrors(nodeId, vars) ++
             slotVarErrors(nodeId, card, c.bound, here) ++
             valueErrors(nodeId, c) ++
@@ -1192,30 +1218,45 @@ private[model] object Validate:
           case _ => Nil
       }
 
-    // Without its tally a press would have nothing to filter. `tapRoute` always
-    // writes one, so this is a node built some other way.
-    val callSetErrors: List[String] =
-      declaredCalls.collect {
-        case Dashboard.Declared(TapCall(_, CallSet(id), _), card, None) =>
-          s"card '$card' places a call over the set '$id' without a " +
-            s"readable '${Dashboard.TargetSetSlot}' slot — build its route " +
-            "with tapMod.tapRoute"
-      }.distinct ++ declaredCalls
-        .collect {
-          case Dashboard.Declared(
-                TapCall(_, CallSet(id), _),
-                _,
-                Some(t: Value.Present)
-              ) =>
-            id -> t
+    // A call runs at the press as a decision: for no viewer, about no subject.
+    val callErrors: List[String] =
+      calls.toList.sortBy(_._1).flatMap { (id, d) =>
+        val call = s"the call ${d.service.literal.getOrElse(id)}"
+        val fields =
+          ("service" -> d.service) ::
+            d.target.toList.flatMap((k, es) => es.map(k -> _)) ++
+            d.data.toList.map((k, e) => s"data.$k" -> e)
+        val fieldErrors = fields.flatMap { (where, e) =>
+          val typed = e.typed(Nil)
+          List(
+            typed.left.toOption.map(m => s"$call: $where: ${m.message}"),
+            Option.when(e.readsMissingSubject)(
+              s"$call: $where reads an entity it does not name — a call has " +
+                "no subject, so name it"
+            ),
+            e.variables.headOption.map(v =>
+              s"$call: $where reads the node variable '$v' — a call is " +
+                "decided once for every viewer"
+            ),
+            typed.toOption
+              .map(_.out)
+              .filter { out =>
+                if (where == "service") !ValueType.fits(out, SlotType.Text)
+                else if (CallDecl.TargetKeys.contains(where))
+                  out != ValueType.Text && out != ValueType.List(ValueType.Text)
+                else false
+              }
+              .map(out => s"$call: $where gives a ${out.name}")
+          ).flatten
         }
-        .groupMap(_._1)(_._2)
-        .toList
-        .sortBy(_._1)
-        .collect {
-          case (id, ts) if ts.distinct.size > 1 =>
-            s"two different sets share the call id '$id'"
-        }
+        val dataKeyErrors = d.data.keys.toList
+          .filter(k => CallDecl.TargetKeys.contains(k) || k == "exclude")
+          .map(k =>
+            s"$call: the data key '$k' is named like a target key, and HA " +
+              "merges a call's target into its data"
+          )
+        fieldErrors ++ dataKeyErrors
+      }
 
     // A decision's reads are what it asks every version, so its window is
     // written down: one chosen by state would be a pick per version.
@@ -1247,7 +1288,7 @@ private[model] object Validate:
         .distinct
 
     authoredIdErrors ++
-      callSetErrors ++
+      callErrors ++
       decisionFetchErrors ++
       decisionVarErrors ++
       structureLiveSlotErrors ++

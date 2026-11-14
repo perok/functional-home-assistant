@@ -192,25 +192,25 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   starter + demo modules, plus `lib/*.pkl`); the dump is a cache package (never on disk in the repo) and
   `dashboard.json` is generated + gitignored.
 - Interactivity uses the WS `call_service` command (added to `ha-api`'s `CommandPhase` +
-  `HomeAssistantApi.callService`). `POST /sse/call/:slug/:domain/:service/:kind/:id` calls a
-  service on a target — `kind` is `entity`, `area`, `floor` or `set`; HA expands an area or a floor,
-  and the server a set, to the candidates present at the press (`Dashboard.calls`). A value
-  rides in the body as `{"data": {<key>: <value>}}` (`Server.callData`; one key at most), sent with
-  the bundle's `@post(url, {payload: …})`, which replaces the signals — `tapMod.withData` spells it,
-  and `Call.with` takes a string, number, boolean or list and splices it as a JSON literal. The
-  resulting state change flows back over the persistent SSE stream.
-  The `:slug` is what BOUNDS the call (ADR 0023): it is refused unless one of that dashboard's taps
-  declares exactly that (service, target, value key) — `Dashboard.calls`, read off `tap.pkl`'s
-  route slots — so admission to one dashboard is not admission to the whole house. A tap names its
-  own target (`tap.Call.target`), never the card's. A module
-  does not know its own slug, so the renderer supplies it: `dashboard_slug` (a CEL binding) in a
-  tap's transform, `{{dashboardSlug}}` (a Mustache var) in a card's own template — two
-  spellings because there are genuinely two phases, each named after the one that fills it. Every
-  SERVICE tap now takes the second: `tap.serviceClick` assembles the URL in the card's template,
-  which is the only place that can also name `{{id}}` and the slot read a state-dependent service
-  needs (ADR 0017). The CEL spelling is left to the surface and popup taps. The
-  slug is applied in `DashboardBuild.decode` BEFORE validation, so a `Validated` is final and a
-  `fh push --slug` rename cannot leave a compiled tap URL naming the old dashboard.
+  `HomeAssistantApi.callService`). `POST /sse/call/:slug/:callId?node=<id>` presses a call the
+  dashboard DECLARES (`CallDecl`: `service`, target keys `entity_id`/`area_id`/`floor_id`, `data`
+  keys, each a value expression; ADR 0023). The id is a hash of the declaration, computed in
+  Scala, and `Dashboard.calls` is the allowlist by id, so admission to one dashboard is not
+  admission to the whole house. The server runs its OWN evaluation of the call at the press: HA
+  expands an area or a floor, the server a set to the candidates present then. The body, which
+  `tapMod.post` spells, is `{posted, seen}`: `posted` the card's values (a drag), each read by a
+  `Posted(key, type)` source and decoded as its type, and `seen` what the node showed of the
+  call's `service`/`data`, each such field a `Handler` slot the build adds (`Ready.seenSlot`); a
+  `seen` that differs from the server's own answer refuses the press, naming the field. A tap
+  names its own target (`tap.Call.target`), never the card's. The resulting state change flows
+  back over the persistent SSE stream. A module does not know its own slug, so the renderer
+  supplies it: `dashboard_slug` (a CEL binding) in a tap's transform, `{{dashboardSlug}}` (a
+  Mustache var) in a card's own template — two spellings because there are genuinely two phases,
+  each named after the one that fills it. Every SERVICE tap takes the second: `tapMod.post`
+  assembles the URL in the card's template, the only place that can name `{{id}}` (ADR 0017).
+  The CEL spelling is left to the surface and popup taps. The slug is applied in
+  `DashboardBuild.decode` BEFORE validation, so a `Validated` is final and a `fh push --slug`
+  rename cannot leave a compiled tap URL naming the old dashboard.
   The surface taps carry it too — `POST /sse/surface/:slug/open/:id`, `POST /sse/popup/:slug/close`
   — for a second reason (ADR 0024): a `conn` this process has forgotten (an idle page outliving
   its session's linger) can then be RE-MINTED rather than dropped, the same thing the stream route

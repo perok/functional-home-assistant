@@ -40,9 +40,9 @@ facts {
     knob.contains("data-init=")
     // What sets that error: the guard's mechanism, on the element that posts.
     root.contains(tapMod.guardMechanism) && w.slotsByName["busy"].value == true
-    w.slotsByName["service"].value == "light/turn_on"
-    w.slotsByName["dataKey"].value == "hs_color"
-    root.contains("{payload: {data: {'{{dataKey}}': $_{{id}}__hs } } }")
+    w.declared["tap"].service == "light/turn_on"
+    w.declared["tap"].data.keys == Set("hs_color")
+    root.contains("{payload: {posted: {'hs': $_{{id}}__hs}, seen: {{{tap.seen}}} } }")
     // A light with no colour mode has no wheel.
     module.catch(() -> wheelMod.colourWheel(new hass.LightEntity { entity_id = "light.dim" }).slots)
       .contains("colour != null")

@@ -27,13 +27,19 @@ step with a mode, so a type never depends on an option: JSON for a raw hole will
 in a condition alike (`Steps.read`). A typed read of one attribute converts only that one
 until something has built the entity's whole attribute map (`EntityState.attribute`).
 
-**A list source declares its item type** (`itemType`; Pkl's `ListRead` is the and/or of
-conditions, so `bool`), and each item is held to it. The type is the list's own, never read off its items or
+**A list source declares its item type** (`itemType`: `bool` for the and/or of conditions, the
+literals' own type for a call's list value), and each item is held to it. The type is the list's own, never read off its items or
 the step after it, so an empty list is typed as any other. Its size is the runtime's: `AllOf`
 over none holds, `AnyOf` over none does not, `Count` is 0.
 
 **A node variable's value is text** (`Value.Var`, ADR 0033): the viewer's, so a reading of one is
 decided per viewer, where every other source is decided once per state version.
+
+**A posted value is its declared type** (`Value.Posted(key, type)`, ADR 0023): what one press
+posted under `key`, decoded as `type` (`int`, `real`, `bool`, `text`, or a list of one) before
+anything reads it, so a value of another type refuses the press. It is not `Var`: a variable is
+held per viewer across requests and read by any slot, while a posted value lives for one request
+and only its call reads one, which `validate` holds every slot to.
 
 **`null` comes from two places only.** An entity read: an entity the store lacks, an attribute the
 entity does not report, a JSON `null`. And a step with no result: `First` over an empty list,

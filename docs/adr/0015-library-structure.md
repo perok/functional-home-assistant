@@ -325,7 +325,7 @@ and so cannot depend on either tool's cleverness.
   it in `components/` would point a kernel module at the component tier.
 - Shared helpers had to become public for the families to reach them —
   `labelSlot`/`valueSlot`/`secondary` (`core/slot.pkl`), icon resolution
-  (`core/icon.pkl`), `noSignals` (`core/tap.pkl`). That is a gain: a third-party
+  (`core/icon.pkl`), `post` (`core/tap.pkl`). That is a gain: a third-party
   card can now look like a shipped one without copying its expressions.
 
   The icon TABLES themselves are not in that tier, and the split is what the

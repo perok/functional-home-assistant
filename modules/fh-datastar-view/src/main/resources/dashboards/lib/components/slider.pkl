@@ -129,10 +129,11 @@ class EntitySlider extends sliderBase.Slider {
   /// What a tap on a [[toggleOnly]] row does; every domain with a slider row has
   /// a toggle.
   hidden toggleTap: tapMod.TapAction = tapMod.toggle(entity)
-  // A key and no value: the drag supplies it. Refuses only while unavailable —
-  // an `opening` cover takes a new position.
+  // The drag supplies the value. Refuses only while unavailable — an
+  // `opening` cover takes a new position.
   hidden commitTap: tapMod.Call =
-    let (k = key) (tapMod.call(action, entity)) { dataKey = k }
+    tapMod.call(action, entity).posting(key,
+      (sliderBase.slide) { type = if (axis.sentWith.isEmpty) "int" else "list(real)" })
   /// The badge, defaulting to the entity's own icon ([[iconFor]]). An MDI name
   /// overrides it; `null` renders none.
   hidden icon: String? = icons.iconFor(entity)

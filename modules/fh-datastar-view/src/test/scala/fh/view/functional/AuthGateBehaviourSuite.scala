@@ -22,12 +22,13 @@ import scala.concurrent.duration.*
 class AuthGateBehaviourSuite extends FunctionalSuite {
 
   private val kitchen = HouseFixture.kitchenLight
+  private val toggle = FixtureDashboard.call("light/toggle", kitchen)
   private def house = scene.card(
-    DashboardBuilders.col(
-      FixtureDashboard.light("Kitchen", kitchen),
-      FixtureDashboard.call("light/toggle", kitchen)
-    )
+    DashboardBuilders.col(FixtureDashboard.light("Kitchen", kitchen), toggle)
   )
+
+  private def toggleAt(slug: String) =
+    FixtureDashboard.pressOf(slug, toggle, "c_0_1")
 
   test(
     "an anonymous page request is sent to login, carrying where it was going"
@@ -92,10 +93,7 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
     withServer(house, Access.Admin) { ts =>
       for {
         guest <- ts.auth.sessionFor(TestAuth.guest)
-        status <- ts.post(
-          s"sse/call/${ts.slug}/light/toggle/entity/${kitchen.entityId}",
-          as = Some(guest)
-        )
+        status <- ts.post(toggleAt(ts.slug), as = Some(guest))
       } yield assertEquals(status, Status.Forbidden)
     }
   }
@@ -106,12 +104,13 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
   test("an action may not make a call its dashboard does not declare") {
     withServer(house, Access.Public) { ts =>
       for {
-        onDashboard <- ts.post(
-          s"sse/call/${ts.slug}/light/toggle/entity/${kitchen.entityId}",
-          as = None
-        )
+        onDashboard <- ts.post(toggleAt(ts.slug), as = None)
         elsewhere <- ts.postResult(
-          s"sse/call/${ts.slug}/lock/unlock/entity/lock.front_door?node=c_0",
+          FixtureDashboard.pressOf(
+            ts.slug,
+            FixtureDashboard.call("lock/unlock", HouseFixture.frontLock),
+            "c_0"
+          ),
           as = None
         )
         calls <- ts.fake.recordedCalls
@@ -121,9 +120,7 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
         assertEquals(elsewhere._1, Status.Ok)
         assert(
           elsewhere._2.contains("_c_0__error") &&
-            elsewhere._2.contains(
-              "no tap on this dashboard calls lock/unlock on entity lock.front_door"
-            ),
+            elsewhere._2.contains("no tap on this dashboard makes the call"),
           s"the refusal said nothing the page can show: ${elsewhere._2}"
         )
         // Refused before HA hears about it.
@@ -140,10 +137,8 @@ class AuthGateBehaviourSuite extends FunctionalSuite {
     */
   test("an action naming a dashboard that does not exist is refused") {
     withServer(house, Access.Public) { ts =>
-      ts.post(
-        s"sse/call/nosuch/light/toggle/entity/${kitchen.entityId}",
-        as = None
-      ).map(assertEquals(_, Status.Unauthorized))
+      ts.post(toggleAt("nosuch"), as = None)
+        .map(assertEquals(_, Status.Unauthorized))
     }
   }
 

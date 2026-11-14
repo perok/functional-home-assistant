@@ -46,9 +46,9 @@ const local move: String =
     "\(shownS) = \(hs)[1] / 100, " +
     "\(shownP) = 'hsl(' + \(hs)[0] + ',' + \(hs)[1] + '%,50%)'"
 
-const local commit: String =
-  "@post('sse/call/{{dashboardSlug}}/\(tapMod.service.raw)/\(tapMod.targetKind)/\(tapMod.targetId)?node={{id}}', " +
-    tapMod.withData("\(tapMod.dataKey)", hs) + ")"
+const local picked: slotMod.PostedRead = new { key = "hs"; type = "list(real)"; js = hs }
+
+const local commit: String = tapMod.post(tapMod.tapCall, List(picked))
 
 const local function hsRead(body: String, otherwise: String): String =
   "value.attr[?'hs_color'].optMap(hs, \(body)).orValue('\(otherwise)')"
@@ -76,7 +76,8 @@ class ColourWheel extends nodes.Node {
     script = wheelScript
   }
   hidden light: hass.LightEntity(colour != null)
-  hidden setColour: tapMod.Call = (tapMod.call("light/turn_on", light)) { dataKey = "hs_color"; busyVisual = false }
+  hidden setColour: tapMod.Call =
+    (tapMod.call("light/turn_on", light).posting("hs_color", picked)) { busyVisual = false }
   slots {
     slotMod.signalled(hue, new slotMod.Reading {
       entityId = light.entity_id

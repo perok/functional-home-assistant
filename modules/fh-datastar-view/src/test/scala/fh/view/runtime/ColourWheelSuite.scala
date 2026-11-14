@@ -81,10 +81,8 @@ class ColourWheelSuite extends CatsEffectSuite {
   test("a pastel from the wheel reaches HA as hs_color") {
     served { ts =>
       for {
-        status <- ts.post(
-          s"sse/call/${ts.slug}/light/turn_on/entity/light.lamp",
-          body = """{"data":{"hs_color":[200,35]}}"""
-        )
+        at <- ts.pressWhere(_.data.contains("hs_color"))
+        status <- ts.post(at, body = """{"posted":{"hs":[200,35]}}""")
         calls <- ts.fake.recordedCalls
       } yield {
         assertEquals(status, Status.NoContent)

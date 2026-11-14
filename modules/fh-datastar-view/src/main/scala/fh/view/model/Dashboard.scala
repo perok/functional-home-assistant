@@ -1,6 +1,5 @@
 package fh.view.model
 
-import api.homeassistant.ServiceTarget
 import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.fetch.FetchRequest
@@ -724,7 +723,9 @@ object LayoutNode:
       vars: List[Dashboard.Declaration] = Nil,
       // Inputs, this node's alone: never resolved up the
       // ancestors, and bound to the slots that read them ([[bound]]).
-      inputs: Map[String, ValueExpr] = Map.empty
+      inputs: Map[String, ValueExpr] = Map.empty,
+      // By the name its template places it under: `{{{tap.callId}}}`.
+      calls: Map[String, CallDecl] = Map.empty
   ) extends LayoutNode:
 
     /** [[templateSlots]] and the [[cell]]'s live ones, each with the inputs its
@@ -1069,67 +1070,22 @@ case class Dashboard(
     (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
   }
 
-  /** Every call a tap of this dashboard declares, as the build spelled it, and
-    * what it reaches: the allowlist for the call route (ADR 0023). Read off
-    * `tap.pkl`'s route slots. A service the target's state picks declares every
-    * arm of its match, since which one is posted is the click's to decide. A
-    * call over a set reaches its tally, which the press narrows; one whose card
-    * dropped the tally is left out, and `validate` says why.
+  /** Every call a node of this dashboard places, by id: the allowlist for the
+    * call route (ADR 0023). Equal declarations are one entry.
     */
-  lazy val calls: Map[TapCall, CallReach] =
-    declaredCalls.collect { case Dashboard.Declared(call, _, Some(reach)) =>
-      call -> reach
-    }.toMap
-
-  private[model] lazy val declaredCalls: List[Dashboard.Declared] = {
-    def services(s: ValueExpr): List[String] =
-      s.literal.toList ++ s.steps.flatMap {
-        case Step.Match(cases, otherwise) =>
-          (otherwise match
-            case Value.Literal(Lit.Text(v)) => List(v)
-            case _                          => Nil
-          ) ++ cases.values.toList.collect { case Lit.Text(v) => v }
-        case _ => Nil
-      }
-
-    def of(c: LayoutNode.Component): List[Dashboard.Declared] = {
-      def lit(name: String) = c.templateSlots.get(name).flatMap(_.literal)
-      def reachOf(target: ServiceTarget | CallSet): Option[CallReach] =
-        target match {
-          case t: ServiceTarget => Some(t)
-          case _: CallSet       =>
-            lit(Dashboard.TargetSetSlot).flatMap(
-              io.circe.parser
-                .decode[Value](_)
-                .toOption
-                .collect { case p: Value.Present => p }
-            )
-        }
-      for {
-        kind <- lit(Dashboard.TargetKindSlot).toList
-        id <- lit(Dashboard.TargetIdSlot).toList
-        target <- TapCall.targetOf(kind, id).toList
-        service <- c.templateSlots
-          .get(Dashboard.ServiceSlot)
-          .toList
-          .flatMap(s => services(s.expr))
-      } yield Dashboard.Declared(
-        TapCall(service, target, lit(Dashboard.DataKeySlot)),
-        c.card,
-        reachOf(target)
-      )
-    }
-
-    def walk(n: LayoutNode): List[Dashboard.Declared] = n match {
+  lazy val calls: Map[CallId, CallDecl] = {
+    def walk(n: LayoutNode): List[CallDecl] = n match {
       case c: LayoutNode.Component =>
-        of(c) ++ c.allChildren.flatMap(walk)
+        c.calls.values.toList ++ c.allChildren.flatMap(walk)
       case set: LayoutNode.SetNode =>
         set.members.values.toList
           .flatMap(_.clauses)
           .flatMap(cl => walk(cl.node))
     }
 
-    walk(card) ++ surfaces.toList.sortBy(_._1).flatMap(s => walk(s._2.content))
+    (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content)))
+      .map(d => d.id -> d)
+      .toMap
   }
 
   /** What the live subscription asks HA for: [[referencedEntities]] plus what
@@ -1153,12 +1109,9 @@ case class Dashboard(
           )
     }
 
-    // A set call's guards are read at the press, and an entity only a guard
-    // names would otherwise be missing from the store, failing its guard.
-    referencedEntities ++ calls.values.flatMap {
-      case p: Value.Present => ValueExpr(p).entities
-      case _: ServiceTarget => Nil
-    } ++
+    // A call is evaluated at the press, and an entity only a call or a set
+    // call's guard names would otherwise be missing from the store.
+    referencedEntities ++ calls.values.flatMap(_.all.flatMap(_.entities)) ++
       deciders(card) ++ surfaces.values.toList.flatMap(s =>
         deciders(s.content) ++ (s.activation match {
           case Activation.State(c) => c.toList.flatMap(_.entities)
@@ -1245,10 +1198,11 @@ case class Dashboard(
           List(s"surface '$sid''s condition" -> c)
         case _ => Nil
       ) ++ walk(s.content)
-    } ++ calls.values.toList
-      .collect { case p: Value.Present =>
-        "a set a press acts on" -> ValueExpr(p)
-      }
+    } ++ calls.toList
+      .sortBy(_._1)
+      .flatMap((id, d) =>
+        d.all.map(s"the call ${d.service.literal.getOrElse(id)}" -> _)
+      )
   }
 
   /** Every fetch a decision reads ([[decisionExprs]]), beside where. */
@@ -1439,22 +1393,6 @@ object Dashboard:
 
   given Decoder[Dashboard] = ConfiguredDecoder.derived[Dashboard]
 
-  /** `tap.pkl`'s route slots that [[Dashboard.calls]] reads. */
-  val ServiceSlot: String = "service"
-  val TargetKindSlot: String = "targetKind"
-  val TargetIdSlot: String = "targetId"
-  val DataKeySlot: String = "dataKey"
-  val TargetSetSlot: String = "targetSet"
-
-  /** A call a node's tap declares; `reach` is `None` where a set call's card
-    * placed the route without its tally.
-    */
-  private[model] final case class Declared(
-      call: TapCall,
-      card: String,
-      reach: Option[CallReach]
-  )
-
   /** Constructed only by [[Dashboard.validated]]: the type is the proof, so its
     * constructor, `apply` and `copy` are private to the model.
     */
@@ -1509,11 +1447,5 @@ object Dashboard:
     case Templates.View.Signal => s"{{$slot.signal}}"
     case v                     => s"{{{$slot.${v.spelling}}}}"
 
-  /** Slots the server reads itself, so no template need name them: the subject
-    * and a tap's route ([[calls]]).
-    */
-  def readByRenderer(slot: String): Boolean =
-    slot == SubjectSlot || routeSlots(slot)
-
-  private val routeSlots: Set[String] =
-    Set(ServiceSlot, TargetKindSlot, TargetIdSlot, DataKeySlot, TargetSetSlot)
+  /** The slot the server reads itself, so no template need name it. */
+  def readByRenderer(slot: String): Boolean = slot == SubjectSlot

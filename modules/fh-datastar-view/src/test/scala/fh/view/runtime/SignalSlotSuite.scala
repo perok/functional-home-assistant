@@ -1163,6 +1163,8 @@ class SignalSlotSuite extends ServerHarness {
     assertEquals(
       card("""<i data-on:click="@post('a')"></i>""").validate(),
       List(
+        "c: card 't' never reads slots: service — its template names none " +
+          "of them; drop them",
         "c: card 't' has slot 'service' marked as a signal slot, but no part " +
           "of its template places {{{service.jsValue}}} or {{service.signal}} " +
           "— the value would stop updating"

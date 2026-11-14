@@ -192,36 +192,39 @@ This does not weaken "every kind reads the signal bare" above: that rule is abou
 an expression would be a second place a value's shape is decided. A handler is not a binding — it
 consumes the value rather than painting it.
 
-`EntityCard`'s tap on a `CallByState` domain (ADR 0016) is miscategorised as the first. A lock's
-service is not knowable until the click, so the onclick is rendered from a live transform — which
-puts the service in the element's bytes, moves them on every lock/unlock, and drops the tile out of
-the identity cache to repaint a URL nobody ever looks at. Read at click time instead, the same
-two-way test costs no bytes:
+`EntityCard`'s tap on a `CallByState` domain (ADR 0016) is the case this kind exists for. A lock's
+service follows its state, and a live transform in the onclick would put the service in the
+element's bytes, moving them on every lock/unlock and dropping the tile out of the identity cache to
+repaint a URL nobody looks at. Instead the call is declared (ADR 0023) and the press confirms what
+the tile showed. **The build adds the slot**: for each field of a call that the node sees, a
+`Handler` slot holding that field's value expression. The card never declares it and its template
+has no hole for it; it rides the node's seed and the frames like any signal slot, named by what it
+reads, so equal fields on two nodes share one signal. The renderer places it in `<call>.seen`:
 
 ```
-data-on:click="@post('sse/call/home/' + $_e.lock.front.t4d7a74a1
-  + '/entity/lock.front?node=c_4', {filterSignals:{exclude:'.*'}})"
+data-on:click="@post('sse/call/home/4be03a91c2d0e6f7?node=c_4',
+  {payload: {posted: {}, seen: {service: $_e.lock.front.t4d7a74a1} } })"
 ```
 
-Every byte constant; only the signal moves. The request body also stays empty — the handler reads
-the signal locally — which sending the observed state as a payload would have cost.
+Every byte constant; only the signal moves.
 
 **The signal carries the RESULT, not the state.** The obvious design is to seed the raw state and
 compile the domain table into the click expression as JS. That is one declaration too many: the
 table would exist as a CEL transform *and* as a JS ternary, and nothing keeps two spellings of one
 lookup honest. Carrying the answer instead leaves the match on the server, in one place, with the
-parity suite (ADR 0028) already behind it — only the READ moves to the browser. So there is no
-second expression language, no escaping regime, and no drift to prevent.
+parity suite (ADR 0028) already behind it — only the READ moves to the browser, and the press sends
+that answer back for the server to compare with its own. So there is no second expression language,
+no escaping regime, and no drift to prevent.
 
 That is what `SignalBind.Handler` is: a signal with no binding at all, because nothing paints it.
 Everything else about it is an ordinary signal slot — one name per `(entity, transform)`, value
 withheld from the patch form, seeded on the root, carried in the frame.
 
-The one thing it forces on a card: **the URL is assembled in the template, not in the transform.**
+The one thing it forces on a card: **the URL is assembled in the template, not in a transform.**
 Mustache runs once and a slot's value is spliced raw, so a URL built server-side could not carry a
-placeholder for the signal name or `{{dashboardSlug}}`. `tap.serviceClick` is that markup, placed
-the way `tap.guard` already is — and `?node={{id}}` comes free with it, where a transform had to
-read `el.dataset.fhNode` at click time and got nothing on an unguarded tap.
+placeholder for the signal name or `{{dashboardSlug}}`. `tapMod.post` is that markup, placed the way
+`tap.guard` already is, and `?node={{id}}` comes free with it, where a transform had to read
+`el.dataset.fhNode` at click time and got nothing on an unguarded tap.
 
 ### `<slot>.jsValue` — the value as JavaScript, so the card cannot tell the tiers apart
 

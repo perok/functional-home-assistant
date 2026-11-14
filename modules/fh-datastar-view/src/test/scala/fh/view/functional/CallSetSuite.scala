@@ -6,7 +6,6 @@ import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{Access, Dashboard}
 import fh.view.runtime.TestServer
-import fh.view.testkit.DashboardBuilders.{component, lit}
 import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture}
 import org.http4s.Status
 
@@ -50,14 +49,9 @@ class CallSetSuite extends FunctionalSuite {
       .resource(dashboard, states.toList, access = Access.Public)
       .use(f)
 
-  /** The route the page renders for the button: the one a browser posts. */
+  /** The call the page renders for the button: the one a browser posts. */
   private def pressUrl(ts: TestServer): IO[String] =
-    ts.page(as = None).map { html =>
-      val click = """@post\((.*?), \{filterSignals""".r
-        .findFirstMatchIn(html)
-        .fold(fail(s"no action on the page: $html"))(_.group(1))
-      """'([^']*)'""".r.findAllMatchIn(click).map(_.group(1)).mkString
-    }
+    ts.pressOf("c_0", as = None)
 
   private def targets(ts: TestServer): IO[Vector[Option[ServiceTarget]]] =
     ts.fake.recordedCalls.map(_.map { c =>
@@ -74,7 +68,6 @@ class CallSetSuite extends FunctionalSuite {
         sent <- targets(ts)
       } yield {
         assertEquals(status, Status.NoContent, clue = url)
-        assert(url.contains("/set/"), clue = url)
         assertEquals(
           sent,
           Vector(
@@ -116,17 +109,24 @@ class CallSetSuite extends FunctionalSuite {
     }
   }
 
-  test("a set id the dashboard does not declare is refused") {
+  test(
+    "a call id the dashboard does not declare, or another node's, is refused"
+  ) {
     withHouse(kitchen, living, sun) { ts =>
       for {
         url <- pressUrl(ts)
-        forged = url.replaceAll("/set/[0-9a-f]+", "/set/0000000000000000")
-        other = url.replace("light/turn_off", "light/turn_on")
-        answers <- List(forged, other).traverse(ts.postResult(_, as = None))
+        forged = url.replaceAll("/[0-9a-f]{16}\\?", "/0000000000000000?")
+        elsewhere = url.replace("node=c_0", "node=c")
+        answers <- List(forged, elsewhere).traverse(ts.postResult(_, as = None))
         sent <- targets(ts)
       } yield {
-        answers.foreach(a =>
-          assert(a._2.contains("no tap on this dashboard calls"), clue = a)
+        assert(
+          answers(0)._2.contains("no tap on this dashboard makes the call"),
+          clue = answers(0)
+        )
+        assert(
+          answers(1)._2.contains("does not place the call"),
+          clue = answers(1)
         )
         assertEquals(sent, Vector.empty)
       }
@@ -151,20 +151,5 @@ class CallSetSuite extends FunctionalSuite {
       build("""c.button("Av", c.tap.call("light/turn_off", lit))""")
     assert(!unlabelled.referencedEntities.contains(sun.entityId))
     assert(unlabelled.watchedEntities.contains(sun.entityId))
-  }
-
-  test("a set route whose card dropped its tally does not validate") {
-    val bare = component(
-      "light",
-      "name" -> lit("Av"),
-      "service" -> lit("light/turn_off"),
-      "targetKind" -> lit("set"),
-      "targetId" -> lit("0123456789abcdef")
-    )
-    val errors = scene.card(bare).dashboard.validate()
-    assert(
-      errors.exists(_.contains("without a readable 'targetSet' slot")),
-      errors
-    )
   }
 }

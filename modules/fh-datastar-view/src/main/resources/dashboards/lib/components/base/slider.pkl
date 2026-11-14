@@ -92,8 +92,12 @@ const local dragPaint: String =
 const local dragged: String =
   valueRestSlot.ifTrue("[") + "Number($\(slideSig))" + valueRestSlot.ifTrue("\(valueRestSlot)]")
 
+/// What a release posts, a number or a hue's list: a commit says which, and
+/// which field of HA's it fills (`tapMod.Call.posting`).
+const slide: slotMod.PostedRead = new { key = "slide"; type = "int"; js = dragged }
+
 const local commitOnRelease: String =
-  "\(tapMod.refusalGuard)\(tapMod.busyGuardChange)@post('sse/call/{{dashboardSlug}}/\(tapMod.service.raw)/\(tapMod.targetKind)/\(tapMod.targetId)?node={{id}}', \(tapMod.withData("\(tapMod.dataKey)", dragged)))"
+  "\(tapMod.refusalGuard)\(tapMod.busyGuardChange)\(tapMod.post(tapMod.tapCall, List(slide)))"
 
 const local rangeInput: String = """
   <input type="range" min="\(minSlot)" max="\(maxSlot)" value="\(valueSlot)"

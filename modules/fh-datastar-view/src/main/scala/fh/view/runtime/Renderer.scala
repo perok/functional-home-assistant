@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import cats.syntax.all.*
 import com.github.mustachejava.Mustache
 import fh.view.build.LibPackage
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
@@ -31,9 +32,12 @@ import fh.view.model.{
   SignalId,
   SlotValue,
   Surface,
-  TapCall,
+  CallDecl,
+  CallField,
+  CallId,
   ThemeClasses
 }
+import scala.collection.immutable.ListMap
 import scala.jdk.CollectionConverters.*
 
 /** What a node's patch form is rendered from, and so the render cache's key and
@@ -420,11 +424,47 @@ class Renderer(validated: Dashboard.Validated) {
     round(FetchSnapshot.empty)
   }
 
-  /** What a press on a set reaches: its candidates present now, decided as a
-    * set's clauses are.
+  /** `id` as it stands now: a set member is its current clause. */
+  def componentAt(id: NodeId, shared: Shared): Option[Ready.Component] =
+    nodeAt(id, shared).collect { case (c: Ready.Component, _) => c }
+
+  /** `call` run now, over `shared` with `posted` in hand: every field, and each
+    * field `node` sees as its slot would show it. `Left` names a field that
+    * gives no value.
     */
-  def pressed(call: Ready.SetCall, shared: Shared): List[String] =
-    shared.answered(call.reads).fold(Nil)(call.present(shared.states, _))
+  def press(
+      call: Ready.Call,
+      seen: List[(CallField, String)],
+      node: Ready.Component,
+      shared: Shared,
+      posted: Map[String, Any]
+  ): Either[String, Renderer.Pressed] =
+    shared
+      .answered(call.reads)
+      .toRight("its fetches are not answered")
+      .flatMap { answers =>
+        val values = posted
+        val in = new Evaluator.Lookup:
+          def fetched(f: FetchTemplate): Object = answers.fetched(f)
+          def variable(name: String): String = answers.variable(name)
+          override def posted(key: String): Any = values.getOrElse(key, null)
+        def run(r: Evaluator.Run): Any = r(null, shared.states, in)
+        def valued(field: String, r: Evaluator.Run): Either[String, Any] =
+          Option(run(r)).toRight(s"$field gives no value")
+        for
+          service <- valued("service", call.service)
+          data <- call.data.toList
+            .traverse((k, r) => valued(s"data.$k", r).map(k -> _))
+        yield Renderer.Pressed(
+          Steps.text(service),
+          call.target
+            .map((k, rs) => k -> rs.flatMap(r => Renderer.ids(run(r)))),
+          ListMap.from(data),
+          seen.map((field, slot) =>
+            field -> slotValueOf(node.slots(slot), run(node.slots(slot).run))
+          )
+        )
+      }
 
   /** A target has its own rendering ([[ownRenderingOf]]), so its descendants
     * are not asked, except a member's: a member is placed whole.
@@ -520,6 +560,18 @@ class Renderer(validated: Dashboard.Validated) {
       val asks = members.clauseNodesOf(m).flatMap(Renderer.subtreeAsks).distinct
       Option.when(asks.nonEmpty)(m -> asks)
     }.toMap
+
+  /** Test seam: the press of every call a node outside a set places, for a test
+    * to post one the page has not opened.
+    */
+  private[runtime] def presses(slug: String): List[(CallDecl, String)] =
+    allIndexed.toList.sortBy(_._1).flatMap {
+      case (id, (c: Ready.Component, _)) =>
+        c.calls.values.toList.map(p =>
+          dashboard.calls(p.id).decl -> s"sse/call/$slug/${p.id}?node=$id"
+        )
+      case _ => Nil
+    }
 
   /** Every read a node can make, whatever its `valueWhile`s decide, over no
     * state.
@@ -640,7 +692,7 @@ class Renderer(validated: Dashboard.Validated) {
   def references(entityId: String): Boolean =
     dashboard.referencedEntities.contains(entityId)
 
-  def reachOf(call: TapCall): Option[Ready.Reach] = dashboard.calls.get(call)
+  def callOf(id: CallId): Option[Ready.Call] = dashboard.calls.get(id)
 
   /** Wider than [[references]] — see [[Dashboard.watchedEntities]]. */
   def watchedEntities: Set[String] = dashboard.watchedEntities
@@ -1619,7 +1671,13 @@ class Renderer(validated: Dashboard.Validated) {
     override def fhView(slot: String, view: Templates.View): AnyRef =
       view match
         case Templates.View.Has =>
-          java.lang.Boolean.valueOf(resolved.slots.contains(slot))
+          java.lang.Boolean.valueOf(
+            resolved.slots.contains(slot) || resolved.plan.calls.contains(slot)
+          )
+        case Templates.View.CallId =>
+          resolved.plan.calls.get(slot).map(_._1).orNull
+        case Templates.View.Seen =>
+          resolved.plan.calls.get(slot).map(_._2).orNull
         case Templates.View.Bind =>
           val s: Signalled | Null = resolved.signalled.getOrElse(slot, null)
           if (s == null) null else s.bind
@@ -1658,7 +1716,9 @@ class Renderer(validated: Dashboard.Validated) {
       id: NodeId,
       signalSeed: Datastar.SignalSeed,
       ownRendering: Boolean,
-      nodeCount: Int
+      nodeCount: Int,
+      // Per call the node places: its id and its `seen` object, as JS.
+      calls: Map[String, (String, String)]
   ) {
     // Not `keySet`: that view filters through a builder, per cell, per paint.
     val signalSlots: Set[SlotKey] = signalNameBySlot.keysIterator.toSet
@@ -1759,6 +1819,9 @@ class Renderer(validated: Dashboard.Validated) {
         )
       }
     }
+    val signalled = named.map { case (slot, kind, signal) =>
+      slot -> signalledOf(signal, kind)
+    }.toMap
     NodePlan(
       node = c,
       tpl = templateOf(c.card),
@@ -1778,9 +1841,7 @@ class Renderer(validated: Dashboard.Validated) {
         }
       },
       slots = slots,
-      signalled = named.map { case (slot, kind, signal) =>
-        slot -> signalledOf(signal, kind)
-      }.toMap,
+      signalled = signalled,
       signalNameBySlot = named.map { case (slot, _, signal) =>
         slot -> signal
       }.toMap,
@@ -1788,8 +1849,29 @@ class Renderer(validated: Dashboard.Validated) {
       signalSeed = Datastar.seedFor(named.map(_._3)),
       ownRendering = ownRenderingOf(c),
       // Once, not per paint: it walks the subtree.
-      nodeCount = 1 + c.regions.values.view.map(_.map(nodeCount).sum).sum
+      nodeCount = 1 + c.regions.values.view.map(_.map(nodeCount).sum).sum,
+      calls = c.calls.map((name, p) => name -> (p.id, seenOf(p, signalled)))
     )
+  }
+
+  /** What the press confirms, `{service: $…, data: {'k': $…}}`: each seen
+    * field's signal, read as the page holds it.
+    */
+  private def seenOf(
+      p: Ready.Placed,
+      signalled: Map[SlotKey, Signalled]
+  ): String = {
+    def js(slot: String) = signalled.get(slot).fold("null")(_.jsValue)
+    val service = p.seen.collectFirst { case (CallField.Service, s) =>
+      s"service: ${js(s)}"
+    }
+    val data = p.seen.collect { case (CallField.Data(k), s) =>
+      s"'$k': ${js(s)}"
+    }
+    (service.toList ++ Option.when(data.nonEmpty)(
+      data.mkString("data: {", ", ", "}")
+    ))
+      .mkString("{", ", ", "}")
   }
 
   private def resolvePlanned(
@@ -1964,29 +2046,32 @@ class Renderer(validated: Dashboard.Validated) {
     // The bypass, not the transform, keeps an unavailable entity readable.
     else if (source.bypassUnavailable && st != null && st.unavailable) st.state
     else {
-      val v = planned.source.run(st, shared.states, fetched)
-      // Where a value leaves the language: a bool slot is `true` only for
-      // `true`, a text slot with nothing to show takes its default.
-      if (source.isBool)
-        v match
-          case b: Boolean => b
-          case _          =>
-            source.default match
-              case Some(Lit.Bool(b)) => b
-              case _                 => false
-      else
-        v match
-          case b: Boolean => b
-          case _          =>
-            val s = Steps.text(v)
-            if (s.nonEmpty) classed(source, s)
-            else
-              source.default match
-                case Some(Lit.Bool(b)) => b
-                case d                 =>
-                  classed(source, d.fold("")(l => Steps.text(l.raw)))
+      slotValueOf(source, planned.source.run(st, shared.states, fetched))
     }
   }
+
+  /** Where a value leaves the language: a bool slot is `true` only for `true`,
+    * a text slot with nothing to show takes its default.
+    */
+  private def slotValueOf(source: Ready.Slot, v: Any): SlotValue =
+    if (source.isBool)
+      v match
+        case b: Boolean => b
+        case _          =>
+          source.default match
+            case Some(Lit.Bool(b)) => b
+            case _                 => false
+    else
+      v match
+        case b: Boolean => b
+        case _          =>
+          val s = Steps.text(v)
+          if (s.nonEmpty) classed(source, s)
+          else
+            source.default match
+              case Some(Lit.Bool(b)) => b
+              case d                 =>
+                classed(source, d.fold("")(l => Steps.text(l.raw)))
 
   /** The one swap of a themed value's classes, wherever it resolves. */
   private def classed(source: Ready.Slot, value: String): String =
@@ -1995,6 +2080,20 @@ class Renderer(validated: Dashboard.Validated) {
 }
 
 object Renderer {
+
+  /** A declared call as the press found it ([[Renderer.press]]). */
+  final case class Pressed(
+      service: String,
+      target: ListMap[String, List[String]],
+      data: ListMap[String, Any],
+      seen: List[(CallField, SlotValue)]
+  )
+
+  /** A target entry's ids: one, a list of them, or none. */
+  def ids(v: Any): List[String] = v match
+    case null            => Nil
+    case xs: Iterable[?] => xs.toList.map(Steps.text).filter(_.nonEmpty)
+    case x               => List(Steps.text(x)).filter(_.nonEmpty)
 
   /** A subtree's asks, stopping at a nested set, whose members ask their own.
     */

@@ -120,38 +120,37 @@ It buys no extra wakeups: the card already tracks its entity for the state it
 displays. Revisit (b) if the state-dependent list grows past a two-way
 conditional — that is the trigger to watch, not the row count.
 
-**You send what you saw, and this is deliberate.** A tap names only its SERVICE;
-the card's template assembles the URL around it (`tap.serviceClick`). A
-build-time service is a literal slot and a state-dependent one is a **handler
-signal** (ADR 0017), and the card reads both through `service.jsValue` — so the
-four rows here cost no card a branch, and the markup is constant either way:
+**You act on what you saw, or not at all.** A tap declares its call (ADR 0023),
+and the service is a field of the declaration: a literal, or the `Match` over
+the target's state that a `CallByState` row writes. The server runs the
+declaration again at the press. Where the card paints what the service reads (a
+lock tile shows the lock's state), the build adds a handler signal holding the
+service as the card shows it (ADR 0017), the press posts it as `seen`, and the
+server refuses the press when its own answer differs. The markup is the same in
+either state:
 
 ```
-data-on:click="@post('sse/call/home/' + 'light/toggle'          + '/entity/light.k?node=c_3')"
-data-on:click="@post('sse/call/home/' + $_e.lock.front.t4d7a74a1 + '/entity/lock.front?node=c_4')"
+data-on:click="@post('sse/call/home/4be03a91c2d0e6f7?node=c_4', {payload: {posted: {}, seen: {service: $_e.lock.front.t4d7a74a1} } })"
 ```
 
-The lock tile therefore stays in `Renderer`'s identity cache across a
-lock/unlock, where a fully-resolved URL in the bytes made it repaint.
+so the lock tile stays in `Renderer`'s identity cache across a lock/unlock. The
+signal is patched in the same frame as the visible state, so at click time it
+holds exactly what produced the pixels in front of you.
 
-Nothing about the guarantee changes with it. The signal is patched in the same
-frame as the visible state, so at click time it holds exactly what produced the
-pixels in front of you, and repeated taps on an unchanged card agree with each
-other and with what is on screen even once the server's state has moved on.
+**Resolving on the server at POST time alone is the version that breaks it**,
+and it looks like the obvious simplification: a constant URL naming no service,
+and the server deciding from the state it already has. That leaves the pixels
+stale and makes the command fresh: the one combination where a tap does the
+*opposite* of what was asked, silently. The `seen` check closes it. A press
+whose screen and server disagree is refused with a toast naming both (ADR 0024),
+and the next frame brings the screen up to date.
 
-**Resolving on the server at POST time is the version that breaks it**, and it
-looks like the obvious simplification: a constant URL naming no service, and the
-server deciding from the state it already has. That leaves the pixels stale and
-makes the command fresh — the one combination where a tap does the *opposite* of
-what was asked, silently, every time, rather than harmlessly repeating an action
-already taken.
-
-That is a property (b) would have given up: an intent route resolves at *click*
-time, so a double-tap on a lock reading "locked" would send unlock, then lock —
-silently undoing itself. Here it sends unlock twice, which is what the visible
-affordance promised and is idempotent besides. It generalises past locks: any
-optimistic-looking UI where the screen and the server disagree for a moment
-should honour the screen, because that is what the person acted on.
+An intent route, (b) above, resolves at click time too, so a double-tap on a lock
+reading "locked" would send unlock, then lock, silently undoing itself. Here the
+second tap, landing after the lock moved, is refused; neither tap does the
+opposite of what was shown. It generalises past locks: wherever the screen and
+the server disagree for a moment, act on the screen or not at all, because that
+is what the person acted on.
 
 The seam is the render, not the click, so the honest caveat is that an
 `unavailable` entity does not match `whenState` and falls to `otherwise` — an

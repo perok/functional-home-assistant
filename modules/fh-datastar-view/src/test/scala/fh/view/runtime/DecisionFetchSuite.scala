@@ -11,6 +11,7 @@ import fh.view.history.Windows
 import fh.view.model.*
 import fh.view.testkit.Conds
 
+import scala.collection.immutable.ListMap
 import scala.collection.mutable.ListBuffer
 
 /** A decision made outside a render reads a fetch: a set's clause and order, a
@@ -79,7 +80,7 @@ class DecisionFetchSuite extends munit.FunSuite {
   private def dashboard(kids: LayoutNode*) = Dashboard(
     cards = Map(
       "item" -> TestCard("<i>{{label}}</i>"),
-      "call" -> TestCard("<button>{{service}}</button>"),
+      "call" -> TestCard("""<button data-call="{{{tap.callId}}}"></button>"""),
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map(LayoutNode.DefaultRegion -> Region())
@@ -241,49 +242,53 @@ class DecisionFetchSuite extends munit.FunSuite {
   }
 
   test("a press on a set decides its members by a fetch") {
-    // As `tapMod.tapRoute` writes it: the set's tally, as JSON.
+    // As `tapMod.declOf` writes it: the set's tally as a target entry.
     val tally =
-      """{"kind":"Present","candidates":["sensor.a","sensor.b"],
+      """{"source":{"kind":"Present","candidates":["sensor.a","sensor.b"],
         |"when":{"sensor.b":{"source":{"kind":"Cel","src":"size(past) > 0",
         |"wireInputs":{"past":{"source":{"kind":"Fetch","fetch":{
         |"provider":"history","entity":"sensor.left","window":{
         |"kind":"Statistics","period":"5minute","span":86400,
-        |"fallback":true}}}}}}}}}""".stripMargin
-    def lit(s: String) = TemplateSlot(ValueExpr.literal(s))
+        |"fallback":true}}}}}}}}}}""".stripMargin
     val d = dashboard(
       LayoutNode.Component(
         "call",
-        templateSlots = Map(
-          Dashboard.ServiceSlot -> lit("light/turn_off"),
-          Dashboard.TargetKindSlot -> lit("set"),
-          Dashboard.TargetIdSlot -> lit("0123456789abcdef"),
-          Dashboard.TargetSetSlot -> lit(tally)
+        calls = Map(
+          "tap" -> CallDecl(
+            ValueExpr.literal("light/turn_off"),
+            ListMap(
+              "entity_id" -> List(
+                io.circe.parser
+                  .decode[ValueExpr](tally)
+                  .fold(e => fail(e.toString), identity)
+              )
+            )
+          )
         )
       )
     )
     assertEquals(d.validate(), Nil)
     assertEquals(
       d.decisionFetches.map((where, f) => where -> f.entity),
-      List("a set a press acts on" -> "sensor.left")
+      List("the call light/turn_off" -> "sensor.left")
     )
-    val call = d
-      .validated()
-      .toOption
-      .get
-      .ready
-      .calls
-      .values
-      .collectFirst { case s: Ready.SetCall =>
-        s
-      }
-      .get
+    val ready = d.validated().toOption.get.ready
+    val call = ready.calls.values.head
+    val node = ready.card match
+      case col: Ready.Component =>
+        col.regions(LayoutNode.DefaultRegion) match
+          case List(c: Ready.Component) => c
+          case _                        => fail("one call node")
+      case _ => fail("a column")
     val r = Renderer.create(d)
     def pressed(json: String) =
       r.decide(answering(json))(run =>
-        r.pressed(call, Shared.of(states()).asking(run))
+        r.press(call, Nil, node, Shared.of(states()).asking(run), Map.empty)
+          .toOption
+          .map(_.target("entity_id"))
       ).unsafeRunSync()
-    assertEquals(pressed(some), List("sensor.a", "sensor.b"))
-    assertEquals(pressed(empty), List("sensor.a"))
+    assertEquals(pressed(some), Some(List("sensor.a", "sensor.b")))
+    assertEquals(pressed(empty), Some(List("sensor.a")))
   }
 
   test("a decision's fetch cannot read a viewer's variable") {

@@ -45,6 +45,10 @@ private[view] object Evaluator {
     def fetched(f: FetchTemplate): Object
     def variable(name: String): String
 
+    /** Only a press has a posted value, and only its call reads one. */
+    def posted(key: String): Any =
+      throw FHError.internal(s"a value read the posted '$key' outside a press")
+
   object Lookup:
     /** Answers and no variables: a decision's. */
     def answering(answer: FetchTemplate => Object): Lookup = new Lookup:
@@ -224,17 +228,6 @@ private[view] object Evaluator {
       )
     def variable(name: String): String = noVariable(name)
 
-  /** A set's candidates present in a snapshot: what a call over it acts on. */
-  def presentOf(
-      p: Value.Present,
-      scope: Scope
-  ): Built[
-    (Map[String, EntityState], Lookup) => List[String]
-  ] =
-    present(p, scope).map(is =>
-      (states, fetched) => p.candidates.filter(is(_, states, fetched))
-    )
-
   /** An ordering, its keys read once per candidate rather than per comparison
     * (`publishSetOrdered`): a bool key sorts `true` first under `asc`; a
     * value's, no value last in either direction, else numbers on the number
@@ -382,8 +375,9 @@ private[view] object Evaluator {
           lift(Cel.eval(p, null, scope.slug, inputs(states, fetched)))
       )
     // Its answer is drawn by its stage, never read here.
-    case _: Value.Fetch  => Right((_, _, _) => "")
-    case Value.Var(name) => Right((_, _, in) => in.variable(name))
+    case _: Value.Fetch       => Right((_, _, _) => "")
+    case Value.Var(name)      => Right((_, _, in) => in.variable(name))
+    case Value.Posted(key, _) => Right((_, _, in) => in.posted(key))
 
   private def step(
       s: Step,

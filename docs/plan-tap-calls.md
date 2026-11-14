@@ -17,7 +17,7 @@ B needs A: a press has to name which exclusion applies, and today's URL names a 
 service, target and value key. C's posted value lives in A's declaration. C's `number` slot
 type needs neither.
 
-Nothing here is built.
+Steps 1 and 2 are built.
 
 ## Today
 
@@ -57,8 +57,9 @@ its `data` key, and a call may carry any number of `data` keys.
 A declaration has no subject, and the id is a hash of it: two locks' declarations would
 otherwise be equal and share an id.
 
-**The id** is the first 16 hex characters of the SHA-256 of the decoded declaration, encoded
-as JSON with its keys sorted, so the order of two `.with` calls does not move it. Scala
+**The id** is the first 16 hex characters of the SHA-256 of the decoded declaration, spelled by
+each field's `ValueExpr.inputKey` (injective, and naming every entity) with each key's entries
+sorted, so the order of two `.with` calls does not move it. Scala
 computes it in the `Ready` walk, so Pkl never hashes, and a set's members cost no hashing in
 the eval. Pkl's `setId` goes the same way.
 
@@ -75,14 +76,16 @@ switch, say):
   changes.
 - Each call has two names the renderer fills, as it fills `{{id}}`: `<name>.callId`, the id,
   and `<name>.seen`, what the press confirms (below).
-- The template places one piece per call, `tapMod.post(call)`. It writes the URL
-  `'sse/call/{{dashboardSlug}}/{{{tap.callId}}}?node={{id}}'` and builds the body from the same
-  call: `posted` from its `Posted` sources, and `seen: {{{tap.seen}}}`. It replaces the three
-  spellings above, so the slider and the wheel stop knowing the route.
-- A `Posted` source carries, hidden from the wire, the page expression that gives its value:
-  the slider's `Number($slide)`, or `[Number($slide), 100]` for a hue. The card that builds the
-  source writes it there, so a key and its value are one Pkl value, and no card spells a body
-  key.
+- The template places one piece per call, `tapMod.post(call, posts)`. It writes the URL
+  `'sse/call/{{dashboardSlug}}/{{{tap.callId}}}?node={{id}}'` and the body: `posted` from
+  `posts`, and `seen: {{{tap.seen}}}`. It replaces the three spellings above, so the slider and
+  the wheel stop knowing the route.
+- A card's template serves every node of the card, so the posted sources it places are the
+  card's own: a `PostedRead` carries its key and, hidden from the wire, the page expression that
+  gives its value (the slider's `Number($slide)`, or `[Number($slide), 100]` for a hue). Each
+  node's call says which of HA's fields the value fills, and its type:
+  `Call.posting("hs_color", (slide) { type = "list(real)" })`. So a key and its value are one
+  Pkl value, and no card spells a body key.
 
 **What the page sends.** The press posts the call id, the node, and a body of two halves:
 
@@ -175,12 +178,12 @@ A slider, `c.entitySlider(dump.lights.kjokken)`:
   "service": "light/turn_on",
   "target":  { "entity_id": ["light.kjokken"] },
   "data": {
-    "brightness": { "source": { "kind": "Posted", "key": "brightness", "type": "int" },
+    "brightness": { "source": { "kind": "Posted", "key": "slide", "type": "int" },
                     "steps": [{ "kind": "Check", "steps": [{ "kind": "Compare", "op": "gte", "to": 1 }] },
                               { "kind": "Check", "steps": [{ "kind": "Compare", "op": "lte", "to": 255 }] }] },
     "transition": 1 } } }
 // build: no field of what it does reads state → no seen
-// page:  @post('sse/call/sliders/51aa8e2f07c3d916?node=c_0_head_0', {payload: {posted: {brightness: Number($_c_0_head_0__slide)}, seen: {}}})
+// page:  @post('sse/call/sliders/51aa8e2f07c3d916?node=c_0_head_0', {payload: {posted: {'slide': Number($_c_0_head_0__slide)}, seen: {} } })
 ```
 
 A plain call carries only literals and posts nothing. A set call's target is

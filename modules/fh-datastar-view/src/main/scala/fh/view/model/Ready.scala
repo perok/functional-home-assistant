@@ -1,8 +1,9 @@
 package fh.view.model
 
-import api.homeassistant.ServiceTarget
 import cats.syntax.all.*
 import fh.view.runtime.{Cel, EntityState, Evaluator}
+
+import scala.collection.immutable.ListMap
 
 /** The compiled model: what `Dashboard.validated` walks the wire into, every
   * expression beside its run, and all the runtime reads. A class here stands in
@@ -20,7 +21,8 @@ object Ready:
       cell: Option[Cell],
       authoredId: Option[String],
       vars: List[fh.view.model.Dashboard.Declaration],
-      subjectEntity: Option[String]
+      subjectEntity: Option[String],
+      calls: Map[String, Placed] = Map.empty
   ) extends Node:
 
     /** Name order, for a reproducible walk; ids do not come from this. */
@@ -138,18 +140,26 @@ object Ready:
       case Activation.Var(_, at) => Some(at)
       case _                     => None
 
-  /** What a declared call acts on: its fixed target, or a set a press narrows
-    * to the candidates present then.
+  /** A declared call with every field ready to run at the press, and the
+    * fetches any of them reads, which the press answers first.
     */
-  type Reach = ServiceTarget | SetCall
-
-  final class SetCall(
-      val present: (
-          Map[String, EntityState],
-          Evaluator.Lookup
-      ) => List[String],
+  final class Call(
+      val decl: CallDecl,
+      val service: Evaluator.Run,
+      val target: ListMap[String, List[Evaluator.Run]],
+      val data: ListMap[String, Evaluator.Run],
       val reads: Set[SlotRead]
   )
+
+  /** A call as a node places it: its id, and each field the node sees with the
+    * slot the build added for it, a `Handler` signal holding the field's output
+    * as the page shows it.
+    */
+  final case class Placed(id: CallId, seen: List[(CallField, String)])
+
+  /** A seen field's slot: a name no Pkl slot can have, holding a `.`. */
+  def seenSlot(call: String, field: CallField): String =
+    s"$call.seen.${field.name}"
 
   /** The compile walk, from `validate`'s typing of each slot; a `Left` is an
     * expression `validate` passed but that does not compile.
@@ -161,7 +171,7 @@ object Ready:
       (
         node(d.card),
         d.surfaces.toList.traverse((k, s) => surface(s).map(k -> _)),
-        d.calls.toList.traverse((call, r) => reach(r).map(call -> _)),
+        d.calls.toList.traverse((id, decl) => call(decl).map(id -> _)),
         d.varScopes.values.toList
           .flatMap(_.values.flatMap(_.declaration.initialTransform))
           .map(_.celKey)
@@ -196,8 +206,12 @@ object Ready:
       case s: LayoutNode.SetNode   => set(s)
 
     def component(c: LayoutNode.Component): Built[Component] =
+      val placed = placedCalls(c)
+      val seenSlots = placed.toList.flatMap((name, seen) =>
+        seen.map((field, b) => (Ready.seenSlot(name, field): SlotKey) -> b)
+      )
       (
-        c.bound.toList.traverse((k, b) => slot(b).map(k -> _)),
+        (c.bound.toList ++ seenSlots).traverse((k, b) => slot(b).map(k -> _)),
         c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _)),
         c.cell.traverse(cell =>
           cell.atRender.toList
@@ -216,9 +230,59 @@ object Ready:
           cell,
           c.id,
           c.vars,
-          c.subjectEntity
+          c.subjectEntity,
+          placed.map((name, seen) =>
+            name -> Placed(
+              c.calls(name).id,
+              seen.map((field, _) => field -> Ready.seenSlot(name, field))
+            )
+          )
         )
       )
+
+    /** Per call the node places, each field of what it does that reads
+      * something the node paints, as the slot that holds it. A fetch's answer
+      * moves between the render and the press, so a field reading one is
+      * decided at the press.
+      */
+    private def placedCalls(
+        c: LayoutNode.Component
+    ): Map[String, List[(CallField, BoundSlot)]] =
+      if (c.calls.isEmpty) Map.empty
+      else
+        val shown = painted(c)
+        c.calls.map((name, decl) =>
+          name -> decl.doing.collect {
+            case (field, e)
+                if e.fetches.isEmpty && e.entityReads.exists(shown) =>
+              field -> BoundSlot(
+                e,
+                Map.empty,
+                signal = Some(SignalBind.Handler),
+                `type` =
+                  if (e.typed(Nil).exists(_.out == ValueType.Bool))
+                    SlotType.Bool
+                  else SlotType.Text
+              )
+          }
+        )
+
+    /** What the node and every node inside it paint: their template slots'
+      * reads, a `Handler`'s aside, which paints nothing.
+      */
+    private def painted(n: LayoutNode): Set[(String, Part)] = n match
+      case c: LayoutNode.Component =>
+        c.bound.toList.flatMap {
+          case (_: String, b) if !b.signal.contains(SignalBind.Handler) =>
+            (b.expr :: b.inputs.values.toList ++ b.valueWhile.map(_.expr))
+              .flatMap(_.entityReads)
+          case _ => Nil
+        }.toSet ++ c.allChildren.flatMap(painted)
+      case s: LayoutNode.SetNode =>
+        s.members.values.toList
+          .flatMap(_.clauses)
+          .flatMap(cl => painted(cl.node))
+          .toSet
 
     def set(s: LayoutNode.SetNode): Built[SetNode] =
       (
@@ -254,12 +318,23 @@ object Ready:
         case fh.view.model.Activation.State(c)   =>
           c.traverse(condition).map(Activation.State(_))
 
-    private def reach(r: CallReach): Built[Reach] = r match
-      case t: ServiceTarget => Right(t)
-      case p: Value.Present =>
-        Evaluator
-          .presentOf(p, scope)
-          .map(SetCall(_, SlotAsk.decision(ValueExpr(p).fetches)))
+    private def call(d: CallDecl): Built[Call] =
+      def run(e: ValueExpr) = Evaluator.compile(e, scope).map(_.run)
+      (
+        run(d.service),
+        d.target.toList
+          .traverse((k, es) => es.traverse(run).map(k -> _))
+          .map(ListMap.from),
+        d.data.toList.traverse((k, e) => run(e).map(k -> _)).map(ListMap.from)
+      ).mapN((service, target, data) =>
+        Call(
+          d,
+          service,
+          target,
+          data,
+          SlotAsk.decision(d.all.flatMap(_.fetches))
+        )
+      )
 
     private def slot(b: BoundSlot): Built[Slot] =
       for
@@ -287,7 +362,7 @@ object Ready:
       cardScripts: List[String],
       referencedEntities: Set[String],
       watchedEntities: Set[String],
-      calls: Map[TapCall, Reach],
+      calls: Map[CallId, Call],
       // Where a session opens a node variable, by its transform.
       initials: Map[Cel.Key, Cel.Program],
       // Each chosen window's `by`, by its `inputKey`.

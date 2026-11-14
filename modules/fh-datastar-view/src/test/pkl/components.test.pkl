@@ -19,6 +19,7 @@ import "../../main/resources/dashboards/lib/components/history.pkl" as historyMo
 import "../../main/resources/dashboards/lib/providers.pkl" as p
 import "../../main/resources/dashboards/lib/components/base/chart.pkl" as chartMod
 import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switchMod
+import "../../main/resources/dashboards/lib/components/base/slider.pkl" as sliderBase
 import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseMod
 import "../../main/resources/dashboards/lib/components/base/surface.pkl" as surfacesMod
@@ -491,30 +492,28 @@ facts {
     // A bare String — no transform, nothing for the runtime to decide, and so
     // nothing that can leave the renderer's identity cache. `service.jsValue`
     // quotes it back into the card's click expression.
-    c.entityCard(kitchen).slotsByName["service"].value == "light/toggle"
+    c.entityCard(kitchen).declared["tap"].service == "light/toggle"
     !c.entityCard(kitchen).slotsByName.containsKey("onclick")
   }
 
   ["a one-shot domain presses instead of toggling"] {
-    c.entityCard(doorbell).slotsByName["service"].value == "button/press"
+    c.entityCard(doorbell).declared["tap"].service == "button/press"
   }
 
   ["a lock's service is the one thing the STATE has to decide"] {
     // Through the lock's own verb: its card opens more-info (see below).
     local acts = c.entityCard(frontLock).tapAction(c.tap.toggle(frontLock))
-    local svcSlot = acts.slotsByName["service"]
-    local svc: slotMod.Reading = svcSlot.value
+    local svc: slotMod.Reading = acts.declared["tap"].service
     local m: simpleMod.Match = svc.steps.toList().last
-    // A lock's snapshot state decides WHICH service the tap posts; the value
-    // itself never changes what the target is.
+    // A lock's state decides WHICH service the tap posts; the value itself
+    // never changes what the target is.
     m.cases.toMap() == Map("locked", "lock/unlock")
     m.otherwise == "lock/lock"
-    // Carried as a SIGNAL with no binding, so the service moves in the signal
-    // store and the element's bytes do not — the tile stays in the renderer's
-    // identity cache across a lock/unlock (ADR 0017).
-    svcSlot.signal == slotMod.asHandler
-    // …and the click expression is therefore not the live one it used to be:
-    // the card assembles the URL from `tapMod.serviceClick`.
+    // Named, since a declaration has no subject: the server reads it again at
+    // the press. The card holds no service of its own, so its bytes stay the
+    // same across a lock/unlock (ADR 0016).
+    svc.entityId == frontLock.entity_id
+    !acts.slotsByName.containsKey("service")
     !acts.slotsByName.containsKey("onclick")
   }
 
@@ -530,7 +529,7 @@ facts {
     local features = card.regions!!["features"].toList()
     local buttons = (features[0] as nodes.Node).regions!!["children"].toList()
       .map((n) -> n as nodes.Node)
-    buttons.map((b) -> b.slotsByName["service"].value) == List("lock/lock", "lock/unlock")
+    buttons.map((b) -> b.declared["tap"].service) == List("lock/lock", "lock/unlock")
     (features[1] as nodes.Node).slotsByName["glyph"].value == "mdi mdi-door-open"
     // Each refused where HA disables its own button: the state it would reach,
     // and the moves.
@@ -547,7 +546,7 @@ facts {
     !inPopup.slotsByName.containsKey("tappable")
     inPopup.regions == card.regions
     // Only the guarded domains: a light's card still toggles on a tap.
-    c.entityCard(kitchen).slotsByName["service"].value == "light/toggle"
+    c.entityCard(kitchen).declared["tap"].service == "light/toggle"
   }
 
   ["a domain with NO action falls back to more-info, so nothing is dead"] {
@@ -871,7 +870,7 @@ facts {
     row.toggleOnly
     row.headNode.slotsByName["toggle"].value == true
     // The whole track posts the domain's own toggle.
-    row.headNode.slotsByName["service"].value == "light/toggle"
+    row.headNode.declared["tap"].service == "light/toggle"
     // All or nothing, in the theme's switch-fill rather than in the text colour
     // — a light with no brightness reports no colour either (`onoff` is a
     // light's SOLE mode when present), so the default is the only paint it can
@@ -1138,7 +1137,7 @@ facts {
         bypassUnavailable = false
       }
       reading = simpleMod.state()
-      commit = (c.tap.call("light/turn_on", kitchen)) { dataKey = "brightness" }
+      commit = c.tap.call("light/turn_on", kitchen).posting("brightness", (sliderBase.slide) { type = "int" })
       subject = kitchen.entity_id
       active = slotMod.activeOf(kitchen)!!
     }
@@ -1297,8 +1296,8 @@ facts {
     about.slotsByName["entity_id"].value == kitchen.entity_id
     // Named after it, and doing what its domain does.
     about.slotsByName["label"].value == kitchen.entity_id
-    about.slotsByName["service"].value == "light/toggle"
-    about.slotsByName["targetId"].value == kitchen.entity_id
+    about.declared["tap"].service == "light/toggle"
+    about.declared["tap"].target["entity_id"].toList() == List(kitchen.entity_id)
     // The same card: one registry entry, one template.
     about.card == "button"
     c.cards.keys.filter((k) -> k == "button").length == 1
@@ -1516,8 +1515,8 @@ facts {
   ["a tap that names its target needs no entity on the card"] {
     local b = c.button("Kjøkken", c.tap.toggle(kitchen))
     !b.slotsByName.containsKey("entity_id")
-    b.slotsByName["service"].value == "light/toggle"
-    b.slotsByName["targetId"].value == kitchen.entity_id
+    b.declared["tap"].service == "light/toggle"
+    b.declared["tap"].target["entity_id"].toList() == List(kitchen.entity_id)
     // Availability is the TARGET's, so the refusal reads it by name.
     (b.slotsByName["tapDisabled"].value as slotMod.Reading).entityId == kitchen.entity_id
   }
@@ -1526,17 +1525,17 @@ facts {
     // A card showing the kitchen light whose tap works the front lock: both the
     // service the lock's state picks and its mid-move inert read the LOCK.
     local b = c.entityButton(kitchen).label("Lås").tapAction(c.tap.toggle(frontLock))
-    local svc: slotMod.Reading = b.slotsByName["service"].value
+    local svc: slotMod.Reading = b.declared["tap"].service
     svc.entityId == frontLock.entity_id
-    b.slotsByName["targetId"].value == frontLock.entity_id
+    b.declared["tap"].target["entity_id"].toList() == List(frontLock.entity_id)
     (b.slotsByName["tapDisabled"].value as slotMod.Reading).entityId == frontLock.entity_id
     b.slotsByName["entity_id"].value == kitchen.entity_id
   }
 
   ["an area tap has no state to be inert on"] {
     local b = c.button("Stue av", c.tap.call("light/turn_off", stue))
-    b.slotsByName["targetKind"].value == "area"
-    b.slotsByName["targetId"].value == stue.area_id
+    b.declared["tap"].target.keys == Set("area_id")
+    b.declared["tap"].target["area_id"].toList() == List(stue.area_id)
     !b.slotsByName.containsKey("tapDisabled")
   }
 
@@ -1558,7 +1557,7 @@ facts {
     c.tap.activate(night) == c.tap.call("script/turn_on", night)
     c.tap.activate(restart) == c.tap.call("button/press", restart)
     c.tap.activate(bell) == c.tap.call("input_button/press", bell)
-    c.tap.activate(kveld).with("transition", "2").dataKey == "transition"
+    c.tap.activate(kveld).with("transition", "2").data["transition"] == "2"
   }
 
   ["`c.tap(e)` is what a tap on `e`'s own card does"] {
@@ -1571,25 +1570,21 @@ facts {
     c.tap(outside).inlineSurfaces != null
   }
 
-  ["a value-carrying tap is the same call carrying its value as a JSON literal"] {
-    // Not a second route builder: `serviceClick` covers both, and a tap with no
-    // value declares no `dataKey`, so the section closes over nothing.
+  ["a value-carrying tap is the same call carrying its value as typed"] {
+    // The page never spells a value: the server sends what the call declares.
     local plain = c.tap.call("light/turn_on", kitchen)
     plain.service == "light/turn_on"
-    plain.dataKey == null
+    plain.data.isEmpty
     local valued = c.tap.call("light/turn_on", kitchen).with("effect", "Color loop")
     valued.service == "light/turn_on"
     valued.target == kitchen
-    valued.dataKey == "effect"
-    // Double-quoted, so a `'` cannot close it: Mustache's `&#39;` is decoded
-    // back before the expression is parsed, and a `"` arrives as `&quot;`.
-    valued.dataValue == #""Color loop""#
-    c.tap.call("a/b", kitchen).with("k", "it's").dataValue == #""it's""#
-    c.tap.call("a/b", kitchen).with("k", "say \"hi\"").dataValue == #""say \"hi\"""#
-    c.tap.call("a/b", kitchen).with("k", 128).dataValue == "128"
-    c.tap.call("a/b", kitchen).with("k", true).dataValue == "true"
-    c.tap.call("a/b", kitchen).with("k", List(120, 100)).dataValue == "[120,100]"
+    valued.data.toMap() == Map("effect", "Color loop")
+    c.tap.call("a/b", kitchen).with("k", 128).data["k"] == 128
+    c.tap.call("a/b", kitchen).with("k", true).data["k"] == true
+    c.tap.call("a/b", kitchen).with("k", List(120, 100)).data["k"] == List(120, 100)
+    c.tap.call("a/b", kitchen).with("k", 1).with("j", 2).data.keys == Set("k", "j")
   }
+
 
   ["a light's slider switches between what it can do, brightness first"] {
     local lamp: hass.LightEntity = new {
@@ -1601,7 +1596,7 @@ facts {
     local s = c.entitySlider(lamp)
     s.offeredControls == List("brightness", "colourTemp", "colour")
     s.declaresControl
-    s.controls.map((m) -> m.head.slotsByName["dataKey"].value) == List("brightness", "color_temp_kelvin", "hs_color")
+    s.controls.map((m) -> m.head.declared["tap"].data.keys) == List(Set("brightness"), Set("color_temp_kelvin"), Set("hs_color"))
     // Each head is chosen by its main control's name, the first declared.
     s.controls.map((m) -> m.value) == List("brightness", "colourTemp", "colour")
     defaults.apply(s) == Map("control", "brightness")
@@ -1617,14 +1612,14 @@ facts {
     // No switch among the buttons: the plain row.
     local plain = c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp)))
     !plain.declaresControl
-    plain.headNode.slotsByName["dataKey"].value == "brightness"
+    plain.headNode.declared["tap"].data.keys == Set("brightness")
     // The switch's options: these, in this order, where the light has them.
     local picked = c.entitySlider(lamp).buttons(List(c.its.mainControl.options(List("colour", "colourTemp"))))
     picked.controls.map((m) -> m.value) == List("colour", "colourTemp")
     // One left is that axis, with no switch.
     local hueOnly = c.entitySlider(lamp).buttons(List(c.its.mainControl.options(List("colour"))))
     !hueOnly.declaresControl
-    hueOnly.headNode.slotsByName["dataKey"].value == "hs_color"
+    hueOnly.headNode.declared["tap"].data.keys == Set("hs_color")
     // One switch picks one head.
     module.catch(() -> c.entitySlider(lamp).buttons(List(c.its.mainControl, c.its.mainControl)).declaresControl)
       .contains("c.entitySlider(light.lamp) has 2 main control switches")
@@ -1635,7 +1630,7 @@ facts {
     // A light with none of them keeps its plain row: one list serves mixed lights.
     local narrowed = c.entitySlider(dimmer).buttons(List(c.its.mainControl.options(List("colour"))))
     !narrowed.declaresControl
-    narrowed.headNode.slotsByName["dataKey"].value == "brightness"
+    narrowed.headNode.declared["tap"].data.keys == Set("brightness")
     // A plug has no main controls at all, and is still the toggle row.
     local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
     c.entitySlider(plug).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp")))).headNode.slotsByName["toggle"].value == true
@@ -1671,15 +1666,15 @@ facts {
     lamp.axes.every((a) -> a.owner == lamp)
     // Every one is a single row, configured by the axis alone.
     lamp.axes.map((a) -> c.entitySlider(a)).every((s) -> !s.declaresControl)
-    lamp.axes.map((a) -> c.entitySlider(a).headNode.slotsByName["dataKey"].value) == List("brightness", "color_temp_kelvin", "hs_color")
+    lamp.axes.map((a) -> c.entitySlider(a).headNode.declared["tap"].data.keys) == List(Set("brightness"), Set("color_temp_kelvin"), Set("hs_color"))
     // A light that cannot dim has none, and stays the toggle row.
     local plug: hass.LightEntity = new { entity_id = "light.plug"; colourModes { "onoff" } }
     plug.brightness == null && plug.axes.isEmpty
     c.entitySlider(plug).toggleOnly
     // A domain row is an axis too: a cover posts its position.
     local blind: hass.GenericEntity = new { entity_id = "cover.blind"; domain = "cover" }
-    c.entitySlider(blind).headNode.slotsByName["service"].value == "cover/set_cover_position"
-    c.entitySlider(blind).headNode.slotsByName["dataKey"].value == "position"
+    c.entitySlider(blind).headNode.declared["tap"].service == "cover/set_cover_position"
+    c.entitySlider(blind).headNode.declared["tap"].data.keys == Set("position")
     // Which one a light is on, as data for the card to read.
     lamp.colour!!.inUseWhen!!.values == hassLight.COLOUR_MODES
     lamp.brightness!!.inUseWhen == null
@@ -1789,10 +1784,10 @@ facts {
     local rows = g.members.toList().map((r) -> r as c.EntitySlider)
     // The rows read the head's variable rather than declaring their own.
     rows.every((r) -> !r.declaresControl && r.shownButtons.filterNonNull().isEmpty && r.controls.map((m) -> m.value) == List("brightness", "colourTemp", "colour"))
-    rows[0].controls.map((m) -> m.head.slotsByName["dataKey"].value) == List("brightness", "color_temp_kelvin", "hs_color")
+    rows[0].controls.map((m) -> m.head.declared["tap"].data.keys) == List(Set("brightness"), Set("color_temp_kelvin"), Set("hs_color"))
     // The dimmer stands in with its brightness, dimmed and disabled.
     rows[1].controls.map((m) -> m.head.slotsByName.containsKey("greyed")) == List(false, true, true)
-    rows[1].controls.map((m) -> m.head.slotsByName["dataKey"].value) == List("brightness", "brightness", "brightness")
+    rows[1].controls.map((m) -> m.head.declared["tap"].data.keys) == List(Set("brightness"), Set("brightness"), Set("brightness"))
   }
 
   ["a SERVICE tap is inert on a dead entity, whatever its domain"] {
@@ -1816,7 +1811,7 @@ facts {
   ["a typed lock still taps by state, like any other lock"] {
     // Typing the domain must not change what the lock's tap does — the
     // capability is additive (ADR 0016 owns the tap).
-    (c.entityCard(latchLock).tapAction(c.tap.toggle(latchLock)).slotsByName["service"].value.steps.toList().last
+    (c.entityCard(latchLock).tapAction(c.tap.toggle(latchLock)).declared["tap"].service.steps.toList().last
       as simpleMod.Match).otherwise == "lock/lock"
   }
 
@@ -1845,10 +1840,10 @@ facts {
     // …and `lock/open` lives inside it, aimed at the lock by its own target.
     local body = latch.inlineSurfaces!!["self"].content.children.toList().first
     local press = body.children.toList()
-      .filter((n) -> n.card == "button" && n.slotsByName.containsKey("service"))
+      .filter((n) -> n.card == "button" && n.declared.containsKey("tap"))
       .first
-    press.slotsByName["service"].value == "lock/open"
-    press.slotsByName["targetId"].value == "lock.latch"
+    press.declared["tap"].service == "lock/open"
+    press.declared["tap"].target["entity_id"].toList() == List("lock.latch")
     // …and it is THAT press availability guards, not the latch that opens the
     // dialog: a service tap is inert on a dead entity in every domain, so
     // `CANNOT_OPEN` never had to carry `unavailable` and now cannot.
@@ -1856,7 +1851,7 @@ facts {
       .cases.toMap().containsKey("unavailable")
     // Lock and Unlock beside it are different actions, not two spellings of
     // the latch's.
-    c.lock.lockButtons(latchLock).children.toList().map((b) -> (b as nodes.Node).slotsByName["service"].value)
+    c.lock.lockButtons(latchLock).children.toList().map((b) -> (b as nodes.Node).declared["tap"].service)
       == List("lock/lock", "lock/unlock")
   }
 
@@ -1893,7 +1888,7 @@ facts {
     local press = c.tap.locks.openLatch(latchLock)
     local confirm = c.lock.openLatch(latchLock).inlineSurfaces!!["self"].content
       .children.toList().first.children.toList()
-      .filter((n) -> n.card == "button" && n.slotsByName.containsKey("service"))
+      .filter((n) -> n.card == "button" && n.declared.containsKey("tap"))
       .first
     local senders = List(
       confirm,
@@ -1904,7 +1899,7 @@ facts {
       c.entityCard(latchLock).tapAction(press),
       c.toggle(latchLock).tapAction(press)
     )
-    senders.every((n) -> n.slotsByName["service"].value == "lock/open")
+    senders.every((n) -> n.declared["tap"].service == "lock/open")
     senders.every((n) ->
       let (refused = (n.slotsByName["tapDisabled"].value.steps.toList().last as simpleMod.Match).cases.toMap().keys)
         Set("open", "opening", "unlocking", "locking", "unavailable").every((s) -> refused.contains(s)))
@@ -1920,12 +1915,12 @@ facts {
     local vent: hass.GenericEntity = new { entity_id = "fan.vent"; domain = "fan" }
     local warmth = new hass.ColourTemp { owner = dimmer; min_kelvin = 2000; max_kelvin = 6500 }
     local rows = List(c.entitySlider(kitchen), c.entitySlider(dimmer), c.entitySlider(warmth), c.entitySlider(blind), c.entitySlider(vent), c.entitySlider(switchOnly))
-    rows.every((s) -> s.headNode.slotsByName.containsKey("service"))
+    rows.every((s) -> s.headNode.declared.containsKey("tap"))
     rows.every((s) ->
       (s.headNode.slotsByName["tapDisabled"].value.steps.toList().last as simpleMod.Match).cases.toMap().keys == Set("unavailable"))
     rows.every((s) -> s.headNode.slotsByName["tapDisabled"].value.entityId == s.entity.entity_id)
-    // The value is the drag's, so the route carries the key and no value.
-    rows.filter((s) -> !s.toggleOnly).every((s) -> s.headNode.slotsByName.containsKey("dataKey") && !s.headNode.slotsByName.containsKey("dataValue"))
+    // The value is the drag's: the press posts it.
+    rows.filter((s) -> !s.toggleOnly).every((s) -> s.headNode.declared["tap"].data.toMap().values.every((v) -> v is slotMod.Expr && v.source is slotMod.PostedRead))
     // The input is disabled by the refusal as well as by its own commit, and
     // the change handler leads with the refusal guard.
     local head = c.cards["sliderHead"].template

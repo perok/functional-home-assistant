@@ -66,6 +66,20 @@ final case class ValueExpr(
     case ValueExpr.Inner.Input(e)     => e.entities
   } ++ dependsOn
 
+  /** Every named entity read at any depth, with the part it takes: what a
+    * call's field and a painted slot share when the node sees the field.
+    */
+  def entityReads: Set[(String, Part)] =
+    all.flatMap { e =>
+      (e.source match
+        case Value.Entity(Some(of), part, _, _) => List(of -> part)
+        case _                                  => Nil
+      ) ++ e.parts.collect {
+        case ValueExpr.Inner.Operand(Value.Entity(Some(of), part, _, _)) =>
+          of -> part
+      }
+    }.toSet
+
   /** Whether any read names no entity after [[about]]: on a card with none. */
   def readsMissingSubject: Boolean =
     (source match
@@ -220,6 +234,7 @@ final case class ValueExpr(
       case Value.Entity(_, Part.Whole, _, _)   => plain(ValueType.Entity)
       case Value.Fetch(_)                      => plain(ValueType.Series)
       case Value.Var(_)                        => plain(ValueType.Text)
+      case Value.Posted(_, t)                  => plain(t)
       case Value.Present(_, when)              =>
         when.toList
           .sortBy(_._1)
@@ -250,7 +265,9 @@ final case class ValueExpr(
   /** Live: what it answers moves, so a once-read cannot hold it. */
   lazy val isLive: Boolean =
     (source match
-      case Value.Literal(_) | Value.List(_, _) | Value.Cel(_, _) => false
+      case Value.Literal(_) | Value.List(_, _) | Value.Cel(_, _) |
+          Value.Posted(_, _) =>
+        false
       case Value.Entity(_, _, _, _) | Value.Fetch(_) | Value.Present(_, _) |
           Value.Var(_) =>
         true
@@ -269,7 +286,7 @@ final case class ValueExpr(
       // A window chosen by state follows it.
       case Value.Fetch(f) => f.window.entities
       case Value.Literal(_) | Value.List(_, _) | Value.Cel(_, _) |
-          Value.Var(_) =>
+          Value.Var(_) | Value.Posted(_, _) =>
         Nil
     ) ++ partEntities
 
@@ -388,15 +405,17 @@ object ValueType:
   val Series: ValueType = List(List(Real))
 
   /** A list source's item type, as Pkl names it. */
-  given Decoder[ValueType] = Decoder[String].emap {
-    case "text"   => Right(Text)
-    case "bool"   => Right(Bool)
-    case "int"    => Right(Int)
-    case "real"   => Right(Real)
-    case "dyn"    => Right(Dyn)
-    case "entity" => Right(Entity)
-    case other    => Left(s"unknown item type: $other")
-  }
+  given Decoder[ValueType] = Decoder[String].emap(named)
+
+  private def named(s: String): Either[String, ValueType] = s match
+    case "text"       => Right(Text)
+    case "bool"       => Right(Bool)
+    case "int"        => Right(Int)
+    case "real"       => Right(Real)
+    case "dyn"        => Right(Dyn)
+    case "entity"     => Right(Entity)
+    case s"list($of)" => named(of).map(List(_))
+    case other        => Left(s"unknown item type: $other")
 
   private val numberLike = Set[ValueType](Text, Int, Real, Dyn)
 
@@ -526,6 +545,11 @@ enum Value derives CanEqual:
     */
   case Var(name: String)
 
+  /** What the press posted under `key`, decoded as `type`: one request's, read
+    * only by its call, so `validate` keeps it out of every slot.
+    */
+  case Posted(key: String, `type`: ValueType)
+
 object Value:
 
   /** What a step reads besides the value before it. Pkl writes only these
@@ -551,7 +575,9 @@ object Value:
   def about(subject: Option[String])(v: Value): Value = v match
     case e: Entity      => named(subject)(e)
     case List(t, items) => List(t, items.map(_.about(subject)))
-    case v @ (Literal(_) | Fetch(_) | Present(_, _) | Cel(_, _) | Var(_)) => v
+    case v @ (Literal(_) | Fetch(_) | Present(_, _) | Cel(_, _) | Var(_) |
+        Posted(_, _)) =>
+      v
 
   /** [[ValueExpr.parts]] of a source. */
   def parts(v: Value): scala.List[ValueExpr.Inner] = v match
@@ -559,7 +585,8 @@ object Value:
       when.values.toList.map(ValueExpr.Inner.PerMember(_))
     case List(_, items) => items.map(ValueExpr.Inner.Item(_))
     case Cel(_, inputs) => inputs.values.toList.map(ValueExpr.Inner.Input(_))
-    case Literal(_) | Entity(_, _, _, _) | Fetch(_) | Var(_) => Nil
+    case Literal(_) | Entity(_, _, _, _) | Fetch(_) | Var(_) | Posted(_, _) =>
+      Nil
 
   /** An entity read that names none, reading `subject`. */
   def named(subject: Option[String])(e: Entity): Entity =
@@ -584,7 +611,8 @@ object Value:
       items.map(i => sized(i.inputKey)).mkString("list(", "", ")")
     case Cel(src, inputs) =>
       s"cel:${src.length}:$src" + ValueExpr.inputsKey(inputs)
-    case Var(name) => s"var:${sized(name)}"
+    case Var(name)      => s"var:${sized(name)}"
+    case Posted(key, t) => s"posted:${sized(key)}:${t.name}"
 
   private def sized(k: String) = s"${k.length}:$k"
 
@@ -629,11 +657,14 @@ object Value:
         case "Var" =>
           Strict.only(c, Set("kind", "name")) *>
             c.get[String]("name").map(Var(_))
+        case "Posted" =>
+          Strict.only(c, Set("kind", "key", "type")) *>
+            (c.get[String]("key"), c.get[ValueType]("type")).mapN(Posted.apply)
         case other =>
           Left(
             DecodingFailure(
               s"unknown value kind '$other' — Entity, Fetch, Present, " +
-                "List, Cel or Var, or a bare literal",
+                "List, Cel, Var or Posted, or a bare literal",
               c.history
             )
           )

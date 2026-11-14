@@ -3,8 +3,8 @@ package fh.view.build
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
-import api.homeassistant.ServiceTarget
 import fh.view.model.{
+  CallDecl,
   CardDef,
   CellKey,
   Dashboard,
@@ -13,10 +13,10 @@ import fh.view.model.{
   Op,
   Part,
   Step,
-  TapCall,
   Value,
   ValueExpr
 }
+import scala.collection.immutable.ListMap
 import fh.view.testkit.DashboardBuilders.{asComponent, asSetNode}
 import fh.view.testkit.{
   FixtureEntity,
@@ -592,16 +592,18 @@ class PklBuildSuite extends munit.FunSuite {
     val node =
       c.downField("node").as[LayoutNode].fold(e => fail(e.toString), identity)
     val dashboard = Dashboard(cards = Map.empty, card = node)
+    def lit(s: String) = ValueExpr.literal(s)
+    def on(key: String, id: String) = ListMap(key -> List(lit(id)))
     assertEquals(
-      dashboard.calls.keySet,
+      dashboard.calls.values.toSet,
       Set(
-        TapCall("light/turn_off", ServiceTarget.Area("kitchen_1"), None),
-        TapCall("switch/turn_off", ServiceTarget.Floor("g"), None),
-        TapCall("light/toggle", ServiceTarget.Entity("light.kitchen"), None),
-        TapCall(
-          "light/turn_on",
-          ServiceTarget.Entity("light.kitchen"),
-          Some("effect")
+        CallDecl(lit("light/turn_off"), on("area_id", "kitchen_1")),
+        CallDecl(lit("switch/turn_off"), on("floor_id", "g")),
+        CallDecl(lit("light/toggle"), on("entity_id", "light.kitchen")),
+        CallDecl(
+          lit("light/turn_on"),
+          on("entity_id", "light.kitchen"),
+          ListMap("effect" -> lit("colorloop"))
         )
       )
     )
@@ -1565,7 +1567,7 @@ class PklBuildSuite extends munit.FunSuite {
         // `validate` rejects a card that declares one without placing its
         // binding — or, for a handler, its read (ADR 0017).
         "<b>{{label}}</b><i {{{value.bind}}}>{{value}}</i>" +
-          "<u data-on:click=\"{{#tapDisabled.signal}}{{tapDisabled.signal}}{{/tapDisabled.signal}}\"></u>" +
+          "<u data-on:click=\"{{#tapDisabled.signal}}{{tapDisabled.signal}}{{/tapDisabled.signal}}{{{tap.callId}}}\"></u>" +
           // The rest of what the library tile reads, so every slot is read.
           "{{#icon}}{{#onoff}}{{#tappable}}{{#busy}}{{#busyVisual}}" +
           "{{/busyVisual}}{{/busy}}{{/tappable}}{{/onoff}}{{/icon}}"
@@ -1919,7 +1921,7 @@ class PklBuildSuite extends munit.FunSuite {
     // The template assembles the URL around the service (ADR 0017), so no slot
     // carries `@post`.
     assertEquals(
-      toggle.templateSlots("service").literal,
+      toggle.calls("tap").service.literal,
       Some("homeassistant/toggle")
     )
   }
@@ -1946,11 +1948,11 @@ class PklBuildSuite extends munit.FunSuite {
     )
     assertEquals(slider.card, "slider")
     assertEquals(
-      rowOf(slider).templateSlots("service").literal,
+      rowOf(slider).calls("tap").service.literal,
       Some("cover/set_cover_position")
     )
     assertEquals(
-      rowOf(slider).templateSlots("dataKey").literal,
+      rowOf(slider).calls("tap").data.keys.headOption,
       Some("position")
     )
     assertEquals(rowOf(slider).templateSlots("min").literal, Some("0"))
@@ -1970,17 +1972,18 @@ class PklBuildSuite extends munit.FunSuite {
     val set = probeSet(
       """node = q.from(hass.lights(dump.areas.stue.all)).render((e) -> c.entitySlider(e)).build()"""
     )
-    val slots = rowOf(
+    val row = rowOf(
       set
         .members("light.taklys")
         .clauses
         .head
         .node
         .asComponent
-    ).templateSlots
+    )
+    val slots = row.templateSlots
     assertEquals(slots("entity_id").literal, Some("light.taklys"))
-    assertEquals(slots("service").literal, Some("light/turn_on"))
-    assertEquals(slots("dataKey").literal, Some("brightness"))
+    assertEquals(row.calls("tap").service.literal, Some("light/turn_on"))
+    assertEquals(row.calls("tap").data.keys.toList, List("brightness"))
     assertEquals(slots("min").literal, Some("1"))
     assertEquals(slots("max").literal, Some("255"))
     // The position stays live, since it reads state, but names the attribute
@@ -2012,7 +2015,7 @@ class PklBuildSuite extends munit.FunSuite {
       Some("light.lys")
     )
     assertEquals(
-      rowOf(group).templateSlots("service").literal,
+      rowOf(group).calls("tap").service.literal,
       Some("light/turn_on")
     )
     assertEquals(
@@ -2026,11 +2029,17 @@ class PklBuildSuite extends munit.FunSuite {
     // sliders.
     assertEquals(actions.map(_.card), List("pill"))
     assertEquals(
-      actions.head.templateSlots("service").literal,
+      actions.head.calls("tap").service.literal,
       Some("homeassistant/toggle")
     )
     assertEquals(
-      actions.head.templateSlots("targetId").literal,
+      actions.head
+        .calls("tap")
+        .target
+        .values
+        .flatten
+        .headOption
+        .flatMap(_.literal),
       Some("light.lys")
     )
     assertEquals(actions.head.templateSlots("glyph").literal, Some("mdi-power"))
@@ -2045,7 +2054,7 @@ class PklBuildSuite extends munit.FunSuite {
       List(Some("light.a"), Some("cover.blind"))
     )
     assertEquals(
-      members.map(rowOf(_).templateSlots("dataKey").literal),
+      members.map(rowOf(_).calls("tap").data.keys.headOption),
       List(Some("brightness"), Some("position"))
     )
     // It reads out its level, off its own range, not its state.
@@ -2079,10 +2088,6 @@ class PklBuildSuite extends munit.FunSuite {
         "value",
         "fill",
         "fillColor",
-        "service",
-        "targetKind",
-        "targetId",
-        "dataKey",
         "tapDisabled",
         "min",
         "max",
@@ -2092,6 +2097,7 @@ class PklBuildSuite extends munit.FunSuite {
       ),
       clue = rowOf(plain).templateSlots.keySet
     )
+    assertEquals(rowOf(plain).calls.keySet, Set("tap"))
     // Its on look rides the cell, as a reading the renderer binds.
     assert(
       rowOf(plain).cell
@@ -2332,7 +2338,7 @@ class PklBuildSuite extends munit.FunSuite {
       Some("light.stue_2")
     )
     assertEquals(
-      rowOf(inner(1)).templateSlots("service").literal,
+      rowOf(inner(1)).calls("tap").service.literal,
       Some("light/turn_on")
     )
     assertEquals(rowOf(inner(1)).templateSlots("min").literal, Some("1"))
@@ -2386,11 +2392,11 @@ class PklBuildSuite extends munit.FunSuite {
     )
     assertEquals(s.card, "slider")
     assertEquals(
-      rowOf(s).templateSlots("service").literal,
+      rowOf(s).calls("tap").service.literal,
       Some("light/turn_on")
     )
     assertEquals(
-      rowOf(s).templateSlots("dataKey").literal,
+      rowOf(s).calls("tap").data.keys.headOption,
       Some("color_temp_kelvin")
     )
     // The light's bounds, not the domain's brightness 1..255.
@@ -2414,8 +2420,8 @@ class PklBuildSuite extends munit.FunSuite {
       )
     )
     val row = rowOf(s)
-    assertEquals(row.templateSlots("service").literal, Some("light/turn_on"))
-    assertEquals(row.templateSlots("dataKey").literal, Some("hs_color"))
+    assertEquals(row.calls("tap").service.literal, Some("light/turn_on"))
+    assertEquals(row.calls("tap").data.keys.headOption, Some("hs_color"))
     assertEquals(row.templateSlots("min").literal, Some("0"))
     assertEquals(row.templateSlots("max").literal, Some("360"))
     // The rest of the list after the dragged hue: full saturation.
@@ -2459,7 +2465,7 @@ class PklBuildSuite extends munit.FunSuite {
     )
     val kids = col.allChildren.collect { case c: LayoutNode.Component => c }
     assertEquals(
-      kids.map(k => rowOf(k).templateSlots("dataKey").literal),
+      kids.map(k => rowOf(k).calls("tap").data.keys.headOption),
       List(Some("brightness"), Some("color_temp_kelvin"), Some("hs_color"))
     )
   }
@@ -2477,11 +2483,11 @@ class PklBuildSuite extends munit.FunSuite {
     val kids = col.allChildren.collect { case c: LayoutNode.Component => c }
     assertEquals(kids.map(_.card), List("slider", "slider", "selectDropdown"))
     assertEquals(
-      rowOf(kids(0)).templateSlots("dataKey").literal,
+      rowOf(kids(0)).calls("tap").data.keys.headOption,
       Some("brightness")
     )
     assertEquals(
-      rowOf(kids(1)).templateSlots("dataKey").literal,
+      rowOf(kids(1)).calls("tap").data.keys.headOption,
       Some("color_temp_kelvin")
     )
     val options = kids(2).allChildren.collect { case c: LayoutNode.Component =>
@@ -2491,16 +2497,14 @@ class PklBuildSuite extends munit.FunSuite {
       options.map(_.templateSlots("label").literal),
       List(Some("off"), Some("Color loop"))
     )
-    // The value is a literal slot the template puts in the call's body, as a
-    // JSON literal.
+    // The value is the call's, as the author typed it: the page never spells it.
     assertEquals(
-      options(1).templateSlots("service").literal,
+      options(1).calls("tap").service.literal,
       Some("light/turn_on")
     )
-    assertEquals(options(1).templateSlots("dataKey").literal, Some("effect"))
     assertEquals(
-      options(1).templateSlots("dataValue").literal,
-      Some("\"Color loop\"")
+      options(1).calls("tap").data.view.mapValues(_.literal).toMap,
+      Map("effect" -> Some("Color loop"))
     )
     // Exact bytes: the transform string ships and hashes as written, so its
     // shape is a contract. The colour-temperature span is the light's own range

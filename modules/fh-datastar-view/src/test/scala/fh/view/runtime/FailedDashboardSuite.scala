@@ -75,7 +75,7 @@ class FailedDashboardSuite extends ServerHarness {
         resp <- ts.gatedApp.run(
           Request[IO](
             Method.POST,
-            uri"/sse/call/dashboard/light/toggle/entity/light.kitchen"
+            uri"/sse/call/dashboard/0123456789abcdef?node=c_0"
           )
         )
         body <- resp.bodyText.compile.string
@@ -86,7 +86,10 @@ class FailedDashboardSuite extends ServerHarness {
         // diagnostics dump. The refusal is 200 with signals (ADR 0024), so the
         // message proves it.
         assertEquals(resp.status, Status.Ok)
-        assert(body.contains("no tap on this dashboard calls"), clue = body)
+        assert(
+          body.contains("no tap on this dashboard makes the call"),
+          clue = body
+        )
         assertEquals(calls.map(_.service), Vector.empty, clue = calls)
       }
     }

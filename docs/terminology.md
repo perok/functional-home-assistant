@@ -36,7 +36,12 @@ baked into re-rendered HTML, so it can change without the card being re-rendered
 
 **View** — a way a template reaches a slot besides its value, spelled `x.view`: `bind` (a signal
 slot's binding), `has` (whether the node sets it), `jsValue` (the value as JavaScript), `signal`
-(the signal's name, placed only inside `x.ifSignal(…)`, a section on it). ADR 0017.
+(the signal's name, placed only inside `x.ifSignal(…)`, a section on it). A placed call has two of
+its own, `callId` and `seen`. ADR 0017.
+
+**Painted slot** — a template slot that shows something: every one but a `Handler`, which only a
+handler reads. What a node paints decides which of a call's fields it sees. A cell slot does not
+count. ADR 0023.
 
 **Display signal** vs **interaction signal** — which of the two a signal is decides how it is NAMED,
 so the distinction is load-bearing rather than descriptive. A *display* signal carries an entity's
@@ -225,6 +230,21 @@ second tap can name it. Sharing means registering it and using `openPopup("detai
 **target** (an entity, an area, a floor or a query set), a navigation, opening or closing a popup. A tap names its
 own target and never borrows the card's subject entity, so one card may show an entity and act on
 another. ADR 0016, 0023, 0024.
+
+**Declared call** — the service call a tap makes, as a value the build writes down
+(`CallDecl`): its `service`, its target keys and its `data` keys, each a value expression, every
+entity read named. A node places its calls by name (`tapMod.tapCall` is `tap`). The server
+evaluates the declaration itself at the press; the page only names it. ADR 0023.
+
+**Call id** — a declared call's name on the wire, a hash of the declaration: equal calls share
+one, and an edited call gets a new one. The route admits only an id its dashboard declares.
+
+**Posted** — a value the press supplies (a drag's position), read by a `Posted(key, type)` source
+in the call and decoded as its type: the one client input that reaches HA.
+
+**Seen** — what a node showed of the call it places: each `service` or `data` field that shares a
+read with a slot the node, or a node inside it, paints. The build adds a `Handler` slot for each;
+the press posts their values and the server refuses one that differs from its own. ADR 0016, 0023.
 
 **Guard** — the attribute on a tappable element that refuses a second click while the first is still
 in flight. The point of the busy machinery; the spinner is decoration. ADR 0019.

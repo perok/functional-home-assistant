@@ -255,9 +255,13 @@ class ConditionsSuite extends munit.FunSuite {
       n <- -1 to size + 1
     } {
       val full = Evaluator
-        .presentOf(Value.Present(ids, guards), Evaluator.Scope(""))
-        .fold(m => fail(m.message), _(states, Evaluator.unanswered))
-        .size
+        .compile(ValueExpr(Value.Present(ids, guards)), Evaluator.Scope(""))
+        .fold(
+          m => fail(m.message),
+          _.run(null, states, Evaluator.unanswered)
+        ) match
+        case present: List[?] => present.size
+        case other            => fail(s"a tally gave $other")
       assertEquals(
         holds(
           Conds.count(ids, guards, op, Json.fromInt(n)),

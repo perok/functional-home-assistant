@@ -57,6 +57,15 @@ class LightSliderSuite extends CatsEffectSuite {
       .use(f)
       .timeout(60.seconds)
 
+  /** The ids of the calls setting HA's `field`, which a page carrying that head
+    * carries.
+    */
+  private def callsSetting(ts: TestServer, field: String): IO[List[String]] =
+    ts.presses.map(_.collect {
+      case (d, url) if d.data.contains(field) =>
+        url.split('/').last.takeWhile(_ != '?')
+    })
+
   private val controlRoute =
     """sse/var/[^/]+/([A-Za-z0-9_]+)/control/([A-Za-z]+)""".r
 
@@ -64,7 +73,12 @@ class LightSliderSuite extends CatsEffectSuite {
     "first paint is the brightness slider, its button stepping to the next"
   ) {
     served(lamp) { ts =>
-      ts.page().map { html =>
+      for {
+        html <- ts.page()
+        brightness <- callsSetting(ts, "brightness")
+        hue <- callsSetting(ts, "hs_color")
+        kelvin <- callsSetting(ts, "color_temp_kelvin")
+      } yield {
         // Only the shown control's button is in the page: no script picks it.
         assert(html.contains("""aria-label="Brightness""""), clue = html)
         List("Colour temperature", "Colour").foreach { l =>
@@ -74,10 +88,11 @@ class LightSliderSuite extends CatsEffectSuite {
           controlRoute.findAllMatchIn(html).map(_.group(2)).toList,
           List("colourTemp")
         )
-        assert(html.contains("{'brightness': Number("), clue = html)
+        assert(brightness.exists(html.contains), clue = html)
+        assert(html.contains("{'slide': Number("), clue = html)
         // A panel not shown is not rendered.
-        assert(!html.contains("{'hs_color': "), clue = html)
-        assert(!html.contains("{'color_temp_kelvin': "), clue = html)
+        assert(hue.nonEmpty && kelvin.nonEmpty, clue = (hue, kelvin))
+        assert(!(hue ++ kelvin).exists(html.contains), clue = html)
       }
     }
   }
@@ -101,8 +116,8 @@ class LightSliderSuite extends CatsEffectSuite {
           .map(_.flatMap(_.data).mkString("\n"))
       } yield {
         assertEquals(result._1, Status.NoContent, clue = result._2)
-        assert(sent.contains("{'hs_color': [Number($"), clue = sent)
-        assert(sent.contains(",100] } } }"), clue = sent)
+        assert(sent.contains("{'slide': [Number($"), clue = sent)
+        assert(sent.contains(",100]}, seen: "), clue = sent)
         // `hs_color[0]`, rounded: the handle starts where the light is.
         assert(sent.contains("""value="31""""), clue = sent)
         assert(
@@ -118,10 +133,8 @@ class LightSliderSuite extends CatsEffectSuite {
     // are the dashboard's whether or not this viewer has it showing.
     served(lamp) { ts =>
       for {
-        status <- ts.post(
-          s"sse/call/${ts.slug}/light/turn_on/entity/light.lamp",
-          body = """{"data":{"hs_color":[120,100]}}"""
-        )
+        at <- ts.pressWhere(_.data.contains("hs_color"))
+        status <- ts.post(at, body = """{"posted":{"slide":[120,100]}}""")
         calls <- ts.fake.recordedCalls
       } yield {
         assertEquals(status, Status.NoContent)
@@ -173,7 +186,7 @@ class LightSliderSuite extends CatsEffectSuite {
           assertEquals(result._1, Status.NoContent, clue = result._2)
           // The head and the colour row both slide the hue now.
           assertEquals(
-            "\\{'hs_color': \\[Number\\(\\$".r.findAllMatchIn(sent).size,
+            "\\{'slide': \\[Number\\(\\$".r.findAllMatchIn(sent).size,
             2,
             clue = sent
           )
@@ -186,8 +199,12 @@ class LightSliderSuite extends CatsEffectSuite {
 
   test("a light that only dims is one slider and no buttons") {
     served(dimmer) { ts =>
-      ts.page().map { html =>
-        assert(html.contains("{'brightness': Number("), clue = html)
+      for {
+        html <- ts.page()
+        brightness <- callsSetting(ts, "brightness")
+      } yield {
+        assert(brightness.exists(html.contains), clue = html)
+        assert(html.contains("{'slide': Number("), clue = html)
         assertEquals(controlRoute.findAllMatchIn(html).size, 0, clue = html)
       }
     }
