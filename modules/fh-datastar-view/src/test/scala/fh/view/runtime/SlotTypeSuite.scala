@@ -59,6 +59,27 @@ class SlotTypeSuite extends munit.FunSuite {
     assertEquals(SlotValue.text(128.0), "128")
   }
 
+  test("text pasted into a Datastar expression is refused, and nothing else") {
+    val text = TemplateSlot(ValueExpr.literal("it's"))
+    val inClick = """<b data-on:click="alert('{{x}}')"></b>"""
+    assert(
+      errors(inClick, text).exists(_.contains("inside a Datastar expression")),
+      clue = errors(inClick, text)
+    )
+    assertEquals(
+      errors("""<b data-on:click="alert({{{x.jsValue}}})"></b>""", text),
+      Nil
+    )
+    assertEquals(errors("""<b title="{{x}}"></b>""", text), Nil)
+    assertEquals(
+      errors(
+        inClick,
+        TemplateSlot(literalFor(SlotType.Number), `type` = SlotType.Number)
+      ),
+      Nil
+    )
+  }
+
   test("each slot type is placed only in the holes it names") {
     val allowed = Map(
       SlotType.Text -> Set("escaped", "section"),

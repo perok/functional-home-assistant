@@ -2425,7 +2425,7 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(row.templateSlots("min").literal, Some("0"))
     assertEquals(row.templateSlots("max").literal, Some("360"))
     // The rest of the list after the dragged hue: full saturation.
-    assertEquals(row.templateSlots("valueRest").literal, Some(",100"))
+    assertEquals(row.templateSlots("valueRest").literal, Some("100"))
     // The hue is `hs_color[0]`, guarded: a light that is off reports none.
     assertEquals(
       row.bound("value").expr.cels.headOption.map(_._1),

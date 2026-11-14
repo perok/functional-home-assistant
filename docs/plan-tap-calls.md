@@ -17,7 +17,7 @@ B needs A: a press has to name which exclusion applies, and today's URL names a 
 service, target and value key. C's posted value lives in A's declaration. C's `number` slot
 type needs neither.
 
-Steps 1 to 5 are built. Step 5's spike, read from the pinned bundle: a range input's `data-bind` writes a number unless its signal holds a string, so `Number(…)` went once the slide signal seeded from the number slot.
+All six steps are built; the RenderBench pass over the branch is left. Step 5's spike, read from the pinned bundle: a range input's `data-bind` writes a number unless its signal holds a string, so `Number(…)` went once the slide signal seeded from the number slot.
 
 ## Today
 

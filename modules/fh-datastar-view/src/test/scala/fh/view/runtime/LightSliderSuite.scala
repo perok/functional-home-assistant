@@ -117,7 +117,7 @@ class LightSliderSuite extends CatsEffectSuite {
       } yield {
         assertEquals(result._1, Status.NoContent, clue = result._2)
         assert(sent.contains("{'slide': [$_"), clue = sent)
-        assert(sent.contains(",100]}, seen: "), clue = sent)
+        assert(sent.contains(", 100]}, seen: "), clue = sent)
         // `hs_color[0]`, rounded: the handle starts where the light is.
         assert(sent.contains("""value="31""""), clue = sent)
         assert(

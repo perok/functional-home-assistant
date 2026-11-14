@@ -90,6 +90,11 @@ is not a number, and the value reaches your script as a number:
 `\(pos.jsValue)` reads `180`, not `'180'`, so there is no `Number(…)` to write.
 In the markup, `\(pos)` prints it as usual.
 
+Inside a handler or any other Datastar expression (`data-on:*`, `data-effect`,
+`data-text`, …), place a text slot as `\(label.jsValue)`, never `\(label)`:
+the plain hole pastes the text into JavaScript, where a `'` in it breaks the
+handler, so the build refuses it. A number or bool slot may sit there bare.
+
 The `banner(...)` function at the bottom is just a friendlier way to write
 `new Banner { text = "..." }`. Every shipped component has one.
 

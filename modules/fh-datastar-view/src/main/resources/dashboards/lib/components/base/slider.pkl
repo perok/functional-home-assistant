@@ -30,7 +30,7 @@ const local hueTrackSlot: slotMod.Slot = slotMod.bool("hueTrack")
 const local kelvinTrackSlot: slotMod.Slot = slotMod.bool("kelvinTrack")
 const local greyedSlot: slotMod.Slot = slotMod.bool("greyed")
 const local toggleSlot: slotMod.Slot = slotMod.bool("toggle")
-const local valueRestSlot: slotMod.Slot = slotMod.slot("valueRest")
+const local valueRestSlot: slotMod.Slot = slotMod.number("valueRest")
 const local groupSlot: slotMod.Slot = slotMod.bool("group")
 
 // The dragged position as a percentage of the card's range, in JS. The range
@@ -90,7 +90,7 @@ const local dragPaint: String =
 
 // The dragged number, led into a list where the key's value is one (a hue).
 const local dragged: String =
-  valueRestSlot.ifTrue("[") + "$\(slideSig)" + valueRestSlot.ifTrue("\(valueRestSlot)]")
+  valueRestSlot.ifSet("[") + "$\(slideSig)" + valueRestSlot.ifSet(", \(valueRestSlot)]")
 
 /// What a release posts, a number or a hue's list: a commit says which, and
 /// which field of HA's it fills (`tapMod.Call.posting`).
@@ -297,9 +297,9 @@ open class Slider extends nodes.Node {
   /// What a release posts: a call with a key and no value, which the drag
   /// supplies.
   hidden commit: tapMod.Call? = null
-  /// The rest of a list the dragged number leads, for a key whose value is one:
-  /// `,100` makes a hue `hs_color = [h, 100]`.
-  hidden valueRest: String? = null
+  /// The second of a list the dragged number leads, for a key whose value is
+  /// one: `100` makes a hue `hs_color = [h, 100]`.
+  hidden valueRest: Int? = null
   /// Paints the track with the hues it picks and draws the fill as a marker at
   /// the position, in [[fillDefault]]: on a hue, a fill from the left edge
   /// says nothing.

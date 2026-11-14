@@ -167,6 +167,7 @@ private[model] object Validate:
           readErrors(nodeId, cardName, name, src) ++
           fetchErrors(nodeId, name, src, scope) ++
           holeErrors(nodeId, cardName, name, src) ++
+          expressionErrors(nodeId, cardName, name, src) ++
           src.allInputs
             .map(_.source)
             .collect { case Value.Fetch(f) =>
@@ -280,6 +281,31 @@ private[model] object Validate:
     /** Which holes a slot's type allows: escaping is removed only where a card
       * declares it.
       */
+    /** Text pasted into JavaScript by an escaping hole: HTML-escaped, never
+      * JS-quoted, so a `'` or a newline in it breaks the handler (point 4). A
+      * `jsonText` step's output is JSON, already a JavaScript literal.
+      */
+    def expressionErrors(
+        nodeId: String,
+        cardName: String,
+        name: String,
+        src: BoundSlot
+    ): List[String] =
+      Option
+        .when(
+          (src.`type` == SlotType.Text || src.`type` == SlotType.TextRaw) &&
+            !src.expr.steps.lastOption.contains(Step.JsonText) &&
+            cardReads
+              .get(cardName)
+              .flatMap(_.toOption)
+              .exists(_.inExpression(name))
+        )(
+          s"$nodeId: card '$cardName' places text slot '$name' as {{$name}} " +
+            s"inside a Datastar expression, where it is pasted into JavaScript " +
+            s"— place {{{$name.jsValue}}}, or make it a number or bool slot"
+        )
+        .toList
+
     def holeErrors(
         nodeId: String,
         cardName: String,
