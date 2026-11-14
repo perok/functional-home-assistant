@@ -6,13 +6,15 @@
 module providers
 
 import "providers/history.pkl" as historyMod
+// The module's own type, for the typealias: Pkl 0.33 deprecates `module` there.
+import "providers.pkl" as providersMod
 
 /// A sensor's recorded past: `p.history.of(e, p.history.raw(7.d))`.
 hidden history: historyMod = historyMod
 
 /// A history window, or a function picking one from these providers, which is
 /// what lets a card's `.over(…)` need no import of its own.
-typealias HistoryWindow = historyMod.Over|((module) -> historyMod.Over)
+typealias HistoryWindow = historyMod.Over|((providersMod) -> historyMod.Over)
 
 /// The window `w` names.
 function historyWindow(w: HistoryWindow): historyMod.Over =

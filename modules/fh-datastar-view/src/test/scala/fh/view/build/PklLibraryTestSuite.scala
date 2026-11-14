@@ -1,6 +1,12 @@
 package fh.view.build
 
-import org.pkl.core.{EvaluatorBuilder, ModuleSource, TestResults}
+import org.pkl.core.{
+  EvaluatorBuilder,
+  Logger,
+  ModuleSource,
+  StackFrame,
+  TestResults
+}
 
 import scala.jdk.CollectionConverters.*
 
@@ -40,12 +46,23 @@ class PklLibraryTestSuite extends munit.FunSuite {
 
   modules.foreach { module =>
     test(s"pkl test ${module.last}") {
+      val warnings = List.newBuilder[String]
+      // A deprecation is a warning first and an error in a later Pkl: one in
+      // `providers.pkl` (`module` in a typealias) went unseen on stderr.
+      val logger = new Logger {
+        override def warn(message: String, frame: StackFrame): Unit = {
+          warnings += s"$message (${frame.getModuleUri}:${frame.getStartLine})"
+          ()
+        }
+      }
       val results = fh.view.build.PklBuild.serialized {
-        val evaluator = EvaluatorBuilder.preconfigured().build()
+        val evaluator =
+          EvaluatorBuilder.preconfigured().setLogger(logger).build()
         try evaluator.evaluateTest(ModuleSource.path(module.toNIO), Overwrite)
         finally evaluator.close()
       }
       if (results.failed()) fail(report(results))
+      assertEquals(warnings.result(), Nil, "Pkl warned while evaluating")
     }
   }
 
