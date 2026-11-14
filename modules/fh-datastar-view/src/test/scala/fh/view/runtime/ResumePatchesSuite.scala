@@ -184,7 +184,9 @@ class ResumePatchesSuite extends munit.FunSuite {
     assert(out(1).contains("mode before"), clue = out)
   }
 
-  private def held(bytes: String): Held = Held(Some(Map("v" -> bytes)))
+  private def held(bytes: String): Held = Held(
+    Some(ByteValues(Map("v" -> bytes), None))
+  )
 
   /** The dangerous direction is claiming values the client lacks. A fill
     * overwrites a host's subtree with no per-node trace, so an old member claim

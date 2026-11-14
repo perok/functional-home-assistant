@@ -1,7 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
-import fh.view.model.{NodeId, SlotValue}
+import fh.view.model.NodeId
 
 import java.util.concurrent.ConcurrentHashMap
 
@@ -30,7 +30,7 @@ private[runtime] final class RenderCache(
 ) {
 
   /** A failed `render` installs nothing, so the next caller renders again. */
-  def apply(id: NodeId, renderer: Renderer, values: Map[String, SlotValue])(
+  def apply(id: NodeId, renderer: Renderer, values: ByteValues)(
       render: => String
   ): String =
     live.get(id) match {
@@ -54,7 +54,7 @@ private[runtime] object RenderCache {
 
   private[runtime] case class Entry(
       generation: AnyRef,
-      values: Map[String, SlotValue],
+      values: ByteValues,
       html: String
   )
 

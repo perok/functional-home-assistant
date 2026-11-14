@@ -36,12 +36,22 @@ import fh.view.model.{
 }
 import scala.jdk.CollectionConverters.*
 
+/** What a node's patch form is rendered from, and so the render cache's key and
+  * what a session's `holds` compares (ADR 0012): each byte slot's value, and
+  * below a set member its clause. Every clause of a candidate mints the same
+  * ids, and the clause picks the card and the host id the bytes spell.
+  */
+private[runtime] final case class ByteValues(
+    slots: Map[SlotKey, SlotValue],
+    clause: Option[Int]
+) derives CanEqual
+
 /** One node as a wholesale render left it: the byte-slot values its patch form
   * was rendered from (what [[Renderer.byteSlotValues]] answers for it) and the
   * signals its seed set.
   */
 private[runtime] case class Painted(
-    values: Map[String, SlotValue],
+    values: ByteValues,
     signals: Map[SignalId, SlotValue]
 ) {
   def held: Held = Held(Some(values), signals)
@@ -1055,18 +1065,13 @@ class Renderer(validated: Dashboard.Validated) {
       surfaces.resolveActiveByState(gid, shared)
     else Some(surfaces.resolveActive(gid, selections))
 
-  /** What a node's patch form is rendered from, and so the render cache's key
-    * and what a session compares with its `holds` (ADR 0012): the resolved
-    * value of each byte slot, by label. A node's other inputs are fixed per
-    * renderer (template, constants, `id`, `dashboardSlug`), and a variable or a
-    * fetch reaches the bytes only through a slot. Signal slots are left out:
-    * the patch form does not carry their values (ADR 0017).
+  /** What a node's patch form is rendered from ([[ByteValues]]). A node's other
+    * inputs are fixed per renderer (template, constants, `id`,
+    * `dashboardSlug`), and a variable or a fetch reaches the bytes only through
+    * a slot. Signal slots are left out: the patch form does not carry their
+    * values (ADR 0017).
     *
     * Values, not their text: a section reads `false` and `"false"` differently.
-    *
-    * Below a set member the clause is one more entry ([[Renderer.clauseKey]]):
-    * every clause of a candidate mints the same ids, and the clause picks the
-    * card and the host id the bytes spell.
     *
     * `None`: the node has no rendering of its own. A bake owner raises instead:
     * it is structure, and a quiet `None` would leave it unpatched.
@@ -1075,7 +1080,7 @@ class Renderer(validated: Dashboard.Validated) {
       id: NodeId,
       shared: Shared,
       fragments: FetchSnapshot
-  ): Option[Map[String, SlotValue]] =
+  ): Option[ByteValues] =
     allIndexed.get(id) match {
       case Some((c: Ready.Component, _)) if ownRenderingOf(c) =>
         if (surfaces.bakeGroup(id).nonEmpty)
@@ -1085,23 +1090,21 @@ class Renderer(validated: Dashboard.Validated) {
               "structure). A session's byte-value check cannot see a " +
               "selection, so this must be fixed rather than tolerated."
           )
-        Some(valuesOf(id, c, shared, fragments, None))
+        Some(valuesOf(planOf(id, c, shared), shared, fragments, None))
       case Some(_) => None
       case None    =>
         members.nodeAt(id, shared).collect {
           case (m, c) if ownRenderingOf(c) =>
-            valuesOf(id, c, shared, fragments, Some(m.clause))
+            valuesOf(planOf(id, c, shared), shared, fragments, Some(m.clause))
         }
     }
 
   private def valuesOf(
-      id: NodeId,
-      c: Ready.Component,
+      plan: NodePlan,
       shared: Shared,
       fragments: FetchSnapshot,
       clause: Option[Int]
-  ): Map[String, SlotValue] = {
-    val plan = planOf(id, c, shared)
+  ): ByteValues = {
     val in = lookupAt(fragments, plan.id, shared.states)
     byteValues(plan, clause)(s =>
       resolveSlotValue(s.entity, s.live, shared, fragments, plan.id, in)
@@ -1114,19 +1117,48 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def byteValues(plan: NodePlan, clause: Option[Int])(
       valueOf: ByteSlot => SlotValue
-  ): Map[String, SlotValue] = {
-    val b = Map.newBuilder[String, SlotValue]
-    plan.byteSlots.foreach(s => b += ((s.label, valueOf(s))))
-    clause.foreach(n => b += ((Renderer.clauseKey(n), "")))
-    b.result()
+  ): ByteValues = {
+    val b = Map.newBuilder[SlotKey, SlotValue]
+    plan.byteSlots.foreach(s => b += ((s.key, valueOf(s))))
+    ByteValues(b.result(), clause)
   }
+
+  /** A node's patch form, painted from the values [[byteSlotValues]] answered
+    * at this `shared`: the live path resolves nothing twice, and the bytes are
+    * a function of their cache key by construction. `None` as
+    * [[renderNodeById]].
+    */
+  private[runtime] def renderPatch(
+      id: NodeId,
+      shared: Shared,
+      values: ByteValues
+  ): Option[String] =
+    nodeAt(id, shared).collect {
+      case (c: Ready.Component, _) if ownRenderingOf(c) =>
+        patchOf(planOf(id, c, shared), values)
+    }
 
   /** A leaf's patch form is written directly, not taken from a [[traced]] walk,
     * which builds the document form and the trace maps a tick throws away. A
     * leaf has no children and no bake group (its card declares no region), so
     * this is its whole body; its root's holes are the walk's
-    * ([[NodeContext.writeHole]]).
+    * ([[NodeContext.writeHole]]). The patch form reads no signal value and no
+    * at-render class, so only the byte slots are painted.
     */
+  private def patchOf(plan: NodePlan, values: ByteValues): String =
+    Sink.scratched { buf =>
+      Templates.run(
+        plan.tpl,
+        buf,
+        NodeContext(
+          Resolved(plan, values.slots, Map.empty, Map.empty),
+          SlotForm.Patch,
+          buf
+        )
+      )
+      buf.result
+    }
+
   private def render(
       node: Ready.Node,
       id: NodeId,
@@ -1137,15 +1169,7 @@ class Renderer(validated: Dashboard.Validated) {
   ): Option[String] = node match {
     case c: Ready.Component if form.isPatch =>
       val plan = planOf(id, c, shared)
-      val resolved = resolvePlanned(plan, shared, Map.empty, viewing.fragments)
-      Some(Sink.scratched { buf =>
-        Templates.run(
-          plan.tpl,
-          buf,
-          NodeContext(resolved, SlotForm.Patch, buf)
-        )
-        buf.result
-      })
+      Some(patchOf(plan, valuesOf(plan, shared, viewing.fragments, None)))
     case _ =>
       Some(traced(node, id, idPrefix, shared, viewing).html)
   }
@@ -1642,7 +1666,6 @@ class Renderer(validated: Dashboard.Validated) {
 
   private final case class ByteSlot(
       key: SlotKey,
-      label: String,
       entity: Option[String],
       live: Planned.Live
   )
@@ -1751,7 +1774,7 @@ class Renderer(validated: Dashboard.Validated) {
         val signalled = named.map(_._1).toSet
         slots.toList.collect {
           case (k, l: Planned.Live) if !signalled.contains(k) =>
-            ByteSlot(k, SlotKey.label(k), l.source.entityId, l)
+            ByteSlot(k, l.source.entityId, l)
         }
       },
       slots = slots,
@@ -1972,17 +1995,6 @@ class Renderer(validated: Dashboard.Validated) {
 }
 
 object Renderer {
-
-  /** The entry naming a member's clause in its [[byteSlotValues]]. NUL-led, so
-    * no slot label can collide with it.
-    */
-  def clauseKey(clause: Int): String =
-    if (clause < ClauseKeys.length) ClauseKeys(clause)
-    else s"\u0000clause $clause"
-
-  // Interned: a key is built on every render-cache lookup.
-  private val ClauseKeys: Vector[String] =
-    Vector.tabulate(16)(i => s"\u0000clause $i")
 
   /** A subtree's asks, stopping at a nested set, whose members ask their own.
     */

@@ -10,6 +10,7 @@ import cats.effect.unsafe.implicits.global
 import cats.syntax.traverse.*
 import fh.view.model.{
   Part,
+  SlotKey,
   Activation,
   CardDef,
   Dashboard,
@@ -266,7 +267,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
           fragments = FetchSnapshot.empty
         )
         .get
-    assertEquals(key.keySet, Set("state"))
+    assertEquals(key.slots.keySet, Set[SlotKey]("state"))
   }
 
   test("a signal slot's entity still reaches the reverse index") {

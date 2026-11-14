@@ -849,8 +849,8 @@ departures and now MOVES, and a member that merely ticked still comes through th
 A member is a real `LayoutNode.Component` — a card, its slots including the entity as a literal
 `entity_id` slot, its cell — stored under the id its `MemberKey` derives. That literal slot is the
 whole trick: `renderCase` already set it on every render, so setting it ONCE, at membership time,
-is all it takes for a member to stop being special. `renderNodeById` renders it,
-`byteSlotValues` keys it (with its clause), `elementId` patches it. There is no reverse `childId -> entityId` lookup,
+is all it takes for a member to stop being special. `byteSlotValues` keys it (with its clause),
+`renderPatch` renders it from those values, `elementId` patches it. There is no reverse `childId -> entityId` lookup,
 because nothing needs to recover an entity from an id — the node carries its own binding, as every
 other node does.
 
@@ -941,7 +941,8 @@ worth ~5.7 ms on a 200-card page. Nothing here relies on it.
 
 Each session renders for itself; what makes the pull ×1 is that every pull goes through one
 `RenderCache` keyed by the byte-slot values the render is made from (`Renderer.byteSlotValues`, ADR
-0012), so the first session to miss renders and installs and the rest hit. It is a memo, not single-flight (ADR 0012): sessions that miss
+0012), so the first session to miss renders and installs and the rest hit. A miss paints from
+those same values (`Renderer.renderPatch`) rather than resolving the node again. It is a memo, not single-flight (ADR 0012): sessions that miss
 at the same moment each render. `RenderCacheContentionSuite` holds the number as a cost contract: a 2
 there means a key is varying per viewer where it should not, a pull is rendering outside the cache,
 or sessions have started missing together.
@@ -1520,7 +1521,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | a stretch nobody watched | `runtime/FragmentLog.scala` · `skipped`, `reaches`; `runtime/Server.scala` · `recordFrame`'s gate, `openingPatches`' cursor filter |
 | a session's pull | `runtime/Server.scala` · `pull`; `runtime/Patches.scala` · `resume`, `applied`, `encode` |
 | what a client holds | `runtime/Sessions.scala` · `Session.holds` (a `Held`: byte-slot values, signals) / `position` |
-| the two render forms | `runtime/Renderer.scala` · `SlotForm`, `Resolved` (`resolvePlanned`, once per paint), `Templates.run` (per form), `Traced.own` (the byte-slot values, only for a node with a rendering of its own), `render` (a leaf's patch form, written directly; the root's holes, `cellInto`/`cellClassesInto`, are shared with the walk) |
+| the two render forms | `runtime/Renderer.scala` · `SlotForm`, `Resolved` (`resolvePlanned`, once per paint), `Templates.run` (per form), `Traced.own` (the byte-slot values, only for a node with a rendering of its own), `patchOf` (a leaf's patch form, written directly from its `ByteValues`, which `renderPatch` and `renderNodeById` both go through; the root's holes, `cellInto`/`cellClassesInto`, are shared with the walk) |
 | a signal's name, and a node's inputs | `runtime/Renderer.scala` · `signalName`, `isSignalSlot`, `signalsFor` |
 | the signals frame | `runtime/Patches.scala` · `signalFrame`, `Patch.Signals`; `runtime/Datastar.scala` · `signalsJson`, `signalsAttr`, `textBinding` |
 | SSE stream | `runtime/Server.scala` · `sseStream` (the merged per-connection `Stream[IO, SseFrame]`), served by `Ok(...)` through `SseFrame.frameStreamEncoder` |
@@ -1545,7 +1546,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
 | evaluating any reading: a slot, a guard, an activation condition, an order term, a CEL input | `runtime/Evaluator.scala` · `compile`, `holds`, `inputs`, `Keys` (an ordering's keys, read once per member per sort, used by `MemberGraph`) · `runtime/Steps.scala` · what each simple step makes of its value (`formatWith`, `kleene`); the language is ADR 0035 |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.cached` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |
-| what a cache entry is keyed by | node id -> renderer generation + the byte-slot values it was rendered from (`Renderer.byteSlotValues`; a member's clause among them). The renderer is in the key because a dashboard edit changes the MARKUP while the values stay put; a swap empties the cache (`LiveSlug.install`), and an entry holds the generation rather than the renderer so a straggler cannot keep a replaced dashboard alive |
+| what a cache entry is keyed by | node id -> renderer generation + the byte-slot values it was rendered from (`ByteValues`, from `Renderer.byteSlotValues`: each byte slot's value, and a member's clause). The renderer is in the key because a dashboard edit changes the MARKUP while the values stay put; a swap empties the cache (`LiveSlug.install`), and an entry holds the generation rather than the renderer so a straggler cannot keep a replaced dashboard alive |
 
 ## 8. Known open questions
 

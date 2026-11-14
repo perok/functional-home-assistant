@@ -276,15 +276,15 @@ object ByteValuesShapePropertySuite {
     private lazy val r = Renderer.create(shape.dashboard)
     private lazy val id = shape.target(r)
 
-    def values(w: World): Option[Map[String, SlotValue]] =
+    def values(w: World): Option[ByteValues] =
       r.byteSlotValues(id, w.shared, w.fragments(r))
     def bytes(w: World): Option[String] =
       r.renderNodeById(id, w.shared, w.viewing(r))
-    def walked(w: World): Option[Map[String, SlotValue]] =
+    def walked(w: World): Option[ByteValues] =
       r.renderBodyTraced(w.shared, w.viewing(r)).own.get(id).map(_.values)
 
-    lazy val v1: Option[Map[String, SlotValue]] = values(w1)
-    lazy val v2: Option[Map[String, SlotValue]] = values(w2)
+    lazy val v1: Option[ByteValues] = values(w1)
+    lazy val v2: Option[ByteValues] = values(w2)
 
     override def toString: String = s"$shape\n  $w1\n  $w2"
   }

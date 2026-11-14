@@ -183,7 +183,7 @@ class SignalSlotSuite extends ServerHarness {
       )
     )
     assert(
-      !signalled.own(signalledId).values.values.toList.contains("21.4"),
+      !signalled.own(signalledId).values.slots.values.toList.contains("21.4"),
       clue = signalled.own(signalledId).values
     )
     val signalledPatch = renderer

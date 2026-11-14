@@ -45,7 +45,7 @@ server's frames to the client's requests.
 | form | value inline | binding | seed | rendered by |
 |---|---|---|---|---|
 | **document** | yes | yes | yes | page load, body repaint, host fill, insert-from-fill |
-| **patch** | no | yes | no | `renderNodeById` — the per-node morph path |
+| **patch** | no | yes | no | `renderPatch` — the per-node morph path, painted from the byte-slot values alone |
 
 ```html
 <!-- document -->

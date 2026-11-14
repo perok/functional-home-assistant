@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import fh.view.testkit.TestCard
 import cats.effect.unsafe.implicits.global
-import fh.view.model.{Dashboard, LayoutNode, NodeId, SlotValue}
+import fh.view.model.{Dashboard, LayoutNode, NodeId, SlotKey, SlotValue}
 import fh.view.testkit.TestIds.given
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -25,8 +25,9 @@ class RenderCacheSuite extends munit.FunSuite {
   private val r = aRenderer
 
   private val id: NodeId = "c_0"
-  private val v1: Map[String, SlotValue] = Map("v" -> "1")
-  private val v2: Map[String, SlotValue] = Map("v" -> "2")
+  private def of(slots: (SlotKey, SlotValue)*) = ByteValues(slots.toMap, None)
+  private val v1 = of("v" -> "1")
+  private val v2 = of("v" -> "2")
 
   private def fresh: RenderCache = RenderCache.create.unsafeRunSync()
 
@@ -92,8 +93,8 @@ class RenderCacheSuite extends munit.FunSuite {
   /** Two viewers on two windows over one sensor: the chart slot's value is each
     * one's answer.
     */
-  private val day: Map[String, SlotValue] = Map("chart" -> "<svg>24h</svg>")
-  private val week: Map[String, SlotValue] = Map("chart" -> "<svg>7d</svg>")
+  private val day = of("chart" -> "<svg>24h</svg>")
+  private val week = of("chart" -> "<svg>7d</svg>")
 
   test("viewers on two windows evict each other — a render each, every pull") {
     // ADR 0031's prediction, measured: one generation per node means

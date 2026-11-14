@@ -15,7 +15,6 @@ import fh.view.model.{
   Value,
   ValueExpr,
   TemplateSlot,
-  SlotValue,
   Surface
 }
 import fh.view.testkit.DashboardBuilders.{declared, st}
@@ -176,16 +175,15 @@ class RenderCacheContentionSuite extends ServerHarness {
     private val counts =
       new java.util.concurrent.ConcurrentHashMap[NodeId, AtomicInteger]()
 
-    override def renderNodeById(
+    override def renderPatch(
         id: NodeId,
         shared: Shared,
-        viewing: Viewing,
-        form: SlotForm
+        values: ByteValues
     ): Option[String] = {
       val _ = counts
         .computeIfAbsent(id, _ => new AtomicInteger(0))
         .incrementAndGet()
-      super.renderNodeById(id, shared, viewing, form)
+      super.renderPatch(id, shared, values)
     }
 
     def reset: IO[Unit] = IO(counts.clear())
@@ -343,7 +341,7 @@ class RenderCacheContentionSuite extends ServerHarness {
 
   test("one entry per node, however many values are posted") {
     val renderer = Renderer.create(varDash)
-    val on = (v: String) => Map[String, SlotValue]("window" -> v)
+    val on = (v: String) => ByteValues(Map("window" -> v), None)
     for {
       cache <- RenderCache.create
       _ <- (1 to 50).toList.traverse_(i =>
@@ -373,7 +371,7 @@ class RenderCacheContentionSuite extends ServerHarness {
     } yield assertEquals(afterChurn, 1, "50 frames, one entry")
   }
 
-  private def at(v: Long): Map[String, SlotValue] = Map("state" -> s"v$v")
+  private def at(v: Long): ByteValues = ByteValues(Map("state" -> s"v$v"), None)
 
   /** Sessions pull on their own fibers, so they do not render from one
     * snapshot. The straggler's install evicts the newer entry: the next session

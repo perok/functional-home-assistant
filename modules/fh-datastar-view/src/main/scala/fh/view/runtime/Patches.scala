@@ -130,7 +130,7 @@ private[runtime] object Patches {
   }
 
   /** Loud, rather than caching `""` forever if `byteSlotValues` and
-    * `renderNodeById` ever disagree.
+    * `renderPatch` ever disagree on which nodes have a rendering.
     */
   private def mustRender(html: Option[String], id: NodeId): String =
     html.getOrElse(
@@ -578,7 +578,7 @@ private[runtime] object Patches {
         IO(
           Some(
             Addressed(
-              Patch.Morph(cached(renderer, cache, id, values, shared, viewing)),
+              Patch.Morph(cached(renderer, cache, id, values, shared)),
               Map(id -> Held(Some(values)))
             )
           )
@@ -597,12 +597,11 @@ private[runtime] object Patches {
       renderer: Renderer,
       cache: RenderCache,
       id: NodeId,
-      values: Map[String, SlotValue],
-      shared: Shared,
-      viewing: Viewing
+      values: ByteValues,
+      shared: Shared
   ): String =
     cache(id, renderer, values)(
-      mustRender(renderer.renderNodeById(id, shared, viewing), id)
+      mustRender(renderer.renderPatch(id, shared, values), id)
     )
 
   /** What a placed member inserts and claims. A member that is a leaf comes
@@ -621,7 +620,7 @@ private[runtime] object Patches {
         renderer
           .byteSlotValues(id, shared, viewing.fragments)
           .map(v =>
-            cached(renderer, cache, id, v, shared, viewing) ->
+            cached(renderer, cache, id, v, shared) ->
               Map(id -> Held(Some(v)))
           )
       else

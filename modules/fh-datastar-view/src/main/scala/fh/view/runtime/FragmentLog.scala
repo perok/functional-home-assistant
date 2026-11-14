@@ -9,7 +9,7 @@ import fh.view.model.{NodeId, SignalId, SlotValue}
   * because a signal frame establishes only the signals.
   */
 private[runtime] case class Held(
-    values: Option[Map[String, SlotValue]] = None,
+    values: Option[ByteValues] = None,
     signals: Map[SignalId, SlotValue] = Map.empty
 ) {
 

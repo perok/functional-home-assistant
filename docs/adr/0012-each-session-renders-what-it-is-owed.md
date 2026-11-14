@@ -58,9 +58,11 @@ resolved values of its BYTE slots (`Renderer.byteSlotValues`, the value after th
 chain: read, CEL, default, formatting). Everything else it reads is fixed per renderer (template,
 constants, `dashboardSlug`), and a fetch answer or a node variable reaches the bytes only through a
 slot (ADR 0031, ADR 0033). Signal slots are left out: the patch form does not carry their values
-(ADR 0017). Below a set member the CLAUSE is one more entry, since every clause of a candidate
-mints the same ids and the clause picks the card and the host id. So one map answers both
-questions:
+(ADR 0017). Below a set member the CLAUSE is part of the key too (`ByteValues.clause`), since every
+clause of a candidate mints the same ids and the clause picks the card and the host id. The live
+path renders from the values it compared: `Renderer.renderPatch` paints the patch form from the
+`ByteValues` alone, so a miss resolves nothing twice and the bytes are a function of the key by
+construction. So one value answers both questions:
 
 - **A session asks its own `holds` first.** `Patches.morph` returns nothing when the live values
   equal the held ones, before any render or cache lookup; otherwise it sends, and records the new

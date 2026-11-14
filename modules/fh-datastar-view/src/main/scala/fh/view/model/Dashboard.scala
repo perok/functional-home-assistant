@@ -635,9 +635,7 @@ object CellKey:
   given CanEqual[SlotKey, SlotKey] = CanEqual.derived
 
 object SlotKey:
-  /** For messages, and a byte slot's key in a node's byte-slot values
-    * (`Renderer.byteSlotValues`), where only names occur.
-    */
+  /** For messages. */
   def label(k: SlotKey): String = k match
     case name: String            => name
     case CellKey.Class(name)     => s"cell.classes.$name"
