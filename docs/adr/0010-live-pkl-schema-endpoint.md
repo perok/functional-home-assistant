@@ -88,14 +88,18 @@ personas differ only in **where the cache is seeded from** and **who seeds the
 | **Component developer** | their laptop | repo lib package + their own components | `fh pull` from the instance | works (push for their own cards) |
 
 **End user, `/edit` on the server.** Edits `site.pkl` in the browser;
-`LspBridge` spawns pkl-lsp as a **server-side subprocess** and the client sends
-absolute on-disk paths in `initialize`, so completion resolves the library (from
-the persistent package cache — `moduleCacheDir` is declared IN the generated
-`.fh/base.pkl` the user's `PklProject` amends, which reads it from this process's
-environment and defaults to pkl's own `~/.cache/pkl`, so pkl-lsp finds it with no
-extra configuration) and the
-freshly-seeded `@fh-home` dump package, through the project. Nothing is fetched. This is the default path and it needs no network
-story at all.
+`LspBridge` spawns pkl-lsp as a **server-side subprocess**, and completion
+resolves the library and the freshly-seeded `@fh-home` dump package through the
+project. Nothing is fetched. This is the default path and it needs no network
+story at all. pkl-lsp loads a project only from the state its own sync leaves,
+a sync runs a `pkl` CLI the image does not ship, and it reads packages only from
+`$XDG_CACHE_HOME/pkl`, never the project's `moduleCacheDir`. So the backend
+stands in for the sync: each build writes that state from what pkl-core
+resolved and links a `pkl-lsp-xdg/pkl` beside the cache to it, and the bridge
+names the workspace in `initialize` (the browser's client sends none) and
+starts pkl-lsp with `XDG_CACHE_HOME` there. `PklEditorSupportSuite` asks
+pkl-lsp through the bridge as `/edit` connects, and `docs/pkl-editor-support.md`
+lists what it answers.
 
 The pkl-lsp jar itself is **resolved by the build**: an ordinary
 `libraryDependencies` entry in a hidden Ivy configuration

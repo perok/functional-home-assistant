@@ -79,8 +79,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
        |""".stripMargin
 
   test("end user on /edit: the seeded workspace builds server-side") {
-    // pkl-lsp behind /edit resolves the same manifests and cache
-    // (`moduleCacheDir` is declared in the manifest), so nothing is fetched.
+    // pkl-lsp behind /edit resolves the same manifests and cache, through the
+    // state the build writes for it (`PklEditorSupportSuite`).
     val root = os.temp.dir()
     val ws = root / "fh-dashboards"
     val _ = PklWorkspace.bootstrapInto(ws, bundled, root / "pkl-cache")
