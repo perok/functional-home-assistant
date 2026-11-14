@@ -180,18 +180,9 @@ class ChartSlotSuite extends munit.FunSuite {
     assert(html.contains("21.4"), clue = html)
   }
 
-  test("the render key moves when the version does, state standing still") {
-    val r = Renderer.create(dashboardWith("{{{chart}}}"))
-    val id = rootId(dashboardWith("{{{chart}}}"))
-    assertNotEquals(
-      r.renderInputs(id, Shared.of(states), fragments()),
-      r.renderInputs(id, Shared.of(states), fragments(version = 200L))
-    )
-  }
-
-  test("the byte-slot pre-check sees the chart, so new bytes are not held") {
-    // Without its charts every series slot would compare equal, so the
-    // pre-check would serve the first chart drawn for the dashboard's life.
+  test("the byte-slot values see the chart, so a new one is sent") {
+    // Without its charts every series slot would compare equal, so a session
+    // would keep the first chart drawn for the dashboard's life.
     val d = dashboardWith("{{{chart}}}")
     val r = Renderer.create(d)
     val id = rootId(d)

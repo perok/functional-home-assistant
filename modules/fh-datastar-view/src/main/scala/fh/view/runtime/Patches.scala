@@ -16,6 +16,8 @@ import fh.view.model.{
 import fh.view.model.DomId.selector
 import io.circe.Json
 
+import scala.collection.immutable.HashMap
+
 /** One DOM patch, rendered to SSE only at the edge. A `Morph` carries its
   * target's id inside `html`; `Signals` touches no element (ADR 0017). Targets
   * are [[DomId]]s, never a [[NodeId]], with the `#` added here.
@@ -127,13 +129,13 @@ private[runtime] object Patches {
     )
   }
 
-  /** Loud, rather than caching `""` forever if `renderInputs` and
-    * `renderNodeById` ever disagree.
+  /** Loud, rather than caching `""` forever if `byteSlotValues` and
+    * `renderPatch` ever disagree on which nodes have a rendering.
     */
   private def mustRender(html: Option[String], id: NodeId): String =
     html.getOrElse(
       throw new IllegalStateException(
-        s"'$id' has a render key but no rendering"
+        s"'$id' has byte-slot values but no rendering"
       )
     )
 
@@ -290,8 +292,9 @@ private[runtime] object Patches {
     *
     * '''One rule:''' candidates are the nodes logged at `>= v` plus every node
     * of an open surface (which nothing recorded while unwatched). Render each
-    * now and send it when its digest differs from what this viewer holds, a
-    * missing entry meaning "send". The cursor selects nodes, never content.
+    * now and send it when its byte-slot values differ from what this viewer
+    * holds, a missing entry meaning "send". The cursor selects nodes, never
+    * content.
     *
     * A [[Mutation.Placed]] emits `remove` and `insert`, so it is idempotent
     * whatever the DOM holds, and an arrival and a reorder are one operation.
@@ -510,36 +513,51 @@ private[runtime] object Patches {
       fragments: FetchSnapshot,
       ids: List[NodeId]
   ): List[Addressed] = {
-    // One pass: a collections pipeline was 19% of a signals tick's allocation
-    // (`RenderBench.resumeSignals`). Never key a node's signals by node id —
-    // that silently keeps one of the slider's four.
-    val payload = Map.newBuilder[SignalId, Json]
-    val heldB = Map.newBuilder[NodeId, Held]
+    // Per session and per signal, so no tuple, `Some` or builder that a
+    // lookup or a pair-taking `+=` would allocate: this was most of an extra
+    // client's cost (`RenderBench.resumeSignalsFanout`). Never key a node's
+    // signals by node id — that silently keeps one of the slider's four.
+    val payload = HashMap.newBuilder[SignalId, Json]
+    val heldB = HashMap.newBuilder[NodeId, Held]
     var anyMoved = false
     ids.foreach { id =>
-      val held = holds.get(id).fold(Map.empty[SignalId, SlotValue])(_.signals)
-      val nodeB = Map.newBuilder[SignalId, SlotValue]
-      var nodeMoved = false
-      renderer.signalsFor(id, shared, fragments).foreach { case (name, value) =>
-        if (!held.get(name).contains(value)) {
+      val held = holds.get(id) match
+        case Some(h) => h.signals
+        case None    => Map.empty[SignalId, SlotValue]
+      val now = renderer.signalsFor(id, shared, fragments)
+      var moved = 0
+      now.foreachEntry { (name, value) =>
+        if (!holdsValue(held, name, value)) {
           // A JSON boolean: the string `"false"` is truthy in every binding.
-          payload += ((
+          payload.addOne(
             name,
             value match
               case b: Boolean => Json.fromBoolean(b)
               case s: String  => Json.fromString(s)
-          ))
-          nodeB += ((name, value))
-          nodeMoved = true
+          )
+          moved += 1
         }
       }
-      if (nodeMoved) {
-        heldB += ((id, Held(signals = nodeB.result())))
+      if (moved > 0) {
+        // Usually every one moved, and then the node's map is the held one.
+        val nodeHeld =
+          if (moved == now.size) now
+          else now.filter((name, value) => !holdsValue(held, name, value))
+        heldB.addOne(id, Held(signals = nodeHeld))
         anyMoved = true
       }
     }
     if (!anyMoved) Nil
     else List(Addressed(Patch.Signals(payload.result()), heldB.result()))
+  }
+
+  private def holdsValue(
+      held: Map[SignalId, SlotValue],
+      name: SignalId,
+      value: SlotValue
+  ): Boolean = {
+    val h = held.getOrElse(name, null)
+    h != null && h == value
   }
 
   /** The whole suppression rule, against this viewer's `holds`. */
@@ -550,46 +568,41 @@ private[runtime] object Patches {
       shared: Shared,
       viewing: Viewing,
       id: NodeId
-  ): IO[Option[Addressed]] =
-    bytes(renderer, cache, id, shared, viewing).map(_.flatMap {
-      case NodeBytes(html, digest) =>
-        Option.when(!holds.get(id).flatMap(_.digest).contains(digest))(
-          Addressed(Patch.Morph(html), Map(id -> Held.bytes(digest)))
+  ): IO[Option[Addressed]] = {
+    // Equal byte-slot values, equal patch bytes (`ByteValuesPropertySuite`):
+    // what this viewer holds already answers, with no render and no cache
+    // lookup. Unequal values are sent: the bytes rarely survive a value change,
+    // and a morph to the bytes the client has changes nothing in its DOM.
+    renderer.byteSlotValues(id, shared, viewing.fragments) match {
+      case Some(values) if !holds.get(id).exists(_.values.contains(values)) =>
+        IO(
+          Some(
+            Addressed(
+              Patch.Morph(cached(renderer, cache, id, values, shared)),
+              Map(id -> Held(Some(values)))
+            )
+          )
         )
-    })
+      case _ => unchanged
+    }
+  }
 
-  /** Through the slug's [[RenderCache]], so N sessions woken together render a
-    * node once; a node without a sound key renders uncached.
+  // Shared: the common tick skips every node, and an `IO` each was 1 kB a tick.
+  private val unchanged: IO[Option[Addressed]] = IO.pure(None)
+
+  /** Through the slug's [[RenderCache]], so the sessions one tick wakes share a
+    * node's render. Runs inside its caller's `IO`.
     */
-  private def bytes(
+  private def cached(
       renderer: Renderer,
       cache: RenderCache,
       id: NodeId,
-      shared: Shared,
-      viewing: Viewing
-  ): IO[Option[NodeBytes]] =
-    renderer.renderInputs(id, shared, viewing.fragments) match {
-      case Some(inputs) =>
-        cache(
-          id,
-          renderer,
-          inputs,
-          () => renderer.byteSlotValues(id, shared, viewing.fragments)
-        )(
-          IO(
-            mustRender(
-              renderer.renderNodeById(id, shared, viewing),
-              id
-            )
-          )
-        ).map(Some(_))
-      case None =>
-        IO(
-          renderer
-            .renderNodeById(id, shared, viewing)
-            .map(NodeBytes.of)
-        )
-    }
+      values: ByteValues,
+      shared: Shared
+  ): String =
+    cache(id, renderer, values)(
+      mustRender(renderer.renderPatch(id, shared, values), id)
+    )
 
   /** What a placed member inserts and claims. A member that is a leaf comes
     * through the cache as any target does; one holding nodes renders per viewer
@@ -602,16 +615,19 @@ private[runtime] object Patches {
       shared: Shared,
       viewing: Viewing
   ): IO[Option[(String, Map[NodeId, Held])]] =
-    if (renderer.memberIsTarget(id))
-      bytes(renderer, cache, id, shared, viewing).map(
-        _.map(b => b.html -> Map(id -> Held.bytes(b.digest)))
-      )
-    else
-      IO(
+    IO(
+      if (renderer.memberIsTarget(id))
+        renderer
+          .byteSlotValues(id, shared, viewing.fragments)
+          .map(v =>
+            cached(renderer, cache, id, v, shared) ->
+              Map(id -> Held(Some(v)))
+          )
+      else
         renderer
           .renderMemberTraced(id, shared, viewing)
           .map(t => t.html -> t.claims)
-      )
+    )
 
   /** Positional in `ordered`, never by comparing ids, so an author-chosen order
     * works.

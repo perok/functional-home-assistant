@@ -318,15 +318,14 @@ instead.
   value, and a session this process forgot adopts it as a choice, initial value or not.
 - **One place an initial transform does nothing.** Rows that are `.fromChooser()` follow the head, which starts
   from the group entity's state, not each bulb's.
-- **The render key carries what a node read, and still one entry per node.** A fetch's choice
-  resolves into a `SlotRead`, and a slot reading a variable puts that value in
-  `RenderInputs.vars`; a bake group's selection is structure, which is never cached. Different
-  values are unordered (`RenderInputs.isAtLeast`), so viewers on one value share a render and a
-  viewer on another replaces the entry, in place: `RenderCache` keeps one entry per node however
-  many values are posted, and two values over one node alternate, each re-rendering, which costs
-  only on ticks where the node's entities moved (`RenderCacheContentionSuite`). For a chart that
-  is a mustache splice of SVG already drawn, since `renderNodeById` takes a `FetchSnapshot` and
-  cannot fetch or draw. No per-value buckets; sharing across values is issue #689's question.
+- **The render key carries what a node read, and still one entry per node.** The key is the
+  node's byte-slot values (ADR 0012), so a variable a slot reads, or a fetch the variable chose,
+  is in it through that slot's value; a bake group's selection is structure, which is never
+  cached. Viewers on one value share a render and a viewer on another replaces the entry, in
+  place: `RenderCache` keeps one entry per node however many values are posted, and two values
+  over one node alternate, each re-rendering (`RenderCacheContentionSuite`). For a chart that is a
+  mustache splice of SVG already drawn, since `renderNodeById` takes a `FetchSnapshot` and cannot
+  fetch or draw. No per-value buckets.
 - **A write is an update, not a first paint**, so a new chart may land after the press; ADR 0025's
   pending value keeps the press instant meanwhile.
 - **"vars" is taken twice already** — a card's mustache context in `Renderer`, CSS custom properties

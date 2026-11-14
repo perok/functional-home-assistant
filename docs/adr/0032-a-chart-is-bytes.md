@@ -146,7 +146,7 @@ to a base `--fh-*` token; text inherits the page's font. `ChartSuite` fails on a
 
 ## Consequences
 
-- **A chart is an ordinary leaf card.** It patches, caches, digests, resumes and survives a morph
+- **A chart is an ordinary leaf card.** It patches, caches, resumes and survives a morph
   like any other node, needs nothing vendored into `AssetCache`, and works with JS off.
 - **The drawing is a transform STAGE, not the provider's job** — see
   [ADR 0031](0031-a-fetch-is-a-second-shape-of-slot.md). This ADR owns *how* a chart is made; that

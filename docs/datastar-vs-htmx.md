@@ -60,8 +60,8 @@ What did *not* change is the thing that matters.
 ## The blocking issue: there is no value-level patch
 
 ADR 0017's mechanism is that **a value moves without its node being patched**. A signal slot's value
-is not in the node's bytes at all — the element carries only its binding — so the digest stands
-still, the morph is suppressed, and one `datastar-patch-signals` frame carries the values for a
+is not in the node's bytes at all — the element carries only its binding — so the node's byte-slot
+values stand still, the morph is suppressed, and one `datastar-patch-signals` frame carries the values for a
 whole batch.
 
 htmx 4 SSE swaps **elements**. There is no attribute- or value-level patch primitive anywhere in the
@@ -117,7 +117,7 @@ idiom, and it means hand-building the value channel that `datastar-patch-signals
 
 | # | What we rely on | Datastar today | htmx 4 equivalent | Verdict |
 |---|---|---|---|---|
-| 1 | **Value moves without patching its node** (ADR 0017, `Datastar.patchSignals`) | `datastar-patch-signals`; digest unchanged, morph suppressed, one frame per batch | none — no value-level primitive. Build it: named SSE event → merge into an Alpine store | **htmx worse** (the load-bearing one) |
+| 1 | **Value moves without patching its node** (ADR 0017, `Datastar.patchSignals`) | `datastar-patch-signals`; byte-slot values unchanged, morph suppressed, one frame per batch | none — no value-level primitive. Build it: named SSE event → merge into an Alpine store | **htmx worse** (the load-bearing one) |
 | 2 | **One SSE stream, push to many ids by id** (`Patches.scala`, `Renderer`) | `datastar-patch-elements` with `selector` + `mode`; payload stays pure content | `hx-swap-oob` / `<hx-partial>` extracted before the normal swap — swap metadata moves *into* the HTML | **htmx worse** (control literals re-enter the markup) |
 | 3 | **Patch modes** outer / inner / before / append / remove (`PatchMode`) | a wire field; `remove` deletes by selector with no body | an attribute on each fragment root the renderer injects | **htmx worse** (same reason as 2) |
 | 4 | **Morph-preserve** of open `<dialog>`, focus, mid-drag slider | morph is the default swap | `innerMorph` / `outerMorph`, core in htmx 4 | **tie** — was htmx's weakness, now is not |

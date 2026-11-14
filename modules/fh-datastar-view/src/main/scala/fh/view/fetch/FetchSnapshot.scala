@@ -25,9 +25,6 @@ final class FetchSnapshot private (
   def varsAt(node: NodeId): Map[String, String] =
     vars.getOrElse(node, Map.empty)
 
-  def versions(reads: List[SlotRead]): Map[SlotRead, Long] =
-    reads.view.map(r => r -> staged(r).version).toMap
-
   def has(read: SlotRead): Boolean = answers.contains(read)
 
   /** A decision run's rounds so far: its answers grow, its vars are none. */

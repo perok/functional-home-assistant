@@ -1,6 +1,5 @@
 package fh.view.runtime
 
-import fh.view.fetch.FetchSnapshot
 import cats.effect.{IO, Resource}
 import cats.effect.std.Supervisor
 import cats.effect.kernel.{Deferred, Ref}
@@ -8,6 +7,7 @@ import cats.syntax.all.*
 import fh.view.telemetry.Logging
 import fh.view.testkit.FixtureEntity
 import fh.view.testkit.TestIds.given
+import RendererTestOps.heldFor
 import io.circe.Json
 import org.http4s.*
 
@@ -100,16 +100,9 @@ class SessionLifecycleSuite extends ServerHarness {
         epoch <- established.traverse(_.tenure.get)
         snapshot <- ts.store.current
       } yield {
-        val body = Renderer
-          .create(mixedTabsDash)
-          .renderNodeById(
-            "c_0",
-            Shared.of(snapshot.entities),
-            Viewing(Selections.none, FetchSnapshot.empty)
-          )
         assertEquals(
           held.flatMap(_.get("c_0")),
-          body.map(Held.of),
+          Renderer.create(mixedTabsDash).heldFor("c_0", snapshot.entities),
           clue = held
         )
         assertEquals(

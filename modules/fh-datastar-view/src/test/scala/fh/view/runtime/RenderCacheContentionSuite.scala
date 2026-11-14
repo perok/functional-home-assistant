@@ -9,7 +9,9 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
+  Part,
   Region,
+  SignalBind,
   Value,
   ValueExpr,
   TemplateSlot,
@@ -21,10 +23,10 @@ import fh.view.testkit.TestIds.given
 import java.util.concurrent.atomic.AtomicInteger
 import scala.jdk.CollectionConverters.*
 
-/** What N viewers cost when their selections differ, so they hold different
-  * [[RenderInputs]] for one node id. Before the cache bucketed on selection
-  * they evicted each other every frame. The numbers are floors: a rise means
-  * the sharing was lost.
+/** What N viewers cost when their selections differ, so they could hold
+  * different byte-slot values for one node id. Before the cache bucketed on
+  * selection they evicted each other every frame. The numbers are floors: a
+  * rise means the sharing was lost.
   */
 class RenderCacheContentionSuite extends ServerHarness {
 
@@ -173,16 +175,15 @@ class RenderCacheContentionSuite extends ServerHarness {
     private val counts =
       new java.util.concurrent.ConcurrentHashMap[NodeId, AtomicInteger]()
 
-    override def renderNodeById(
+    override def renderPatch(
         id: NodeId,
         shared: Shared,
-        viewing: Viewing,
-        form: SlotForm
+        values: ByteValues
     ): Option[String] = {
       val _ = counts
         .computeIfAbsent(id, _ => new AtomicInteger(0))
         .incrementAndGet()
-      super.renderNodeById(id, shared, viewing, form)
+      super.renderPatch(id, shared, values)
     }
 
     def reset: IO[Unit] = IO(counts.clear())
@@ -282,6 +283,43 @@ class RenderCacheContentionSuite extends ServerHarness {
       )
   }
 
+  /** The shipped card's shape: the state travels as a signal, and one byte slot
+    * reads the same entity, which puts it in the render key. A state change
+    * moves the key but not the bytes, so no session should render.
+    */
+  private def signalDash = Dashboard(
+    cards = Map(
+      "col" -> TestCard(
+        "<div>{{{children}}}</div>",
+        regions = Map("children" -> Region())
+      ),
+      "card" -> TestCard("<b {{{state.bind}}}>{{state}}</b><i>{{name}}</i>")
+    ),
+    card = LayoutNode.Component(
+      "col",
+      regions = LayoutNode.kids(
+        LayoutNode.Component(
+          "card",
+          templateSlots = Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.shared"))),
+              signal = Some(SignalBind.Text)
+            ),
+            "name" -> TemplateSlot(
+              ValueExpr(
+                Value.Entity(Some("sensor.shared"), Part.Attr("friendly_name"))
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+
+  test("a signal-only tick renders nothing, however many viewers") {
+    assertCost("state only", List.fill(3)(""), signalDash, 0.0)
+  }
+
   /** The values a node reads are in its key: viewers on one value share its
     * render, and viewers on two each render, replacing each other's entry. A
     * node reading no variable is the 1.0 above.
@@ -303,123 +341,79 @@ class RenderCacheContentionSuite extends ServerHarness {
 
   test("one entry per node, however many values are posted") {
     val renderer = Renderer.create(varDash)
-    val on = (v: String) =>
-      RenderInputs(Map("sensor.shared" -> 1L), vars = Map("window" -> v))
+    val on = (v: String) => ByteValues(Map("window" -> v), None)
     for {
       cache <- RenderCache.create
       _ <- (1 to 50).toList.traverse_(i =>
-        cache("c_0", renderer, on(s"v$i"))(IO.pure(s"<b>$i</b>"))
+        IO(cache("c_0", renderer, on(s"v$i"))(s"<b>$i</b>"))
       )
-      gens <- cache.generations
-      again <- cache("c_0", renderer, on("v50"))(IO.pure("<b>never</b>"))
+      gens <- cache.size
+      again <- IO(cache("c_0", renderer, on("v50"))("<b>never</b>"))
     } yield {
       assertEquals(gens, 1, "50 values, one entry")
-      assertEquals(again.html, "<b>50</b>", "the last value's install stands")
+      assertEquals(again, "<b>50</b>", "the last value's install stands")
     }
   }
 
-  /** A node keeps one generation, so churn leaves the count where it started;
-    * growth would mean retained dead HTML.
+  /** A node keeps one entry, so churn leaves the count where it started; growth
+    * would mean retained dead HTML.
     */
-  test("generations are bounded, however many frames go by") {
+  test("entries are bounded, however many frames go by") {
     val renderer = Renderer.create(leafDash)
-    val v = (n: Long) => RenderInputs(Map("sensor.shared" -> n))
+    val v = (n: Long) => at(n)
 
     for {
       cache <- RenderCache.create
       _ <- (1L to 50L).toList.traverse_(n =>
-        cache("c_0_bar_0", renderer, v(n))(IO.pure(s"<b>$n</b>"))
+        IO(cache("c_0_bar_0", renderer, v(n))(s"<b>$n</b>"))
       )
-      afterChurn <- cache.generations
-      nodes <- cache.size
-    } yield {
-      assertEquals(afterChurn, 1, "50 frames, one generation")
-      assertEquals(nodes, 1)
-    }
+      afterChurn <- cache.size
+    } yield assertEquals(afterChurn, 1, "50 frames, one entry")
   }
 
-  private def at(v: Long) = RenderInputs(Map("sensor.shared" -> v))
+  private def at(v: Long): ByteValues = ByteValues(Map("state" -> s"v$v"), None)
 
   /** Sessions pull on their own fibers, so they do not render from one
-    * snapshot. The straggler's render serves its client, but installing it
-    * would evict the generation the third session is about to hit.
+    * snapshot. The straggler's install evicts the newer entry: the next session
+    * on the newer values renders again, and is never served the straggler's
+    * bytes.
     */
-  test("a straggler does not evict the generation that overtook it") {
+  test("a straggler costs a render, never wrong bytes") {
     val runs = new AtomicInteger(0)
-    def render(html: String) = IO(runs.incrementAndGet()).as(html)
+    def render(html: String) = { runs.incrementAndGet(); html }
 
     for {
       cache <- RenderCache.create
       renderer = Renderer.create(leafDash)
-      newest <- cache(Live, renderer, at(2))(render("<b>v2</b>"))
-      late <- cache(Live, renderer, at(1))(render("<b>v1</b>"))
-      third <- cache(Live, renderer, at(2))(render("<b>v2 again</b>"))
-      gens <- cache.generations
+      newest <- IO(cache(Live, renderer, at(2))(render("<b>v2</b>")))
+      late <- IO(cache(Live, renderer, at(1))(render("<b>v1</b>")))
+      third <- IO(cache(Live, renderer, at(2))(render("<b>v2 again</b>")))
+      gens <- cache.size
     } yield {
-      assertEquals(newest.html, "<b>v2</b>")
-      assertEquals(late.html, "<b>v1</b>", "the straggler gets ITS bytes")
-      assertEquals(third.html, "<b>v2</b>", "served from the surviving entry")
-      assertEquals(runs.get(), 2, "the third session did not re-render")
-      assertEquals(gens, 1, "and the straggler cached nothing")
-    }
-  }
-
-  /** A refusal here would freeze a node at its first render. */
-  test("a newer generation does replace an older one") {
-    val runs = new AtomicInteger(0)
-    def render(html: String) = IO(runs.incrementAndGet()).as(html)
-
-    for {
-      cache <- RenderCache.create
-      renderer = Renderer.create(leafDash)
-      _ <- cache(Live, renderer, at(1))(render("<b>v1</b>"))
-      _ <- cache(Live, renderer, at(2))(render("<b>v2</b>"))
-      hit <- cache(Live, renderer, at(2))(render("<b>never</b>"))
-      gens <- cache.generations
-    } yield {
-      assertEquals(hit.html, "<b>v2</b>")
-      assertEquals(runs.get(), 2)
+      assertEquals(newest, "<b>v2</b>")
+      assertEquals(late, "<b>v1</b>", "the straggler gets ITS bytes")
+      assertEquals(third, "<b>v2 again</b>", "rendered for its own values")
+      assertEquals(runs.get(), 3)
       assertEquals(gens, 1)
     }
   }
 
-  test("a partly-newer generation is not treated as a straggler") {
-    val two =
-      (a: Long, b: Long) => RenderInputs(Map("sensor.a" -> a, "sensor.b" -> b))
+  /** A refusal here would freeze a node at its first render. */
+  test("new values replace the entry") {
     val runs = new AtomicInteger(0)
-    def render(html: String) = IO(runs.incrementAndGet()).as(html)
+    def render(html: String) = { runs.incrementAndGet(); html }
 
     for {
       cache <- RenderCache.create
       renderer = Renderer.create(leafDash)
-      _ <- cache(Live, renderer, two(2, 1))(render("<b>a2 b1</b>"))
-      mixed <- cache(Live, renderer, two(1, 2))(render("<b>a1 b2</b>"))
-      hit <- cache(Live, renderer, two(1, 2))(render("<b>never</b>"))
+      _ <- IO(cache(Live, renderer, at(1))(render("<b>v1</b>")))
+      _ <- IO(cache(Live, renderer, at(2))(render("<b>v2</b>")))
+      hit <- IO(cache(Live, renderer, at(2))(render("<b>never</b>")))
+      gens <- cache.size
     } yield {
-      assertEquals(mixed.html, "<b>a1 b2</b>")
-      assertEquals(hit.html, "<b>a1 b2</b>", "it took the entry")
+      assertEquals(hit, "<b>v2</b>")
       assertEquals(runs.get(), 2)
-    }
-  }
-
-  test("a different entity set is not ordered against the entry") {
-    val runs = new AtomicInteger(0)
-    def render(html: String) = IO(runs.incrementAndGet()).as(html)
-
-    for {
-      cache <- RenderCache.create
-      renderer = Renderer.create(leafDash)
-      _ <- cache(Live, renderer, at(5))(render("<b>one</b>"))
-      grew <- cache(
-        Live,
-        renderer,
-        RenderInputs(Map("sensor.shared" -> 4L, "sensor.new" -> 1L))
-      )(render("<b>two</b>"))
-      gens <- cache.generations
-    } yield {
-      assertEquals(grew.html, "<b>two</b>")
-      assertEquals(runs.get(), 2)
-      assertEquals(gens, 1, "it installed rather than being refused")
+      assertEquals(gens, 1)
     }
   }
 
@@ -427,17 +421,16 @@ class RenderCacheContentionSuite extends ServerHarness {
   test("a renderer swap replaces what a node holds") {
     val before = Renderer.create(leafDash)
     val after = Renderer.create(leafDash)
-    val at = (v: Long) => RenderInputs(Map("sensor.shared" -> v))
 
     for {
       cache <- RenderCache.create
-      old <- cache(Live, before, at(1L))(IO.pure("<b>old</b>"))
-      first <- cache.generations
-      fresh <- cache(Live, after, at(1L))(IO.pure("<b>new</b>"))
-      afterSwap <- cache.generations
+      old <- IO(cache(Live, before, at(1L))("<b>old</b>"))
+      first <- cache.size
+      fresh <- IO(cache(Live, after, at(1L))("<b>new</b>"))
+      afterSwap <- cache.size
     } yield {
-      assertEquals(old.html, "<b>old</b>")
-      assertEquals(fresh.html, "<b>new</b>", "the swap was not served a hit")
+      assertEquals(old, "<b>old</b>")
+      assertEquals(fresh, "<b>new</b>", "the swap was not served a hit")
       assertEquals(first, 1)
       assertEquals(afterSwap, 1, "replaced, not accumulated")
     }

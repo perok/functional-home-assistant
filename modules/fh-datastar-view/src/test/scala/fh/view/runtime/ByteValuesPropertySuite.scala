@@ -7,15 +7,16 @@ import fh.view.testkit.TestIds.setId
 import hedgehog.*
 import hedgehog.munit.HedgehogSuite
 
-/** A page's trace and the live path must agree on each node's digest: `holds`
-  * is seeded from [[Renderer.Traced.own]], and `Patches.morph` compares against
-  * [[Renderer.renderNodeById]]'s bytes. Two code paths, so the agreement is
-  * pinned over generated shapes from an awkward-character pool (the escape set,
-  * mustache tags, newlines, unicode, empties).
+/** A node's byte-slot values are its render key and what a session compares
+  * (ADR 0012): `holds` is seeded from [[Renderer.Traced.own]], and
+  * `Patches.morph` compares against [[Renderer.byteSlotValues]]. So the two
+  * must agree, and equal values must mean equal bytes; pinned over generated
+  * shapes from an awkward-character pool (the escape set, mustache tags,
+  * newlines, unicode, empties).
   *
   * A failing run names its seed; `HEDGEHOG_SEED=<seed>` replays it exactly.
   */
-class DigestPropertySuite extends HedgehogSuite {
+class ByteValuesPropertySuite extends HedgehogSuite {
 
   private val genChar: Gen[Char] =
     Gen.element1('a', 'z', '0', '9', ' ', '<', '>', '&', '"', '\'', '\n', 'é')
@@ -91,54 +92,52 @@ class DigestPropertySuite extends HedgehogSuite {
     )
   }
 
-  property("a leaf's recorded digest matches what the live path renders") {
+  property(
+    "a leaf's recorded values are the live path's, and decide its bytes"
+  ) {
+    // `Patches.morph` skips a node whose held values equal the live ones, so
+    // the walk's values must be the live path's, and equal values equal bytes.
     for {
       v <- genValue.forAll
+      w <- genValue.forAll
       signal <- genSignal.forAll
     } yield {
       val r = Renderer.create(dashboard(signal))
-      // The trace records digests, so the fingerprint the walk wrote must be
-      // the one the live path's bytes hash to.
-      val recorded = r
-        .renderBodyTraced(at(v), Viewing(Selections.none, FetchSnapshot.empty))
-        .own
-        .values
-        .head
-        .digest
-      val rendered =
-        Digest.of(
-          r.renderNodeById(
-            NodeId.derived("c"),
-            at(v),
-            Viewing(Selections.none, FetchSnapshot.empty)
-          ).get
+      val id = NodeId.derived("c")
+      val viewing = Viewing(Selections.none, FetchSnapshot.empty)
+      val recorded = r.renderBodyTraced(at(v), viewing).own.values.head.values
+      def values(s: String) = r.byteSlotValues(id, at(s), FetchSnapshot.empty)
+      def bytes(s: String) = r.renderNodeById(id, at(s), viewing)
+      Result.all(
+        List(
+          Result.assert(values(v).contains(recorded)),
+          Result.assert(values(v) != values(w) || bytes(v) == bytes(w))
         )
-      assert(recorded == rendered)
+      )
     }
   }
 
-  property("a member's recorded digest matches what the live path renders") {
+  property(
+    "a member's recorded values are the live path's, and decide its bytes"
+  ) {
     for {
       v <- genValue.forAll
+      w <- genValue.forAll
       signal <- genSignal.forAll
     } yield {
       val r = Renderer.create(setDashboard(signal))
       val mid = NodeId.derived(r.members.memberIdOf(setId("c"), "alpha"))
-      val recorded = r
-        .renderBodyTraced(at(v), Viewing(Selections.none, FetchSnapshot.empty))
-        .own
-        .get(mid)
-        .get
-        .digest
-      val rendered =
-        Digest.of(
-          r.renderNodeById(
-            mid,
-            at(v),
-            Viewing(Selections.none, FetchSnapshot.empty)
-          ).get
+      val viewing = Viewing(Selections.none, FetchSnapshot.empty)
+      val recorded = r.renderBodyTraced(at(v), viewing).own.get(mid)
+      def values(s: String) = r.byteSlotValues(mid, at(s), FetchSnapshot.empty)
+      def bytes(s: String) = r.renderNodeById(mid, at(s), viewing)
+      Result.all(
+        List(
+          Result.assert(recorded.map(_.values) == values(v)),
+          Result.assert(values(v).isDefined),
+          Result.assert(values(v) != values(w) || bytes(v) == bytes(w))
         )
-      assert(recorded == rendered)
+      )
     }
   }
 }

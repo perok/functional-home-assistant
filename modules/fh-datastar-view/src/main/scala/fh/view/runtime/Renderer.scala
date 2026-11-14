@@ -36,36 +36,43 @@ import fh.view.model.{
 }
 import scala.jdk.CollectionConverters.*
 
-/** One node as a wholesale render left it: the digest of its patch-form bytes
-  * (comparable with what a pull renders) and the signals its seed set.
+/** What a node's patch form is rendered from, and so the render cache's key and
+  * what a session's `holds` compares (ADR 0012): each byte slot's value, and
+  * below a set member its clause. Every clause of a candidate mints the same
+  * ids, and the clause picks the card and the host id the bytes spell.
+  */
+private[runtime] final case class ByteValues(
+    slots: Map[SlotKey, SlotValue],
+    clause: Option[Int]
+) derives CanEqual
+
+/** One node as a wholesale render left it: the byte-slot values its patch form
+  * was rendered from (what [[Renderer.byteSlotValues]] answers for it) and the
+  * signals its seed set.
   */
 private[runtime] case class Painted(
-    // The digest, not the bytes: holding them kept 99 kB of a 128 kB page a
-    // second time.
-    digest: Digest,
+    values: ByteValues,
     signals: Map[SignalId, SlotValue]
-)
+) {
+  def held: Held = Held(Some(values), signals)
+}
 
 /** A walk's accumulator: what each own-rendering node painted, and the signals
-  * a structural node's root seeded. Structure has no bytes of its own to
-  * digest, but the client holds its seed all the same; left out, a node's first
-  * frame after a page load re-sent every value it already had.
+  * a structural node's root seeded. Structure has no bytes of its own, but the
+  * client holds its seed all the same; left out, a node's first frame after a
+  * page load re-sent every value it already had.
   */
 private[runtime] final class Trace {
   val own = new java.util.HashMap[NodeId, Painted]()
   val seeded = new java.util.HashMap[NodeId, Map[SignalId, SlotValue]]()
   def holds: Map[NodeId, Held] =
-    own.asScala.view.map { case (id, p) =>
-      id -> Held(Some(p.digest), p.signals)
-    }.toMap ++
+    own.asScala.view.map { case (id, p) => id -> p.held }.toMap ++
       seeded.asScala.view.map { case (id, s) => id -> Held(signals = s) }
 }
 
-/** A host's parts and what each node inside them now holds. Built here because
-  * the two shapes claim different ids: set members are separate renders, so
-  * each part is hashed; a state group's branch is one walk under a root with no
-  * rendering of its own, so it claims the walk's per-node digests
-  * ([[Renderer.Traced]]).
+/** A host's parts and what each node inside them now holds: a part per set
+  * member, or a state group's branch as one walk under a root with no rendering
+  * of its own ([[Renderer.Traced]]).
   */
 private[runtime] case class HostContent(
     parts: List[(NodeId, String)],
@@ -74,9 +81,9 @@ private[runtime] case class HostContent(
 
 /** A signal slot's two renderings (ADR 0017). `Document` has the value inline
   * plus its `data-signals` seed, so a first paint or fill needs no frame.
-  * `Patch` has neither, so a node's digest does not move when only a signal
-  * slot does and one signal frame carries the value — the point of the feature.
-  * Without a signal slot both forms are the same `String`, which
+  * `Patch` has neither, so a node's byte-slot values do not move when only a
+  * signal slot does and one signal frame carries the value — the point of the
+  * feature. Without a signal slot both forms are the same `String`, which
   * [[Renderer.Traced]] relies on.
   */
 private[runtime] enum SlotForm derives CanEqual {
@@ -108,41 +115,15 @@ private[runtime] object WalkAt {
       m.copy(path = m.path :+ step)
 }
 
-/** What a node's own rendering reads ([[Renderer.renderInputs]]). Too
-  * discriminating costs a wasted render; too coarse serves stale bytes silently
-  * and forever. When in doubt, over-discriminate.
-  *
-  * @param vars
-  *   the node variables its slots read, by name, at the viewer's values.
-  */
-case class RenderInputs(
-    entities: Map[String, Long],
-    fetches: Map[SlotRead, Long] = Map.empty,
-    vars: Map[String, String] = Map.empty
-) derives CanEqual {
-
-  /** The partial order [[RenderCache]] uses to refuse superseded bytes.
-    * Different key sets are unordered, which also keeps two viewers on
-    * different windows from displacing each other's chart; so are different
-    * variable values, so a viewer's install replaces another value's entry.
-    */
-  def isAtLeast(other: RenderInputs): Boolean =
-    vars == other.vars &&
-      sameOrAhead(entities, other.entities) &&
-      sameOrAhead(fetches, other.fetches)
-
-  private def sameOrAhead[K](
-      mine: Map[K, Long],
-      theirs: Map[K, Long]
-  ): Boolean =
-    mine.sizeIs == theirs.size &&
-      theirs.forall((k, v) => mine.get(k).exists(_ >= v))
-}
-
 /** Container kinds are templates splicing `children`, not cases here. A surface
   * is a separate tree whose ids are namespaced (`s_<id>__…`).
   */
 class Renderer(validated: Dashboard.Validated) {
+
+  /** This renderer's identity for [[RenderCache]], which must not hold the
+    * renderer itself: an entry would pin a whole replaced dashboard.
+    */
+  private[runtime] val generation: AnyRef = new Object
 
   private val dashboard = validated.ready
   private val templates = validated.templates
@@ -854,9 +835,9 @@ class Renderer(validated: Dashboard.Validated) {
       )
     }
 
-  /** Every log key must resolve here: the log holds digests, and a resume
-    * re-renders. `None` means the key names nothing that exists now, and is
-    * dropped rather than failing the resume.
+  /** Every log key must resolve here: a resume re-renders. `None` means the key
+    * names nothing that exists now, and is dropped rather than failing the
+    * resume.
     */
   def renderNodeById(
       id: NodeId,
@@ -1028,12 +1009,6 @@ class Renderer(validated: Dashboard.Validated) {
     case _: Ready.SetNode => false
   }
 
-  /** [[ownRenderingOf]] for a node of the static tree; a member's or one below
-    * it is decided by its current clause, so it goes through [[nodeAt]].
-    */
-  private def hasOwnRendering(id: NodeId): Boolean =
-    allIndexed.get(id).exists((n, _) => ownRenderingOf(n))
-
   /** The node's `.fh-cell` root: the one crossing from node id to DOM id. */
   def elementId(id: NodeId): DomId = DomId.derived(id)
 
@@ -1090,133 +1065,100 @@ class Renderer(validated: Dashboard.Validated) {
       surfaces.resolveActiveByState(gid, shared)
     else Some(surfaces.resolveActive(gid, selections))
 
-  /** The render cache's key (ADR 0012): the content version of each entity that
-    * can move this node's bytes — not those read only through signal slots,
-    * whose values are absent from the patch form (ADR 0017). A version, not the
-    * value: `EntityState.hashCode` walks the attributes. A missing entity has
-    * no entry, a distinct key.
+  /** What a node's patch form is rendered from ([[ByteValues]]). A node's other
+    * inputs are fixed per renderer (template, constants, `id`,
+    * `dashboardSlug`), and a variable or a fetch reaches the bytes only through
+    * a slot. Signal slots are left out: the patch form does not carry their
+    * values (ADR 0017).
     *
-    * No selection (only structure reads one, and structure is never cached) and
-    * no children (a descendant's tick would invalidate every ancestor). `None`
-    * means not cacheable: exactly [[ownRenderingOf]]'s `false`.
+    * Values, not their text: a section reads `false` and `"false"` differently.
     *
-    * The node variables its slots read, at this viewer's values: viewers on one
-    * value share a render, and one on another replaces the entry.
-    */
-  def renderInputs(
-      id: NodeId,
-      shared: Shared,
-      fragments: FetchSnapshot
-  ): Option[RenderInputs] =
-    members.nodeAt(id, shared) match {
-      case Some((m, c)) =>
-        Option.when(ownRenderingOf(c))(
-          RenderInputs(
-            // The subject chose the clause, so it keys the bytes even when no
-            // slot reads it; the clause is named too, since every clause of a
-            // candidate mints the same ids below the member, and different key
-            // sets never compare ([[RenderInputs.isAtLeast]]).
-            versions(
-              m.node.subjectEntity.toList ++ c.liveEntitiesAsBytes,
-              shared.states
-            ) + (Renderer.clauseKey(m.clause) -> 0L),
-            readVersions(id, c, shared, fragments),
-            varsRead(id, c, fragments)
-          )
-        )
-      case None =>
-        allIndexed.get(id).collect {
-          case (c: Ready.Component, _) if ownRenderingOf(c) =>
-            RenderInputs(
-              versions(c.liveEntitiesAsBytes, shared.states),
-              readVersions(id, c, shared, fragments),
-              varsRead(id, c, fragments)
-            )
-        }
-    }
-
-  private def readVersions(
-      id: NodeId,
-      c: Ready.Component,
-      shared: Shared,
-      fragments: FetchSnapshot
-  ): Map[SlotRead, Long] =
-    val asks = asked(c, shared)
-    if (asks.isEmpty) Map.empty
-    else
-      val vars = fragments.varsAt(id)
-      fragments.versions(asks.flatMap(readOf(_, shared.states, vars)))
-
-  private def varsRead(
-      id: NodeId,
-      c: Ready.Component,
-      fragments: FetchSnapshot
-  ): Map[String, String] =
-    if (c.variables.isEmpty) Map.empty
-    else
-      val at = fragments.varsAt(id)
-      c.variables.view
-        .map(n => n -> at.getOrElse(n, Evaluator.noVariable(n)))
-        .toMap
-
-  /** The render cache's pre-check: equal byte-slot values, equal bytes. The
-    * key's `contentVersion` moves on any change, so without this every
-    * brightness tick on the shipped `EntityCard` re-renders to identical bytes.
-    * Byte slots only — resolving the signal ones (where the CEL lives) would
-    * give the saving back: 0.28 µs against a 5.45 µs render
-    * (`RenderBench.byteSlotResolve` vs `tickRender`).
-    *
-    * `None` means "cannot answer cheaply", never "unchanged": a member. A bake
-    * owner raises instead: it is structure and never cached, and a quiet `None`
-    * here would serve stale bytes.
+    * `None`: the node has no rendering of its own. A bake owner raises instead:
+    * it is structure, and a quiet `None` would leave it unpatched.
     */
   private[runtime] def byteSlotValues(
       id: NodeId,
       shared: Shared,
       fragments: FetchSnapshot
-  ): Option[Map[String, String]] =
-    allIndexed.get(id).flatMap {
-      case (c: Ready.Component, _) if hasOwnRendering(id) =>
+  ): Option[ByteValues] =
+    allIndexed.get(id) match {
+      case Some((c: Ready.Component, _)) if ownRenderingOf(c) =>
         if (surfaces.bakeGroup(id).nonEmpty)
           sys.error(
             s"node $id has its own rendering AND a bake group; ADR 0012 holds " +
               "these are exclusive (a bake owner holds regions, so it is " +
-              "structure and is never cached). The render cache's byte-value " +
-              "pre-check cannot see a selection, so this must be fixed rather " +
-              "than tolerated."
+              "structure). A session's byte-value check cannot see a " +
+              "selection, so this must be fixed rather than tolerated."
           )
-        val plan = planOf(id, c, shared)
-        val b = Map.newBuilder[String, String]
-        val in = lookupAt(fragments, plan.id, shared.states)
-        plan.dynamic.foreach { case (slot, srcEntity, source) =>
-          // A live cell slot is always a signal, so only names reach here.
-          if (!plan.signalSlots.contains(slot))
-            b += (
-              (
-                SlotKey.label(slot),
-                resolveSlot(srcEntity, source, shared, fragments, plan.id, in)
-              )
-            )
+        Some(valuesOf(planOf(id, c, shared), shared, fragments, None))
+      case Some(_) => None
+      case None    =>
+        members.nodeAt(id, shared).collect {
+          case (m, c) if ownRenderingOf(c) =>
+            valuesOf(planOf(id, c, shared), shared, fragments, Some(m.clause))
         }
-        Some(b.result())
-      case _ => None
     }
 
-  private def versions(
-      entities: List[String],
-      states: Map[String, EntityState]
-  ): Map[String, Long] =
-    entities.distinct
-      .flatMap(e => states.get(e).map(e -> _.contentVersion))
-      .toMap
+  private def valuesOf(
+      plan: NodePlan,
+      shared: Shared,
+      fragments: FetchSnapshot,
+      clause: Option[Int]
+  ): ByteValues = {
+    val in = lookupAt(fragments, plan.id, shared.states)
+    byteValues(plan, clause)(s =>
+      resolveSlotValue(s.entity, s.live, shared, fragments, plan.id, in)
+    )
+  }
+
+  /** The one place a node's byte-slot values are put together, for the walk's
+    * `holds` and for the live path that compares with them: two builders could
+    * drift, and a session would then skip a node whose bytes moved.
+    */
+  private def byteValues(plan: NodePlan, clause: Option[Int])(
+      valueOf: ByteSlot => SlotValue
+  ): ByteValues = {
+    val b = Map.newBuilder[SlotKey, SlotValue]
+    plan.byteSlots.foreach(s => b += ((s.key, valueOf(s))))
+    ByteValues(b.result(), clause)
+  }
+
+  /** A node's patch form, painted from the values [[byteSlotValues]] answered
+    * at this `shared`: the live path resolves nothing twice, and the bytes are
+    * a function of their cache key by construction. `None` as
+    * [[renderNodeById]].
+    */
+  private[runtime] def renderPatch(
+      id: NodeId,
+      shared: Shared,
+      values: ByteValues
+  ): Option[String] =
+    nodeAt(id, shared).collect {
+      case (c: Ready.Component, _) if ownRenderingOf(c) =>
+        patchOf(planOf(id, c, shared), values)
+    }
 
   /** A leaf's patch form is written directly, not taken from a [[traced]] walk,
-    * which builds the document form, its digest and the trace maps a tick
-    * throws away. A leaf has no children and no bake group (its card declares
-    * no region), so this is its whole body; its root's holes are the walk's
-    * ([[NodeContext.writeHole]]), and `DigestPropertySuite` pins that the two
-    * agree.
+    * which builds the document form and the trace maps a tick throws away. A
+    * leaf has no children and no bake group (its card declares no region), so
+    * this is its whole body; its root's holes are the walk's
+    * ([[NodeContext.writeHole]]). The patch form reads no signal value and no
+    * at-render class, so only the byte slots are painted.
     */
+  private def patchOf(plan: NodePlan, values: ByteValues): String =
+    Sink.scratched { buf =>
+      Templates.run(
+        plan.tpl,
+        buf,
+        NodeContext(
+          Resolved(plan, values.slots, Map.empty, Map.empty),
+          SlotForm.Patch,
+          buf
+        )
+      )
+      buf.result
+    }
+
   private def render(
       node: Ready.Node,
       id: NodeId,
@@ -1227,23 +1169,14 @@ class Renderer(validated: Dashboard.Validated) {
   ): Option[String] = node match {
     case c: Ready.Component if form.isPatch =>
       val plan = planOf(id, c, shared)
-      val resolved = resolvePlanned(plan, shared, Map.empty, viewing.fragments)
-      Some(Sink.scratched { buf =>
-        Templates.run(
-          plan.tpl,
-          buf,
-          NodeContext(resolved, SlotForm.Patch, buf)
-        )
-        buf.result
-      })
+      Some(patchOf(plan, valuesOf(plan, shared, viewing.fragments, None)))
     case _ =>
       Some(traced(node, id, idPrefix, shared, viewing).html)
   }
 
-  /** The composed rendering and each node's own digest, kept from the one walk
-    * so a fill or page load need not re-walk the subtree. `own` holds exactly
-    * the nodes with their own rendering, digested from what [[renderNodeById]]
-    * returns — which is what makes them comparable.
+  /** The composed rendering and what each node in it now holds, kept from the
+    * one walk so a fill or page load need not re-walk the subtree. `own` holds
+    * exactly the nodes with their own rendering.
     */
   private[runtime] case class Traced(
       html: String,
@@ -1252,7 +1185,7 @@ class Renderer(validated: Dashboard.Validated) {
   ) {
 
     def claims: Map[NodeId, Held] =
-      own.map { case (id, p) => id -> Held(Some(p.digest), p.signals) } ++
+      own.map { case (id, p) => id -> p.held } ++
         seeded.map { case (id, s) => id -> Held(signals = s) }
   }
 
@@ -1319,7 +1252,7 @@ class Renderer(validated: Dashboard.Validated) {
   }
 
   /** A node's document bytes appended to `out`, and every own-rendering node's
-    * patch digest into `trace`. An accumulator, not per-level maps merged
+    * byte-slot values into `trace`. An accumulator, not per-level maps merged
     * upward: those allocated per node per paint and re-copied every ancestor's.
     * `within` is set below a set member: its nodes are ordinary, but a nested
     * set's id carries the member's clause ([[MemberGraph.innerSetId]]).
@@ -1348,10 +1281,6 @@ class Renderer(validated: Dashboard.Validated) {
         val resolved =
           resolvePlanned(plan, shared, bakeIndex, viewing.fragments)
         val tpl = plan.tpl
-        // A second, patch-form render only where it can differ: own rendering
-        // and a signal slot. Such a node has no regions, so the document
-        // children below are all it composes.
-        val twoForms = plan.ownRendering && plan.twoForms
         def withinOf(region: String, i: Int): WalkAt =
           within.down(LayoutNode.Step(region, i))
 
@@ -1431,23 +1360,16 @@ class Renderer(validated: Dashboard.Validated) {
           }
         }
 
-        def documentInto(o: Sink): Unit = bodyInto(o, SlotForm.Document)
-        // One form: the sink digests the document bytes as they pass.
-        val inlineDigest: Digest | Null =
-          if (plan.ownRendering && !twoForms) out.digesting(documentInto)
-          else {
-            documentInto(out)
-            null
-          }
+        bodyInto(out, SlotForm.Document)
 
-        // In patch form, as `renderNodeById` produces.
         val own = Option.when(plan.ownRendering) {
-          if (twoForms) {
-            val digest = Sink.scratched(_.digesting { buf =>
-              bodyInto(buf, SlotForm.Patch)
-            })
-            Painted(digest, resolved.signals)
-          } else Painted(inlineDigest.nn, resolved.signals)
+          val clause = within match
+            case m: WalkAt.InMember => Some(m.clause)
+            case WalkAt.Static      => None
+          Painted(
+            byteValues(plan, clause)(s => resolved.paint(s.key)),
+            resolved.signals
+          )
         }
         // Keyed by the plan's id, not this paint's: `holds` keeps the key per
         // session, and a fresh string each paint was a third of an entry.
@@ -1725,6 +1647,8 @@ class Renderer(validated: Dashboard.Validated) {
       constants: Map[SlotKey, SlotValue],
       jsConstants: Map[SlotKey, String],
       dynamic: List[(SlotKey, Option[String], Planned.Live)],
+      // The live slots the patch form carries: [[byteValues]]'s.
+      byteSlots: List[ByteSlot],
       // Every slot: what `x.has` asks.
       slots: Map[SlotKey, Planned],
       signalled: Map[SlotKey, Signalled],
@@ -1734,14 +1658,17 @@ class Renderer(validated: Dashboard.Validated) {
       id: NodeId,
       signalSeed: Datastar.SignalSeed,
       ownRendering: Boolean,
-      // The document form differs from the patch form: a signal's value and
-      // seed, or a class decided at render.
-      twoForms: Boolean,
       nodeCount: Int
   ) {
     // Not `keySet`: that view filters through a builder, per cell, per paint.
     val signalSlots: Set[SlotKey] = signalNameBySlot.keysIterator.toSet
   }
+
+  private final case class ByteSlot(
+      key: SlotKey,
+      entity: Option[String],
+      live: Planned.Live
+  )
 
   /** A slot as its node's plan holds it: a value that never moves, folded once
     * with its JS spelling, or a live one, its source and steps composed into
@@ -1788,15 +1715,6 @@ class Renderer(validated: Dashboard.Validated) {
       shared: Shared
   ): Boolean =
     planned.source.gate.exists(!gateHolds(_, shared))
-
-  /** The asks whose slot has a value now. */
-  private def asked(
-      c: Ready.Component,
-      shared: Shared
-  ): List[SlotAsk] =
-    c.fetching
-      .flatMap(f => if (f.gate.forall(gateHolds(_, shared))) f.asks else Nil)
-      .distinct
 
   /** One plan per node an id shows, matched by identity: bounded only because
     * every node is built once (a member's with the graph, see the pipeline
@@ -1851,6 +1769,14 @@ class Renderer(validated: Dashboard.Validated) {
       dynamic = slots.toList.collect { case (k, l: Planned.Live) =>
         (k, l.source.entityId, l)
       },
+      // A live cell slot is always a signal, so only names are left.
+      byteSlots = {
+        val signalled = named.map(_._1).toSet
+        slots.toList.collect {
+          case (k, l: Planned.Live) if !signalled.contains(k) =>
+            ByteSlot(k, l.source.entityId, l)
+        }
+      },
       slots = slots,
       signalled = named.map { case (slot, kind, signal) =>
         slot -> signalledOf(signal, kind)
@@ -1861,8 +1787,6 @@ class Renderer(validated: Dashboard.Validated) {
       id = id,
       signalSeed = Datastar.seedFor(named.map(_._3)),
       ownRendering = ownRenderingOf(c),
-      twoForms = c.slots.values.exists(Renderer.isSignalSlot) ||
-        c.cell.exists(_.atRender.nonEmpty),
       // Once, not per paint: it walks the subtree.
       nodeCount = 1 + c.regions.values.view.map(_.map(nodeCount).sum).sum
     )
@@ -1926,7 +1850,13 @@ class Renderer(validated: Dashboard.Validated) {
     // Not gated on own rendering: structure's signal slots would be seeded
     // once and then never move.
     nodeAt(id, shared)
-      .map((node, _) => signalsOfSlots(id, node, shared, fragments))
+      .map {
+        // A fetch's answer is the viewer's; a variable cannot reach a signal
+        // (validate refuses it).
+        case (c: Ready.Component, _) if c.fetching.isEmpty =>
+          shared.signals(id)(signalsOfSlots(id, c, shared, fragments))
+        case (node, _) => signalsOfSlots(id, node, shared, fragments)
+      }
       .getOrElse(Map.empty)
 
   /** Through the plan: re-deriving the names per tick was 9.4% of a signals
@@ -1960,20 +1890,8 @@ class Renderer(validated: Dashboard.Validated) {
     case _: Ready.SetNode => Map.empty
   }
 
-  /** Resolves before any state arrives, so a `domain` action still works. */
-  private def resolveSlot(
-      srcEntity: Option[String],
-      source: Planned.Live,
-      shared: Shared,
-      fragments: FetchSnapshot,
-      node: NodeId,
-      in: Evaluator.Lookup
-  ): String =
-    SlotValue.text(
-      resolveSlotValue(srcEntity, source, shared, fragments, node, in)
-    )
-
-  /** Keeps a boolean boolean ([[SlotValue]]); `false` never falls through to
+  /** Resolves before any state arrives, so a `domain` action still works. Keeps
+    * a boolean boolean ([[SlotValue]]); `false` never falls through to
     * `default`.
     */
   private def resolveSlotValue(
@@ -2077,17 +1995,6 @@ class Renderer(validated: Dashboard.Validated) {
 }
 
 object Renderer {
-
-  /** A render key's entry naming a member's clause ([[Renderer.renderInputs]]).
-    * NUL-led, so no entity id can collide with it.
-    */
-  def clauseKey(clause: Int): String =
-    if (clause < ClauseKeys.length) ClauseKeys(clause)
-    else s"\u0000clause $clause"
-
-  // Interned: a key is built on every render-cache lookup.
-  private val ClauseKeys: Vector[String] =
-    Vector.tabulate(16)(i => s"\u0000clause $i")
 
   /** A subtree's asks, stopping at a nested set, whose members ask their own.
     */

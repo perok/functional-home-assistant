@@ -24,11 +24,9 @@ object FetchIdentity {
   * the version it became current at.
   *
   * The version is all the runtime knows of when an answer moves, and it is
-  * meant only per question: the same version is the same data, and it never
-  * goes back (`RenderInputs.isAtLeast` compares with `>=`, so a content hash
-  * will not do). WHEN it moves is the provider's policy — history's is its
-  * bucket. It keys the render cache and the resolver's staged values, so one
-  * that moves every call is never shared.
+  * meant only per question: the same version is the same data. WHEN it moves is
+  * the provider's policy — history's is its bucket. It keys the resolver's
+  * staged values, so one that moves every call is never shared.
   */
 final case class Answer(version: Long, data: Json) derives CanEqual
 

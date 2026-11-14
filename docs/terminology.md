@@ -419,11 +419,14 @@ shared one.
 **Mutation (Gone / Placed)** — a structural change in the log: a node left the DOM, or arrived.
 Replayed to a reconnecting client as a remove and an insert.
 
-**Holds** — one session's map of `node id -> digest of the bytes that tab currently has`. The answer
-to "does this client already have this?", asked per session and nowhere else.
+**Holds** — one session's map of `node id -> what that tab currently has`: the byte-slot values
+the node's bytes were rendered from, and its signal values (`Held`). The answer to "does this
+client already have this?", asked per session and nowhere else: equal values, equal bytes, so
+"unchanged" is decided without rendering or keeping the bytes.
 
-**Digest** — a hash of a node's own HTML, so "unchanged" is cheap to decide without keeping the
-bytes.
+**Byte-slot values** — a node's resolved byte-slot values (not its signal slots'), plus a member's
+clause: what its patch form is rendered from, so both what a session holds and the render cache's
+key (`Renderer.byteSlotValues`, ADR 0012).
 
 **Claims / invalidates** — what a patch reports about itself: the nodes whose bytes it just wrote
 (so the session can record them) and the nodes it displaced (so their records stop describing
@@ -460,13 +463,11 @@ them. Keyed by what the render *read*, not by node id alone.
 of its bake group is selected. A node whose bytes carry its children has no sound key and is simply
 not cached.
 
-**Generation** — one version of a node's bytes in the cache. Kept per selection, so viewers on
-different tabs stop evicting each other.
-
 **Straggler** — a session that renders from an older snapshot than its peers. It is served its own
-render, but it may not overwrite newer bytes in the cache.
+render; its install may replace newer bytes in the cache, which costs the next session a render,
+never wrong bytes.
 
-**Traced** — a render that also hands back every node's own bytes from inside it, so a caller that
+**Traced** — a render that also hands back what every node inside it now holds, so a caller that
 rendered a whole subtree can record what it placed without walking it again.
 
 ---

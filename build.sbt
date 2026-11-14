@@ -524,8 +524,9 @@ lazy val `fh-datastar-view` = project
       // runtime; bundles the extension libraries — string/list/math/bindings/
       // comprehensions — in the same jar).
       "dev.cel" % "cel" % "0.15.0",
-      // already a runtime dep of cel; explicit so Digest can use murmur3 (keep
-      // version in lockstep with what cel resolves)
+      // cel-java's own API takes and returns Guava collections, which Cel.scala
+      // builds (`StructType.create`, `CelTypeProvider.types`). cel 0.15 asks
+      // for 33.7.2-jre; this pin wins.
       "com.google.guava" % "guava" % "33.8.0-jre",
       // LTTB for chart series. The major version is the class-file baseline:
       // 21, because CI tests on JDK 21 (25.x fails there to load).
@@ -573,9 +574,9 @@ lazy val `fh-datastar-view` = project
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
       "org.typelevel" %% "munit-cats-effect" % "2.2.1" % Test,
       "org.typelevel" %% "log4cats-testing" % log4catsVersion % Test,
-      // Property-based testing for the digest biconditional (ADR 0029):
-      // equal input digest ⟺ equal patch bytes must hold over GENERATED node
-      // shapes, because a missed input fails silently and permanently.
+      // Property-based testing: equal byte-slot values must mean equal patch
+      // bytes over GENERATED node shapes (ADR 0012), because a missed input
+      // fails silently and permanently.
       "qa.hedgehog" %% "hedgehog-core" % hedgehodVersion % Test,
       "qa.hedgehog" %% "hedgehog-runner" % hedgehodVersion % Test,
       "qa.hedgehog" %% "hedgehog-munit" % hedgehodVersion % Test,

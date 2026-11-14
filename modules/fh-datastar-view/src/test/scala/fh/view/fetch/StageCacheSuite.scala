@@ -90,7 +90,7 @@ class StageCacheSuite extends munit.CatsEffectSuite {
 
   test("two styles of one answer are two drawings") {
     // A tile and a popup at different sizes; their shared fetch is
-    // `FetchRenderInputsSuite`'s.
+    // `FetchSlotSuite`'s.
     fixture().flatMap { case (r, draws) =>
       stage(r, q, chart(ChartStyle(width = 600)), 100L) *>
         stage(r, q, chart(ChartStyle(width = 320)), 100L) *>

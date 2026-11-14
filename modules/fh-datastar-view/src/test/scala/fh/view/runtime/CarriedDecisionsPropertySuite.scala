@@ -129,7 +129,7 @@ class CarriedDecisionsPropertySuite extends HedgehogSuite {
             StateChange.Moved(
               id,
               p,
-              f.base(id).copy(state = s, contentVersion = version)
+              f.base(id).copy(state = s)
             )
           )
         case _ => None

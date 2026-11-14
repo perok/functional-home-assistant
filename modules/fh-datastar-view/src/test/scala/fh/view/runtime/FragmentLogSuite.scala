@@ -10,31 +10,6 @@ class FragmentLogSuite extends munit.FunSuite {
 
   private val log = FragmentLog("test")
 
-  test("a digest is the same from a buffer slice, and keeps every character") {
-    // A page digests a slice of its buffer (`ofRange`), a patch the whole
-    // string (`of`): if the two disagreed, every node would look changed
-    // forever. A lossy encoding would make the non-ASCII variants collide.
-    val htmls = List(
-      "",
-      "<div>21.4</div>",
-      "<b>ø 😀 ünïcødé</b>",
-      "<b>ö 😁 ünïcødé</b>",
-      "<b>? ?? ün?c?d?</b>",
-      "<div class=\"fh-cell\" id=\"c_1_2\">" + ("x" * 5000) + "</div>"
-    )
-    htmls.foreach { html =>
-      val buf = new java.lang.StringBuilder("<p>before</p>")
-      val from = buf.length
-      buf.append(html).append("<p>after</p>")
-      assertEquals(
-        Digest.ofRange(buf, from, from + html.length),
-        Digest.of(html),
-        clue = html.take(40)
-      )
-    }
-    assertEquals(htmls.map(Digest.of).distinct.size, htmls.size)
-  }
-
   private def member(e: String): MemberKey = MemberKey.Entity(e)
 
   /** A literal needs the [[NodeId]] conversion applied explicitly on the key

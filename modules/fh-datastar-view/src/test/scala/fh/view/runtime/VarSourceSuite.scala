@@ -122,12 +122,12 @@ class VarSourceSuite extends munit.FunSuite {
     // Not a reader, so a write re-renders nothing for it, and not in its key.
     assertEquals(r.vars.readersOf(key), Nil)
     assertEquals(
-      r.renderInputs(
+      r.byteSlotValues(
         id,
         Shared.of(Map.empty),
         FetchSnapshot.of(Map.empty, r.vars.env(Map(key -> "7d")))
-      ).map(_.vars),
-      Some(Map.empty[String, String])
+      ),
+      r.byteSlotValues(id, Shared.of(Map.empty), FetchSnapshot.empty)
     )
   }
 

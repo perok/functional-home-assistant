@@ -45,7 +45,7 @@ server's frames to the client's requests.
 | form | value inline | binding | seed | rendered by |
 |---|---|---|---|---|
 | **document** | yes | yes | yes | page load, body repaint, host fill, insert-from-fill |
-| **patch** | no | yes | no | `renderNodeById` — the per-node morph path |
+| **patch** | no | yes | no | `renderPatch` — the per-node morph path, painted from the byte-slot values alone |
 
 ```html
 <!-- document -->
@@ -61,23 +61,16 @@ server's frames to the client's requests.
 
 Each form is load-bearing:
 
-- **The morph disappears.** In patch form the value is not in the node's bytes, so its digest does
-  not move when only a signal slot does; `Patches.morph` suppresses the element patch and the frame
+- **The morph disappears.** In patch form the value is not in the node's bytes, so its byte-slot
+  values (what a session holds, ADR 0012) do not move when only a signal slot does; `Patches.morph` suppresses the element patch and the frame
   carries the value instead. That suppression *is* the feature, and it is why the tests here assert
   what is **not** on the wire — a broken implementation still updates the card, because the morph it
   was meant to replace is still being sent.
 
-  **The saving is on the wire AND on the server, but the server half had to be claimed
-  separately.** A suppressed morph is still RENDERED — rendering it is how we discover its bytes
-  did not move — so for a long time a signals tick cost the server slightly MORE than one whose
-  bytes moved (262 µs against 232 µs). The `RenderCache` key is supposed to exclude entities
-  reaching a node only through signal slots (ADR 0012), but it holds a per-entity
-  `contentVersion`, and the shipped card's name reads `friendly_name` as bytes — one slot, enough
-  to re-admit the entity and re-render the node on every brightness tick.
-
-  Fixed by comparing the resolved byte-slot values before rendering (ADR 0012):
-  `RenderBench.resumeSignals` is now **101.7 µs / 151 kB against `resumeMorphs`' 255 µs / 439 kB**.
-  A signals tick is now the cheap one, which is what this ADR always claimed.
+  **The saving is on the wire AND on the server.** A session compares the byte-slot values
+  before rendering (ADR 0012), so a suppressed morph is never rendered: `RenderBench.resumeSignals`
+  measured **101.7 µs / 151 kB against `resumeMorphs`' 255 µs / 439 kB** when this landed, where a
+  key of entity versions had re-rendered the node on every brightness tick.
 
   Worth stating plainly because the obvious reading of "the morph disappears" is that the work
   disappeared with it. On a first paint signal slots are a straight cost with no suppression to
@@ -423,8 +416,8 @@ is the only window in which any of this is observable.
 
 ### One record, not two
 
-`Session.holds` is `Map[NodeId, Held]`, where `Held(digest: Option[Digest], signals: Map[SignalId,
-String])`. Both halves answer "is this worth sending?" about one node.
+`Session.holds` is `Map[NodeId, Held]`, where `Held(values: Option[Map[String, SlotValue]],
+signals: Map[SignalId, SlotValue])`. Both halves answer "is this worth sending?" about one node.
 
 Sharing the map is not tidiness. A host fill makes everything under it unknown, and with a
 separate signal map keyed by signal *name* that invalidation could only be expressed by
@@ -438,22 +431,21 @@ one. It is why keying signals by value did NOT need the second invalidation mech
 exists to avoid; splitting `holds` to hold them per PATH would only remove that redundancy, which is
 an optimisation nobody has measured a need for.
 
-`digest` is optional because a patch can establish one half alone: a patch-form morph carries bytes
-and says nothing about the values bound inside them, and a `Patch.Signals` frame is the mirror
+`values` is optional because a patch can establish one half alone: a patch-form morph carries bytes
+and says nothing about the signal values bound inside them, and a `Patch.Signals` frame is the mirror
 image. So `Held` doubles as the delta a patch reports and the record a session keeps, with
 `Held.merge` as the single rule for combining them — `applied` merges per node rather than
 replacing, or each patch would forget the half it was silent about.
 
 ### `holds` means one thing for a session's whole life
 
-The document renders document-form; the patch path renders patch-form. Seeding `holds` from the
-document's own bytes would make the two digests differ, so the first live change to each signal
-node would send one morph it otherwise would not — harmless and self-healing, but it makes `holds`
-mean "document form until the first tick, patch form after".
+The document renders document-form; the patch path renders patch-form. What `holds` records is the
+patch form's inputs, its byte-slot values, which leave the signal slots out, so a page load and a
+morph record the same thing for the same state.
 
-So `Renderer.Traced` carries both: `html` (document form, to the browser) and per-node `own` in
-patch form (what seeds `holds`), as `Painted(html, signals)` — a product, because a node has bytes
-*and* signals and one render establishes both.
+So `Renderer.Traced` carries both: `html` (document form, to the browser) and per-node `own` (what
+seeds `holds`), as `Painted(values, signals)` — a product, because a node has bytes *and* signals
+and one render establishes both.
 
 The cost is a second `tpl.execute` on the same compiled template, and only that. It is paid exactly
 where there is an `own` to fingerprint — a node with its own rendering whose slots carry a signal —
@@ -500,8 +492,7 @@ Together those took the signal-slot premium on a 200-leaf page from ~2.5x a sign
   binding spells the entity out — `$_e.light.taklys.state` reads better in a frame log than
   `_c_16__fill`, not worse.
 - **No `RenderCache` change at all**, and that is a consequence of what was left out (below): the
-  cache only ever holds patch-form bytes, so there is one form per (node, selection) and
-  `RenderInputs` does not grow.
+  cache only ever holds patch-form bytes, so there is one form per node and its key does not grow.
 - `Dashboard.validate` rejects the two otherwise-silent mistakes: `signal` on a constant `literal`
   (nothing to patch), and a card declaring a signal slot whose template never places
   `{{{<slot>.bind}}}` (the patch form withholds the value and nothing puts it back).
@@ -527,8 +518,8 @@ predicate (`Renderer.signalBind` answering `None`), and therefore why `SignalBin
 renderer-side enumeration rather than an attribute a card writes.
 
 Leaving the switch out is also what keeps this change small, non-obviously: it was the only thing
-that would have made `RenderInputs` grow, because a plain-form viewer needs a different form out of
-the same `Patches.bytes` call.
+that would have made the render key grow, because a plain-form viewer needs a different form out of
+the same cache call.
 
 **No-JS is a separate question and needs no mode.** It cannot be detected server-side, and the
 document already carries every value inline in both forms. Suppressing the seed or binding for it

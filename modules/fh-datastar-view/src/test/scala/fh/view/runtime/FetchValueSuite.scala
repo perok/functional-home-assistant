@@ -97,6 +97,16 @@ class FetchValueSuite extends munit.FunSuite {
     assert(ofNow("46", answered("")).contains("46"))
   }
 
+  test("viewers of one version each see their own fetch in a signal") {
+    val d = dashboard()
+    val r = Renderer.create(d)
+    val shared = Shared.of(states("46"))
+    def ofNow(f: FetchSnapshot) =
+      r.signalsFor(rootId(d), shared, f).values.toSet
+    assert(ofNow(answered()).contains("101"))
+    assert(ofNow(answered("")).contains("46"))
+  }
+
   test("a value's fetch is the node's, so a render reads it first") {
     val d = dashboard()
     val fetches = d.validated().map(_.ready.card) match

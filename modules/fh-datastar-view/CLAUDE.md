@@ -184,8 +184,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   query-affected dynamic groups — **per-entity**: an in-place member tick morphs one
   `{gid}_{entity}` child, small membership deltas patch `remove`/`before`/`append`, and only
   a host whose whole content arrived or left at once, or a post-reload group,
-  repaints wholesale — and pushes only the fragments whose HTML actually changed (`Server`
-  keeps a per-node last-rendered cache; http4s ember).
+  repaints wholesale — and pushes a session only the nodes whose byte-slot values moved from
+  what that session holds (`holds`, ADR 0012; http4s ember).
 - **Phase discipline**: leaf templates escape `{{slot}}` values; container templates splice their
   children unescaped at a raw hole named after the region, `{{{children}}}`; other raw author values (action
   URLs, ids) use `{{{...}}}`. Pkl sources live in `src/main/resources/dashboards/` (the seeded
@@ -259,7 +259,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   another's readout (ADR 0025). TWO render forms: the DOCUMENT form
   (value inline + a node-level `data-signals` seed on the `.fh-cell` wrapper; what a page load,
   repaint or fill sends, and all a JS-less browser ever gets) and the PATCH form (neither; what
-  `renderNodeById` sends, which is why the digest stands still and the morph is suppressed).
+  `renderNodeById` sends, which is why a node's byte-slot values stand still and the morph is
+  suppressed).
   The slot's `signal` names the BINDING KIND (`SignalBind`, an object on the wire): `Text`
   (`data-text`), `Style(property)` (`data-style:<prop>`, custom properties included), `Attr(name)`,
   `Class(name)`, `Bind` (`data-bind`, two-way on a form control), or `Handler` (NO binding at

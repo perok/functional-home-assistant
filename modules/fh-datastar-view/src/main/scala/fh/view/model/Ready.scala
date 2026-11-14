@@ -30,14 +30,14 @@ object Ready:
     lazy val liveEntities: List[String] =
       BoundSlot.liveEntities(slots.values.map(_.bound))
 
-    /** [[liveEntities]] without signal slots: the render key's. */
+    /** [[liveEntities]] without signal slots: those that can move its bytes. */
     lazy val liveEntitiesAsBytes: List[String] =
       BoundSlot.liveEntitiesAsBytes(slots.values.map(_.bound))
 
-    /** Per slot, each with the `valueWhile` it waits for. In the render key but
-      * not [[liveEntities]]: otherwise a sensor ticking every second would
-      * refetch its history every second. Ungated without an entity to decide
-      * over: asking too much is safe where too little raises.
+    /** Per slot, each with the `valueWhile` it waits for. Not in
+      * [[liveEntities]]: otherwise a sensor ticking every second would refetch
+      * its history every second. Ungated without an entity to decide over:
+      * asking too much is safe where too little raises.
       */
     lazy val fetching: List[Fetching] =
       slots.values.toList.flatMap { s =>

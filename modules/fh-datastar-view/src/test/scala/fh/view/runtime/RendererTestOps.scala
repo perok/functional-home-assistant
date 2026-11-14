@@ -46,6 +46,13 @@ private[runtime] object RendererTestOps {
         selections: Selections = Selections.none
     ): String = r.renderPageTraced(states, selections).html
 
+    /** What a client holds for `id` once sent that node's patch alone: the
+      * byte-slot values its bytes came from.
+      */
+    def heldFor(id: NodeId, states: Map[String, EntityState]): Option[Held] =
+      r.byteSlotValues(id, Shared.of(states), FetchSnapshot.empty)
+        .map(v => Held(Some(v)))
+
     /** The whole document into a buffer, bytes and trace both. */
     def renderPageTraced(
         states: Map[String, EntityState],

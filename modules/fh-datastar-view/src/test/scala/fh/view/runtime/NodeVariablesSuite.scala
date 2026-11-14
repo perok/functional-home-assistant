@@ -336,8 +336,8 @@ class NodeVariablesSuite extends munit.FunSuite {
     assert(paint(r, a, "1h" -> "<svg id='hour'/>").contains("hour"))
     assert(paint(r, b, "30d" -> "<svg id='month'/>").contains("month"))
 
-    // The render key moves with them, so one viewer's bytes are never served
-    // for another's span. Asked of the chart: the panel is structure and has no
+    // The key moves with them, so one viewer's bytes are never served for
+    // another's span. Asked of the chart: the panel is structure and has no
     // key.
     val chartId = LayoutNode.childId(
       "",
@@ -346,10 +346,13 @@ class NodeVariablesSuite extends munit.FunSuite {
       chartNode()
     )
     def keyFor(env: VarEnv, window: String) =
-      r.renderInputs(
+      r.byteSlotValues(
         chartId,
         Shared.of(states),
-        FetchSnapshot.of(Map(readAt(window) -> Staged(100L, "<svg/>")), env)
+        FetchSnapshot.of(
+          Map(readAt(window) -> Staged(100L, s"<svg id='$window'/>")),
+          env
+        )
       )
     assert(keyFor(a, "1h").isDefined)
     assertNotEquals(keyFor(a, "1h"), keyFor(b, "30d"))

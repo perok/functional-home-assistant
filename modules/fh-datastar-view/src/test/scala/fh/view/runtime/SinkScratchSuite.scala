@@ -6,8 +6,8 @@ package fh.view.runtime
 class SinkScratchSuite extends munit.FunSuite {
 
   test("a borrowed buffer starts empty") {
-    // Without the reset a node's digest would include the previous node's
-    // bytes, suppressing a later real change rather than showing as garbage.
+    // Without the reset a node's patch form would carry the previous node's
+    // bytes.
     val first = Sink.scratched { b => b.append("first"); b.result }
     val second = Sink.scratched { b => b.append("second"); b.result }
     assertEquals(first, "first")
