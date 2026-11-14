@@ -373,6 +373,16 @@ lazy val `fh-datastar-view` = project
         }
       }
     }.taskValue,
+    // Where `PklEditorSupportSuite` finds pkl-lsp: tests run in the sbt
+    // server's JVM, which no env var set for one command reaches.
+    Test / resourceGenerators += Def.task {
+      val jar = stagePklLsp.value
+      val out = (Test / resourceManaged).value / "pkl-lsp-jar.txt"
+      Def.uncached {
+        IO.write(out, jar.getAbsolutePath)
+        Seq(out)
+      }
+    }.taskValue,
     // No DASHBOARDS_DIR here on purpose: a local run serves the workspace it is
     // GIVEN (`sbt 'dashboardServe <dir>'`), and refuses to guess one. See the
     // `dashboardServe` alias above.

@@ -20,7 +20,6 @@ import java.nio.charset.StandardCharsets
   */
 object LspBridge {
 
-  /** The client's `initialize` carries the workspace and document URIs. */
   def wsResponse(
       wsb: WebSocketBuilder2[IO],
       pklLspJar: os.Path,
@@ -30,33 +29,41 @@ object LspBridge {
       val log = loggerFactory.getLoggerFromName("fh.view.runtime.LspBridge")
       val receive: Pipe[IO, WebSocketFrame, Unit] =
         _.evalMap(fromClient.offer)
-
       val send: Stream[IO, WebSocketFrame] =
-        Stream.resource(spawn(pklLspJar)).flatMap { proc =>
-          val toStdin: Stream[IO, Nothing] =
-            Stream
-              .fromQueueUnterminated(fromClient)
-              .collect { case t: WebSocketFrame.Text => t.str }
-              .map(encodeFrame)
-              .flatMap(Stream.chunk)
-              .through(proc.stdin)
-
-          val drainStderr: Stream[IO, Nothing] =
-            proc.stderr
-              .through(fs2.text.utf8.decode)
-              .through(fs2.text.lines)
-              .filter(_.nonEmpty)
-              .foreach(l => log.debug(l))
-              .drain
-
-          proc.stdout
-            .through(toFrames)
-            .map(WebSocketFrame.Text(_))
-            .concurrently(toStdin)
-            .concurrently(drainStderr)
-        }
-
+        Stream
+          .fromQueueUnterminated(fromClient)
+          .collect { case t: WebSocketFrame.Text => t.str }
+          .through(session(pklLspJar, l => log.debug(l)))
+          .map(WebSocketFrame.Text(_))
       wsb.build(send, receive)
+    }
+
+  /** One pkl-lsp for the length of the stream: the client's JSON messages in,
+    * the server's out. `PklEditorSupportSuite` drives this, not the socket.
+    */
+  private[view] def session(
+      jar: os.Path,
+      stderr: String => IO[Unit]
+  ): Pipe[IO, String, String] = fromClient =>
+    Stream.resource(spawn(jar)).flatMap { proc =>
+      val toStdin: Stream[IO, Nothing] =
+        fromClient
+          .map(encodeFrame)
+          .flatMap(Stream.chunk)
+          .through(proc.stdin)
+
+      val drainStderr: Stream[IO, Nothing] =
+        proc.stderr
+          .through(fs2.text.utf8.decode)
+          .through(fs2.text.lines)
+          .filter(_.nonEmpty)
+          .foreach(stderr)
+          .drain
+
+      proc.stdout
+        .through(toFrames)
+        .concurrently(toStdin)
+        .concurrently(drainStderr)
     }
 
   // The jar's manifest enables native access, so no extra flags.
