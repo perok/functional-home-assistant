@@ -60,7 +60,11 @@ class CallSetSuite extends FunctionalSuite {
     }
 
   private def targets(ts: TestServer): IO[Vector[Option[ServiceTarget]]] =
-    ts.fake.recordedCalls.map(_.map(_.group))
+    ts.fake.recordedCalls.map(_.map { c =>
+      c.group.orElse(
+        Option.when(c.entityId.nonEmpty)(ServiceTarget.Entity(c.entityId))
+      )
+    })
 
   test("a press sends one call naming the members present") {
     withHouse(kitchen, living.copy(state = "on"), sun) { ts =>

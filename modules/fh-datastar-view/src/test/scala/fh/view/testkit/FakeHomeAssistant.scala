@@ -108,16 +108,16 @@ final class FakeHomeAssistant private (
       case cs: `call_service` =>
         calls
           .update(
-            _ :+ (cs.target match {
-              case ServiceTarget.Entity(id) =>
+            _ :+ (cs.target.include.entityIds match {
+              case List(id) if cs.target == ServiceTarget.Entity(id) =>
                 ServiceCall(cs.domain, cs.service, id, cs.service_data)
-              case group =>
+              case _ =>
                 ServiceCall(
                   cs.domain,
                   cs.service,
                   "",
                   cs.service_data,
-                  Some(group)
+                  Some(cs.target)
                 )
             })
           )
