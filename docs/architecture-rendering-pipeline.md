@@ -905,7 +905,8 @@ The recorder's `Shared` is kept off the renderer on purpose (the renderer's `Dec
 readers the newest two, and its identity never moves). Three things key on renderer IDENTITY —
 `publisherFor` rotates the changelog on a renderer emission, `reloadRepaints` repaints every
 connection on one (and decides what counts as "one" with `eq`, `Server.sameRenderer`), and
-`RenderCache` compares renderers with `eq` — so a membership change that produced a new renderer
+`RenderCache` compares renderer generations with `eq` and empties on a swap — so a membership
+change that produced a new renderer
 would rotate the log, repaint every browser and flush the cache on exactly the case the graph
 exists to make cheap. It lives in the recorder's `evalMapAccumulate` for one renderer arm instead,
 so a swap starts it empty along with the fresh log, and nothing needs invalidating.
@@ -1544,7 +1545,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
 | evaluating any reading: a slot, a guard, an activation condition, an order term, a CEL input | `runtime/Evaluator.scala` · `compile`, `holds`, `inputs`, `Keys` (an ordering's keys, read once per member per sort, used by `MemberGraph`) · `runtime/Steps.scala` · what each simple step makes of its value (`formatWith`, `kleene`); the language is ADR 0035 |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.cached` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |
-| what a cache entry is keyed by | node id -> renderer identity + the byte-slot values it was rendered from (`Renderer.byteSlotValues`; a member's clause among them). The renderer is in the key because a dashboard edit changes the MARKUP while the values stay put; a swap drops the whole entry |
+| what a cache entry is keyed by | node id -> renderer generation + the byte-slot values it was rendered from (`Renderer.byteSlotValues`; a member's clause among them). The renderer is in the key because a dashboard edit changes the MARKUP while the values stay put; a swap empties the cache (`LiveSlug.install`), and an entry holds the generation rather than the renderer so a straggler cannot keep a replaced dashboard alive |
 
 ## 8. Known open questions
 

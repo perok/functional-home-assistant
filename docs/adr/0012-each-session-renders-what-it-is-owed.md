@@ -287,7 +287,11 @@ other.
   render, which costs only on ticks where that node's byte-slot values moved.
 - **Rotating the cache on a renderer swap** instead of naming the renderer in each entry.
   Leaves a window where a pull that read the previous renderer writes its bytes into the
-  fresh map — the same bug with a smaller target.
+  fresh map — the same bug with a smaller target. So an entry names its renderer, and the swap
+  ALSO empties the cache (`LiveSlug.install`): naming alone left every entry the new dashboard
+  never renders again (a removed or renumbered node) holding the old one. The name is
+  `Renderer.generation`, not the renderer, so a straggler's entry after the swap holds only its
+  bytes.
 
 ## The rule is the card's shape
 

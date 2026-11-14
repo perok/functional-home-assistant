@@ -125,4 +125,19 @@ class RenderCacheSuite extends munit.FunSuite {
     assertEquals(served.distinct, List("<i>24h</i>"))
     assertEquals(renders.get(), 1)
   }
+
+  /** Entries of a node the new dashboard no longer has are never rendered
+    * again, so only the swap can drop them.
+    */
+  test("a swap empties the cache, and no entry holds its renderer") {
+    val live =
+      Server.LiveSlug.of(Server.RendererState.Ready(r)).unsafeRunSync()
+    val _ = live.cache(id, r, v1)("<i>1</i>")
+    val _ = live.cache("c_gone", r, v1)("<i>gone</i>")
+    live.install(Server.RendererState.Ready(aRenderer)).unsafeRunSync()
+    assertEquals(live.cache.size.unsafeRunSync(), 0)
+
+    val entry = RenderCache.Entry(r.generation, v1, "<i>1</i>")
+    assert(!entry.productIterator.exists(_.isInstanceOf[Renderer]))
+  }
 }

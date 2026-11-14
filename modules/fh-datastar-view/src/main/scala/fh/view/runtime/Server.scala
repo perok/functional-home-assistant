@@ -1979,12 +1979,20 @@ object Server {
   private[runtime] case class LiveSlug(
       renderer: SignallingRef[IO, RendererState],
       log: Ref[IO, FragmentLog],
-      // Not rotated on a swap: [[RenderCache]] invalidates by renderer
-      // identity.
+      // The same cache across swaps, emptied by each ([[install]]).
       cache: RenderCache,
       // The newest store version the log covers.
       doorbell: SignallingRef[IO, Long]
-  )
+  ) {
+
+    /** Empties the cache after the swap, not before, or a pull that read the
+      * old renderer just ahead of the set refills it. One already rendering can
+      * still install afterwards; its entry holds its bytes, not the renderer
+      * ([[Renderer.generation]]).
+      */
+    def install(state: RendererState): IO[Unit] =
+      renderer.set(state) *> cache.clear
+  }
 
   private[runtime] object LiveSlug {
     def of(state: RendererState): IO[LiveSlug] =
@@ -2108,7 +2116,7 @@ object Server {
               case None => (es + (slug -> Entry(fresh, Origin.Pushed)), None)
             }
           }
-          .flatMap(_.traverse_(_.renderer.set(state)))
+          .flatMap(_.traverse_(_.install(state)))
       }
 
     def setPreferred(slug: Option[String]): IO[Unit] = preferred.set(slug)
@@ -2143,7 +2151,7 @@ object Server {
           }
         }
         _ <- installs.traverse_ { case (_, entry, state, _) =>
-          entry.live.renderer.set(state)
+          entry.live.install(state)
         }
       } yield installs.map(_._4) ++ plan.removals.toList.sorted.map(
         Change.Removed(_)
@@ -2175,7 +2183,7 @@ object Server {
         ) *>
           broken
             .traverse_ { case (_, live, _) =>
-              live.renderer.set(RendererState.Failed(message))
+              live.install(RendererState.Failed(message))
             }
             .as(broken.map(_._3))
       }

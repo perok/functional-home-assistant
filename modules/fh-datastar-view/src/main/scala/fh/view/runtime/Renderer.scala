@@ -110,6 +110,11 @@ private[runtime] object WalkAt {
   */
 class Renderer(validated: Dashboard.Validated) {
 
+  /** This renderer's identity for [[RenderCache]], which must not hold the
+    * renderer itself: an entry would pin a whole replaced dashboard.
+    */
+  private[runtime] val generation: AnyRef = new Object
+
   private val dashboard = validated.ready
   private val templates = validated.templates
   // Here, not beside the renderer, so a reload swaps rule and dashboard as one

@@ -6,8 +6,12 @@ import fh.view.model.{NodeId, SlotValue}
 import java.util.concurrent.ConcurrentHashMap
 
 /** Node bytes shared by the sessions one tick wakes, keyed by the values they
-  * were rendered from ([[Renderer.byteSlotValues]], ADR 0012). Per slug; it
-  * outlives a renderer swap and invalidates by renderer identity.
+  * were rendered from ([[Renderer.byteSlotValues]], ADR 0012). Per slug, and
+  * emptied by a swap ([[Server.LiveSlug.install]]). An entry names its renderer
+  * by [[Renderer.generation]], not by reference: a pull still on the old
+  * renderer can install after the swap empties the cache, and its entry would
+  * otherwise keep that whole dashboard alive for as long as its node id is
+  * never rendered again, which a removed or renumbered node never is.
   *
   * '''One entry per node, replaced in place.''' A selection is not in the key:
   * only structure reads one, and structure is never cached. A fetch answer or a
@@ -31,13 +35,16 @@ private[runtime] final class RenderCache(
   ): String =
     live.get(id) match {
       case e: RenderCache.Entry
-          if (e.renderer eq renderer) && e.values == values =>
+          if (e.generation eq renderer.generation) && e.values == values =>
         e.html
       case _ =>
         val html = render
-        val _ = live.put(id, RenderCache.Entry(renderer, values, html))
+        val _ =
+          live.put(id, RenderCache.Entry(renderer.generation, values, html))
         html
     }
+
+  def clear: IO[Unit] = IO(live.clear())
 
   // Test seam.
   def size: IO[Int] = IO(live.size)
@@ -46,7 +53,7 @@ private[runtime] final class RenderCache(
 private[runtime] object RenderCache {
 
   private[runtime] case class Entry(
-      renderer: Renderer,
+      generation: AnyRef,
       values: Map[String, SlotValue],
       html: String
   )
