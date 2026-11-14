@@ -294,7 +294,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   is the rare opt-out from being a layout box — the tab anchors, the slider's pill and controls row — and keeps the id. `Grid` (`.fh-grid`, 12 columns, cells default to a third (4 of 12) — HA
   `grid_options` semantics) is the default container; per-node sizing rides in the wire-level
   `cell.layout` (`columns`/`fullWidth`/`hug`/`grow`/`stick`) and `cell.classes` via the HA-flavored builders `columns(n)`/`fullWidth()`/`hug()`/`grow()`/`stick(edge)`/`textOverflow(…)`/`cellClass`
-  on the Pkl `LayoutNode` base (chain them AFTER card-specific builders; `centered(false)` is the `Grid`'s own,
+  on the Pkl `LayoutNode` base (they return `this`, so any order chains; `centered(false)` is the `Grid`'s own,
   `fillScreen()` a `Column`'s; `c.spacer` is an empty column that grows). Every container sets all three inherited
   `--fh-cell-*` properties, or its cells take the parent container's (`layout.test.pkl` checks every rule). Candidate sets flow
   their members the same way (`.fh-group`).

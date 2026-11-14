@@ -28,6 +28,7 @@ import "../../main/resources/dashboards/lib/theme-beer.pkl" as beerMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
+import "pkl:reflect"
 import "../../main/resources/dashboards/lib/hass/active.pkl" as activeTables
 import "../../main/resources/dashboards/lib/hass/actions.pkl" as hassActions
 import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
@@ -133,7 +134,29 @@ local firstNode = (s) -> s.members.values.first.clauses.first.node
 local function barOf(card: c.ProgressCard): barBaseMod.ProgressBar =
   let (f = card.features[0]) (if (f is surfacesMod.If) f.`then`[0] else f) as barBaseMod.ProgressBar
 
+// Every class in the library, so a new card's builders are in.
+local libClasses: List<reflect.Class> =
+  import*("../../main/resources/dashboards/lib/**.pkl").toMap().values
+    .flatMap((m) -> reflect.Module(m).classes.values.toList())
+
+// Methods whose result is another node by design, not the receiver amended.
+local returnsAnother: Set<String> = Set("Select.style", "Select.optionNode")
+
 facts {
+  // A builder typed as its own class, or an ancestor, drops a subclass's
+  // builders after it: `progressCard(s).label(x)` would be a plain EntityCard.
+  ["a builder returns `this`, so a chain keeps the receiver's class"] {
+    libClasses.flatMap((k) ->
+      k.methods.values.toList()
+        .filter((m) -> m.returnType is reflect.DeclaredType)
+        .filter((m) ->
+          let (to = (m.returnType as reflect.DeclaredType).referent)
+            to is reflect.Class && k.isSubclassOf(to))
+        .map((m) -> "\(k.name).\(m.name)")
+    ).filter((n) -> !returnsAnother.contains(n)).isEmpty
+    c.entityCard(new E_temp { entity_id = "sensor.t" }).columns(3).label("Hall").slotsByName["label"].value == "Hall"
+  }
+
   // The predicate vocabulary lives in `query.pkl` now: there are no free
   // constructors, so every term carries a binding by construction (a set's
   // candidate, or the entity `q.entity` names). These pin the PROPERTY NAMES

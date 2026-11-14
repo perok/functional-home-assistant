@@ -163,10 +163,10 @@ class If extends nodes.Node {
     }
   }
   /// Append one node, or `new Listing { ... }` for several, to `then`.
-  function then(n: nodes.LayoutNode|Listing<nodes.LayoutNode>): If = let (l = this)
+  function then(n: nodes.LayoutNode|Listing<nodes.LayoutNode>): this = let (l = this)
     if (n is Listing) (l) { `then` { ...n } } else (l) { `then` { n } }
   /// `` .`else`(c.title("off")) ``.
-  function `else`(n: nodes.LayoutNode|Listing<nodes.LayoutNode>): If = let (l = this)
+  function `else`(n: nodes.LayoutNode|Listing<nodes.LayoutNode>): this = let (l = this)
     if (n is Listing) (l) { `else` { ...n } } else (l) { `else` { n } }
 }
 

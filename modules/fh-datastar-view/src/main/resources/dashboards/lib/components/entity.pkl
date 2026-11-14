@@ -31,12 +31,12 @@ open class EntityCard extends tileMod.Tile {
   // Each option is also a chainable method,
   // `c.entityCard(x).tapAction(c.tap.toggle(x)).label("Office")`, emitting the
   // same JSON as the amend form.
-  function label(l: String|slotMod.Reading): EntityCard = let (self = this) (self) { label = l }
-  function value(v: String|slotMod.Reading): EntityCard = let (self = this) (self) { value = v }
-  function secondary(s: slotMod.Secondary): EntityCard = let (self = this) (self) { secondary = s }
+  function label(l: String|slotMod.Reading): this = (this) { label = l }
+  function value(v: String|slotMod.Reading): this = (this) { value = v }
+  function secondary(s: slotMod.Secondary): this = (this) { secondary = s }
   /// `mdi:thermometer`, or the `mdi-thermometer` class spelling.
-  function icon(i: String): EntityCard = let (self = this) (self) { icon = i }
-  function tapAction(t: tapMod.TapAction): EntityCard = let (self = this) (self) { tapAction = t }
+  function icon(i: String): this = (this) { icon = i }
+  function tapAction(t: tapMod.TapAction): this = (this) { tapAction = t }
 }
 
 function entityCard(e: hass.Entity): EntityCard = new EntityCard { entity = e }

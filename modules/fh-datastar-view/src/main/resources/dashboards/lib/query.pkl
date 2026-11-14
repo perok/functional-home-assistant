@@ -387,23 +387,23 @@ class EntitySet {
 
   /// Keep the candidates matching `f`. Static terms drop candidates at build
   /// time; live ones become the member's guard.
-  function where(f: Filter): EntitySet =
+  function where(f: Filter): this =
     let (l = this) (l) { filters = l.filters.add(f) }
 
   /// Lexicographic, most significant first.
   function orderBy(
     ks: List<OrderSpec|PropName|Pending|slotMod.Expr>|OrderSpec|PropName|Pending|slotMod.Expr
-  ): EntitySet =
+  ): this =
     let (l = this)
       let (asList = if (ks is List) ks as List<OrderSpec|PropName|Pending|slotMod.Expr> else List(ks))
         (l) { specs = l.specs + asList.map((k) -> spec(k)) }
 
   /// At most `n` present members, after ordering. Every candidate still ships:
   /// only the runtime knows which are cut.
-  function limit(n: Int(this > 0)): EntitySet = let (l = this) (l) { cap = n }
+  function limit(n: Int(this > 0)): this = let (l = this) (l) { cap = n }
 
   /// One guarded rendering; the guard folds like [[where]]'s.
-  function caseOf(g: Filter, r: (hass.Entity) -> nodes.Node): EntitySet =
+  function caseOf(g: Filter, r: (hass.Entity) -> nodes.Node): this =
     let (l = this)
       let (prepared = ready(l.items, g))
         (l) {
@@ -414,7 +414,7 @@ class EntitySet {
         }
 
   /// Several guarded renderings, in match order.
-  function cases(m: Mapping<Filter, (hass.Entity) -> nodes.Node>): EntitySet =
+  function cases(m: Mapping<Filter, (hass.Entity) -> nodes.Node>): this =
     let (l = this)
       (l) {
         branches = l.branches + m.toMap().entries.map((p) ->
@@ -424,9 +424,9 @@ class EntitySet {
 
   /// The unconditional last clause. Optional: a candidate matching no clause is
   /// not rendered, which is how "show it only while on" is written.
-  function `else`(r: (hass.Entity) -> nodes.Node): EntitySet = caseOf(true, r)
+  function `else`(r: (hass.Entity) -> nodes.Node): this = caseOf(true, r)
 
-  function render(r: (hass.Entity) -> nodes.Node): EntitySet = caseOf(true, r)
+  function render(r: (hass.Entity) -> nodes.Node): this = caseOf(true, r)
 
   /// How many candidates are present: `.count().gt(2)`. Reads only `where`, so
   /// a set can be counted without a card.

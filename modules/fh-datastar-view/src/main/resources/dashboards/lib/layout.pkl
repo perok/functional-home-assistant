@@ -45,12 +45,12 @@ class Row extends Box {
     when (justify != "start") { "fh-justify-\(justify)" }
     when (wraps) { "fh-wrap" }
   }
-  function cssClass(cls: String): Row = let (self = this) (self) { cssClass = cls }
+  function cssClass(cls: String): this = (this) { cssClass = cls }
   /// `"center"` centres a row of pills; each wrapped line is placed alike.
-  function justify(j: Justify): Row = let (self = this) (self) { justify = j }
+  function justify(j: Justify): this = (this) { justify = j }
   /// Children keep their own width and wrap onto a new line when the row is
   /// full, rather than all shrinking to share one line.
-  function wrap(): Row = let (self = this) (self) { wraps = true }
+  function wrap(): this = (this) { wraps = true }
 }
 
 /// `(c.row) { children { ... } }`. The parens are required around any amend
@@ -67,12 +67,12 @@ class Column extends Box {
     when (justify != "start") { "fh-justify-\(justify)" }
     when (fillsScreen) { "fh-fill-screen" }
   }
-  function cssClass(cls: String): Column = let (self = this) (self) { cssClass = cls }
+  function cssClass(cls: String): this = (this) { cssClass = cls }
   /// Where the cards sit in a column taller than they are.
-  function justify(j: Justify): Column = let (self = this) (self) { justify = j }
+  function justify(j: Justify): this = (this) { justify = j }
   /// At least as tall as the screen, for a dashboard's root column: a
   /// `.grow()` body keeps a footer at the bottom of a short page.
-  function fillScreen(): Column = let (self = this) (self) { fillsScreen = true }
+  function fillScreen(): this = (this) { fillsScreen = true }
 }
 /// `(c.column) { children { ... } }`.
 hidden column: Column = new Column {}
@@ -92,9 +92,9 @@ class Grid extends Box {
   ownClasses {
     when (!centered) { "fh-start" }
   }
-  function cssClass(cls: String): Grid = let (self = this) (self) { cssClass = cls }
+  function cssClass(cls: String): this = (this) { cssClass = cls }
   /// `false` left-packs a partial row.
-  function centered(on: Boolean): Grid = let (self = this) (self) { centered = on }
+  function centered(on: Boolean): this = (this) { centered = on }
 }
 /// `(c.grid) { children { ... } }`.
 hidden grid: Grid = new Grid {}
