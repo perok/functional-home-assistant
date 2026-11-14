@@ -60,8 +60,10 @@ object LspBridge {
     }
 
   // The jar's manifest enables native access, so no extra flags.
-  private def spawn(jar: os.Path) =
-    ProcessBuilder(javaExecutable, "-jar", jar.toString).spawn[IO]
+  private[view] def spawn(jar: os.Path, env: Map[String, String] = Map.empty) =
+    ProcessBuilder(javaExecutable, "-jar", jar.toString)
+      .withExtraEnv(env)
+      .spawn[IO]
 
   /** pkl-lsp needs JDK 23+, and this app may run on an older one, so neither
     * `PATH` nor this JVM is trusted blindly: `PKL_LSP_JAVA`, this JVM if new
@@ -113,7 +115,7 @@ object LspBridge {
       .toOption
       .flatten
 
-  private def encodeFrame(json: String): Chunk[Byte] = {
+  private[view] def encodeFrame(json: String): Chunk[Byte] = {
     val body = json.getBytes(StandardCharsets.UTF_8)
     val header =
       s"Content-Length: ${body.length}\r\n\r\n"
@@ -122,7 +124,7 @@ object LspBridge {
   }
 
   // Only `Content-Length` is read; pkl-lsp sends no other header.
-  private def toFrames: Pipe[IO, Byte, String] = in => {
+  private[view] def toFrames: Pipe[IO, Byte, String] = in => {
     def go(buf: Chunk[Byte], s: Stream[IO, Byte]): Pull[IO, String, Unit] =
       extract(buf) match {
         case Some((json, rest)) => Pull.output1(json) >> go(rest, s)
