@@ -15,7 +15,8 @@ import scala.collection.immutable.ListMap
 final case class CallDecl(
     service: ValueExpr,
     target: ListMap[String, List[ValueExpr]],
-    data: ListMap[String, ValueExpr] = ListMap.empty
+    data: ListMap[String, ValueExpr] = ListMap.empty,
+    exclude: ListMap[String, List[ValueExpr]] = ListMap.empty
 ) derives CanEqual:
 
   /** What it does, besides what it reaches: the fields a node can see. */
@@ -24,7 +25,7 @@ final case class CallDecl(
       data.toList.map((k, e) => CallField.Data(k) -> e)
 
   def all: List[ValueExpr] = service :: target.values.flatten.toList ++
-    data.values
+    exclude.values.flatten ++ data.values
 
   lazy val id: CallId = CallId.of(this)
 
@@ -49,21 +50,26 @@ object CallDecl:
       .flatMap(_.toList.traverse((k, v) => v.as[A].map(k -> _)))
       .map(ListMap.from)
 
-  given Decoder[CallDecl] = Decoder.instance { c =>
-    Strict.only(c, Set("service", "target", "data")) *> (
-      c.get[ValueExpr]("service"),
-      ordered[List[ValueExpr]](c.downField("target")).flatMap(t =>
-        t.keys.find(!TargetKeys.contains(_)) match
-          case Some(k) =>
-            Left(
-              DecodingFailure(
-                s"unknown target key '$k' — one of ${TargetKeys.mkString(", ")}",
-                c.history
-              )
+  private def keyed(c: ACursor, field: String) =
+    ordered[List[ValueExpr]](c.downField(field)).flatMap(t =>
+      t.keys.find(!TargetKeys.contains(_)) match
+        case Some(k) =>
+          Left(
+            DecodingFailure(
+              s"unknown $field key '$k' — one of ${TargetKeys.mkString(", ")}",
+              c.history
             )
-          case None => Right(t)
-      ),
+          )
+        case None => Right(t)
+    )
+
+  given Decoder[CallDecl] = Decoder.instance { c =>
+    Strict.only(c, Set("service", "target", "data", "exclude")) *> (
+      c.get[ValueExpr]("service"),
+      keyed(c, "target"),
       if (c.downField("data").succeeded) ordered[ValueExpr](c.downField("data"))
+      else Right(ListMap.empty),
+      if (c.downField("exclude").succeeded) keyed(c, "exclude")
       else Right(ListMap.empty)
     ).mapN(CallDecl.apply)
   }
@@ -82,15 +88,12 @@ object CallId:
     def sized(s: String) = s"${s.length}:$s"
     def keyed(m: Iterable[(String, String)]) =
       m.toList.sortBy(_._1).map((k, v) => sized(k) + sized(v)).mkString
+    def ids(m: Iterable[(String, List[ValueExpr])]) =
+      sized(
+        keyed(m.map((k, es) => k -> es.map(e => sized(e.inputKey)).mkString))
+      )
     val canonical =
-      sized(d.service.inputKey) +
-        sized(
-          keyed(
-            d.target.map((k, es) =>
-              k -> es.map(e => sized(e.inputKey)).mkString
-            )
-          )
-        ) +
+      sized(d.service.inputKey) + ids(d.target) + ids(d.exclude) +
         sized(keyed(d.data.map((k, e) => k -> e.inputKey)))
     MessageDigest
       .getInstance("SHA-256")

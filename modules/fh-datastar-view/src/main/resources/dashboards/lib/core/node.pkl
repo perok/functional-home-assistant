@@ -447,7 +447,8 @@ const local function wireCall(d: slotMod.CallDecl): Map<String, Any> =
   Map(
     "service", wireValue(d.service),
     "target", d.target.toMap().mapValues((_, es) -> es.toList().map((e) -> wireValue(e)))
-  ) + (if (d.data.isEmpty) Map() else Map("data", d.data.toMap().mapValues((_, v) -> wireValue(v))))
+  ) + (if (d.exclude.isEmpty) Map() else Map("exclude", d.exclude.toMap().mapValues((_, es) -> es.toList().map((e) -> wireValue(e)))))
+    + (if (d.data.isEmpty) Map() else Map("data", d.data.toMap().mapValues((_, v) -> wireValue(v))))
 
 const local function wireValue(v: Any): Any =
   if (v is slotMod.Reading) wireReading(v, null, false)

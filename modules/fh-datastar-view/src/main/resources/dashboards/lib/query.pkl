@@ -378,7 +378,7 @@ typealias Filter = ((hass.Entity) -> Cond|List<Cond>)|Cond|List<Cond>
 
 /// A chainable candidate set. Each method returns an amended copy; nothing is
 /// evaluated until [[build]].
-class EntitySet {
+class EntitySet extends pred.TallyOf {
   hidden items: List<hass.Entity>
   hidden filters: List<Filter> = List()
   hidden branches: List<Branch> = List()

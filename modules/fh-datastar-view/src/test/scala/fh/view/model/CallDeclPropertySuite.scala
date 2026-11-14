@@ -22,6 +22,14 @@ class CallDeclPropertySuite extends HedgehogSuite {
     } yield Result.assert((a == b) == (a.id == b.id))
   }
 
+  property("what a call excludes is not what it targets, for its id") {
+    for d <- genDecl.forAll
+    yield {
+      val moved = d.copy(target = d.exclude, exclude = d.target)
+      Result.assert((moved == d) == (moved.id == d.id))
+    }
+  }
+
   property("a declaration's data keys in another order keep its id") {
     for d <- genDecl.forAll
     yield d.copy(data = ListMap.from(d.data.toList.reverse)).id ==== d.id

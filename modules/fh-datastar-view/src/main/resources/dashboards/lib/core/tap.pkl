@@ -70,6 +70,12 @@ class Call extends TapAction {
   target: Target
   /// What HA gets as the call's data, by HA's field name.
   data: Mapping<String, CallValue|slotMod.Expr> = new {}
+  /// What the target leaves out, HA resolving it at every call ([[exclude]]).
+  excluding: Listing<Target> = new {}
+  /// The target without `x`: an entity, a room, a floor, or a set, whose
+  /// members present at the press are left out. HA 2026.11 or later.
+  function exclude(x: Target|pred.TallyOf): this =
+    let (self = this) (self) { excluding { if (x is pred.TallyOf) x.count() else x as Target } }
   /// `call("light/turn_on", l).with("effect", "colorloop")`, or
   /// `.with("hs_color", List(120, 100))`. HA gets the value as typed here.
   function with(key: String, value: CallValue): this =
@@ -316,14 +322,28 @@ const function declOf(c: Call): slotMod.CallDecl = new {
     if (c.service is slotMod.Reading && c.target is hass.Entity)
       (c.service as slotMod.Reading) { entityId = (c.target as hass.Entity).entity_id }
     else c.service
-  target =
-    let (t = c.target)
-      if (t is hass.Entity) new Mapping { ["entity_id"] = new Listing { t.entity_id } }
-      else if (t is hass.Area) new Mapping { ["area_id"] = new Listing { t.area_id } }
-      else if (t is hass.Floor) new Mapping { ["floor_id"] = new Listing { t.floor_id } }
-      else new Mapping { ["entity_id"] = new Listing { new slotMod.Expr { source = t as pred.Tally } } }
+  target = new Mapping { [targetKey(c.target)] = new Listing { targetId(c.target) } }
+  exclude =
+    let (xs = c.excluding.toList())
+      new Mapping {
+        for (k in List("entity_id", "area_id", "floor_id")) {
+          when (xs.any((x) -> targetKey(x) == k)) {
+            [k] = new Listing { for (x in xs) { when (targetKey(x) == k) { targetId(x) } } }
+          }
+        }
+      }
   data = c.data
 }
+
+/// The key of HA's target a [[Target]] fills: a set is its entities.
+const local function targetKey(t: Target): "entity_id"|"area_id"|"floor_id" =
+  if (t is hass.Area) "area_id" else if (t is hass.Floor) "floor_id" else "entity_id"
+
+const local function targetId(t: Target): slotMod.Expr|String =
+  if (t is hass.Entity) t.entity_id
+  else if (t is hass.Area) t.area_id
+  else if (t is hass.Floor) t.floor_id
+  else new slotMod.Expr { source = t as pred.Tally }
 
 /// The call [[click]] posts, and the refusal with it, so no card can place a
 /// call without it. Separate from [[tapSlots]] for a card with no

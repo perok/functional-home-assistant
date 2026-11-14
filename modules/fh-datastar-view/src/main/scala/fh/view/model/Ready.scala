@@ -147,6 +147,7 @@ object Ready:
       val decl: CallDecl,
       val service: Evaluator.Run,
       val target: ListMap[String, List[Evaluator.Run]],
+      val exclude: ListMap[String, List[Evaluator.Run]],
       val data: ListMap[String, Evaluator.Run],
       val reads: Set[SlotRead]
   )
@@ -320,17 +321,21 @@ object Ready:
 
     private def call(d: CallDecl): Built[Call] =
       def run(e: ValueExpr) = Evaluator.compile(e, scope).map(_.run)
+      def keys(m: ListMap[String, List[ValueExpr]]) =
+        m.toList
+          .traverse((k, es) => es.traverse(run).map(k -> _))
+          .map(ListMap.from)
       (
         run(d.service),
-        d.target.toList
-          .traverse((k, es) => es.traverse(run).map(k -> _))
-          .map(ListMap.from),
+        keys(d.target),
+        keys(d.exclude),
         d.data.toList.traverse((k, e) => run(e).map(k -> _)).map(ListMap.from)
-      ).mapN((service, target, data) =>
+      ).mapN((service, target, exclude, data) =>
         Call(
           d,
           service,
           target,
+          exclude,
           data,
           SlotAsk.decision(d.all.flatMap(_.fetches))
         )

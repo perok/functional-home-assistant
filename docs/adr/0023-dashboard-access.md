@@ -292,6 +292,11 @@ and the call never reaches one the build did not name, including a light added
 to the room later. A press that finds no candidate present succeeds without a
 call (ADR 0024).
 
+A call's `exclude` has the target's shape and is decided at the press like the target: its sets
+narrow to the members present then, and HA subtracts it from the target at the call (2026.11),
+so an excluded area keeps its later additions. It is part of the declaration, hence of the id.
+A target left with no key is the press that finds no candidate.
+
 Not built yet: an allow or deny list per user or dashboard, set in the same
 place a future per-user or per-dashboard list of allowed entities would live, so
 an owner can keep an area call from reaching an entity. Until then, what an area

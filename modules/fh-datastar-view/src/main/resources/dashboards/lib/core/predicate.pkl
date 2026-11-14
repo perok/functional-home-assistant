@@ -38,6 +38,13 @@ class Cmp extends Predicate {
   steps = let (c = this) new Listing { new simpleMod.CompareStep { op = c.op; to = c.value } }
 }
 
+/// What a core module takes as a set without importing the query surface
+/// (`query.pkl`'s `EntitySet`), which is the one subclass: it answers its
+/// [[Tally]].
+open class TallyOf {
+  function count(): Tally = throw("not a set")
+}
+
 /// A static candidate list and which of it is present (`fh.view.model.Value.Present`):
 /// a candidate with no guard in `when`, and one whose guard holds, an unnamed
 /// read in it reading that candidate. A [[Count]] counts them.

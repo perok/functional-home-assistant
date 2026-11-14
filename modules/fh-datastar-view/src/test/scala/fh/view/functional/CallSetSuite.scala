@@ -146,6 +146,65 @@ class CallSetSuite extends FunctionalSuite {
     }
   }
 
+  private def exclusion(on: String): Dashboard = build(
+    s"""c.button("Av", c.tap.call("light/turn_off", lit).exclude($on))"""
+  )
+
+  private def sentTo(d: Dashboard, states: FixtureEntity*) =
+    TestServer.resource(d, states.toList, access = Access.Public).use { ts =>
+      for {
+        url <- pressUrl(ts)
+        status <- ts.post(url, as = None)
+        sent <- targets(ts)
+      } yield (status, sent)
+    }
+
+  test("an exclusion reaches HA beside the target, as HA's own") {
+    val d = exclusion("dump.entities.light_living_room")
+    sentTo(d, kitchen, living.copy(state = "on"), sun).map { (status, sent) =>
+      assertEquals(status, Status.NoContent)
+      assertEquals(
+        sent.map(_.map(_.json)),
+        Vector(
+          Some(
+            io.circe.Json.obj(
+              "entity_id" -> io.circe.Json.arr(
+                io.circe.Json.fromString(kitchen.entityId),
+                io.circe.Json.fromString(living.entityId)
+              ),
+              "exclude" -> io.circe.Json.obj(
+                "entity_id" -> io.circe.Json.arr(
+                  io.circe.Json.fromString(living.entityId)
+                )
+              )
+            )
+          )
+        )
+      )
+    }
+  }
+
+  test("an excluded set with no member present leaves `exclude` out") {
+    val d = exclusion(
+      "q.from(List(dump.entities.light_living_room)).where(q.eq(q.stateProp, \"on\"))"
+    )
+    sentTo(d, kitchen, living, sun).map { (_, sent) =>
+      assertEquals(
+        sent.map(_.map(_.json.hcursor.downField("exclude").succeeded)),
+        Vector(Some(false))
+      )
+    }
+  }
+
+  test("an entity only an exclusion's guard reads is subscribed") {
+    val d = exclusion(
+      "q.from(List(dump.entities.light_living_room)).where((e) -> " +
+        "q.entity(dump.entities.sensor_outside_temp).stateIs(\"1\"))"
+    )
+    assert(!d.referencedEntities.contains("sensor.outside_temp"))
+    assert(d.watchedEntities.contains("sensor.outside_temp"))
+  }
+
   test("an entity only a set's guard reads is subscribed") {
     val unlabelled =
       build("""c.button("Av", c.tap.call("light/turn_off", lit))""")

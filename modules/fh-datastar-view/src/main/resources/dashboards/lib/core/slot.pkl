@@ -142,6 +142,8 @@ class CallDecl {
   service: Expr|String
   target: Mapping<"entity_id"|"area_id"|"floor_id", Listing<Expr|String>>
   data: Mapping<String, Expr|String|Number|Boolean|List<String|Number|Boolean>> = new {}
+  /// What the target leaves out, in the target's own shape.
+  exclude: Mapping<"entity_id"|"area_id"|"floor_id", Listing<Expr|String>> = new {}
 }
 
 /// A call a node places under [[name]], which its template posts with

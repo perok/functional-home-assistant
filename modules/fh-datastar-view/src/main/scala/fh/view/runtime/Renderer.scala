@@ -459,6 +459,8 @@ class Renderer(validated: Dashboard.Validated) {
           Steps.text(service),
           call.target
             .map((k, rs) => k -> rs.flatMap(r => Renderer.ids(run(r)))),
+          call.exclude
+            .map((k, rs) => k -> rs.flatMap(r => Renderer.ids(run(r)))),
           ListMap.from(data),
           seen.map((field, slot) =>
             field -> slotValueOf(node.slots(slot), run(node.slots(slot).run))
@@ -2085,6 +2087,7 @@ object Renderer {
   final case class Pressed(
       service: String,
       target: ListMap[String, List[String]],
+      exclude: ListMap[String, List[String]],
       data: ListMap[String, Any],
       seen: List[(CallField, SlotValue)]
   )

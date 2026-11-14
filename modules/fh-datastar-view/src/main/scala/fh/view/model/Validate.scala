@@ -1225,6 +1225,7 @@ private[model] object Validate:
         val fields =
           ("service" -> d.service) ::
             d.target.toList.flatMap((k, es) => es.map(k -> _)) ++
+            d.exclude.toList.flatMap((k, es) => es.map(s"exclude.$k" -> _)) ++
             d.data.toList.map((k, e) => s"data.$k" -> e)
         val fieldErrors = fields.flatMap { (where, e) =>
           val typed = e.typed(Nil)
@@ -1242,7 +1243,10 @@ private[model] object Validate:
               .map(_.out)
               .filter { out =>
                 if (where == "service") !ValueType.fits(out, SlotType.Text)
-                else if (CallDecl.TargetKeys.contains(where))
+                else if (
+                  CallDecl.TargetKeys.contains(where) ||
+                  where.startsWith("exclude.")
+                )
                   out != ValueType.Text && out != ValueType.List(ValueType.Text)
                 else false
               }

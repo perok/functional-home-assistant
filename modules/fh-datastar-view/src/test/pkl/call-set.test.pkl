@@ -61,6 +61,25 @@ facts {
   ["an entity call carries no set"] {
     c.button("Av", c.tap.lights.off(taklys)).declared["tap"].target["entity_id"].toList() == List("light.taklys")
   }
+  ["a call with no exclusion declares none"] {
+    c.button("Av", c.tap.lights.off(taklys)).declared["tap"].exclude.isEmpty
+  }
+  ["a fixed exclusion is in the target's shape, under its key"] {
+    let (d = c.button("Av", c.tap.lights.off(lit).exclude(lampe)).declared["tap"])
+      d.target.keys == Set("entity_id")
+      && d.exclude.keys == Set("entity_id")
+      && d.exclude["entity_id"].toList() == List("light.lampe")
+  }
+  ["an excluded set is its tally"] {
+    let (d = c.button("Av", c.tap.lights.off(lampe).exclude(litByDay)).declared["tap"])
+      d.exclude["entity_id"].toList().single is slotMod.Expr
+      && (d.exclude["entity_id"].toList().single as slotMod.Expr).source is pred.Tally
+  }
+  ["exclusions are kept in the order given, a key's ids together"] {
+    let (d = c.button("Av", c.tap.lights.off(lampe).exclude(taklys).exclude(lampe)).declared["tap"])
+      d.exclude.keys == Set("entity_id")
+      && d.exclude["entity_id"].toList() == List("light.taklys", "light.lampe")
+  }
   ["a set of another domain is a build error, naming the strays"] {
     module.catch(() -> c.tap.call("light/turn_off", q.from(List(taklys, bryter))))
       .contains("switch.bryter is not light")

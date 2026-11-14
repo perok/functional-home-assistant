@@ -14,10 +14,17 @@ import fh.view.build.{
   SourceEval,
   SystemPkl
 }
-import fh.view.model.Dashboard
+import fh.view.model.{Access, Dashboard}
 import fh.view.runtime.TestServer
 
-import fh.view.testkit.{HouseFixture, PklFixture, PklWorkspace, TestCard}
+import fh.view.testkit.{
+  FixtureEntity,
+  HouseFixture,
+  PklFixture,
+  PklWorkspace,
+  TestCard
+}
+import io.circe.Json
 
 import org.http4s.*
 import org.http4s.ember.server.EmberServerBuilder
@@ -719,6 +726,77 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           assertEquals(one.status, Status.Ok)
           assertEquals(two.status, Status.Ok)
           assertEquals(urlSlug.status, Status.NotFound)
+        }
+      }
+  }
+
+  test(
+    "dashboard author: a whole floor off, bar a room and a light a condition guards"
+  ) {
+    val sun = FixtureEntity("sun.sun", "above_horizon")
+    val loft = io.circe.parser
+      .parse("""{
+        "areas": { "soverom": { "area_id": "soverom_1", "floor_id": "loft_1", "area_name": "Soverom" } },
+        "floors": { "loft": { "floor_id": "loft_1", "floor_name": "Loft",
+          "areas": { "soverom": { "area_id": "soverom_1", "floor_id": "loft_1", "area_name": "Soverom" } } } }
+      }""")
+      .fold(throw _, identity)
+    val dump = HouseFixture
+      .dumpWith(sun)
+      .deepMerge(loft)
+    val entry =
+      """amends "@fh-dashboard/entry.pkl"
+        |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-dashboard/query.pkl" as q
+        |import "@fh-home/dump.pkl" as dump
+        |// The kitchen light stays on once the sun is down.
+        |local night = q.from(List(dump.entities.light_kitchen))
+        |  .where((e) -> q.entity(dump.entities.sun_sun).stateIs("below_horizon"))
+        |card = (c.column) { children {
+        |  c.button("Loft av", c.tap.lights.off(dump.floors.loft).exclude(dump.areas.soverom).exclude(night))
+        |} }
+        |""".stripMargin
+    TestServer
+      .resource(
+        PklFixture.buildDashboard("home", entry, dump),
+        List(HouseFixture.kitchenLight, sun),
+        access = Access.Public
+      )
+      .use { ts =>
+        def sent = ts.fake.recordedCalls.map(_.flatMap(_.group.map(_.json)))
+        for {
+          url <- ts.pressOf("c_0", as = None)
+          day <- ts.post(url, as = None)
+          byDay <- sent
+          _ <- ts.record(sun.copy(state = "below_horizon"))
+          night <- ts.post(url, as = None)
+          all <- sent
+        } yield {
+          assertEquals(all.size, 2, clue = all)
+          assertEquals(day, Status.NoContent)
+          assertEquals(night, Status.NoContent)
+          // The set is empty by day, so HA hears only the room.
+          assertEquals(
+            byDay,
+            Vector(
+              Json.obj(
+                "floor_id" -> Json.arr(Json.fromString("loft_1")),
+                "exclude" -> Json.obj(
+                  "area_id" -> Json.arr(Json.fromString("soverom_1"))
+                )
+              )
+            )
+          )
+          assertEquals(
+            all.last,
+            Json.obj(
+              "floor_id" -> Json.arr(Json.fromString("loft_1")),
+              "exclude" -> Json.obj(
+                "entity_id" -> Json.arr(Json.fromString("light.kitchen")),
+                "area_id" -> Json.arr(Json.fromString("soverom_1"))
+              )
+            )
+          )
         }
       }
   }

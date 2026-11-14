@@ -236,6 +236,11 @@ another. ADR 0016, 0023, 0024.
 entity read named. A node places its calls by name (`tapMod.tapCall` is `tap`). The server
 evaluates the declaration itself at the press; the page only names it. ADR 0023.
 
+**Exclusion** — what a call's `exclude` leaves out of its target: ids under the target's own keys
+(entity, area, floor), or a set that leaves out the members present at the press. HA subtracts it
+when the call runs, so an excluded area stays excluded as it grows. It is not a set's `where`,
+which decides who is in the set; an exclusion is a second set the call subtracts. ADR 0023.
+
 **Call id** — a declared call's name on the wire, a hash of the declaration: equal calls share
 one, and an edited call gets a new one. The route admits only an id its dashboard declares.
 

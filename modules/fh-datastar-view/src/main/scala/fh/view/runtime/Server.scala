@@ -324,10 +324,10 @@ class Server(
   private def send(req: Request[IO], p: Renderer.Pressed): IO[Response[IO]] =
     p.service.split('/') match {
       case Array(domain, service) =>
-        val ids = p.target.withDefaultValue(Nil)
-        ServiceTarget.of(
+        def idsOf(m: Map[String, List[String]]) =
+          val ids = m.withDefaultValue(Nil)
           TargetIds(ids("entity_id"), ids("area_id"), ids("floor_id"))
-        ) match {
+        ServiceTarget.of(idsOf(p.target), idsOf(p.exclude)) match {
           case Some(target) =>
             callService(
               domain,
