@@ -52,8 +52,8 @@ All on main:
   above. Every call's body is `{conn, ui_popups, posted, seen}`; a `SetVar` runs in the viewer's
   session, and a `conn` the process does not hold is refused, not re-minted (ADR 0024 §2: only
   the stream makes a session). The click starts with `{{{tap.pending}}}`, the declarer's pending
-  signal at that node, and a refusal clears it. Not built until a card needs it:
-  `v.choosing(position)`, a value the press posts.
+  signal at that node, and a refusal clears it. Not built: `v.choosing(…)`, a value the press
+  posts, which R4 builds for the history mirror (§7).
 - **Set guards, measured** (#708): sharing equal guards' compile, and running a member-free guard
   once per decision, saved nothing (`docs/experiments.md`). Left: the benches `publishSetGuarded`
   and `publishSetNamedGuard`, and tests that each member is decided by its own state.
@@ -274,19 +274,35 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
   `<host>_<key>`; nodes inside get ids per case.
 - **Popups** are one `nodes.match(popups, …)` on the root, in the chrome's `#popups` (the one host
   that is not a card's root; `validate` already checks the chrome writes it): one case per popup
-  on the dashboard, nothing otherwise. The root declares `popups` with no default, which needs
-  `Declaration.default` optional (it is required today): with none, the variable reads as no
-  value until chosen, and again after a clear. An open is a
-  `SetVar` call choosing the popup's id, a lookup and one patch, so a popup's id must be a
-  `varMod.Value` token (a `surfaces` key is any string today, sanitised into ids); a close
-  chooses null, and is the pick's ordinary leave, the `remove` on `#popups > *` a close already
-  sends (#684).
-  `c.view.openPopup`, `openPopupInline` and `closePopup` build those calls; `tapMod.OpenSurface`,
-  `Selections.popup`, `openPopup`, the popup case in `committedSelection` and the
-  `/sse/surface/…/open` and `/sse/popup/…/close` routes go; the build collects every popup in the
-  tree into the match, as the inline-surface hoist collects them today, and the back button
-  (`Server.pageInto`'s `popupFromUrl`, which spells both routes) moves to the variable's URL
-  mirror. Step 0 checks this works.
+  on the dashboard, nothing otherwise. What the spike (step 0) settled:
+  - **The root declares `popups`, and a popup's content starts with the root's scope**: the root
+    is above every place a popup opens from, so an opener inside a popup (the colour wheel in a
+    more-info) resolves the variable. Today a popup is its own scope root (`Dashboard.varScopes`,
+    `scopeOf`); after this every root variable reaches popups, a root window chooser included.
+  - **No value is `""` on the wire**, which the signals, the URL mirror and the env already read
+    as nothing, so the Scala needs no `Option`; Pkl's `Declaration.default` becomes
+    `varMod.Value?`, null lowering to `""`. A clear reads it again.
+  - **An open** is a `SetVar` call choosing the popup's id, a lookup and one patch. Inline ids are
+    tokens already (`<set>_<entity>_self`, `s_<panel>__c_0_self`, spliced before decode); a
+    registered `surfaces` key is typed `varMod.Value`. A close chooses nothing, the pick's
+    ordinary leave, the `remove` on `#popups > *` a close already sends (#684).
+  - **Back and Forward:** a declaration opts in to history (`.inHistory()`, name open). Its URL
+    mirror pushes an entry per choice (`data-fh-url__history`, which only `ui.popups` uses
+    today), and its declarer places one `v.choosing(…)`, a choice whose value the press posts,
+    which a popstate presses with the value the URL now names; the server checks it as any
+    choice, here that it names a popup on the dashboard. A close stays `history.back()`, so the
+    popup's ✕, backdrop and Escape are unchanged.
+  - **The URL parameter is the variable's own**, `v.<root>.popups`, so a load seeds the variable
+    as it does every other; the spike kept `ui.popups`, and a refresh left the variable empty with
+    the popup shown. `?ui.popups=` links stop working (agreed). The call body's `ui_popups` goes,
+    since the session holds the open popup.
+  - **A popup outlives its opener**: a set member leaving, or a tab switching away, keeps its
+    popup open and the variable holding it, as today.
+  `c.view.openPopup` and `openPopupInline` build the calls; `tapMod.OpenSurface`'s click,
+  `Selections.popup`, the popup case in `committedSelection`, `ui_popups`/`ui.popups`, the
+  shell's `popupFromUrl` and the `/sse/surface/…/open` and `/sse/popup/…/close` routes go; the
+  build collects every popup in the tree into the match, as the inline-surface hoist collects
+  them today.
 - `SurfaceGraph`'s bake groups, `MemberGraph`'s special nesting (`WalkAt.InMember`, `innerSetId`,
   `groupAt`) and the inline-surface hoist go into the one path.
 
@@ -294,23 +310,19 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
 
 The rule: Scala renders markup Pkl wrote and fills only values it owns. What is left is the set's
 root (§5, `Renderer.groupOpen`). What stays in Scala, as the contract: the page shell, the root
-`<div data-signals…>` with its seeds, toast, reload and back-button handlers, the error page, and
-the default `<main id="dashboard">` chrome.
+`<div data-signals…>` with its seeds, the toast and reload handlers, the error page, and the
+default `<main id="dashboard">` chrome. The back-button handler becomes a history variable's
+popstate, on its declarer beside its URL mirror (§7).
 
 ## Steps
 
 Stacked branches, each its own PR on the one before. The local workspaces outside the repo
 (`dashboard-local-dev-server/`, the HA box's) are migrated only when the maintainer asks.
 
-0. **The popup-variable spike**, on a throwaway branch: opening a popup by setting a root
-   `popups` variable with no default (§7) instead of `/sse/surface/open`, closing it by setting
-   null, a press on a forgotten `conn` refused with its pending ask cleared (ADR 0024 §2), the
-   back button through the URL mirror, `ui_popups` holding at most one id, popup ids as
-   `varMod.Value` tokens (inline and registered), whether `ui_popups` can leave the call body once
-   the session holds the variable, and a match over every popup reproducing today's behaviour for
-   popups declared inside a set's member or a choice's case, including the member leaving while
-   its popup is open. The findings go into this plan, or into `docs/experiments.md` if the answer
-   is no.
+0. **The popup-variable spike**, done 2026-11-15 on the throwaway branch `spike-popup-variable`:
+   popups opened and closed by choosing a root `popups` variable through today's swap, from a
+   registered popup, a set member's and a tab panel's, with a refusal on a forgotten `conn`.
+   What it settled is in §7.
 1. **R1, slot classes.**
    - `ValueSlot`/`NodesSlot`/`VarSlot`; `CardDef.regions` and `nodes.Region` go; the
      `slotMod.Slot` type references in the library become `ValueSlot` where they use a value
@@ -329,7 +341,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      variable slot with no declarer above is an error. `PklEditorSupportSuite` cases for what R1
      bets the editor follows: completion on a `slotMod.nodes(…)` handle, and `panel.bind` reported
      on a `NodesSlot`.
-3. **R2, a set is a fill.**
+2. **R2, a set is a fill.**
    - `Fill.Set` with members as `Choice[LayoutNode]` and its `of`, `IndexOfTrue`, `.of(set)`, the
      `group` card; `SetNode` goes from Pkl, the wire, `Ready`, `Validate` and `Renderer`, and
      `groupOpen` goes.
@@ -337,7 +349,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      `publishSetOrdered`, `publishSetGuarded`, `publishSetNamedGuard`, `leaderRow`, `tickRender`,
      and `validated` timing. Pkl fact: a set beside
      other content is an error.
-4. **R3, choices.**
+3. **R3, choices.**
    - `Fill.Nodes(Chosen)`, `nodes.iff`/`elif`/`else`, `nodes.match`, `c.iff(…).elif`; Tabs, If,
      select and the slider's controls on it, the three that host beside other content through a
      `group`. `inlineSurfaces` stays only for popups; `Region.fill` and the bake fields,
@@ -350,19 +362,25 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    - Ids move: the If loses a `div`, and everything in a panel sits one path step deeper, under its
      `group`. The view tests are the check, and `dashboardGoldensVs` shows nothing but ids moved. A
      URL naming a variable declared inside a panel (`v.<id>.x`) stops matching.
-5. **R4, one runtime path.**
+4. **R4, one runtime path.**
    - A test of one guard reading a variable and a state, with two viewers on different values.
    - The pick, its planner and its ids (§7), popups included (their taps `SetVar` calls on
      `popups`); deciding per send; `Activation.Var`,
      `VarAt`, `SurfaceGraph`'s bake groups and `MemberGraph`'s nesting cases go; the shared
      decisions' variable refusals (§4) go.
+   - Popups as §7 has them: the root's `popups`, a popup starting with the root's scope
+     (`NodeVariablesSuite`'s "a SURFACE is its own scope root" becomes "a popup starts with the
+     root's scope", agreed 2026-11-15), an empty default, `.inHistory()` with `v.choosing`, and
+     the `v.<root>.popups` parameter. Also check why two of the spike's pulls sent nothing (a
+     member leaving, a tab switch, both on a session with no stream).
    - Ids move again; the same normalised comparison, then the goldens are regenerated.
    - Bench everything R2 measured, plus a popup open and close on the largest test dashboard.
-6. **R5, markup.** A test that no Scala source writes markup outside the contract in §8.
+5. **R5, markup.** A test that no Scala source writes markup outside the contract in §8.
 
 Docs go in each step's commit: ADRs 0002 (popups), 0003 (sets), 0005/0025/0033 (the popup
-variable, the variable slot, `below`/`own` gone), 0007 (choices), 0008 (the set's root is a
-card), 0016/0024 (a popup's open and close are `SetVar` calls, and what a press's body carries),
+variable, a popup's scope, the history mirror, the variable slot, `below`/`own` gone), 0007
+(choices), 0008 (the set's root is a card), 0016/0024 (a popup's open and close are `SetVar`
+calls, and what a press's body carries),
 0012 (structure, `bakeIndex`, deciding per send), 0017, 0020 (theme classes on the root), 0022
 (ids), 0034/0035 (`Choice` for nodes, `IndexOfTrue`); the pipeline doc §1a and §3–§4b;
 terminology (region, host, member, clause, plus **nodes slot**, **variable slot**, **fill**,
@@ -398,7 +416,7 @@ variables and the tap routes. This plan is deleted when the work lands.
 ## Open questions
 
 1. **Names**, free to change while v0: the `core/node.pkl` alias, `group` (it shares a word with
-   the bake group until R4), `pick`, `IndexOfTrue`, `Slot`'s kinds.
+   the bake group until R4), `pick`, `IndexOfTrue`, `Slot`'s kinds, `.inHistory()`.
 2. **The select's dropdown label over a variable** is a bake group only so the first HTML shows the
    chosen option (`select.pkl:15`). A value slot reading the variable could show it, but it sits
    on a structure card, which refuses a live slot written as bytes; settle it in R3.
