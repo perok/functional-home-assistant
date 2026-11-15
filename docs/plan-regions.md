@@ -18,8 +18,8 @@ The set's root is the last markup Scala writes outside the page shell. The runti
 for "something picks what fills a host": `SurfaceGraph` bakes a choice into a host, and
 `MemberGraph` places a set's members. A variable is an expression source (`Value.Var`) for value
 slots, `cellClassAtRender` and a fetch window's `Choice.Chosen.by`, but a bake member still reads
-it as `Activation.Var`, and two Datastar strings are spelled in Pkl from `Variable.below`:
-`TabButton.active` and the URL `Variable.choose` posts, around an `@@VAR:<name>@@` declarer token.
+it as `Activation.Var`, and one Datastar string is spelled in Pkl from `Variable.below`, around an
+`@@VAR:<name>@@` declarer token: `TabButton.active`, the tab's live highlight.
 
 **State:** direction agreed in chat (2026-11-10); the prework is on main (below); the R steps are
 not built.
@@ -41,9 +41,22 @@ All on main:
   `#popups > *`.
 - **Markup from Pkl** (#685) and **goldens compared with ids normalised**
   (`sbt 'dashboardGoldensVs <rev>'`, #686), which R3 and R4 use.
-- **Declared calls** (#702): a tap names a `CallDecl` by id; the body is `{posted, seen}`, sent as a
-  `payload`, so a call's post carries no `conn` and needs no session. `validate` refuses a call
-  field that reads a variable ("a call is decided once for every viewer").
+- **Declared calls** (#702): a tap names a `CallDecl` by id, its body sent as a `payload`.
+  `validate` refuses a call field that reads a variable ("a call is decided once for every
+  viewer").
+- **A call can set a variable** (#707): `CallDecl = Service | SetVar(variable, value:
+  Option[VarValue])`, decoded by `kind`; `VarValue` refines `varMod.Value`'s token with iron, so a
+  bad value is refused at decode. `v.choose(x)` is a `tapMod.SetVar`, a `Press` placed by
+  `tapMod.post` like a service call, each press class carrying its own `decl`. The server resolves
+  the declarer from the pressed node (`?node=`), and `validate` refuses a `SetVar` with no declarer
+  above. Every call's body is `{conn, ui_popups, posted, seen}`; a `SetVar` runs in the viewer's
+  session, and a `conn` the process does not hold is refused, not re-minted (ADR 0024 §2: only
+  the stream makes a session). The click starts with `{{{tap.pending}}}`, the declarer's pending
+  signal at that node, and a refusal clears it. Not built until a card needs it:
+  `v.choosing(position)`, a value the press posts.
+- **Set guards, measured** (#708): sharing equal guards' compile, and running a member-free guard
+  once per decision, saved nothing (`docs/experiments.md`). Left: the benches `publishSetGuarded`
+  and `publishSetNamedGuard`, and tests that each member is decided by its own state.
 - **Sets of areas and floors** (#704): `SetNode.of: IdKind` and `Value.Present.of`. An area has no
   state, so its member's guard runs with no subject and names what it reads (`validate` refuses a
   guard or order term that reads the member); `MemberGraph.movedBy` skips candidates that are not
@@ -90,10 +103,10 @@ from that, as cheaply as `{{id}}`. A `VarSlot` only spells signal names, so it i
 write nothing reads is still refused.
 
 `Variable` keeps what is about the variable: its name and declaration (`vars { v.defaultingTo(x) }`),
-its reads (`v.value`, `v.valueIs(x)`), and its write (`v.choose(x)`). `Variable.below`, `own` and
-`Spelling` go once nothing spells a string from them: `v.choose` stops spelling its pending
-signal, group and URL from `below` in step P (§9), which comes first, and `TabButton.active` goes
-in R1.
+its reads (`v.value`, `v.valueIs(x)`), and its write (`v.choose(x)`). `Variable.below`, `own`,
+`declarer` and `Spelling` go in R1 with `TabButton.active`, the last thing spelled from them
+(`own` has no user but a Pkl fact), and the `@@VAR` token and its splice
+(`DashboardBuild.declarerToken`) with them.
 
 ### 2. Placement and the one host rule
 
@@ -200,9 +213,9 @@ each refusal below is a stopgap, not a rule to keep:
   once the pick replaces bake groups (R4), and `Activation.Var`/`VarAt` and the lowering of
   `c.iff(v.valueIs(x))` to them go.
 - **Call fields** (#702, a set a call targets included): a call is evaluated at the press, so
-  reading a variable needs the viewer's session there. After P every call's body carries `conn`
-  (§9), so lifting it is the service case reading the presser's variables; it stays refused until
-  a card needs it.
+  reading a variable needs the viewer's session there. Every call's body carries `conn` (#707),
+  so lifting it is the service case reading the presser's variables; it stays refused until a card
+  needs it.
 - **Signal slots** (`cellClassWhen`, `cellStyle`, any display signal): a plain `v.value` or
   `v.valueIs(x)` can bind the client's own committed signal (`_var_<declarer>__<name>`), with no
   server frame, as the tab bar does; any other expression needs CEL lowered to a Datastar
@@ -261,15 +274,19 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
   `<host>_<key>`; nodes inside get ids per case.
 - **Popups** are one `nodes.match(popups, …)` on the root, in the chrome's `#popups` (the one host
   that is not a card's root; `validate` already checks the chrome writes it): one case per popup
-  on the dashboard, nothing otherwise. The root declares `popups` with no default. An open is a
-  `SetVar` call (§9) choosing the popup's id, a lookup and one patch; a close chooses null, and
-  is the pick's ordinary leave, the `remove` on `#popups > *` a close already sends (#684).
+  on the dashboard, nothing otherwise. The root declares `popups` with no default, which needs
+  `Declaration.default` optional (it is required today): with none, the variable reads as no
+  value until chosen, and again after a clear. An open is a
+  `SetVar` call choosing the popup's id, a lookup and one patch, so a popup's id must be a
+  `varMod.Value` token (a `surfaces` key is any string today, sanitised into ids); a close
+  chooses null, and is the pick's ordinary leave, the `remove` on `#popups > *` a close already
+  sends (#684).
   `c.view.openPopup`, `openPopupInline` and `closePopup` build those calls; `tapMod.OpenSurface`,
   `Selections.popup`, `openPopup`, the popup case in `committedSelection` and the
   `/sse/surface/…/open` and `/sse/popup/…/close` routes go; the build collects every popup in the
   tree into the match, as the inline-surface hoist collects them today, and the back button
-  (`Server.scala:1917`, which spells both routes) moves to the variable's URL mirror. Step 0
-  checks this works.
+  (`Server.pageInto`'s `popupFromUrl`, which spells both routes) moves to the variable's URL
+  mirror. Step 0 checks this works.
 - `SurfaceGraph`'s bake groups, `MemberGraph`'s special nesting (`WalkAt.InMember`, `innerSetId`,
   `groupAt`) and the inline-surface hoist go into the one path.
 
@@ -280,71 +297,21 @@ root (§5, `Renderer.groupOpen`). What stays in Scala, as the contract: the page
 `<div data-signals…>` with its seeds, toast, reload and back-button handlers, the error page, and
 the default `<main id="dashboard">` chrome.
 
-### 9. A call can set a variable (step P)
-
-Done ahead as #707 (`docs/plan-call-sets-variable.md`); what the region steps rely on:
-
-From the page's side a press is one thing, whatever it reaches: a declared call named by id, the
-values it posts, and a pending ask the server commits or refuses. Only the routing differs: HA,
-or this viewer's variables. On the wire a call is one or the other, a union decoded by `kind`, so
-no call does both:
-
-```scala
-enum CallDecl:                                   // decoded by `kind`
-  case Service(service: ValueExpr,               // "service": today's four fields
-               target: ListMap[IdKind, List[ValueExpr]],
-               data: ListMap[String, ValueExpr] = ListMap.empty,
-               exclude: ListMap[IdKind, List[ValueExpr]] = ListMap.empty)
-  case SetVar(variable: String, value: Option[ValueExpr])   // "setVar": None clears
-```
-
-The author's side:
-
-```pkl
-c.tap.lights.on(l)       // a service call, as today
-v.choose("week")         // a SetVar call; the value a `varMod.Value?`, null clearing it
-v.choosing(position)     // the value a press posts (a drag): text, checked as a `varMod.Value`
-```
-
-- `tapMod.SetVar` stops being a `Click`: it is a call, placed by `tapMod.post` as a service call
-  is, its id hashed with its kind (`CallId.of`). Each Pkl declaration class carries its `kind`,
-  which `WireShapeSuite` pairs with the Scala case.
-- **The variable is named, not its declarer.** The server resolves the declarer from the pressing
-  node (`?node=`), as the compile resolves a read, and `validate` refuses a `SetVar` placed by a
-  node with no declarer above it. The `@@VAR` token goes.
-- **The body** is `{conn, posted, seen}` for every call. A `SetVar` needs the viewer's session;
-  a forgotten `conn` is re-minted (ADR 0024), as `sse/var` does now. A service call ignores `conn`
-  while its fields may not read a variable (§4). `posted` and `seen` work for a `SetVar`'s value
-  as for a data field.
-- **Pending:** the click starts with `{{{tap.pending}}}`, which the renderer fills for a `SetVar`
-  with the pending signal of the variable's declarer at that node and the value asked, so the
-  press shows at once. A clear sets nothing pending: `pending || committed` cannot hold "nothing",
-  so the commit shows it. The server checks the value as today (`Renderer.refusals`), commits it,
-  and on a refusal clears the pending signal itself, so `?group=` goes.
-- **Clearing** removes the viewer's choice: the variable reads its declared value again, and its
-  URL parameter goes. A declaration with no default (popups, §7) then reads as no value.
-- **Goes:** `sse/var/…`, `?group=`, `choose`'s CEL click string (`tapMod.clickSlot`) and its use
-  of `Variable.below`.
-
 ## Steps
 
 Stacked branches, each its own PR on the one before. The local workspaces outside the repo
 (`dashboard-local-dev-server/`, the HA box's) are migrated only when the maintainer asks.
 
 0. **The popup-variable spike**, on a throwaway branch: opening a popup by setting a root
-   `popups` variable with no default (§7, §9) instead of `/sse/surface/open`, closing it by
-   setting null, a forgotten `conn` re-minted as the surface routes do (ADR 0024), the back button
-   through the URL mirror, `ui_popups` holding at most one id, and a match over every popup
-   reproducing today's behaviour for popups declared inside a set's member or a choice's case,
-   including the member leaving while its popup is open. The findings go into this plan, or into
-   `docs/experiments.md` if the answer is no.
-1. **Done ahead, as their own stacked PRs off main:** P, a call can set a variable (§9; #707,
-   `docs/plan-call-sets-variable.md`), then sharing equal set guards (§3; #708,
-   `docs/plan-set-guard-sharing.md`), measured and dropped, which left the benches
-   `publishSetGuarded` and `publishSetNamedGuard` and tests that each member is decided by its
-   own state. Popups stay as they are until R4; `Variable.below` stays
-   only for `TabButton.active` until R1. The R steps stack on #708.
-2. **R1, slot classes.**
+   `popups` variable with no default (§7) instead of `/sse/surface/open`, closing it by setting
+   null, a press on a forgotten `conn` refused with its pending ask cleared (ADR 0024 §2), the
+   back button through the URL mirror, `ui_popups` holding at most one id, popup ids as
+   `varMod.Value` tokens (inline and registered), whether `ui_popups` can leave the call body once
+   the session holds the variable, and a match over every popup reproducing today's behaviour for
+   popups declared inside a set's member or a choice's case, including the member leaving while
+   its popup is open. The findings go into this plan, or into `docs/experiments.md` if the answer
+   is no.
+1. **R1, slot classes.**
    - `ValueSlot`/`NodesSlot`/`VarSlot`; `CardDef.regions` and `nodes.Region` go; the
      `slotMod.Slot` type references in the library become `ValueSlot` where they use a value
      member (one bulk edit), and the library's `nodes` import alias is renamed so it no longer reads
@@ -353,7 +320,11 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      snapshots change once. Every card that declares a region moves: `layout.pkl` (Grid, Row,
      Column), `core/surface.pkl` (Popup), `components/base/surface.pkl` (Tabs, If),
      `components/select.pkl`, `components/base/slider.pkl`, `components/base/tile.pkl`.
-     `TabButton` spells its highlight with a `VarSlot`, and `active` goes.
+     `TabButton` spells its highlight with a `VarSlot`, and `active` goes; with it
+     `Variable.below`, `own`, `declarer`, `Spelling` and `DashboardBuild.declarerToken` (§1).
+     `VarSignalNamesSuite` pairs the `VarSlot`'s spellings with `VarKey` instead;
+     `components.test.pkl`'s "a variable spells its declarer…" fact goes with them, and the fact
+     that a variable's name is a token reads it through something other than `declarer`.
    - Goldens byte-identical. Pkl facts: a typo is an error, an unplaced nodes slot is an error, a
      variable slot with no declarer above is an error. `PklEditorSupportSuite` cases for what R1
      bets the editor follows: completion on a `slotMod.nodes(…)` handle, and `panel.bind` reported
@@ -390,9 +361,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
 6. **R5, markup.** A test that no Scala source writes markup outside the contract in §8.
 
 Docs go in each step's commit: ADRs 0002 (popups), 0003 (sets), 0005/0025/0033 (the popup
-variable, the variable slot, `below`/`own` gone, a `SetVar` call and clearing), 0007 (choices),
-0008 (the set's root is a card), 0016/0023/0024 (a call that sets a variable, its body and
-session),
+variable, the variable slot, `below`/`own` gone), 0007 (choices), 0008 (the set's root is a
+card), 0016/0024 (a popup's open and close are `SetVar` calls, and what a press's body carries),
 0012 (structure, `bakeIndex`, deciding per send), 0017, 0020 (theme classes on the root), 0022
 (ids), 0034/0035 (`Choice` for nodes, `IndexOfTrue`); the pipeline doc §1a and §3–§4b;
 terminology (region, host, member, clause, plus **nodes slot**, **variable slot**, **fill**,
