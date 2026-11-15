@@ -29,7 +29,7 @@ import scala.collection.immutable.ListMap
 class GroupCallSuite extends FunctionalSuite {
 
   private def decl(service: ValueExpr, key: IdKind, id: String) =
-    CallDecl(service, ListMap(key -> List(ValueExpr.literal(id))))
+    CallDecl.Service(service, ListMap(key -> List(ValueExpr.literal(id))))
 
   /** What `c.tap.lights.off(dump.areas.stue)` leaves on its node. */
   private val lightsOff: LayoutNode.Component =
@@ -200,19 +200,18 @@ class GroupCallSuite extends FunctionalSuite {
   private val matchTemp: LayoutNode.Component =
     LayoutNode.Component(
       "call",
-      calls =
-        Map(
-          "tap" -> CallDecl(
-            ValueExpr.literal("input_number/set_value"),
-            ListMap(IdKind.Entity -> List(ValueExpr.literal(temp.entityId))),
-            ListMap(
-              "value" -> ValueExpr(
-                Value.Entity(Some(temp.entityId), Part.Whole),
-                List(Step.Cel("double(value.state)"))
-              )
+      calls = Map(
+        "tap" -> CallDecl.Service(
+          ValueExpr.literal("input_number/set_value"),
+          ListMap(IdKind.Entity -> List(ValueExpr.literal(temp.entityId))),
+          ListMap(
+            "value" -> ValueExpr(
+              Value.Entity(Some(temp.entityId), Part.Whole),
+              List(Step.Cel("double(value.state)"))
             )
           )
         )
+      )
     )
 
   test("a live data value is sent only as the page saw it, number as number") {

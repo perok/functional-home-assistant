@@ -1,7 +1,7 @@
 package fh.view.model
 
 import fh.view.history.Windows
-import fh.view.testkit.TestCard
+import fh.view.testkit.{TestCard, asService}
 import hedgehog.*
 import hedgehog.munit.HedgehogSuite
 
@@ -77,8 +77,11 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
       )
     ).validate()
 
-  private def on(service: ValueExpr, data: (String, ValueExpr)*) =
-    CallDecl(
+  private def on(
+      service: ValueExpr,
+      data: (String, ValueExpr)*
+  ): CallDecl.Service =
+    CallDecl.Service(
       service,
       ListMap(IdKind.Entity -> List(ValueExpr.literal("light.a"))),
       ListMap.from(data)
@@ -251,7 +254,7 @@ object CallDeclPropertySuite {
       child: List[(Read, Kind)],
       doing: List[(CallField, Read)]
   ):
-    private def decl = CallDecl(
+    private def decl = CallDecl.Service(
       doing.collectFirst { case (CallField.Service, r) => r.expr }.get,
       ListMap(IdKind.Entity -> List(ValueExpr.literal("light.a"))),
       ListMap.from(doing.collect { case (CallField.Data(k), r) => k -> r.expr })
@@ -304,9 +307,9 @@ object CallDeclPropertySuite {
     } yield (a, b))
       .list(Range.linear(0, max))
 
-  val genDecl: Gen[CallDecl] =
+  val genDecl: Gen[CallDecl.Service] =
     genNode.map(_.dashboard.card).map {
-      case c: LayoutNode.Component => c.calls("tap")
+      case c: LayoutNode.Component => c.calls("tap").asService
       case _                       => sys.error("a component")
     }
 

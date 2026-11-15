@@ -148,6 +148,13 @@ private[runtime] final class VarGraph(
       })
     )
 
+  /** Every node with a variable in scope, each set member's included. */
+  def nodes: List[NodeId] = scopes.keys.toList
+
+  /** The variable `name` as `node` reads it: its nearest declaration. */
+  def keyAt(node: NodeId, name: String): Option[VarKey] =
+    scopes.get(node).flatMap(_.get(name)).map(in => VarKey(in.declarer, name))
+
   /** Exact: a write both checks every reader and re-renders them. */
   def readersOf(key: VarKey): List[NodeId] =
     scopes.toList.collect {

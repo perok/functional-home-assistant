@@ -17,6 +17,9 @@ class SelectSuite extends CatsEffectSuite {
 
   private val sensor = HouseFixture.outsideTemp
 
+  /** `shade` as the root column `c` declares it. */
+  private val shadeOfC = VarKey(NodeId.derived("c"), "shade")
+
   private val entry =
     s"""amends "@fh-dashboard/entry.pkl"
        |
@@ -52,9 +55,9 @@ class SelectSuite extends CatsEffectSuite {
         // Buttons and dropdown offer both values; the cycle's two buttons
         // each choose the other.
         assertEquals(
-          s"/$declarer/shade/7d\\?group=${key.group}".r
-            .findAllMatchIn(html)
-            .size,
+          html
+            .sliding(s"$$${key.pendingSignal} = '7d'; @post".length)
+            .count(_ == s"$$${key.pendingSignal} = '7d'; @post"),
           3,
           clue = html
         )
@@ -79,10 +82,7 @@ class SelectSuite extends CatsEffectSuite {
         for {
           conn <- ts.load().map(_.conn)
           session <- ts.sessions.get(conn)
-          result <- ts.postResult(
-            s"sse/var/${ts.slug}/c/shade/7d?group=var_c__shade",
-            body = s"""{"${Server.ConnSignal}":"$conn"}"""
-          )
+          result <- ts.choose(conn, shadeOfC, Some("7d"))
           chose <- session.traverse(_.state.map(_.vars))
           queued <- session.fold(IO.pure(List.empty[SseFrame]))(_.takeBacklog)
         } yield {
@@ -112,6 +112,8 @@ class SelectSuite extends CatsEffectSuite {
        |  children {
        |    c.select(shade).options(List("24h", "7d", "30d")).style("dropdown")
        |    c.select(shade).options(List("24h", "7d", "30d")).style("cycle")
+       |    // A value no option takes, which the write refuses.
+       |    c.button("1y", shade.choose("1y"))
        |  }
        |}
        |""".stripMargin
@@ -150,14 +152,8 @@ class SelectSuite extends CatsEffectSuite {
         for {
           conn <- ts.load().map(_.conn)
           session <- ts.sessions.get(conn)
-          result <- ts.postResult(
-            s"sse/var/${ts.slug}/c/shade/7d?group=var_c__shade",
-            body = s"""{"${Server.ConnSignal}":"$conn"}"""
-          )
-          refused <- ts.postResult(
-            s"sse/var/${ts.slug}/c/shade/1y?group=var_c__shade",
-            body = s"""{"${Server.ConnSignal}":"$conn"}"""
-          )
+          result <- ts.choose(conn, shadeOfC, Some("7d"))
+          refused <- ts.choose(conn, shadeOfC, Some("1y"))
           queued <- session.fold(IO.pure(List.empty[SseFrame]))(_.takeBacklog)
         } yield {
           assertEquals(result._1, Status.NoContent, clue = result)
@@ -171,7 +167,10 @@ class SelectSuite extends CatsEffectSuite {
           )
           assertEquals(shown(sent)._2, List("7d"), sent)
           // The cycle's 7d chooses the next, round.
-          assert(sent.contains("/c/shade/30d?group="), clue = sent)
+          assert(
+            sent.contains("$_var_c__shade__pending = '30d'; @post"),
+            clue = sent
+          )
           assert(
             refused._2.contains("one of its members' values (24h, 7d, 30d)"),
             clue = refused
@@ -342,7 +341,7 @@ object SelectSuite {
   /** How many presses `html` renders of calls to `service` on `entity`. */
   def callsIn(
       html: String,
-      presses: List[(CallDecl, String)],
+      presses: List[(CallDecl.Service, String)],
       service: String,
       entity: String
   ): Int =

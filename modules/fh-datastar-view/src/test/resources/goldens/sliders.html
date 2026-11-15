@@ -36,7 +36,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0_head_0__error = ''))"
   data-fh-node="c_0_head_0"
       data-on:input="$_e.light.kitchen.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_0_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_0_head_0', {payload: {posted: {'slide': $_c_0_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
+      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_0_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_0_head_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {'slide': $_c_0_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#4" ></span>
 </div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_1">
@@ -75,7 +75,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0__error = ''))"
   data-fh-node="c_1_head_0"
       data-on:input="$_e.light.kitchen.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.kitchen.t#5 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_1_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_1_head_0', {payload: {posted: {'slide': $_c_1_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
+      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_1_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_1_head_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {'slide': $_c_1_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#4" ></span>
 </div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_2">
@@ -96,7 +96,7 @@
   data-text="$_e.light.kitchen.state">on</span>
   <div class="fh-slider-actions"><button class="fh-cell fh-chip fh-circle fh-hug" id="c_2_head_0_actions_0"
   data-signals="{_e: {light: {kitchen: {t#2: false}}}}"
-  data-on:click="$_c_2_head_0_actions_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/sliders/call_2?node=c_2_head_0_actions_0', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_2_head_0_actions_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/sliders/call_2?node=c_2_head_0_actions_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_2_head_0_actions_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_head_0_actions_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2_head_0_actions_0__error = ''))"
@@ -128,7 +128,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2_head_0__error = ''))"
   data-fh-node="c_2_head_0"
       data-on:input="$_e.light.kitchen.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_2_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_2_head_0', {payload: {posted: {'slide': $_c_2_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
+      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_2_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_2_head_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {'slide': $_c_2_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#4" ></span>
 </div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_3">
@@ -161,7 +161,7 @@
   data-style:--fh-fill="$_e.light.plug.t#7" ></span>
 <button type="button" class="fh-slider-toggle" aria-label="Plug"
       data-attr:value="$_e.light.plug.t#3"
-      data-on:click="$_c_3_head_0__busy_change ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/sliders/call_3?node=c_3_head_0', {payload: {posted: {}, seen: {} } })"
+      data-on:click="$_c_3_head_0__busy_change ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/sliders/call_3?node=c_3_head_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
       data-indicator="_c_3_head_0__busy_change"
   data-attr:disabled="$_c_3_head_0__busy_change || $_e.light.plug.t#2"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_3_head_0__error = ''))"
@@ -172,7 +172,7 @@
 <div class="fh-cell fh-slider-text" id="c_1_head_0_text_0"><strong class="fh-text"><span class="fh-text-run">Kitchen</span></strong></div>
 <!-- ==== as fixtured · patch c_2_head_0_actions_0 ==== -->
 <button class="fh-cell fh-chip fh-circle fh-hug" id="c_2_head_0_actions_0"
-  data-on:click="$_c_2_head_0_actions_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/sliders/call_2?node=c_2_head_0_actions_0', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_2_head_0_actions_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/sliders/call_2?node=c_2_head_0_actions_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_2_head_0_actions_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_head_0_actions_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2_head_0_actions_0__error = ''))"
@@ -228,7 +228,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0_head_0__error = ''))"
   data-fh-node="c_0_head_0"
       data-on:input="$_e.light.kitchen.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_0_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_0_head_0', {payload: {posted: {'slide': $_c_0_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
+      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_0_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_0_head_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {'slide': $_c_0_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#4" ></span>
 </div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_1">
@@ -267,7 +267,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0__error = ''))"
   data-fh-node="c_1_head_0"
       data-on:input="$_e.light.kitchen.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.kitchen.t#5 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_1_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_1_head_0', {payload: {posted: {'slide': $_c_1_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
+      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_1_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_1_head_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {'slide': $_c_1_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#4" ></span>
 </div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_2">
@@ -288,7 +288,7 @@
   data-text="$_e.light.kitchen.state">off</span>
   <div class="fh-slider-actions"><button class="fh-cell fh-chip fh-circle fh-hug" id="c_2_head_0_actions_0"
   data-signals="{_e: {light: {kitchen: {t#2: false}}}}"
-  data-on:click="$_c_2_head_0_actions_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/sliders/call_2?node=c_2_head_0_actions_0', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_2_head_0_actions_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/sliders/call_2?node=c_2_head_0_actions_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_2_head_0_actions_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_head_0_actions_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2_head_0_actions_0__error = ''))"
@@ -320,7 +320,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2_head_0__error = ''))"
   data-fh-node="c_2_head_0"
       data-on:input="$_e.light.kitchen.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_2_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_2_head_0', {payload: {posted: {'slide': $_c_2_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
+      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_2_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_2_head_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {'slide': $_c_2_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 29.5275590551%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#4" ></span>
 </div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_3">
@@ -353,7 +353,7 @@
   data-style:--fh-fill="$_e.light.plug.t#7" ></span>
 <button type="button" class="fh-slider-toggle" aria-label="Plug"
       data-attr:value="$_e.light.plug.t#3"
-      data-on:click="$_c_3_head_0__busy_change ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/sliders/call_3?node=c_3_head_0', {payload: {posted: {}, seen: {} } })"
+      data-on:click="$_c_3_head_0__busy_change ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/sliders/call_3?node=c_3_head_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
       data-indicator="_c_3_head_0__busy_change"
   data-attr:disabled="$_c_3_head_0__busy_change || $_e.light.plug.t#2"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_3_head_0__error = ''))"
@@ -400,7 +400,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0_head_0__error = ''))"
   data-fh-node="c_0_head_0"
       data-on:input="$_e.light.kitchen.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_0_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_0_head_0', {payload: {posted: {'slide': $_c_0_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_0_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_0_head_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {'slide': $_c_0_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#4" ></span>
 </div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_1">
@@ -438,7 +438,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_head_0__error = ''))"
   data-fh-node="c_1_head_0"
       data-on:input="$_e.light.kitchen.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'; $_e.light.kitchen.t#5 = Math.round(((evt.target.value - 1) * 100 / (255 - 1))) + ' %'"
-      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_1_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_1_head_0', {payload: {posted: {'slide': $_c_1_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_1_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_1_head_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {'slide': $_c_1_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#4" ></span>
 </div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_2">
@@ -459,7 +459,7 @@
   data-text="$_e.light.kitchen.state">unavailable</span>
   <div class="fh-slider-actions"><button class="fh-cell fh-chip fh-circle fh-hug" id="c_2_head_0_actions_0"
   data-signals="{_e: {light: {kitchen: {t#2: true}}}}"
-  data-on:click="$_c_2_head_0_actions_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/sliders/call_2?node=c_2_head_0_actions_0', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#2"
+  data-on:click="$_c_2_head_0_actions_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/sliders/call_2?node=c_2_head_0_actions_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_2_head_0_actions_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_head_0_actions_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2_head_0_actions_0__error = ''))"
   data-fh-node="c_2_head_0_actions_0"
@@ -489,7 +489,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2_head_0__error = ''))"
   data-fh-node="c_2_head_0"
       data-on:input="$_e.light.kitchen.t#4 = (100 - ((evt.target.value - 1) * 100 / (255 - 1))) + '%'"
-      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_2_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_2_head_0', {payload: {posted: {'slide': $_c_2_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
+      data-on:change="$_e.light.kitchen.t#2 ? '' : $_c_2_head_0__busy_change ? '' : @post('sse/call/sliders/call_1?node=c_2_head_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {'slide': $_c_2_head_0__slide}, seen: {} } })" />  <span style="--fh-fill: 100%;background:currentcolor"
   data-style:--fh-fill="$_e.light.kitchen.t#4" ></span>
 </div></div><div class="fh-slider-members"></div></article>
 <article class="fh-cell fh-card fh-slider-card " id="c_3">
@@ -522,7 +522,7 @@
   data-style:--fh-fill="$_e.light.plug.t#7" ></span>
 <button type="button" class="fh-slider-toggle" aria-label="Plug"
       data-attr:value="$_e.light.plug.t#3"
-      data-on:click="$_c_3_head_0__busy_change ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/sliders/call_3?node=c_3_head_0', {payload: {posted: {}, seen: {} } })"
+      data-on:click="$_c_3_head_0__busy_change ? '' : $_e.light.plug.t#2 ? '' : @post('sse/call/sliders/call_3?node=c_3_head_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
       data-indicator="_c_3_head_0__busy_change" disabled data-attr:disabled="$_c_3_head_0__busy_change || $_e.light.plug.t#2"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3_head_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_3_head_0__error = ''))"
   data-fh-node="c_3_head_0"></button></div></div><div class="fh-slider-members"></div></article></div>

@@ -102,7 +102,7 @@ class ServerRoutesSuite extends ServerHarness {
     assertEquals(r.surfaces.selectionAnomalies(env).size, 1)
   }
 
-  private def posting(key: String, t: ValueType) = CallDecl(
+  private def posting(key: String, t: ValueType) = CallDecl.Service(
     ValueExpr.literal("light/turn_on"),
     ListMap(IdKind.Entity -> List(ValueExpr.literal("light.a"))),
     ListMap(key -> ValueExpr(Value.Posted(key, t)))
@@ -142,7 +142,7 @@ class ServerRoutesSuite extends ServerHarness {
       .foreach(body => assert(Server.callBody(body).isLeft, clue = body))
     assertEquals(
       Server.callBody(""),
-      Right(Server.CallBody(JsonObject.empty, JsonObject.empty))
+      Right(Server.CallBody(None, None, JsonObject.empty, JsonObject.empty))
     )
   }
 

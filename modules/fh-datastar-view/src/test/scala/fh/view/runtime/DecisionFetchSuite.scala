@@ -254,7 +254,7 @@ class DecisionFetchSuite extends munit.FunSuite {
       LayoutNode.Component(
         "call",
         calls = Map(
-          "tap" -> CallDecl(
+          "tap" -> CallDecl.Service(
             ValueExpr.literal("light/turn_off"),
             ListMap(
               IdKind.Entity -> List(
@@ -273,7 +273,9 @@ class DecisionFetchSuite extends munit.FunSuite {
       List("the call light/turn_off" -> "sensor.left")
     )
     val ready = d.validated().toOption.get.ready
-    val call = ready.calls.values.head
+    val call = ready.calls.values.head match
+      case s: Ready.ServiceCall => s
+      case other                => fail(s"a service call, not $other")
     val node = ready.card match
       case col: Ready.Component =>
         col.regions(LayoutNode.DefaultRegion) match

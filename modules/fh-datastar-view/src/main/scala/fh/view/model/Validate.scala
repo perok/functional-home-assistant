@@ -613,6 +613,30 @@ private[model] object Validate:
         .sorted
         .map(n => s"$nodeId: '$n' is both a slot and a call — rename one")
 
+    /** A choice is of the variable as this node reads it, and its value is
+      * spelled into the page's JS as a plain token.
+      */
+    def choiceErrors(
+        nodeId: String,
+        c: LayoutNode.Component,
+        scope: Map[String, String]
+    ): List[String] =
+      c.calls.toList.sortBy(_._1).flatMap {
+        case (n, CallDecl.SetVar(v, value)) =>
+          Option
+            .when(!scope.contains(v))(
+              s"$nodeId: '$n' chooses the variable '$v', which no node at " +
+                "or above it declares"
+            )
+            .toList ++ value
+            .filterNot(fh.view.runtime.VarKey.ValueToken.matches)
+            .map(x =>
+              s"$nodeId: '$n' chooses '$x', which is not a plain token " +
+                "([A-Za-z0-9_.:-]+)"
+            )
+        case _ => Nil
+      }
+
     /** `<slot>.jsValue` has no answer for a live non-signal slot (ADR 0017);
       * without this the var renders empty and the handler is silently
       * malformed.
@@ -830,6 +854,7 @@ private[model] object Validate:
             slots.keySet ++ c.calls.keySet,
             c.regions.keySet
           ) ++ placedCallErrors(nodeId, c) ++
+            choiceErrors(nodeId, c, here) ++
             slotErrors(nodeId, card, checked, here) ++
             varErrors(nodeId, vars) ++
             slotVarErrors(nodeId, card, c.bound, here) ++
@@ -1248,53 +1273,61 @@ private[model] object Validate:
 
     // A call runs at the press as a decision: for no viewer, about no subject.
     val callErrors: List[String] =
-      calls.toList.sortBy(_._1).flatMap { (id, d) =>
-        val call = s"the call ${d.service.literal.getOrElse(id)}"
-        // The kind of id a field names, which HA takes as text or a list of it.
-        val fields =
-          ("service", d.service, None) ::
-            d.target.toList.flatMap((k, es) => es.map((k.key, _, Some(k)))) ++
-            d.exclude.toList
-              .flatMap((k, es) => es.map((s"exclude.${k.key}", _, Some(k)))) ++
-            d.data.toList.map((k, e) => (s"data.$k", e, None))
-        val fieldErrors = fields.flatMap { (where, e, ids) =>
-          val typed = e.typed(Nil)
-          List(
-            typed.left.toOption.map(m => s"$call: $where: ${m.message}"),
-            Option.when(e.readsMissingSubject)(
-              s"$call: $where reads an entity it does not name — a call has " +
-                "no subject, so name it"
-            ),
-            e.variables.headOption.map(v =>
-              s"$call: $where reads the node variable '$v' — a call is " +
-                "decided once for every viewer"
-            ),
-            typed.toOption
-              .map(_.out)
-              .filter { out =>
-                if (where == "service") !ValueType.fits(out, SlotType.Text)
-                else if (ids.isDefined)
-                  out != ValueType.Text && out != ValueType.List(ValueType.Text)
-                else false
-              }
-              .map(out => s"$call: $where gives a ${out.name}"),
-            (ids, e.source) match
-              case (Some(k), p: Value.Present) if p.of != k =>
-                Some(
-                  s"$call: $where holds a set of ${p.of.word} ids, which goes " +
-                    s"under ${p.of.key}"
-                )
-              case _ => None
-          ).flatten
+      calls.toList
+        .sortBy(_._1)
+        .collect { case (_, d: CallDecl.Service) =>
+          d
         }
-        val dataKeyErrors = d.data.keys.toList
-          .filter(k => IdKind.ofKey(k).isDefined || k == "exclude")
-          .map(k =>
-            s"$call: the data key '$k' is named like a target key, and HA " +
-              "merges a call's target into its data"
-          )
-        fieldErrors ++ dataKeyErrors
-      }
+        .flatMap { d =>
+          val call = d.named
+          // The kind of id a field names, which HA takes as text or a list of it.
+          val fields =
+            ("service", d.service, None) ::
+              d.target.toList.flatMap((k, es) => es.map((k.key, _, Some(k)))) ++
+              d.exclude.toList
+                .flatMap((k, es) =>
+                  es.map((s"exclude.${k.key}", _, Some(k)))
+                ) ++
+              d.data.toList.map((k, e) => (s"data.$k", e, None))
+          val fieldErrors = fields.flatMap { (where, e, ids) =>
+            val typed = e.typed(Nil)
+            List(
+              typed.left.toOption.map(m => s"$call: $where: ${m.message}"),
+              Option.when(e.readsMissingSubject)(
+                s"$call: $where reads an entity it does not name — a call has " +
+                  "no subject, so name it"
+              ),
+              e.variables.headOption.map(v =>
+                s"$call: $where reads the node variable '$v' — a call is " +
+                  "decided once for every viewer"
+              ),
+              typed.toOption
+                .map(_.out)
+                .filter { out =>
+                  if (where == "service") !ValueType.fits(out, SlotType.Text)
+                  else if (ids.isDefined)
+                    out != ValueType.Text && out != ValueType
+                      .List(ValueType.Text)
+                  else false
+                }
+                .map(out => s"$call: $where gives a ${out.name}"),
+              (ids, e.source) match
+                case (Some(k), p: Value.Present) if p.of != k =>
+                  Some(
+                    s"$call: $where holds a set of ${p.of.word} ids, which goes " +
+                      s"under ${p.of.key}"
+                  )
+                case _ => None
+            ).flatten
+          }
+          val dataKeyErrors = d.data.keys.toList
+            .filter(k => IdKind.ofKey(k).isDefined || k == "exclude")
+            .map(k =>
+              s"$call: the data key '$k' is named like a target key, and HA " +
+                "merges a call's target into its data"
+            )
+          fieldErrors ++ dataKeyErrors
+        }
 
     // A decision's reads are what it asks every version, so its window is
     // written down: one chosen by state would be a pick per version.

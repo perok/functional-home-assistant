@@ -53,50 +53,61 @@ class ActionSignalNamesSuite extends CatsEffectSuite {
     TestServer
       .fromWorkspace("fixture-names", entry, List(light))
       .use { ts =>
-        ts.page().map { html =>
-          // From the markup, so a Pkl rename moves these and the server must
-          // follow.
-          val nodeId =
-            firstMatch("""data-fh-node="([A-Za-z0-9_]+)"""".r, html, "node id")
-          // A tab bar's group is its node variable's (ADR 0033), as its
-          // buttons send it.
-          val groupId = firstMatch(
-            """\?group=(var_[A-Za-z0-9_]+)'""".r,
-            html,
-            "tab group id"
-          )
+        ts.page()
+          .flatMap { html =>
+            // From the markup, so a Pkl rename moves these and the server must
+            // follow.
+            val nodeId =
+              firstMatch(
+                """data-fh-node="([A-Za-z0-9_]+)"""".r,
+                html,
+                "node id"
+              )
+            // A tab's press writes its ask, then posts; posted with no `conn`,
+            // it is refused.
+            val tab =
+              """\$(_var_[A-Za-z0-9_]+__pending) = '[^']*'; @post\('(sse/call/[^']+)'""".r
+                .findFirstMatchIn(html)
+                .getOrElse(
+                  fail("the page carries no tab press — the markup moved")
+                )
+            val (pending, tabPress) = (tab.group(1), tab.group(2))
 
-          val req = Request[IO](
-            Method.POST,
-            Uri.unsafeFromString(
-              "/sse/call/x/0123456789abcdef" +
-                s"?${Server.NodeParam}=$nodeId&${Server.GroupParam}=$groupId"
+            val req = Request[IO](
+              Method.POST,
+              Uri.unsafeFromString(
+                s"/sse/call/x/0123456789abcdef?${Server.NodeParam}=$nodeId"
+              )
             )
-          )
-          val names =
-            Server.actionSignals(req, "refused").asObject.get.keys.toSet
+            val names =
+              Server.actionSignals(req, "refused", None).asObject.get.keys.toSet
 
-          // `$<name>`: an expression reading it is what must match, and a
-          // substring of a longer signal would pass a bare check.
-          val bound = names - Server.ToastSignal
-          assertEquals(
-            bound,
-            Set(s"_${nodeId}__error", s"_${groupId}__pending"),
-            clue = "the server stopped naming one of the two"
-          )
-          bound.foreach(n =>
-            assert(html.contains(s"$$$n"), s"the page never reads $$$n")
-          )
-
-          // The toast's reader is the page's handler calling a shell global,
-          // and a page has shipped calling a function no build emitted.
-          assert(names.contains(Server.ToastSignal), clue = names)
-          assert(html.contains(s"$$${Server.ToastSignal} = ''"), clue = html)
-          assert(
-            html.contains("window.fhToast="),
-            clue = "the shell must define fhToast"
-          )
-        }
+            // `$<name>`: an expression reading it is what must match, and a
+            // substring of a longer signal would pass a bare check.
+            val bound = names - Server.ToastSignal
+            assertEquals(bound, Set(s"_${nodeId}__error"))
+            bound.foreach(n =>
+              assert(html.contains(s"$$$n"), s"the page never reads $$$n")
+            )
+            ts.postResult(tabPress, body = "{}")
+              .map { (_, refusal) =>
+                assert(
+                  refusal.contains(s"\"$pending\":\"\""),
+                  clue = s"a refused choice must clear $pending: $refusal"
+                )
+              }
+              .as(names -> html)
+          }
+          .map { (names, html) =>
+            // The toast's reader is the page's handler calling a shell global,
+            // and a page has shipped calling a function no build emitted.
+            assert(names.contains(Server.ToastSignal), clue = names)
+            assert(html.contains(s"$$${Server.ToastSignal} = ''"), clue = html)
+            assert(
+              html.contains("window.fhToast="),
+              clue = "the shell must define fhToast"
+            )
+          }
       }
       .timeout(60.seconds)
   }
