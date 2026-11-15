@@ -142,17 +142,23 @@ object Ready:
       case Activation.Var(_, at) => Some(at)
       case _                     => None
 
-  /** A declared call with every field ready to run at the press, and the
-    * fetches any of them reads, which the press answers first.
+  /** A declared call ready to run at the press. */
+  sealed trait Call:
+    def decl: CallDecl
+
+  /** Every field ready to run, and the fetches any of them reads, which the
+    * press answers first.
     */
-  final class Call(
-      val decl: CallDecl,
+  final class ServiceCall(
+      val decl: CallDecl.Service,
       val service: Evaluator.Run,
       val target: ListMap[IdKind, List[Evaluator.Run]],
       val exclude: ListMap[IdKind, List[Evaluator.Run]],
       val data: ListMap[String, Evaluator.Run],
       val reads: Set[SlotRead]
-  )
+  ) extends Call
+
+  final case class SetVarCall(decl: CallDecl.SetVar) extends Call
 
   /** A call as a node places it: its id, and each field the node sees with the
     * slot the build added for it, a `Handler` signal holding the field's output
@@ -255,22 +261,26 @@ object Ready:
     ): Map[String, List[(CallField, BoundSlot)]] =
       if (c.calls.isEmpty) Map.empty
       else
-        c.calls.map((name, decl) =>
-          name -> decl.doing.collect {
-            case (field, e)
-                if e.entityReads.nonEmpty && e.fetches.isEmpty &&
-                  !e.readsPosted =>
-              field -> BoundSlot(
-                e,
-                Map.empty,
-                signal = Some(SignalBind.Handler),
-                `type` = e.typed(Nil).map(_.out) match
-                  case Right(ValueType.Bool)                 => SlotType.Bool
-                  case Right(ValueType.Int | ValueType.Real) => SlotType.Number
-                  case _                                     => SlotType.Text
-              )
-          }
-        )
+        c.calls.map {
+          // A choice reads nothing: the press is its value.
+          case (name, _: CallDecl.SetVar)     => name -> Nil
+          case (name, decl: CallDecl.Service) =>
+            name -> decl.doing.collect {
+              case (field, e)
+                  if e.entityReads.nonEmpty && e.fetches.isEmpty &&
+                    !e.readsPosted =>
+                field -> BoundSlot(
+                  e,
+                  Map.empty,
+                  signal = Some(SignalBind.Handler),
+                  `type` = e.typed(Nil).map(_.out) match
+                    case Right(ValueType.Bool)                 => SlotType.Bool
+                    case Right(ValueType.Int | ValueType.Real) =>
+                      SlotType.Number
+                    case _ => SlotType.Text
+                )
+            }
+        }
 
     def set(s: LayoutNode.SetNode): Built[SetNode] =
       (
@@ -307,7 +317,11 @@ object Ready:
         case fh.view.model.Activation.State(c)   =>
           c.traverse(condition).map(Activation.State(_))
 
-    private def call(d: CallDecl): Built[Call] =
+    private def call(decl: CallDecl): Built[Call] = decl match
+      case d: CallDecl.Service => service(d)
+      case d: CallDecl.SetVar  => Right(SetVarCall(d))
+
+    private def service(d: CallDecl.Service): Built[ServiceCall] =
       def run(e: ValueExpr) = Evaluator.compile(e, scope.call).map(_.run)
       def keys(m: ListMap[IdKind, List[ValueExpr]]) =
         m.toList
@@ -319,7 +333,7 @@ object Ready:
         keys(d.exclude),
         d.data.toList.traverse((k, e) => run(e).map(k -> _)).map(ListMap.from)
       ).mapN((service, target, exclude, data) =>
-        Call(
+        ServiceCall(
           d,
           service,
           target,

@@ -1,33 +1,52 @@
 package fh.view.model
 
-import cats.syntax.all.*
-import io.circe.{ACursor, Decoder, DecodingFailure, JsonObject}
+import io.circe.Decoder
+import io.circe.derivation.ConfiguredDecoder
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import scala.collection.immutable.ListMap
 
-/** A call a tap declares (Pkl's `tapMod.CallDecl`): what HA is asked, every
-  * part a value expression. A target key holds expressions each giving an id or
-  * a list of them, the key's ids their concatenation. The server runs its own
-  * evaluation at the press; the page only names the call by [[id]] (ADR 0023).
+/** A call a tap declares (Pkl's `slotMod.CallDecl`), one kind per call, picked
+  * by `kind` on the wire. The server runs its own evaluation at the press; the
+  * page only names the call by [[id]] (ADR 0023).
   */
-final case class CallDecl(
-    service: ValueExpr,
-    target: ListMap[IdKind, List[ValueExpr]],
-    data: ListMap[String, ValueExpr] = ListMap.empty,
-    exclude: ListMap[IdKind, List[ValueExpr]] = ListMap.empty
-) derives CanEqual:
+enum CallDecl derives CanEqual:
 
-  /** What it does, besides what it reaches: the fields a node can see. */
-  def doing: List[(CallField, ValueExpr)] =
-    (CallField.Service -> service) ::
-      data.toList.map((k, e) => CallField.Data(k) -> e)
+  /** What HA is asked, every part a value expression. A target key holds
+    * expressions each giving an id or a list of them, the key's ids their
+    * concatenation.
+    */
+  case Service(
+      service: ValueExpr,
+      target: ListMap[IdKind, List[ValueExpr]],
+      data: ListMap[String, ValueExpr] = ListMap.empty,
+      exclude: ListMap[IdKind, List[ValueExpr]] = ListMap.empty
+  )
 
-  def all: List[ValueExpr] = service :: target.values.flatten.toList ++
-    exclude.values.flatten ++ data.values
+  /** This viewer's choice of the node variable `variable`, its declarer the
+    * nearest one at the pressing node; `None` clears the choice.
+    */
+  case SetVar(variable: String, value: Option[VarValue])
+
+  def all: List[ValueExpr] = this match
+    case Service(service, target, data, exclude) =>
+      service :: target.values.flatten.toList ++
+        exclude.values.flatten ++ data.values
+    case _: SetVar => Nil
 
   lazy val id: CallId = CallId.of(this)
+
+  /** How a message names it. */
+  def named: String = this match
+    case s: Service   => s"the call ${s.service.literal.getOrElse(id)}"
+    case SetVar(v, _) => s"the choice of '$v'"
+
+extension (s: CallDecl.Service)
+  /** What it does, besides what it reaches: the fields a node can see. */
+  def doing: List[(CallField, ValueExpr)] =
+    (CallField.Service -> s.service) ::
+      s.data.toList.map((k, e) => CallField.Data(k) -> e)
 
 /** A field of what a call does, as `seen` posts it: `{service, data: {k}}`. */
 enum CallField derives CanEqual:
@@ -39,42 +58,11 @@ enum CallField derives CanEqual:
     case Data(key) => s"data.$key"
 
 object CallDecl:
+  import Strict.listMap
+  import io.github.iltotore.iron.circe.given
 
-  private def ordered[A: Decoder](
-      c: ACursor
-  ): Decoder.Result[ListMap[String, A]] =
-    c.as[JsonObject]
-      .flatMap(_.toList.traverse((k, v) => v.as[A].map(k -> _)))
-      .map(ListMap.from)
-
-  private def keyed(c: ACursor, field: String) =
-    ordered[List[ValueExpr]](c.downField(field)).flatMap(
-      _.toList
-        .traverse((k, es) =>
-          IdKind
-            .ofKey(k)
-            .toRight(
-              DecodingFailure(
-                s"unknown $field key '$k' — one of " +
-                  IdKind.values.map(_.key).mkString(", "),
-                c.history
-              )
-            )
-            .map(_ -> es)
-        )
-        .map(ListMap.from)
-    )
-
-  given Decoder[CallDecl] = Decoder.instance { c =>
-    Strict.only(c, Set("service", "target", "data", "exclude")) *> (
-      c.get[ValueExpr]("service"),
-      keyed(c, "target"),
-      if (c.downField("data").succeeded) ordered[ValueExpr](c.downField("data"))
-      else Right(ListMap.empty),
-      if (c.downField("exclude").succeeded) keyed(c, "exclude")
-      else Right(ListMap.empty)
-    ).mapN(CallDecl.apply)
-  }
+  given Decoder[CallDecl] =
+    ConfiguredDecoder.derived(using Strict.configuration)
 
 /** A declared call's id: equal declarations share one, and a declaration's key
   * order does not move it.
@@ -96,9 +84,14 @@ object CallId:
           m.map((k, es) => k.key -> es.map(e => sized(e.inputKey)).mkString)
         )
       )
-    val canonical =
-      sized(d.service.inputKey) + ids(d.target) + ids(d.exclude) +
-        sized(keyed(d.data.map((k, e) => k -> e.inputKey)))
+    // A service call's canonical form names no kind, so no id moved with the
+    // union; it opens with a digit, which a choice's never does.
+    val canonical = d match
+      case CallDecl.Service(service, target, data, exclude) =>
+        sized(service.inputKey) + ids(target) + ids(exclude) +
+          sized(keyed(data.map((k, e) => k -> e.inputKey)))
+      case CallDecl.SetVar(variable, value) =>
+        "SetVar" + sized(variable) + value.fold("-")(sized)
     MessageDigest
       .getInstance("SHA-256")
       .digest(canonical.getBytes(StandardCharsets.UTF_8))

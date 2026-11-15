@@ -409,17 +409,17 @@ facts {
     bar.map((n) -> (n as nodes.Node).slotsByName["label"].value) == List("1h", "24h", "7d", "30d")
     // Per node, so one window's answer never clears another's guard (ADR 0019).
     bar.every((n) -> (n as nodes.Node).slotsByName["busy"].value == true)
-    // A window names the chooser by the token, never by an id it cannot know.
+    // A window names the variable, never the chooser's id, which it cannot know.
     let (week = bar[2] as nodes.Node)
-      (week.slotsByName["onclick"].value as slotMod.Reading).source.src.contains(
-        "/" + historyMod.windowVar.declarer + "/window/7d?group=" + historyMod.windowVar.below.group + "'"
-      )
+      week.declared["tap"] == new slotMod.SetVarCall { variable = "window"; value = "7d" }
       && (week.slotsByName["active"].value as String).endsWith("=== '7d'")
   }
 
   ["a variable choice is guarded, and takes only plain tokens"] {
     historyMod.windowVar.choose("7d").busy
-    // A space would split the route segment, and a `'` close the JS string.
+    // Null clears the choice: a call naming the variable and no value.
+    historyMod.windowVar.choose(null).decl == new slotMod.SetVarCall { variable = "window"; value = null }
+    // A space would split the URL parameter, and a `'` close the JS string.
     module.catch(() -> historyMod.windowVar.choose("7 d")).contains("matches")
     module.catch(() -> historyMod.windowVar.choose("it's")).contains("matches")
     // The name is spelled into signals and the URL, so it is a token too.
@@ -1603,9 +1603,10 @@ facts {
     // The switch is a cycling select of `control`: each face chooses the next, so a
     // tap steps round.
     local steps = (s.shownButtons[0] as selectMod.VarSelectCycle).optionNodes
-      .map((n) -> (n.slotsByName["onclick"].value as slotMod.Reading).source.src)
+      .map((n) -> n.declared["tap"] as slotMod.SetVarCall)
     steps.length == 3
-    steps[0].contains("/control/colourTemp") && steps[1].contains("/control/colour?") && steps[2].contains("/control/brightness")
+    steps.every((d) -> d.variable == "control")
+    steps.map((d) -> d.value) == List("colourTemp", "colour", "brightness")
     // A dimmer, or a capability axis, is one head and no pill.
     !c.entitySlider(dimmer).declaresControl
     !c.entitySlider(lamp.colourTemp!!).declaresControl
@@ -1925,7 +1926,7 @@ facts {
     // the change handler leads with the refusal guard.
     local head = c.cards["sliderHead"].template
     head.contains(#"data-attr:disabled="$_{{id}}__busy_change"# + tapMod.whenRefusable(" || " + tapMod.refused) + "\"")
-    head.contains(#"data-on:change=""# + tapMod.refusalGuard + #"$_{{id}}__busy_change ? '' : @post("#)
+    head.contains(#"data-on:change=""# + tapMod.refusalGuard + #"$_{{id}}__busy_change ? '' : "# + tapMod.tapCall.pending + "@post(")
     // The refusal is the tap's OR the card's own `disabled`, whichever a node
     // carries — so the same guard stops a slider its author disabled.
     tapMod.refused.contains("{{{tapDisabled.jsValue}}}") && tapMod.refused.contains("{{{disabled.jsValue}}}")

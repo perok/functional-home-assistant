@@ -53,9 +53,9 @@ class WindowChooserSmokeSuite extends SmokeSuite {
   private def press(page: Page, w: String): IO[Unit] =
     IO.blocking {
       assertThat(button(page, w)).isInViewport()
+      // A choice is a declared call: `w` is in the call, not the URL.
       val _ = page.waitForResponse(
-        (r: com.microsoft.playwright.Response) =>
-          r.url().contains(s"/window/$w"),
+        "**/sse/call/**",
         () => button(page, w).click()
       )
     }

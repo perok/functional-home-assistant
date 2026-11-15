@@ -66,7 +66,7 @@ object FixtureDashboard {
     LayoutNode.Component(
       "call",
       calls = Map(
-        "tap" -> CallDecl(
+        "tap" -> CallDecl.Service(
           ValueExpr.literal(service),
           ListMap(IdKind.Entity -> List(ValueExpr.literal(e.entityId))),
           ListMap.from(posted.map((k, t) => k -> ValueExpr(Value.Posted(k, t))))
@@ -76,7 +76,7 @@ object FixtureDashboard {
 
   /** Where the page posts `node`'s call: its id, and the node it is on. */
   def pressOf(slug: String, node: LayoutNode.Component, id: String): String =
-    s"sse/call/$slug/${node.calls("tap").id}?node=$id"
+    s"sse/call/$slug/${node.calls("tap").asService.id}?node=$id"
 
   /** `guard` is every member's presence condition, `None` for always shown. */
   def set(

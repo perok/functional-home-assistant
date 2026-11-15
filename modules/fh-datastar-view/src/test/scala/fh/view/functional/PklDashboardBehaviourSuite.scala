@@ -156,7 +156,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // payload, which the bundle sends in place of the signals, keeps it out
       // of the request body.
       assert(
-        html.contains("{payload: {posted: {}, seen: {} } })"),
+        html.contains(
+          "{payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+        ),
         clue = html
       )
       // A more-info tap is guarded too: the open answers once the popup's
@@ -413,9 +415,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   test("each tab is guarded on its own busy signal (issue #412)") {
     withBranchServer(_.page()).map { html =>
-      val tabs = s"""<a [^>]*sse/var/[^/]+/$tabsHost/tab/\\d[^>]*>""".r
-        .findAllIn(html)
-        .toList
+      val tabs =
+        s"""<a [^>]*\\$$_var_${tabsHost}__tab__pending = '\\d'[^>]*>""".r
+          .findAllIn(html)
+          .toList
       assertEquals(tabs.size, 2, clue = html)
       // One signal per tab (ADR 0019): a shared one would let one tab's
       // answer clear another's guard.
@@ -584,9 +587,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       for {
         doc <- ts.load()
         _ <- asked
-        y <- ts.postResult(
-          s"sse/var/nested-tabs/$outerBar/tab/1",
-          body = s"""{"${fh.view.runtime.Server.ConnSignal}":"${doc.conn}"}"""
+        y <- ts.choose(
+          doc.conn,
+          fh.view.runtime.VarKey(fh.view.model.NodeId.derived(outerBar), "tab"),
+          Some("1")
         )
         yAsked <- asked
       } yield {
@@ -643,20 +647,21 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           )
         )
         .use { ts =>
-          def post(conn: String, path: String) =
-            ts.postResult(
-              path,
-              body = s"""{"${fh.view.runtime.Server.ConnSignal}":"$conn"}"""
+          def choose(conn: String, declarer: String, name: String, v: String) =
+            ts.choose(
+              conn,
+              fh.view.runtime.VarKey(
+                fh.view.model.NodeId.derived(declarer),
+                name
+              ),
+              Some(v)
             )
           for {
             doc <- ts.load()
             loaded <- asked
-            week <- post(doc.conn, s"sse/var/chooser-tabs/$chooser/window/7d")
+            week <- choose(doc.conn, chooser, "window", "7d")
             chosen <- asked
-            opened <- post(
-              doc.conn,
-              s"sse/var/chooser-tabs/$bar/tab/1"
-            )
+            opened <- choose(doc.conn, bar, "tab", "1")
             revealed <- asked
           } yield {
             assertEquals(loaded, Set(nestedX1.entityId -> 24L))
@@ -898,8 +903,12 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           val id = ids.head
           assert(
             html.contains(
-              s"@post('sse/var/fixture-windows/$id/window/7d?" +
-                s"group=var_${id}__window')"
+              s"$$_var_${id}__window__pending = '7d'; " +
+                "@post('sse/call/fixture-windows/" +
+                fh.view.model.CallDecl
+                  .SetVar("window", fh.view.model.VarValue.of("7d"))
+                  .id +
+                "?node="
             ),
             clue = html
           )
@@ -916,9 +925,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   test(
     "each window is guarded on its own busy signal, posting to its chooser"
   ) {
-    // The buttons are nodes below the chooser, so the route and the signals
-    // name the chooser through `@@VAR:window@@`, and the guard names each
-    // button. Only a real page shows both ids landed where they belong.
+    // The buttons are nodes below the chooser, so the ask names the chooser,
+    // resolved per node, and the press and the guard name each button. Only a
+    // real page shows both ids landed where they belong.
     val windowEntry =
       s"""amends "@fh-dashboard/entry.pkl"
          |
@@ -944,11 +953,14 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             """data-fh-url:window="\['v\.([A-Za-z0-9_]+)\.window'""".r
               .findFirstMatchIn(html)
               .fold(fail("no chooser on the page", clues(html)))(_.group(1))
-          val buttons = """<a [^>]*sse/var/[^>]*>""".r.findAllIn(html).toList
+          val buttons =
+            """<a [^>]*__window__pending = '[^>]*>""".r.findAllIn(html).toList
           assertEquals(buttons.size, 4, clue = html)
           val signals = buttons.map { a =>
             assert(
-              a.contains(s"sse/var/fixture-window-guards/$chooser/window/"),
+              """@post\('sse/call/fixture-window-guards/[0-9a-f]{16}\?node=([A-Za-z0-9_]+)'""".r
+                .findFirstMatchIn(a)
+                .exists(m => a.contains(s"""data-fh-node="${m.group(1)}"""")),
               a
             )
             assert(a.contains(s"$$_var_${chooser}__window__pending = '"), a)

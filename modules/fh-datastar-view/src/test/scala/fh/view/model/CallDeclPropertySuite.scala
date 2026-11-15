@@ -1,7 +1,7 @@
 package fh.view.model
 
 import fh.view.history.Windows
-import fh.view.testkit.TestCard
+import fh.view.testkit.{TestCard, asService}
 import hedgehog.*
 import hedgehog.munit.HedgehogSuite
 
@@ -77,12 +77,40 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
       )
     ).validate()
 
-  private def on(service: ValueExpr, data: (String, ValueExpr)*) =
-    CallDecl(
+  private def on(
+      service: ValueExpr,
+      data: (String, ValueExpr)*
+  ): CallDecl.Service =
+    CallDecl.Service(
       service,
       ListMap(IdKind.Entity -> List(ValueExpr.literal("light.a"))),
       ListMap.from(data)
     )
+
+  test("a call decodes in its wire order, and refuses what it does not name") {
+    def call(json: String) = io.circe.parser.decode[CallDecl](json)
+    val service =
+      """"kind":"Service","service":"light/turn_on","target":{"area_id":["a"],"entity_id":["light.b"]}"""
+    assertEquals(
+      call(s"{$service}").map {
+        case s: CallDecl.Service => s.target.keys.toList
+        case other               => fail(s"decoded as $other")
+      },
+      Right(List(IdKind.Area, IdKind.Entity))
+    )
+    assertEquals(
+      call("""{"kind":"SetVar","variable":"tab"}"""),
+      Right(CallDecl.SetVar("tab", None))
+    )
+    List(
+      s"""{$service,"date":{}}""",
+      """{"kind":"Service","service":"x","target":{"entity":["light.b"]}}""",
+      """{"kind":"SetVar","variable":"tab","valeu":"1"}""",
+      // A `'` would close the JS string its pending ask is spelled in.
+      """{"kind":"SetVar","variable":"tab","value":"it's"}""",
+      """{"kind":"Toggle"}"""
+    ).foreach(bad => assert(call(bad).isLeft, clue = bad))
+  }
 
   test("a call is refused what the press could not run once for everyone") {
     val lit = ValueExpr.literal("light/toggle")
@@ -251,7 +279,7 @@ object CallDeclPropertySuite {
       child: List[(Read, Kind)],
       doing: List[(CallField, Read)]
   ):
-    private def decl = CallDecl(
+    private def decl = CallDecl.Service(
       doing.collectFirst { case (CallField.Service, r) => r.expr }.get,
       ListMap(IdKind.Entity -> List(ValueExpr.literal("light.a"))),
       ListMap.from(doing.collect { case (CallField.Data(k), r) => k -> r.expr })
@@ -304,9 +332,9 @@ object CallDeclPropertySuite {
     } yield (a, b))
       .list(Range.linear(0, max))
 
-  val genDecl: Gen[CallDecl] =
+  val genDecl: Gen[CallDecl.Service] =
     genNode.map(_.dashboard.card).map {
-      case c: LayoutNode.Component => c.calls("tap")
+      case c: LayoutNode.Component => c.calls("tap").asService
       case _                       => sys.error("a component")
     }
 

@@ -5,7 +5,7 @@ import fh.view.FHError
 import fh.view.fetch.FetchRequest
 import fh.view.history.Window
 import fh.view.runtime.{Cel, Evaluator, Templates}
-import io.circe.{Decoder, DecodingFailure, JsonObject}
+import io.circe.{Decoder, DecodingFailure}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 import scala.collection.immutable.ListMap
@@ -612,13 +612,7 @@ object Cell:
       constant: Option[SlotValue]
   )
 
-  private given Decoder[ListMap[String, ValueExpr]] = Decoder.instance(c =>
-    c.as[JsonObject]
-      .flatMap(
-        _.keys.toList.traverse(k => c.downField(k).as[ValueExpr].map(k -> _))
-      )
-      .map(ListMap.from)
-  )
+  private given Decoder[ListMap[String, ValueExpr]] = Strict.listMap
 
 /** Where a slot is placed: a template slot by its name, a cell slot by its
   * [[CellKey]]. The name stays a bare `String` so a template's lookup allocates
@@ -1210,9 +1204,7 @@ case class Dashboard(
       ) ++ walk(s.content)
     } ++ calls.toList
       .sortBy(_._1)
-      .flatMap((id, d) =>
-        d.all.map(s"the call ${d.service.literal.getOrElse(id)}" -> _)
-      )
+      .flatMap((_, d) => d.all.map(d.named -> _))
   }
 
   /** Every fetch a decision reads ([[decisionExprs]]), beside where. */

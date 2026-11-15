@@ -188,6 +188,31 @@ class ConditionsSuite extends munit.FunSuite {
     assert(holds(count, noSubject, states))
   }
 
+  test("equal guards on the candidate decide each by its own state") {
+    val itself = cmp("state", Op.Eq, Json.fromString("on"), None)
+    val ids = List("light.a", "light.b", "light.c")
+    val present = ValueExpr(Value.Present(ids, ids.map(_ -> itself).toMap))
+    val states =
+      snapshot(st("light.a", "on"), st("light.b", "off"), st("light.c", "on"))
+    assertEquals(run(present, noSubject, states), List("light.a", "light.c"))
+  }
+
+  test("a guard naming no candidate holds alike, but HA must know each") {
+    val hall = isOn("sensor.hall")
+    val ids = List("light.a", "light.gone", "light.b")
+    val guards = ids.map(_ -> hall).toMap
+    val present = ValueExpr(Value.Present(ids, guards))
+    def states(h: String) =
+      snapshot(st("sensor.hall", h), st("light.a", "off"), st("light.b", "off"))
+    assertEquals(
+      run(present, noSubject, states("on")),
+      List("light.a", "light.b")
+    )
+    assertEquals(run(present, noSubject, states("off")), Nil)
+    val two = Conds.count(ids, guards, Op.Eq, Json.fromInt(2))
+    assert(holds(two, noSubject, states("on")))
+  }
+
   test("a condition decides as the rule says, over a sweep") {
     // The literal's type picks the comparison: a number on the number line
     // (`21.0` is `21`), `ne` its negation; text as text, ordering numeric when

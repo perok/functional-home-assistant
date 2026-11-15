@@ -1,6 +1,8 @@
 package fh.view.testkit
 
 import fh.view.model.{
+  CallDecl,
+  CardDef,
   Case,
   Cell,
   Choice,
@@ -9,10 +11,12 @@ import fh.view.model.{
   Lit,
   TemplateSlot,
   Value,
-  ValueExpr
+  ValueExpr,
+  VarValue
 }
 
 import scala.collection.immutable.ListMap
+import io.github.iltotore.iron.refineUnsafe
 import fh.view.runtime.EntityState
 import io.circe.Json
 
@@ -59,6 +63,30 @@ object DashboardBuilders {
     */
   def declared(defaults: (String, String)*): List[Dashboard.Declaration] =
     defaults.toList.map(Dashboard.Declaration(_, _))
+
+  /** The card [[choices]] places, under [[ChoiceCard]]. */
+  val choiceCard: CardDef =
+    TestCard("""<a>{{{tap.pending}}}{{{tap.callId}}}</a>""")
+
+  val ChoiceCard: String = "choice"
+
+  /** A node per value choosing it for the variable `name`, as a tab bar's
+    * buttons do: what a test presses to write it.
+    */
+  def choices(name: String, values: String*): List[LayoutNode] =
+    values.toList.map(v => choosing(name, Some(v)))
+
+  /** A node whose press chooses `value` for `name`, or clears it at `None`. */
+  def choosing(name: String, value: Option[String]): LayoutNode =
+    LayoutNode.Component(
+      ChoiceCard,
+      calls = Map(
+        "tap" -> CallDecl.SetVar(
+          name,
+          value.map(_.refineUnsafe[VarValue.Token])
+        )
+      )
+    )
 
   /** A constant literal slot (a bare value, no entity/transform). */
   def lit(s: String): TemplateSlot = TemplateSlot(ValueExpr.literal(s))

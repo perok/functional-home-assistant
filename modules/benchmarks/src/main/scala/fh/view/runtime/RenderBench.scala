@@ -256,6 +256,8 @@ class RenderBench {
   private var set: Renderer = null
   private var setOrdered: Renderer = null
   private var setPlain: Renderer = null
+  private var setGuarded: Renderer = null
+  private var setNamedGuard: Renderer = null
   private var setTiles: Renderer = null
   private var manySets: Renderer = null
   private var shared: Renderer = null
@@ -361,6 +363,16 @@ class RenderBench {
       Renderer.create(Dashboard(cards, setTree(Leaves, orderBy = LitBrightest)))
     setPlain =
       Renderer.create(Dashboard(cards, setTree(Leaves, signals = false)))
+    setGuarded = Renderer.create(
+      Dashboard(cards, setTree(Leaves, guard = Some(availableGuard(None))))
+    )
+    // Named on a ticked entity, so every frame re-decides the set.
+    setNamedGuard = Renderer.create(
+      Dashboard(
+        cards,
+        setTree(Leaves, guard = Some(availableGuard(Some(entityId(0)))))
+      )
+    )
     setTiles = Renderer.create(Dashboard(cards, tileSetTree(Leaves)))
     manySets = Renderer.create(Dashboard(cards, manySetsTree(Leaves)))
     shared = Renderer.create(
@@ -1251,6 +1263,24 @@ class RenderBench {
     bh.consume(publishPass(setOrdered, pubFrames(pubRot % 4)))
   }
 
+  /** [[publishSet]] with one guard on every candidate, reading the member: one
+    * compiled guard, run per candidate.
+    */
+  @Benchmark
+  def publishSetGuarded(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(setGuarded, pubFrames(pubRot % 4)))
+  }
+
+  /** The same with the guard naming one entity: its answer is every
+    * candidate's.
+    */
+  @Benchmark
+  def publishSetNamedGuard(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(setNamedGuard, pubFrames(pubRot % 4)))
+  }
+
   /** '''The question a pre-filter would answer''': what a frame costs when the
     * dashboard reads none of it. Against [[publish]] and [[publishSet]] this is
     * the floor a "does any slug care?" test could drop the pass to — and the
@@ -2118,13 +2148,14 @@ object RenderBench {
     )
 
   /** The same leaves, as one candidate set: every entity a candidate, each with
-    * a single unguarded clause rendering the same card. Membership is therefore
-    * total, so this measures the RENDER path rather than predicate evaluation.
+    * a single clause rendering the same card. Unguarded, membership is total,
+    * so this measures the RENDER path rather than predicate evaluation.
     */
   def setTree(
       leaves: Int,
       signals: Boolean = true,
-      orderBy: List[SortTerm] = Nil
+      orderBy: List[SortTerm] = Nil,
+      guard: Option[ValueExpr] = None
   ): LayoutNode =
     LayoutNode.Component(
       "col",
@@ -2135,12 +2166,21 @@ object RenderBench {
           members = List
             .tabulate(leaves)(i =>
               entityId(i) -> LayoutNode.SetMember(
-                List(LayoutNode.SetClause(node = leaf(signals)(i)))
+                List(LayoutNode.SetClause(guard, leaf(signals)(i)))
               )
             )
             .toMap
         )
       )
+    )
+
+  /** A guard every candidate passes, reading the member, or `of` when named:
+    * equal on every candidate either way, as a `where` lands.
+    */
+  def availableGuard(of: Option[String]): ValueExpr =
+    ValueExpr(
+      Value.Entity(of, Part.State),
+      List(Step.Compare(Op.Ne, Value.Literal(Lit.Text("unavailable"))))
     )
 
   /** [[setTree]] with every clause a column of two signal-less leaves. */

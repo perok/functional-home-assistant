@@ -193,12 +193,15 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `dashboard.json` is generated + gitignored.
 - Interactivity uses the WS `call_service` command (added to `ha-api`'s `CommandPhase` +
   `HomeAssistantApi.callService`). `POST /sse/call/:slug/:callId?node=<id>` presses a call the
-  dashboard DECLARES (`CallDecl`: `service`, target keys `entity_id`/`area_id`/`floor_id`, `data`
-  keys, each a value expression; ADR 0023). The id is a hash of the declaration, computed in
+  dashboard DECLARES (`CallDecl`, one kind per call by `kind`: a `Service` — `service`, target
+  keys `entity_id`/`area_id`/`floor_id`, `data` keys, each a value expression — or a `SetVar`,
+  this viewer's choice of a node variable, `v.choose(x)`, or a clear, `v.choose(null)`; ADR
+  0023). The id is a hash of the declaration, computed in
   Scala, and `Dashboard.calls` is the allowlist by id, so admission to one dashboard is not
   admission to the whole house. The server runs its OWN evaluation of the call at the press: HA
   expands an area or a floor, the server a set to the candidates present then. The body, which
-  `tapMod.post` spells, is `{posted, seen}`: `posted` the card's values (a drag), each read by a
+  `tapMod.post` spells, is `{conn, ui_popups, posted, seen}`: `conn` and the popup for a choice,
+  which runs in this viewer's session, `posted` the card's values (a drag), each read by a
   `Posted(key, type)` source and decoded as its type, and `seen` what the page last knew of the
   call's `service`/`data` fields that read live state (no fetch, no posted value), painted or
   not, each such field a `Handler` slot the build adds (`Ready.seenSlot`); a
@@ -213,14 +216,15 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `DashboardBuild.decode` BEFORE validation, so a `Validated` is final and a `fh push --slug`
   rename cannot leave a compiled tap URL naming the old dashboard.
   The surface taps carry it too — `POST /sse/surface/:slug/open/:id`, `POST /sse/popup/:slug/close`
-  — for a second reason (ADR 0024): a `conn` this process has forgotten (an idle page outliving
-  its session's linger) can then be RE-MINTED rather than dropped, the same thing the stream route
-  already does. Before that, such a tap answered 204 and did nothing at all, while the client's own
-  signal assignment still moved the URL. Standing principle from the same ADR, aspirational and
+  — so the gate checks them as every route. A tap under a `conn` this process has forgotten (an
+  idle page outliving its session's linger, a restart) is REFUSED with a toast, never minted: a
+  tap carries too little of the page to rebuild its session, and the reconnecting stream, which
+  carries the viewer's choices and its cursor, rebuilds it (ADR 0024). Standing principle from the same ADR, aspirational and
   not enforced: **the DOM we send should be as usable as possible without JS** — signals for
   liveness and effects, not for the core meaning of a tap.
   A selection tap does NOT set the committed signal itself (ADR 0025): it writes a pending
-  signal `_<group>__pending` — what it ASKED for — and the server commits what it actually did,
+  signal `_<group>__pending` — what it ASKED for; a choice's is `{{{tap.pending}}}`, which the
+  renderer fills from the declaration at the pressing node — and the server commits what it actually did,
   which is what the URL mirror follows: `setVar` commits `_var_<declarer>__<name>` (a tab bar, a
   window chooser; ADR 0033) and a popup swap `ui_popups`. A selection display reads
   `$_<group>__pending || $<committed>`, so the press is still instant while the committed value can
@@ -232,8 +236,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   request was served and the OPERATION failed, which is page state. One helper (`actionRefused`)
   answers every refusal — HA rejecting a call, a call this dashboard does not declare, an unknown
   surface, a `conn` on another slug — patching `_<node>__error` on the control that was pressed,
-  clearing `_<group>__pending`, and setting `_toast` to HA's own message. Both ids ride in the
-  action's query string (`?node=&group=`), read off `data-fh-node` at click time. The bundle parses
+  clearing a refused choice's pending ask (the server's own lookup of its declaration), and
+  setting `_toast` to HA's own message. The node rides in the action's query string (`?node=`),
+  read off `data-fh-node` at click time. The bundle parses
   a response body only on exactly 200, so a 4xx could never carry any of it; the client-side
   `failedOn` handler remains for the genuine non-200 remainder. The other two ways an ask ends —
   a dead stream, and a non-200 whose body is dropped unread — are page-wide facts and live as ONE
@@ -376,8 +381,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   up the ancestor chain so a nested declaration shadows; a viewer's choice is per SESSION, keyed by declaring node, and the write
   boundary refuses a value no declared reader takes, which is why a declaration carries no list
   of allowed values. `c.chooser(c.select(v))` (`components/select.pkl`) declares `v` over the cards
-  beneath it, its bar a `tab` node per option whose `choose` names the chooser by
-  `Variable.declarer` (a build token); `c.history.chooser` and `c.controlChooser` are two, read by
+  beneath it, its bar a `tab` node per option whose `choose` names the variable, resolved to the
+  chooser at that node; `c.history.chooser` and `c.controlChooser` are two, read by
   `.fromChooser()` on a chart or a light slider),
   **inputs** (a node's or a slot's `inputs`: literals, a live `q.from(…).where(…).count()`,
   the ids present (`….present()`, a `list(string)`), a live condition (`….any()`, a `bool`), or a fetch (`p.history.of(e, w)` from `providers.pkl`, the answer's points read on

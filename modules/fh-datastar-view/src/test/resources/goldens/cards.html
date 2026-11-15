@@ -17,7 +17,7 @@
   data-text="$_e.sensor.outside_temp.t#1">12.4 °C</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="c_1"
   data-signals="{_e: {light: {kitchen: {t#2: true, t#3: false, t#4: 'on'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_1', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.light.kitchen.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
   data-fh-node="c_1"
@@ -33,7 +33,7 @@
   data-text="$_e.light.kitchen.t#4">on</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_2"
   data-signals="{_e: {light: {living_room: {t#2: false, t#3: false, t#5: 'off'}}}}"
-  data-class:fh-active="$_e.light.living_room.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_2__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_2', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.light.living_room.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_2__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_2', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2__error = ''))"
   data-fh-node="c_2"
@@ -49,7 +49,7 @@
   data-text="$_e.light.living_room.t#5">off</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="c_3"
   data-signals="{_e: {climate: {hallway: {t#2: true, t#3: false, t#6: 'heat'}}}}"
-  data-class:fh-active="$_e.climate.hallway.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : $_e.climate.hallway.t#3 ? '' : @post('sse/call/cards/call_3?node=c_3', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.climate.hallway.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : $_e.climate.hallway.t#3 ? '' : @post('sse/call/cards/call_3?node=c_3', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_3__error = ''))"
   data-fh-node="c_3"
@@ -81,7 +81,7 @@
   data-text="$_e.binary_sensor.front_door.t#7">off</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="c_5"
   data-signals="{_e: {media_player: {tv: {t#3: false, t#8: true, t#9: 'paused'}}}}"
-  data-class:fh-active="$_e.media_player.tv.t#8">  <div class="fh-tile fh-tappable "  data-on:click="$_c_5__busy ? '' : $_e.media_player.tv.t#3 ? '' : @post('sse/call/cards/call_4?node=c_5', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.media_player.tv.t#8">  <div class="fh-tile fh-tappable "  data-on:click="$_c_5__busy ? '' : $_e.media_player.tv.t#3 ? '' : @post('sse/call/cards/call_4?node=c_5', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_5__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_5__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_5__error = ''))"
   data-fh-node="c_5"
@@ -126,7 +126,7 @@
   data-attr:aria-busy="$_c_7__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on" checked data-bind="_c_7__checked"
-  data-on:click="$_c_7__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_7', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_7__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_7', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_7__error$/}"
   data-on-signal-patch="$_c_7__error && ($_c_7__checked = $_e.light.kitchen.t#14)"
@@ -149,7 +149,7 @@
   data-attr:aria-busy="$_c_8__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Living Room</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_8__checked"
-  data-on:click="$_c_8__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_8', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_8__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_8', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.living_room.t#3"
   data-on-signal-patch-filter="{include:/^_c_8__error$/}"
   data-on-signal-patch="$_c_8__error && ($_c_8__checked = $_e.light.living_room.t#14)"
@@ -172,7 +172,7 @@
   data-attr:aria-busy="$_c_9__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Plug</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on" checked data-bind="_c_9__checked"
-  data-on:click="$_c_9__busy ? '' : $_e.light.plug.t#3 ? '' : @post('sse/call/cards/call_5?node=c_9', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_9__busy ? '' : $_e.light.plug.t#3 ? '' : @post('sse/call/cards/call_5?node=c_9', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.plug.t#3"
   data-on-signal-patch-filter="{include:/^_c_9__error$/}"
   data-on-signal-patch="$_c_9__error && ($_c_9__checked = $_e.light.plug.t#14)"
@@ -182,7 +182,7 @@
     <span></span>
   </label></div></article><button class="fh-cell fh-press fh-size-large fh-badged" id="c_10"
   data-signals="{_e: {light: {kitchen: {t#3: false}}}}"
-  data-on:click="$_c_10__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_10', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_10__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_10', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-indicator="_c_10__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_10__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_10__error = ''))"
@@ -197,7 +197,7 @@
   data-attr:aria-busy="$_c_10__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></button>
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="c_11"
   data-signals="{_e: {light: {spotlights: {t#2: true, t#3: false, t#15: 'on'}}}}"
-  data-class:fh-active="$_e.light.spotlights.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_11__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_11', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.light.spotlights.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_11__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_11', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_11__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_11__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_11__error = ''))"
   data-fh-node="c_11"
@@ -212,7 +212,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.spotlights.t#15">on</span></span></span></div></article><button class="fh-cell fh-press fh-size-large fh-badged" id="c_12"
   data-signals="{_e: {light: {spotlights: {t#3: false}}}}"
-  data-on:click="$_c_12__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_12', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_12__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_12', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.spotlights.t#3"
   data-indicator="_c_12__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_12__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_12__error = ''))"
@@ -238,7 +238,7 @@
 <div class="fh-cell fh-col fh-cols-full" id="s_c_0_self__c_0_1"
   data-fh-url:window="['v.s_c_0_self__c_0_1.window', $_var_s_c_0_self__c_0_1__window, '24h']">
 <div class="fh-cell fh-tabs fh-select" id="s_c_0_self__c_0_1_bar_0"><a class="" id="s_c_0_self__c_0_1_bar_0_0"
-  data-on:click="$_s_c_0_self__c_0_1_bar_0_0__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '1h'; @post('sse/var/cards/s_c_0_self__c_0_1/window/1h?group=var_s_c_0_self__c_0_1__window')"
+  data-on:click="$_s_c_0_self__c_0_1_bar_0_0__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '1h'; @post('sse/call/cards/call_7?node=s_c_0_self__c_0_1_bar_0_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_s_c_0_self__c_0_1_bar_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_0__error = ''))"
   data-fh-node="s_c_0_self__c_0_1_bar_0_0"
@@ -250,7 +250,7 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_self__c_0_1_bar_0_0__busy_slow = $_s_c_0_self__c_0_1_bar_0_0__busy"
   data-class:fh-busy-after="$_s_c_0_self__c_0_1_bar_0_0__busy_slow"
   data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '1h'">1h</a><a class=" fh-chosen" id="s_c_0_self__c_0_1_bar_0_1"
-  data-on:click="$_s_c_0_self__c_0_1_bar_0_1__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '24h'; @post('sse/var/cards/s_c_0_self__c_0_1/window/24h?group=var_s_c_0_self__c_0_1__window')"
+  data-on:click="$_s_c_0_self__c_0_1_bar_0_1__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '24h'; @post('sse/call/cards/call_8?node=s_c_0_self__c_0_1_bar_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_s_c_0_self__c_0_1_bar_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_1__error = ''))"
   data-fh-node="s_c_0_self__c_0_1_bar_0_1"
@@ -262,7 +262,7 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_self__c_0_1_bar_0_1__busy_slow = $_s_c_0_self__c_0_1_bar_0_1__busy"
   data-class:fh-busy-after="$_s_c_0_self__c_0_1_bar_0_1__busy_slow"
   data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '24h'">24h</a><a class="" id="s_c_0_self__c_0_1_bar_0_2"
-  data-on:click="$_s_c_0_self__c_0_1_bar_0_2__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '7d'; @post('sse/var/cards/s_c_0_self__c_0_1/window/7d?group=var_s_c_0_self__c_0_1__window')"
+  data-on:click="$_s_c_0_self__c_0_1_bar_0_2__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '7d'; @post('sse/call/cards/call_9?node=s_c_0_self__c_0_1_bar_0_2', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_s_c_0_self__c_0_1_bar_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_2__error = ''))"
   data-fh-node="s_c_0_self__c_0_1_bar_0_2"
@@ -274,7 +274,7 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_self__c_0_1_bar_0_2__busy_slow = $_s_c_0_self__c_0_1_bar_0_2__busy"
   data-class:fh-busy-after="$_s_c_0_self__c_0_1_bar_0_2__busy_slow"
   data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '7d'">7d</a><a class="" id="s_c_0_self__c_0_1_bar_0_3"
-  data-on:click="$_s_c_0_self__c_0_1_bar_0_3__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '30d'; @post('sse/var/cards/s_c_0_self__c_0_1/window/30d?group=var_s_c_0_self__c_0_1__window')"
+  data-on:click="$_s_c_0_self__c_0_1_bar_0_3__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '30d'; @post('sse/call/cards/call_10?node=s_c_0_self__c_0_1_bar_0_3', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_s_c_0_self__c_0_1_bar_0_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_3__error = ''))"
   data-fh-node="s_c_0_self__c_0_1_bar_0_3"
@@ -316,7 +316,7 @@
   data-text="$_e.lock.front_door.t#12">locked</span></span></span></div>
 <div class="fh-cell fh-row" id="s_c_6_self__c_0_0_features_0"><button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_0_0"
   data-signals="{_e: {lock: {front_door: {t#16: true}}}}"
-  data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#16 ? '' : @post('sse/call/cards/call_7?node=s_c_6_self__c_0_0_features_0_0', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#16"
+  data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#16 ? '' : @post('sse/call/cards/call_11?node=s_c_6_self__c_0_0_features_0_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#16"
   data-indicator="_s_c_6_self__c_0_0_features_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_0_0__error = ''))"
   data-fh-node="s_c_6_self__c_0_0_features_0_0"
@@ -329,7 +329,7 @@
   data-class:fh-busy-spin="$_s_c_6_self__c_0_0_features_0_0__busy_slow"
   data-attr:aria-busy="$_s_c_6_self__c_0_0_features_0_0__busy_slow"><i class="mdi mdi-lock" ></i></span><span class="fh-text"><span class="fh-text-run">Lock</span></span></button><button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_0_1"
   data-signals="{_e: {lock: {front_door: {t#17: false}}}}"
-  data-on:click="$_s_c_6_self__c_0_0_features_0_1__busy ? '' : $_e.lock.front_door.t#17 ? '' : @post('sse/call/cards/call_8?node=s_c_6_self__c_0_0_features_0_1', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_s_c_6_self__c_0_0_features_0_1__busy ? '' : $_e.lock.front_door.t#17 ? '' : @post('sse/call/cards/call_12?node=s_c_6_self__c_0_0_features_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#17"
   data-indicator="_s_c_6_self__c_0_0_features_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_0_1__error = ''))"
@@ -366,7 +366,7 @@
 <div class="fh-cell fh-col" id="s_s_c_6_self__c_0_0_features_1_self__c_0"><h2 class="fh-cell fh-section fh-text" id="s_s_c_6_self__c_0_0_features_1_self__c_0_0"><span class="fh-text-run">Open the door?</span></h2>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_s_c_6_self__c_0_0_features_1_self__c_0_1"
   data-signals="{_e: {lock: {front_door: {t#10: false, t#11: 'mdi mdi-lock', t#12: 'locked', t#19: false, t#20: 'lock/unlock'}}}}"
-  data-class:fh-active="$_e.lock.front_door.t#10">  <div class="fh-tile fh-tappable "  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_1__busy ? '' : $_e.lock.front_door.t#19 ? '' : @post('sse/call/cards/call_9?node=s_s_c_6_self__c_0_0_features_1_self__c_0_1', {payload: {posted: {}, seen: {service: $_e.lock.front_door.t#20} } })"
+  data-class:fh-active="$_e.lock.front_door.t#10">  <div class="fh-tile fh-tappable "  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_1__busy ? '' : $_e.lock.front_door.t#19 ? '' : @post('sse/call/cards/call_13?node=s_s_c_6_self__c_0_0_features_1_self__c_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {service: $_e.lock.front_door.t#20} } })"
   data-indicator="_s_s_c_6_self__c_0_0_features_1_self__c_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_s_c_6_self__c_0_0_features_1_self__c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_s_c_6_self__c_0_0_features_1_self__c_0_1__error = ''))"
   data-fh-node="s_s_c_6_self__c_0_0_features_1_self__c_0_1"
@@ -382,7 +382,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.lock.front_door.t#12">locked</span></span></span></div></article><button class="fh-cell fh-press fh-size-large " id="s_s_c_6_self__c_0_0_features_1_self__c_0_2"
   data-signals="{_e: {lock: {front_door: {t#21: false}}}}"
-  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#21 ? '' : @post('sse/call/cards/call_10?node=s_s_c_6_self__c_0_0_features_1_self__c_0_2', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#21 ? '' : @post('sse/call/cards/call_14?node=s_s_c_6_self__c_0_0_features_1_self__c_0_2', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#21"
   data-indicator="_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error = ''))"
@@ -393,7 +393,7 @@
   data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></dialog></div>
 <!-- ==== as fixtured · patch c_10 ==== -->
 <button class="fh-cell fh-press fh-size-large fh-badged" id="c_10"
-  data-on:click="$_c_10__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_10', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_10__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_10', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-indicator="_c_10__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_10__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_10__error = ''))"
@@ -408,7 +408,7 @@
   data-attr:aria-busy="$_c_10__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></button>
 <!-- ==== as fixtured · patch c_12 ==== -->
 <button class="fh-cell fh-press fh-size-large fh-badged" id="c_12"
-  data-on:click="$_c_12__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_12', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_12__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_12', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.spotlights.t#3"
   data-indicator="_c_12__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_12__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_12__error = ''))"
@@ -435,7 +435,7 @@
   data-attr:aria-busy="$_c_7__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_7__checked"
-  data-on:click="$_c_7__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_7', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_7__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_7', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_7__error$/}"
   data-on-signal-patch="$_c_7__error && ($_c_7__checked = $_e.light.kitchen.t#14)"
@@ -458,7 +458,7 @@
   data-attr:aria-busy="$_c_8__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Living Room</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_8__checked"
-  data-on:click="$_c_8__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_8', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_8__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_8', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.living_room.t#3"
   data-on-signal-patch-filter="{include:/^_c_8__error$/}"
   data-on-signal-patch="$_c_8__error && ($_c_8__checked = $_e.light.living_room.t#14)"
@@ -481,7 +481,7 @@
   data-attr:aria-busy="$_c_9__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Plug</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_9__checked"
-  data-on:click="$_c_9__busy ? '' : $_e.light.plug.t#3 ? '' : @post('sse/call/cards/call_5?node=c_9', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_9__busy ? '' : $_e.light.plug.t#3 ? '' : @post('sse/call/cards/call_5?node=c_9', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.plug.t#3"
   data-on-signal-patch-filter="{include:/^_c_9__error$/}"
   data-on-signal-patch="$_c_9__error && ($_c_9__checked = $_e.light.plug.t#14)"
@@ -494,7 +494,7 @@
 <div class="fh-cell fh-card fh-chart" id="s_c_0_self__c_0_1_0"><svg/></div>
 <!-- ==== as fixtured · patch s_c_0_self__c_0_1_bar_0_0 ==== -->
 <a class="" id="s_c_0_self__c_0_1_bar_0_0"
-  data-on:click="$_s_c_0_self__c_0_1_bar_0_0__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '1h'; @post('sse/var/cards/s_c_0_self__c_0_1/window/1h?group=var_s_c_0_self__c_0_1__window')"
+  data-on:click="$_s_c_0_self__c_0_1_bar_0_0__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '1h'; @post('sse/call/cards/call_7?node=s_c_0_self__c_0_1_bar_0_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_s_c_0_self__c_0_1_bar_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_0__error = ''))"
   data-fh-node="s_c_0_self__c_0_1_bar_0_0"
@@ -508,7 +508,7 @@
   data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '1h'">1h</a>
 <!-- ==== as fixtured · patch s_c_0_self__c_0_1_bar_0_1 ==== -->
 <a class="" id="s_c_0_self__c_0_1_bar_0_1"
-  data-on:click="$_s_c_0_self__c_0_1_bar_0_1__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '24h'; @post('sse/var/cards/s_c_0_self__c_0_1/window/24h?group=var_s_c_0_self__c_0_1__window')"
+  data-on:click="$_s_c_0_self__c_0_1_bar_0_1__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '24h'; @post('sse/call/cards/call_8?node=s_c_0_self__c_0_1_bar_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_s_c_0_self__c_0_1_bar_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_1__error = ''))"
   data-fh-node="s_c_0_self__c_0_1_bar_0_1"
@@ -522,7 +522,7 @@
   data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '24h'">24h</a>
 <!-- ==== as fixtured · patch s_c_0_self__c_0_1_bar_0_2 ==== -->
 <a class="" id="s_c_0_self__c_0_1_bar_0_2"
-  data-on:click="$_s_c_0_self__c_0_1_bar_0_2__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '7d'; @post('sse/var/cards/s_c_0_self__c_0_1/window/7d?group=var_s_c_0_self__c_0_1__window')"
+  data-on:click="$_s_c_0_self__c_0_1_bar_0_2__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '7d'; @post('sse/call/cards/call_9?node=s_c_0_self__c_0_1_bar_0_2', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_s_c_0_self__c_0_1_bar_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_2__error = ''))"
   data-fh-node="s_c_0_self__c_0_1_bar_0_2"
@@ -536,7 +536,7 @@
   data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '7d'">7d</a>
 <!-- ==== as fixtured · patch s_c_0_self__c_0_1_bar_0_3 ==== -->
 <a class="" id="s_c_0_self__c_0_1_bar_0_3"
-  data-on:click="$_s_c_0_self__c_0_1_bar_0_3__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '30d'; @post('sse/var/cards/s_c_0_self__c_0_1/window/30d?group=var_s_c_0_self__c_0_1__window')"
+  data-on:click="$_s_c_0_self__c_0_1_bar_0_3__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '30d'; @post('sse/call/cards/call_10?node=s_c_0_self__c_0_1_bar_0_3', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_s_c_0_self__c_0_1_bar_0_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_3__error = ''))"
   data-fh-node="s_c_0_self__c_0_1_bar_0_3"
@@ -560,7 +560,7 @@
   data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
 <!-- ==== as fixtured · patch s_c_6_self__c_0_0_features_0_0 ==== -->
 <button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_0_0"
-  data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#16 ? '' : @post('sse/call/cards/call_7?node=s_c_6_self__c_0_0_features_0_0', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#16 ? '' : @post('sse/call/cards/call_11?node=s_c_6_self__c_0_0_features_0_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#16"
   data-indicator="_s_c_6_self__c_0_0_features_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_0_0__error = ''))"
@@ -575,7 +575,7 @@
   data-attr:aria-busy="$_s_c_6_self__c_0_0_features_0_0__busy_slow"><i class="mdi mdi-lock" ></i></span><span class="fh-text"><span class="fh-text-run">Lock</span></span></button>
 <!-- ==== as fixtured · patch s_c_6_self__c_0_0_features_0_1 ==== -->
 <button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_0_1"
-  data-on:click="$_s_c_6_self__c_0_0_features_0_1__busy ? '' : $_e.lock.front_door.t#17 ? '' : @post('sse/call/cards/call_8?node=s_c_6_self__c_0_0_features_0_1', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_s_c_6_self__c_0_0_features_0_1__busy ? '' : $_e.lock.front_door.t#17 ? '' : @post('sse/call/cards/call_12?node=s_c_6_self__c_0_0_features_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#17"
   data-indicator="_s_c_6_self__c_0_0_features_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_0_1__error = ''))"
@@ -612,7 +612,7 @@
 <h2 class="fh-cell fh-section fh-text" id="s_s_c_6_self__c_0_0_features_1_self__c_0_0"><span class="fh-text-run">Open the door?</span></h2>
 <!-- ==== as fixtured · patch s_s_c_6_self__c_0_0_features_1_self__c_0_2 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="s_s_c_6_self__c_0_0_features_1_self__c_0_2"
-  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#21 ? '' : @post('sse/call/cards/call_10?node=s_s_c_6_self__c_0_0_features_1_self__c_0_2', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#21 ? '' : @post('sse/call/cards/call_14?node=s_s_c_6_self__c_0_0_features_1_self__c_0_2', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.lock.front_door.t#21"
   data-indicator="_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error = ''))"
@@ -642,7 +642,7 @@
   data-text="$_e.sensor.outside_temp.t#1">12.4 °C</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_1"
   data-signals="{_e: {light: {kitchen: {t#2: false, t#3: false, t#4: 'off'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_1', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.light.kitchen.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
   data-fh-node="c_1"
@@ -658,7 +658,7 @@
   data-text="$_e.light.kitchen.t#4">off</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="c_2"
   data-signals="{_e: {light: {living_room: {t#2: true, t#3: false, t#5: 'on'}}}}"
-  data-class:fh-active="$_e.light.living_room.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_2__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_2', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.light.living_room.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_2__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_2', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2__error = ''))"
   data-fh-node="c_2"
@@ -674,7 +674,7 @@
   data-text="$_e.light.living_room.t#5">on</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="c_3"
   data-signals="{_e: {climate: {hallway: {t#2: true, t#3: false, t#6: 'heat'}}}}"
-  data-class:fh-active="$_e.climate.hallway.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : $_e.climate.hallway.t#3 ? '' : @post('sse/call/cards/call_3?node=c_3', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.climate.hallway.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : $_e.climate.hallway.t#3 ? '' : @post('sse/call/cards/call_3?node=c_3', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_3__error = ''))"
   data-fh-node="c_3"
@@ -706,7 +706,7 @@
   data-text="$_e.binary_sensor.front_door.t#7">on</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="c_5"
   data-signals="{_e: {media_player: {tv: {t#3: false, t#8: true, t#9: 'paused'}}}}"
-  data-class:fh-active="$_e.media_player.tv.t#8">  <div class="fh-tile fh-tappable "  data-on:click="$_c_5__busy ? '' : $_e.media_player.tv.t#3 ? '' : @post('sse/call/cards/call_4?node=c_5', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.media_player.tv.t#8">  <div class="fh-tile fh-tappable "  data-on:click="$_c_5__busy ? '' : $_e.media_player.tv.t#3 ? '' : @post('sse/call/cards/call_4?node=c_5', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_5__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_5__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_5__error = ''))"
   data-fh-node="c_5"
@@ -751,7 +751,7 @@
   data-attr:aria-busy="$_c_7__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_7__checked"
-  data-on:click="$_c_7__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_7', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_7__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_7', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_7__error$/}"
   data-on-signal-patch="$_c_7__error && ($_c_7__checked = $_e.light.kitchen.t#14)"
@@ -774,7 +774,7 @@
   data-attr:aria-busy="$_c_8__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Living Room</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on" checked data-bind="_c_8__checked"
-  data-on:click="$_c_8__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_8', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_8__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_8', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.living_room.t#3"
   data-on-signal-patch-filter="{include:/^_c_8__error$/}"
   data-on-signal-patch="$_c_8__error && ($_c_8__checked = $_e.light.living_room.t#14)"
@@ -797,7 +797,7 @@
   data-attr:aria-busy="$_c_9__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Plug</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_9__checked"
-  data-on:click="$_c_9__busy ? '' : $_e.light.plug.t#3 ? '' : @post('sse/call/cards/call_5?node=c_9', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_9__busy ? '' : $_e.light.plug.t#3 ? '' : @post('sse/call/cards/call_5?node=c_9', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.plug.t#3"
   data-on-signal-patch-filter="{include:/^_c_9__error$/}"
   data-on-signal-patch="$_c_9__error && ($_c_9__checked = $_e.light.plug.t#14)"
@@ -807,7 +807,7 @@
     <span></span>
   </label></div></article><button class="fh-cell fh-press fh-size-large fh-badged" id="c_10"
   data-signals="{_e: {light: {kitchen: {t#3: false}}}}"
-  data-on:click="$_c_10__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_10', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_10__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_10', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-indicator="_c_10__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_10__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_10__error = ''))"
@@ -822,7 +822,7 @@
   data-attr:aria-busy="$_c_10__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></button>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_11"
   data-signals="{_e: {light: {spotlights: {t#2: false, t#3: false, t#15: 'off'}}}}"
-  data-class:fh-active="$_e.light.spotlights.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_11__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_11', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.light.spotlights.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_11__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_11', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_11__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_11__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_11__error = ''))"
   data-fh-node="c_11"
@@ -837,7 +837,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.spotlights.t#15">off</span></span></span></div></article><button class="fh-cell fh-press fh-size-large fh-badged" id="c_12"
   data-signals="{_e: {light: {spotlights: {t#3: false}}}}"
-  data-on:click="$_c_12__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_12', {payload: {posted: {}, seen: {} } })"
+  data-on:click="$_c_12__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_12', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.spotlights.t#3"
   data-indicator="_c_12__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_12__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_12__error = ''))"
@@ -907,7 +907,7 @@
   data-text="$_e.sensor.outside_temp.t#1">unavailable</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_1"
   data-signals="{_e: {light: {kitchen: {t#2: false, t#3: true, t#4: 'unavailable'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#2">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_1', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.light.kitchen.t#2">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1__error = ''))"
   data-fh-node="c_1"
@@ -923,7 +923,7 @@
   data-text="$_e.light.kitchen.t#4">unavailable</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_2"
   data-signals="{_e: {light: {living_room: {t#2: false, t#3: true, t#5: 'unavailable'}}}}"
-  data-class:fh-active="$_e.light.living_room.t#2">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_2__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_2', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.light.living_room.t#2">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_2__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_2', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_2__error = ''))"
   data-fh-node="c_2"
@@ -939,7 +939,7 @@
   data-text="$_e.light.living_room.t#5">unavailable</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_3"
   data-signals="{_e: {climate: {hallway: {t#2: false, t#3: true, t#6: 'unavailable'}}}}"
-  data-class:fh-active="$_e.climate.hallway.t#2">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_3__busy ? '' : $_e.climate.hallway.t#3 ? '' : @post('sse/call/cards/call_3?node=c_3', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.climate.hallway.t#2">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_3__busy ? '' : $_e.climate.hallway.t#3 ? '' : @post('sse/call/cards/call_3?node=c_3', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_3__error = ''))"
   data-fh-node="c_3"
@@ -971,7 +971,7 @@
   data-text="$_e.binary_sensor.front_door.t#7">unavailable</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_5"
   data-signals="{_e: {media_player: {tv: {t#3: true, t#8: false, t#9: 'unavailable'}}}}"
-  data-class:fh-active="$_e.media_player.tv.t#8">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_5__busy ? '' : $_e.media_player.tv.t#3 ? '' : @post('sse/call/cards/call_4?node=c_5', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.media_player.tv.t#8">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_5__busy ? '' : $_e.media_player.tv.t#3 ? '' : @post('sse/call/cards/call_4?node=c_5', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_5__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_5__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_5__error = ''))"
   data-fh-node="c_5"
@@ -1016,7 +1016,7 @@
   data-attr:aria-busy="$_c_7__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_7__checked"
-  data-on:click="$_c_7__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_7', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
+  data-on:click="$_c_7__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_7', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_7__error$/}"
   data-on-signal-patch="$_c_7__error && ($_c_7__checked = $_e.light.kitchen.t#14)"
   data-indicator="_c_7__busy"
@@ -1038,7 +1038,7 @@
   data-attr:aria-busy="$_c_8__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Living Room</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_8__checked"
-  data-on:click="$_c_8__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_8', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.living_room.t#3"
+  data-on:click="$_c_8__busy ? '' : $_e.light.living_room.t#3 ? '' : @post('sse/call/cards/call_2?node=c_8', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.living_room.t#3"
   data-on-signal-patch-filter="{include:/^_c_8__error$/}"
   data-on-signal-patch="$_c_8__error && ($_c_8__checked = $_e.light.living_room.t#14)"
   data-indicator="_c_8__busy"
@@ -1060,7 +1060,7 @@
   data-attr:aria-busy="$_c_9__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Plug</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_9__checked"
-  data-on:click="$_c_9__busy ? '' : $_e.light.plug.t#3 ? '' : @post('sse/call/cards/call_5?node=c_9', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.plug.t#3"
+  data-on:click="$_c_9__busy ? '' : $_e.light.plug.t#3 ? '' : @post('sse/call/cards/call_5?node=c_9', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.plug.t#3"
   data-on-signal-patch-filter="{include:/^_c_9__error$/}"
   data-on-signal-patch="$_c_9__error && ($_c_9__checked = $_e.light.plug.t#14)"
   data-indicator="_c_9__busy"
@@ -1069,7 +1069,7 @@
     <span></span>
   </label></div></article><button class="fh-cell fh-press fh-size-large fh-badged" id="c_10"
   data-signals="{_e: {light: {kitchen: {t#3: true}}}}"
-  data-on:click="$_c_10__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_10', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
+  data-on:click="$_c_10__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/cards/call_1?node=c_10', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
   data-indicator="_c_10__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_10__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_10__error = ''))"
   data-fh-node="c_10"
@@ -1083,7 +1083,7 @@
   data-attr:aria-busy="$_c_10__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></button>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_11"
   data-signals="{_e: {light: {spotlights: {t#2: false, t#3: true, t#15: 'unavailable'}}}}"
-  data-class:fh-active="$_e.light.spotlights.t#2">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_11__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_11', {payload: {posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.light.spotlights.t#2">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_11__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_11', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_11__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_11__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_11__error = ''))"
   data-fh-node="c_11"
@@ -1098,7 +1098,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.spotlights.t#15">unavailable</span></span></span></div></article><button class="fh-cell fh-press fh-size-large fh-badged" id="c_12"
   data-signals="{_e: {light: {spotlights: {t#3: true}}}}"
-  data-on:click="$_c_12__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_12', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.spotlights.t#3"
+  data-on:click="$_c_12__busy ? '' : $_e.light.spotlights.t#3 ? '' : @post('sse/call/cards/call_6?node=c_12', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.spotlights.t#3"
   data-indicator="_c_12__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_12__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_12__error = ''))"
   data-fh-node="c_12"
@@ -1123,7 +1123,7 @@
 <div class="fh-cell fh-col fh-cols-full" id="s_c_0_self__c_0_1"
   data-fh-url:window="['v.s_c_0_self__c_0_1.window', $_var_s_c_0_self__c_0_1__window, '24h']">
 <div class="fh-cell fh-tabs fh-select" id="s_c_0_self__c_0_1_bar_0"><a class="" id="s_c_0_self__c_0_1_bar_0_0"
-  data-on:click="$_s_c_0_self__c_0_1_bar_0_0__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '1h'; @post('sse/var/cards/s_c_0_self__c_0_1/window/1h?group=var_s_c_0_self__c_0_1__window')"
+  data-on:click="$_s_c_0_self__c_0_1_bar_0_0__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '1h'; @post('sse/call/cards/call_7?node=s_c_0_self__c_0_1_bar_0_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_s_c_0_self__c_0_1_bar_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_0__error = ''))"
   data-fh-node="s_c_0_self__c_0_1_bar_0_0"
@@ -1135,7 +1135,7 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_self__c_0_1_bar_0_0__busy_slow = $_s_c_0_self__c_0_1_bar_0_0__busy"
   data-class:fh-busy-after="$_s_c_0_self__c_0_1_bar_0_0__busy_slow"
   data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '1h'">1h</a><a class=" fh-chosen" id="s_c_0_self__c_0_1_bar_0_1"
-  data-on:click="$_s_c_0_self__c_0_1_bar_0_1__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '24h'; @post('sse/var/cards/s_c_0_self__c_0_1/window/24h?group=var_s_c_0_self__c_0_1__window')"
+  data-on:click="$_s_c_0_self__c_0_1_bar_0_1__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '24h'; @post('sse/call/cards/call_8?node=s_c_0_self__c_0_1_bar_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_s_c_0_self__c_0_1_bar_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_1__error = ''))"
   data-fh-node="s_c_0_self__c_0_1_bar_0_1"
@@ -1147,7 +1147,7 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_self__c_0_1_bar_0_1__busy_slow = $_s_c_0_self__c_0_1_bar_0_1__busy"
   data-class:fh-busy-after="$_s_c_0_self__c_0_1_bar_0_1__busy_slow"
   data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '24h'">24h</a><a class="" id="s_c_0_self__c_0_1_bar_0_2"
-  data-on:click="$_s_c_0_self__c_0_1_bar_0_2__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '7d'; @post('sse/var/cards/s_c_0_self__c_0_1/window/7d?group=var_s_c_0_self__c_0_1__window')"
+  data-on:click="$_s_c_0_self__c_0_1_bar_0_2__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '7d'; @post('sse/call/cards/call_9?node=s_c_0_self__c_0_1_bar_0_2', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_s_c_0_self__c_0_1_bar_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_2__error = ''))"
   data-fh-node="s_c_0_self__c_0_1_bar_0_2"
@@ -1159,7 +1159,7 @@
   data-on-signal-patch__delay.300ms="$_s_c_0_self__c_0_1_bar_0_2__busy_slow = $_s_c_0_self__c_0_1_bar_0_2__busy"
   data-class:fh-busy-after="$_s_c_0_self__c_0_1_bar_0_2__busy_slow"
   data-class:fh-chosen="String(($_var_s_c_0_self__c_0_1__window__pending || $_var_s_c_0_self__c_0_1__window)) === '7d'">7d</a><a class="" id="s_c_0_self__c_0_1_bar_0_3"
-  data-on:click="$_s_c_0_self__c_0_1_bar_0_3__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '30d'; @post('sse/var/cards/s_c_0_self__c_0_1/window/30d?group=var_s_c_0_self__c_0_1__window')"
+  data-on:click="$_s_c_0_self__c_0_1_bar_0_3__busy ? '' : $_var_s_c_0_self__c_0_1__window__pending = '30d'; @post('sse/call/cards/call_10?node=s_c_0_self__c_0_1_bar_0_3', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_s_c_0_self__c_0_1_bar_0_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_self__c_0_1_bar_0_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_self__c_0_1_bar_0_3__error = ''))"
   data-fh-node="s_c_0_self__c_0_1_bar_0_3"
@@ -1201,7 +1201,7 @@
   data-text="$_e.lock.front_door.t#12">unavailable</span></span></span></div>
 <div class="fh-cell fh-row" id="s_c_6_self__c_0_0_features_0"><button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_0_0"
   data-signals="{_e: {lock: {front_door: {t#16: true}}}}"
-  data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#16 ? '' : @post('sse/call/cards/call_7?node=s_c_6_self__c_0_0_features_0_0', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#16"
+  data-on:click="$_s_c_6_self__c_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#16 ? '' : @post('sse/call/cards/call_11?node=s_c_6_self__c_0_0_features_0_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#16"
   data-indicator="_s_c_6_self__c_0_0_features_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_0_0__error = ''))"
   data-fh-node="s_c_6_self__c_0_0_features_0_0"
@@ -1214,7 +1214,7 @@
   data-class:fh-busy-spin="$_s_c_6_self__c_0_0_features_0_0__busy_slow"
   data-attr:aria-busy="$_s_c_6_self__c_0_0_features_0_0__busy_slow"><i class="mdi mdi-lock" ></i></span><span class="fh-text"><span class="fh-text-run">Lock</span></span></button><button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_0_1"
   data-signals="{_e: {lock: {front_door: {t#17: true}}}}"
-  data-on:click="$_s_c_6_self__c_0_0_features_0_1__busy ? '' : $_e.lock.front_door.t#17 ? '' : @post('sse/call/cards/call_8?node=s_c_6_self__c_0_0_features_0_1', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#17"
+  data-on:click="$_s_c_6_self__c_0_0_features_0_1__busy ? '' : $_e.lock.front_door.t#17 ? '' : @post('sse/call/cards/call_12?node=s_c_6_self__c_0_0_features_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#17"
   data-indicator="_s_c_6_self__c_0_0_features_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_0_1__error = ''))"
   data-fh-node="s_c_6_self__c_0_0_features_0_1"
@@ -1250,7 +1250,7 @@
 <div class="fh-cell fh-col" id="s_s_c_6_self__c_0_0_features_1_self__c_0"><h2 class="fh-cell fh-section fh-text" id="s_s_c_6_self__c_0_0_features_1_self__c_0_0"><span class="fh-text-run">Open the door?</span></h2>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="s_s_c_6_self__c_0_0_features_1_self__c_0_1"
   data-signals="{_e: {lock: {front_door: {t#10: false, t#11: 'mdi mdi-lock', t#12: 'unavailable', t#19: true, t#20: 'lock/lock'}}}}"
-  data-class:fh-active="$_e.lock.front_door.t#10">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_1__busy ? '' : $_e.lock.front_door.t#19 ? '' : @post('sse/call/cards/call_9?node=s_s_c_6_self__c_0_0_features_1_self__c_0_1', {payload: {posted: {}, seen: {service: $_e.lock.front_door.t#20} } })"
+  data-class:fh-active="$_e.lock.front_door.t#10">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_1__busy ? '' : $_e.lock.front_door.t#19 ? '' : @post('sse/call/cards/call_13?node=s_s_c_6_self__c_0_0_features_1_self__c_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {service: $_e.lock.front_door.t#20} } })"
   data-indicator="_s_s_c_6_self__c_0_0_features_1_self__c_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_s_c_6_self__c_0_0_features_1_self__c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_s_c_6_self__c_0_0_features_1_self__c_0_1__error = ''))"
   data-fh-node="s_s_c_6_self__c_0_0_features_1_self__c_0_1"
@@ -1266,7 +1266,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.lock.front_door.t#12">unavailable</span></span></span></div></article><button class="fh-cell fh-press fh-size-large " id="s_s_c_6_self__c_0_0_features_1_self__c_0_2"
   data-signals="{_e: {lock: {front_door: {t#21: true}}}}"
-  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#21 ? '' : @post('sse/call/cards/call_10?node=s_s_c_6_self__c_0_0_features_1_self__c_0_2', {payload: {posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#21"
+  data-on:click="$_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy ? '' : $_e.lock.front_door.t#21 ? '' : @post('sse/call/cards/call_14?node=s_s_c_6_self__c_0_0_features_1_self__c_0_2', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.lock.front_door.t#21"
   data-indicator="_s_s_c_6_self__c_0_0_features_1_self__c_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_s_c_6_self__c_0_0_features_1_self__c_0_2__error = ''))"
   data-fh-node="s_s_c_6_self__c_0_0_features_1_self__c_0_2"

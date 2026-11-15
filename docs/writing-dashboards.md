@@ -329,6 +329,10 @@ Each is a *variable*:
   and place `c.select(view)` where you want it.
   `c.iff(view.valueIs(…))` shows its `then` at that value and its `else` at
   any other; with no `else` it shows nothing there.
+- **Any button can choose:** `c.button("Detail", view.choose("detail"))`, on a
+  card at or below the one that declares `view`. `view.choose(null)` forgets
+  the viewer's choice, so the variable is back where it started and leaves the
+  address.
 - **The nearest declaration wins.** A card that declares the same name lower
   down makes a separate choice for its own part of the page.
 - **In a set, each member chooses for itself.** A variable declared in the
