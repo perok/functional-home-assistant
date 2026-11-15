@@ -94,6 +94,11 @@ Three more things fell out of the same change:
 - **Presence** — per candidate, the first clause whose guard holds; none means
   absent. Absent means **absent from the DOM**, not present-and-hidden: a hidden
   wrapper ships the bytes anyway and still costs layout and morph work.
+  A `where` lands as one guard per candidate, so equal guards (by `inputKey`)
+  compile once, in a set and in a `count()`/`present()`. Each candidate still
+  runs its guard, even one that reads no member and so answers every candidate
+  alike: running that once per decision saved nothing measurable
+  (`docs/experiments.md`). The wire still carries every copy.
 - **Order** — `orderBy` is a lexicographic list of `SortTerm`s, each a value read
   per member (`by`, a `ValueExpr`): a property, or a condition's truth, true
   first under `asc`. They are compared only among the PRESENT members, and a

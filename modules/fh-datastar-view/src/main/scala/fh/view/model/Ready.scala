@@ -80,15 +80,13 @@ object Ready:
 
   final case class SetClause(when: Option[Condition], node: Node)
 
-  /** A guard or a state surface's condition, the entities and fetches it reads,
-    * and whether it reads the member: one that does not answers every member
-    * alike.
+  /** A guard or a state surface's condition, and the entities and fetches it
+    * reads.
     */
   final case class Condition(
       run: Evaluator.Run,
       entities: List[String],
-      reads: Set[SlotRead],
-      readsMember: Boolean
+      reads: Set[SlotRead]
   )
 
   /** A slot's run, and its bind pass's facts, each read once: a paint reads
@@ -360,14 +358,7 @@ object Ready:
     private def condition(e: ValueExpr): Built[Condition] =
       Evaluator
         .compile(e, scope)
-        .map(c =>
-          Condition(
-            c.run,
-            e.entities,
-            SlotAsk.decision(e.fetches),
-            e.readsMissingSubject
-          )
-        )
+        .map(c => Condition(c.run, e.entities, SlotAsk.decision(e.fetches)))
 
   /** The wire's whole-dashboard facts, read off it once by the walk. */
   final case class Dashboard(

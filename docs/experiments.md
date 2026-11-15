@@ -293,3 +293,26 @@ source is parsed once per process and validation never shows the parser.
 
 **Worth asking again if** those caches go (per-validation scoping), or a profile of a cold start
 shows CEL parsing.
+
+## A set guard that reads no member, run once per decision
+
+2026-11-15, set-guard-sharing (#708). **No effect here.**
+
+**Question.** A `where` lands as one guard per candidate. One that reads no member (it names
+every entity it reads; every guard on an area or floor set) answers every candidate alike. Would
+running it once per decision, not once per candidate, make a set's decision cheaper?
+
+**How.** A per-decision memo of those guards' answers (an `IdentityHashMap` by compiled run),
+in `MemberGraph`'s decision and `Evaluator.present`. One round, escape analysis off, before and
+after: `RenderBench.publishSetNamedGuard` (200 candidates, one guard naming a ticked entity, so
+every frame re-decides all 200), `publishSetGuarded`, `leaderRow`, `tickRender`.
+
+**Numbers.** `publishSetNamedGuard` 197 ± 91 → 173 ± 143 µs, inside the error bars, and
+137,817 → 141,345 B/op; `leaderRow` 3,120 → 3,360 B/op for the memo; the rest equal.
+
+**Verdict.** The guard is a map lookup and a compare. Next to deciding and placing 200 members
+it is noise, and the memo costs more bytes than it saves. Sharing the compile (equal guards by
+`inputKey`) is kept: it costs nothing per frame.
+
+**Worth asking again if** a member-free guard gets expensive (a CEL guard over a fetch or a
+large list), or a profile of a set's decision shows guard runs in its top frames.
