@@ -151,12 +151,23 @@ class ServiceCall extends CallDecl {
   exclude: Mapping<"entity_id"|"area_id"|"floor_id", Listing<Expr|String>> = new {}
 }
 
+/// This viewer's choice of the node variable [[variable]], resolved at the
+/// pressing node as a read of it is; no [[value]] clears the choice.
+class SetVarCall extends CallDecl {
+  kind: "SetVar" = "SetVar"
+  variable: String
+  value: String?
+}
+
 /// A call a node places under [[name]], which its template posts with
-/// `tapMod.post`; the renderer fills [[callId]] and [[seen]]. A template piece
-/// shared across cards places one with no [[declares]].
+/// `tapMod.post`; the renderer fills [[callId]], [[seen]] and [[pending]]. A
+/// template piece shared across cards places one with no [[declares]].
 class CallSlot extends Slot {
   hidden declares: CallDecl? = null
   fixed callId: String = "{{{" + name + ".callId}}}"
+  /// The pending ask a choice writes as the press starts (ADR 0025), or
+  /// nothing.
+  fixed pending: String = "{{{" + name + ".pending}}}"
   /// What the press confirms: the call's fields this node shows.
   fixed seen: String = "{{{" + name + ".seen}}}"
 }

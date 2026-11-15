@@ -101,6 +101,7 @@ class SetMemberVarsSuite extends CatsEffectSuite {
       |        vars { view.defaultingTo("plain") }
       |        children {
       |          c.iff(view.valueIs("detail")).then(c.title("Detail")).`else`(c.title("Plain"))
+      |          c.button("more", view.choose("detail"))
       |        }
       |      })
       |      .build()
@@ -112,10 +113,7 @@ class SetMemberVarsSuite extends CatsEffectSuite {
     VarKey(fh.view.model.NodeId.derived(member), name)
 
   private def write(ts: TestServer, conn: String, key: VarKey, value: String) =
-    ts.postResult(
-      s"sse/var/${ts.slug}/${key.declarer}/${key.name}/$value?group=${key.group}",
-      body = s"""{"${Server.ConnSignal}":"$conn"}"""
-    )
+    ts.choose(conn, key, Some(value))
 
   test(
     "each member's control is its own, and kept while the member is away"

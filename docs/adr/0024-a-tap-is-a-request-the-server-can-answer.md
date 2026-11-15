@@ -43,6 +43,11 @@ POST /sse/surface/<slug>/open/<id>
 POST /sse/popup/<slug>/close
 ```
 
+A choice of a node variable is a declared call (`POST /sse/call/<slug>/<callId>`,
+ADR 0023), and every call's body is a `payload` that the bundle sends in place
+of the signals, so `tapMod.post` puts the page's `conn` and popup in it:
+`{conn, ui_popups, posted, seen}`. A service call ignores both.
+
 It earns its place twice: the gate can check the rule the way every other route
 does (before, the requirement had to be derived from the session, so a request
 with no session was necessarily un-gated), and — the reason this ADR exists —

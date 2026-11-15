@@ -223,13 +223,15 @@ derived from the owning node, and the `@@NODE_ID@@` token resolves only to a nod
 second tap can name it. Sharing means registering it and using `openPopup("detail")`.
 
 **Tap / tap action** — what a click does, as a value rather than a string: a service call on a
-**target** (an entity, an area, a floor or a query set), a navigation, opening or closing a popup. A tap names its
+**target** (an entity, an area, a floor or a query set), a viewer's choice of a node variable, a
+navigation, opening or closing a popup. A tap names its
 own target and never borrows the card's subject entity, so one card may show an entity and act on
 another. ADR 0016, 0023, 0024.
 
-**Declared call** — the service call a tap makes, as a value the build writes down
-(`CallDecl`): its `service`, its target keys and its `data` keys, each a value expression, every
-entity read named. A node places its calls by name (`tapMod.tapCall` is `tap`). The server
+**Declared call** — what a press asks, as a value the build writes down (`CallDecl`), one kind
+per call: a service call (`service`, its target keys and its `data` keys, each a value expression,
+every entity read named), or a **choice** (`SetVar`: a node variable and the value it chooses, or
+none to clear it). A node places its calls by name (`tapMod.tapCall` is `tap`). The server
 evaluates the declaration itself at the press; the page only names it. ADR 0023.
 
 **Exclusion** — what a call's `exclude` leaves out of its target: ids under the target's own keys
@@ -321,7 +323,9 @@ Note this is authorship, not tree position: it means "the card that wrote this",
 renderer cannot derive it from the parent link.
 
 `@@VAR:<name>@@` (`varMod.Variable.declarer`) is the other token, and it IS tree position: the nearest
-node above declaring the node variable `name`, spliced node by node so a shadow holds (ADR 0033).
+node above declaring the node variable `name`, spliced node by node so a shadow holds (ADR 0033). A
+highlight reading the declarer's signal from below spells it; a choice names only the variable,
+and the server resolves the same declarer at the pressing node.
 
 ---
 

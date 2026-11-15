@@ -121,18 +121,42 @@ class VarTapSuite extends ServerHarness {
   ): IO[A] =
     TestServer
       .resource(
-        dashboard,
+        withChoices(dashboard),
         List(FixtureEntity("sensor.a", "1"), FixtureEntity("sensor.b", "2")),
         config = FakeConfig(recorder = Some(recorder))
       )
       .use(f)
       .timeout(30.seconds)
 
-  private def post(ts: TestServer, conn: String, path: String) =
-    ts.postResult(path, body = s"""{"${Server.ConnSignal}":"$conn"}""")
+  /** The panel's own choices of each variable it declares, the ones the tests
+    * press: `4h` is a window no chart's table has.
+    */
+  private def withChoices(d: Dashboard): Dashboard = d.card match
+    case root: LayoutNode.Component =>
+      val picks = root.vars.map(_.name).flatMap {
+        case "window" =>
+          DashboardBuilders.choices("window", "1h", "24h", "7d", "4h") :+
+            DashboardBuilders.choosing("window", None)
+        case name => DashboardBuilders.choices(name, "1h")
+      }
+      d.copy(
+        cards =
+          d.cards + (DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard),
+        card = root.copy(regions =
+          root.regions.updatedWith(LayoutNode.DefaultRegion)(
+            _.map(_ ++ picks)
+          )
+        )
+      )
+    case _ => d
 
-  private def varPath(ts: TestServer, rest: String) =
-    s"sse/var/${ts.slug}/panel/$rest"
+  private def choose(
+      ts: TestServer,
+      conn: String,
+      name: String,
+      value: String
+  ) =
+    ts.choose(conn, VarKey(NodeId.derived("panel"), name), Some(value))
 
   private val Day = 24.hours.toMillis.toString
   private val Week = 7.days.toMillis.toString
@@ -199,7 +223,7 @@ class VarTapSuite extends ServerHarness {
         conn <- ts.load().map(_.conn)
         // A viewer who has chosen nothing gets the declared window.
         session <- ts.sessions.get(conn)
-        result <- post(ts, conn, varPath(ts, "window/7d"))
+        result <- choose(ts, conn, "window", "7d")
         chose <- session.traverse(_.state.map(_.vars))
         queued <- drain(session)
       } yield {
@@ -234,9 +258,9 @@ class VarTapSuite extends ServerHarness {
             for {
               conn <- ts.load().map(_.conn)
               session <- ts.sessions.get(conn)
-              first <- post(ts, conn, varPath(ts, "window/7d")).start
+              first <- choose(ts, conn, "window", "7d").start
               _ <- entered.get
-              second <- post(ts, conn, varPath(ts, "window/1h")).start
+              second <- choose(ts, conn, "window", "1h").start
               // Its chance to overtake.
               _ <- IO.sleep(200.millis)
               _ <- release.complete(())
@@ -314,7 +338,7 @@ class VarTapSuite extends ServerHarness {
           page <- ts.page()
           conn <- ts.load().map(_.conn)
           session <- ts.sessions.get(conn)
-          result <- post(ts, conn, varPath(ts, "window/7d"))
+          result <- choose(ts, conn, "window", "7d")
           queued <- drain(session)
         } yield {
           assertEquals(page.sliding(Day.length).count(_ == Day), 2, page)
@@ -340,7 +364,7 @@ class VarTapSuite extends ServerHarness {
       for {
         conn <- ts.load().map(_.conn)
         session <- ts.sessions.get(conn)
-        result <- post(ts, conn, varPath(ts, "window/4h"))
+        result <- choose(ts, conn, "window", "4h")
         chose <- session.traverse(_.state.map(_.vars))
         queued <- drain(session)
       } yield {
@@ -351,23 +375,116 @@ class VarTapSuite extends ServerHarness {
         // A refused write is not a half-write.
         assertEquals(chose, Some(Map.empty))
         // Nothing committed: the refusal's own signal frame
-        // (`Server.actionSignals`, the `group` param) ends the pending value,
+        // (`Server.actionSignals`) ends the pending value,
         // which falls back to a committed value that never moved.
         assertEquals(queued, Nil)
       }
     }
   }
 
-  test("a variable nothing declares is refused, not a silent no-op") {
+  test(
+    "a choice of an undeclared variable, or of no plain token, fails the build"
+  ) {
+    val stray = dash.card match
+      case root: LayoutNode.Component =>
+        dash.copy(
+          cards =
+            dash.cards + (DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard),
+          card = root.copy(regions =
+            root.regions.updatedWith(LayoutNode.DefaultRegion)(
+              _.map(
+                _ ++ DashboardBuilders.choices("nosuch", "7d") ++
+                  // A `'` would close the JS string its ask is spelled in.
+                  DashboardBuilders.choices("window", "it's")
+              )
+            )
+          )
+        )
+      case _ => fail("a panel")
+    val errors = stray.validate()
+    assert(
+      errors.exists(_.contains("chooses the variable 'nosuch', which no node")),
+      clue = errors
+    )
+    assert(
+      errors.exists(_.contains("chooses 'it's', which is not a plain token")),
+      clue = errors
+    )
+  }
+
+  test("a press with no conn is refused, and its ask cleared") {
+    served { ts =>
+      for {
+        press <- ts.choice(
+          VarKey(NodeId.derived("panel"), "window"),
+          Some("7d")
+        )
+        result <- ts.postResult(press, body = "{}")
+      } yield {
+        val (status, body) = result
+        assertEquals(status, Status.Ok)
+        assert(body.contains("\"_var_panel__window__pending\":\"\""), body)
+      }
+    }
+  }
+
+  test(
+    "a clear drops the choice: the chart and the commit at the declared value"
+  ) {
+    // The commit at the declared value is also what takes the URL parameter
+    // away (`VarKey.urlMirrorAttr`).
+    val key = VarKey(NodeId.derived("panel"), "window")
     served { ts =>
       for {
         conn <- ts.load().map(_.conn)
-        result <- post(ts, conn, varPath(ts, "nosuch/7d"))
-        chose <- ts.sessions.get(conn).flatMap(_.traverse(_.state.map(_.vars)))
+        session <- ts.sessions.get(conn)
+        _ <- choose(ts, conn, "window", "7d")
+        _ <- drain(session)
+        cleared <- ts.choose(conn, key, None)
+        chose <- session.traverse(_.state.map(_.vars))
+        queued <- drain(session)
       } yield {
-        // ADR 0024: a refused action is a 200 carrying signals.
-        assertEquals(result._1, Status.Ok)
+        assertEquals(cleared._1, Status.NoContent, clue = cleared)
         assertEquals(chose, Some(Map.empty))
+        val painted = queued.flatMap(_.data).mkString
+        assert(painted.contains(Day) && !painted.contains(Week), painted)
+        assertEquals(queued.lastOption.flatMap(_.data), Some(committed("24h")))
+      }
+    }
+  }
+
+  test("a clear writes no pending ask, a choice writes its own") {
+    served(
+      _.page().map { html =>
+        assert(
+          html.contains("$_var_panel__window__pending = '7d'; "),
+          clue = html
+        )
+        // Only the four choices ask; `pending || committed` cannot hold
+        // "nothing".
+        assertEquals(
+          // Non-empty: the shell's clear assigns `''`.
+          "_var_panel__window__pending = '[^']+'; ".r.findAllMatchIn(html).size,
+          4,
+          clue = html
+        )
+      }
+    )
+  }
+
+  test("a press under a conn this process forgot mints its session") {
+    served { ts =>
+      for {
+        result <- choose(ts, "forgotten", "window", "7d")
+        chose <- ts.sessions
+          .get("forgotten")
+          .flatMap(_.traverse(_.state.map(_.vars)))
+      } yield {
+        assertEquals(result._1, Status.NoContent, clue = result)
+        assertEquals(
+          chose,
+          Some(Map(VarKey(NodeId.derived("panel"), "window") -> "7d"))
+        )
       }
     }
   }
@@ -379,23 +496,19 @@ class VarTapSuite extends ServerHarness {
       for {
         conn <- ts.load().map(_.conn)
         session <- ts.sessions.get(conn)
-        _ <- post(ts, conn, varPath(ts, "window/24h"))
+        _ <- choose(ts, conn, "window", "24h")
         queued <- drain(session)
       } yield assertEquals(queued.flatMap(_.data), List(committed("24h")))
     }
   }
 
   test("a refusal ends the control's pending ask by name") {
-    // The URL the chooser posts (`components/history.pkl`); its `group` lets a
-    // refusal end this control's ask and no other.
+    // The ask is the one the press wrote, from the declaration it chose for,
+    // so a refusal ends it and no other.
     served { ts =>
       for {
         conn <- ts.load().map(_.conn)
-        result <- post(
-          ts,
-          conn,
-          varPath(ts, "window/4h?group=var_panel__window")
-        )
+        result <- choose(ts, conn, "window", "4h")
       } yield {
         val (status, body) = result
         assertEquals(status, Status.Ok)
@@ -438,8 +551,8 @@ class VarTapSuite extends ServerHarness {
         for {
           conn <- ts.load().map(_.conn)
           _ <- (
-            post(ts, conn, varPath(ts, "w/1h")),
-            post(ts, conn, varPath(ts, "window/7d"))
+            choose(ts, conn, "w", "1h"),
+            choose(ts, conn, "window", "7d")
           ).parTupled
           chose <- ts.sessions
             .get(conn)
@@ -523,7 +636,7 @@ class VarTapSuite extends ServerHarness {
     served { ts =>
       for {
         doc <- ts.load()
-        _ <- post(ts, doc.conn, varPath(ts, "window/7d"))
+        _ <- choose(ts, doc.conn, "window", "7d")
         _ <- ts
           .get(
             doc.stream.withQueryParam(
@@ -592,9 +705,9 @@ class VarTapSuite extends ServerHarness {
             .start
           _ <- until(seen.get)(_.exists(isCursor))
           _ <- flowing.set(false)
-          _ <- post(ts, doc.conn, varPath(ts, "window/7d"))
+          _ <- choose(ts, doc.conn, "window", "7d")
           _ <- until(seen.get)(_.exists(_.data.exists(_.contains(Week))))
-          _ <- post(ts, doc.conn, varPath(ts, "window/1h"))
+          _ <- choose(ts, doc.conn, "window", "1h")
           _ <- ts.change("sensor.a", "2")
           _ <- flowing.set(true)
           sent <- until(seen.get)(es =>

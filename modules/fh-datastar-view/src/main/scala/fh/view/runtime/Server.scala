@@ -242,18 +242,6 @@ class Server(
       withSession(req, slug)((session, renderer, selections) =>
         swapHost(session, renderer, Dashboard.PopupHostId, None, selections)
       )
-
-    // Addressed to the node that declared the variable (issue #209).
-    case req @ POST -> Root / "sse" / "var" / slug / node / name / value =>
-      withSession(req, slug)((session, renderer, selections) =>
-        setVar(
-          session,
-          renderer,
-          VarKey(NodeId.derived(node), name),
-          value,
-          selections
-        )
-      )
   }
 
   /** Refused unless this dashboard declares the call and the pressed node
@@ -270,21 +258,80 @@ class Server(
     gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
       (site.permissionFor(Some(slug)), gate.of(req)).flatMapN {
         (permission, user) =>
-          (for
-            call <- EitherT.fromOption[IO](
-              permission.callOf(user, id),
-              s"no tap on this dashboard makes the call $id"
-            )
-            posted <- EitherT.fromEither[IO](
-              Server.postedValues(call.decl, body.posted)
-            )
-            p <- EitherT(pressed(req, slug, id, call, posted))
-            _ <- EitherT.fromEither[IO](
-              Server.seenRefusal(p.seen, body.seen).toLeft(())
-            )
-          yield p).foldF(actionRefused(req, _), send(req, _))
+          permission.callOf(user, id) match
+            case None =>
+              actionRefused(req, s"no tap on this dashboard makes the call $id")
+            case Some(call: Ready.ServiceCall) =>
+              (for
+                posted <- EitherT.fromEither[IO](
+                  Server.postedValues(call.decl, body.posted)
+                )
+                p <- EitherT(pressed(req, slug, id, call, posted))
+                _ <- EitherT.fromEither[IO](
+                  Server.seenRefusal(p.seen, body.seen).toLeft(())
+                )
+              yield p).foldF(actionRefused(req, _), send(req, _))
+            case Some(Ready.SetVarCall(d)) => choose(req, slug, id, d, body)
       }
     )
+
+  /** This viewer's choice of a node variable, declared at the nearest node
+    * above the pressed one that declares it (issue #209). A refusal clears the
+    * pending ask the press wrote (ADR 0025).
+    */
+  private def choose(
+      req: Request[IO],
+      slug: String,
+      id: CallId,
+      d: CallDecl.SetVar,
+      body: Server.CallBody
+  ): IO[Response[IO]] =
+    req.uri.query.params.get(Server.NodeParam).map(NodeId.derived) match {
+      case None       => actionRefused(req, "the press names no node")
+      case Some(node) =>
+        rendererFor(slug).flatMap {
+          case None =>
+            IO.raiseError(FHError.unavailable(s"dashboard '$slug' is not live"))
+          case Some(renderer) =>
+            renderer.vars.keyAt(node, d.variable) match {
+              case None =>
+                actionRefused(
+                  req,
+                  s"no node at or above $node declares the variable '${d.variable}'"
+                )
+              case Some(key) =>
+                val pending = Some(key.pendingSignal)
+                stateStore.current
+                  .flatMap(decided(renderer, _) { at =>
+                    renderer
+                      .componentAt(node, at)
+                      .exists(_.calls.values.exists(_.id == id))
+                  })
+                  .flatMap {
+                    case (false, _) =>
+                      actionRefused(
+                        req,
+                        s"the node $node does not place the call $id",
+                        pending
+                      )
+                    case (true, _) =>
+                      body.conn match
+                        case None => actionRefused(req, "missing conn", pending)
+                        case Some(conn) =>
+                          inSession(req, slug, conn, body.popup, pending)(
+                            (session, renderer, selections) =>
+                              setVar(
+                                session,
+                                renderer,
+                                key,
+                                d.value,
+                                selections
+                              )
+                          )
+                  }
+            }
+        }
+    }
 
   /** The call run now, as the pressed node places it: a set member is its
     * current clause, so a page drawn from another one is refused here when that
@@ -294,7 +341,7 @@ class Server(
       req: Request[IO],
       slug: String,
       id: CallId,
-      call: Ready.Call,
+      call: Ready.ServiceCall,
       posted: Map[String, Any]
   ): IO[Either[String, Renderer.Pressed]] =
     req.uri.query.params.get(Server.NodeParam) match {
@@ -1118,6 +1165,7 @@ class Server(
     * it selects, swapped as a tab press always was. Per session: no `Mutation`.
     *
     * The untrusted value is checked ([[Renderer.refusals]]) before it is kept.
+    * `None` drops the choice, so the variable holds what it opened at again.
     * Committed last even when no bytes moved: the commit ends the pending ask
     * (ADR 0025).
     */
@@ -1125,12 +1173,14 @@ class Server(
       session: Session,
       renderer: Renderer,
       key: VarKey,
-      value: String,
+      chosen: Option[String],
       selections: Selections
   )(s: SessionState): IO[Session.Step[Unit]] = {
     val readers = renderer.vars.readersOf(key)
     val groups = renderer.vars.panelsSelectedBy(key)
-    val proposed = s.vars + (key -> value)
+    val proposed = chosen.fold(s.vars - key)(v => s.vars + (key -> v))
+    val value = (s.initialValues ++ proposed)
+      .getOrElse(key, renderer.vars.defaults(key))
     for {
       store <- stateStore.current
       reached <- decided(renderer, store) { at =>
@@ -1269,7 +1319,7 @@ class Server(
       f: (Session, Renderer, Selections) => SessionState => IO[
         Session.Step[Unit]
       ]
-  ): IO[Response[IO]] = {
+  ): IO[Response[IO]] =
     req.bodyText.compile.string
       .map(io.circe.parser.parse(_).toOption.flatMap { body =>
         connOf(body).map(_ -> Server.popupFromSignals(body.hcursor).flatten)
@@ -1279,35 +1329,50 @@ class Server(
           actionRefused(req, "missing conn")
         case Some((conn, requested)) =>
           gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
-            rendererFor(slug)
-              .flatMap {
-                case None =>
-                  IO.raiseError(
-                    FHError.notFound(s"no dashboard '$slug' is being served")
-                  )
-                case Some(renderer) =>
-                  sessionFor(slug, conn, renderer, requested).flatMap {
-                    case None => actionRefused(req, Server.WrongSlugMessage)
-                    case Some(session) =>
-                      session.run(s =>
-                        f(
-                          session,
-                          renderer,
-                          selectionsOf(renderer, requested, s.values)
-                        )(s)
-                      ) *> NoContent()
-                  }
-              }
-              // A 4xx becomes a refusal; a 5xx is our bug and stays with
-              // [[FHError.handle]] rather than showing the user an internal
-              // message.
-              .recoverWith {
-                case e: FHError if e.status < 500 =>
-                  actionRefused(req, e.message)
-              }
+            inSession(req, slug, conn, requested, None)(f)
           )
       }
-  }
+
+  /** [[withSession]] once `conn` and the page's popup are read and the request
+    * is admitted. A refusal also clears `pending`.
+    */
+  private def inSession(
+      req: Request[IO],
+      slug: String,
+      conn: String,
+      requested: Option[String],
+      pending: Option[String]
+  )(
+      f: (Session, Renderer, Selections) => SessionState => IO[
+        Session.Step[Unit]
+      ]
+  ): IO[Response[IO]] =
+    rendererFor(slug)
+      .flatMap {
+        case None =>
+          IO.raiseError(
+            FHError.notFound(s"no dashboard '$slug' is being served")
+          )
+        case Some(renderer) =>
+          sessionFor(slug, conn, renderer, requested).flatMap {
+            case None =>
+              actionRefused(req, Server.WrongSlugMessage, pending)
+            case Some(session) =>
+              session.run(s =>
+                f(
+                  session,
+                  renderer,
+                  selectionsOf(renderer, requested, s.values)
+                )(s)
+              ) *> NoContent()
+          }
+      }
+      // A 4xx becomes a refusal; a 5xx is our bug and stays with
+      // [[FHError.handle]] rather than showing the user an internal message.
+      .recoverWith {
+        case e: FHError if e.status < 500 =>
+          actionRefused(req, e.message, pending)
+      }
 
   /** Mints a session when `conn` names nothing (an idle page whose session was
     * reaped); its patches wait in the backlog until the reconnecting stream
@@ -1428,15 +1493,16 @@ class Server(
 
   /** Every refused action answers 200 with signals, never 4xx: the pinned
     * bundle drops a non-200 body unread (ADR 0024). The signals set the pressed
-    * control's `_<node>__error`, clear its group's `_<group>__pending` (ADR
-    * 0025) and raise `_toast`. Both ids are the client's claim from the query
-    * string; nothing is authorized off them.
+    * control's `_<node>__error`, clear the `pending` ask a choice wrote (ADR
+    * 0025) and raise `_toast`. The node is the client's claim from the query
+    * string; nothing is authorized off it.
     */
   private def actionRefused(
       req: Request[IO],
-      message: String
+      message: String,
+      pending: Option[String] = None
   ): IO[Response[IO]] =
-    Ok(Server.actionSignals(req, message))
+    Ok(Server.actionSignals(req, message, pending))
 
   /** The live state of every entity a node binds, for the editor preview's
     * overlay. An unknown node is `[]`.
@@ -2571,11 +2637,10 @@ object Server {
   private[runtime] val WrongSlugMessage: String =
     "connection belongs to another dashboard"
 
-  /** What an action says about itself: the pressed control and the waiting
-    * selection group, filled at click time (`core/tap.pkl`).
+  /** What an action says about itself: the pressed control, filled at click
+    * time (`core/tap.pkl`).
     */
   val NodeParam: String = "node"
-  val GroupParam: String = "group"
 
   val ToastSignal: String = "_toast"
 
@@ -2604,14 +2669,13 @@ object Server {
 
   private[runtime] def actionSignals(
       req: Request[IO],
-      message: String
+      message: String,
+      pending: Option[String]
   ): Json = {
     val text = Json.fromString(message)
     Json.fromFields(
       idParam(req, NodeParam).map(id => s"_${id}__error" -> text).toList ++
-        idParam(req, GroupParam).map(id =>
-          s"_${id}__pending" -> Json.fromString("")
-        ) ++
+        pending.map(_ -> Json.fromString("")) ++
         List(ToastSignal -> text)
     )
   }
@@ -2982,10 +3046,19 @@ object Server {
   /** A press's body (`tapMod.post`): the values the card posts, and what the
     * node showed of the fields it sees. A blank body is neither.
     */
-  final case class CallBody(posted: JsonObject, seen: JsonObject)
+  /** `tapMod.post`'s body: the page's `conn` and popup, which only a choice
+    * reads, and what the press posts and saw.
+    */
+  final case class CallBody(
+      conn: Option[String],
+      popup: Option[String],
+      posted: JsonObject,
+      seen: JsonObject
+  )
 
   def callBody(body: String): Either[String, CallBody] =
-    if (body.isBlank) Right(CallBody(JsonObject.empty, JsonObject.empty))
+    if (body.isBlank)
+      Right(CallBody(None, None, JsonObject.empty, JsonObject.empty))
     else
       io.circe.parser
         .parse(body)
@@ -2996,7 +3069,15 @@ object Server {
           def part(k: String) = o(k).fold(Right(JsonObject.empty))(
             _.asObject.toRight(s"the call's $k is not an object")
           )
-          (part("posted"), part("seen")).mapN(CallBody.apply)
+          val c = Json.fromJsonObject(o).hcursor
+          (part("posted"), part("seen")).mapN(
+            CallBody(
+              c.get[String](ConnSignal).toOption.filter(_.nonEmpty),
+              popupFromSignals(c).flatten,
+              _,
+              _
+            )
+          )
         }
 
   /** Each posted value decoded as the source reading it declares, exactly the

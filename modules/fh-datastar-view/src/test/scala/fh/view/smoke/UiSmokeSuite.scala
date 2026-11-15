@@ -102,7 +102,7 @@ class UiSmokeSuite extends SmokeSuite {
         _ = assert(!before.contains("v."), clue = before)
         _ <- IO.blocking(
           page.route(
-            "**/sse/var/**",
+            "**/sse/call/**",
             route =>
               route.fulfill(
                 new com.microsoft.playwright.Route.FulfillOptions()
@@ -116,7 +116,7 @@ class UiSmokeSuite extends SmokeSuite {
         // starting point.
         _ <- IO.blocking(
           page.waitForResponse(
-            "**/sse/var/**",
+            "**/sse/call/**",
             () => climateTab.click()
           )
         )
@@ -131,7 +131,7 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- IO.blocking(
           assertThat(page.locator(".fh-toast")).containsText("404")
         )
-        _ <- IO.blocking(page.unroute("**/sse/var/**"))
+        _ <- IO.blocking(page.unroute("**/sse/call/**"))
         _ <- IO.blocking(climateTab.click())
         _ <- IO.blocking(assertThat(panel).containsText("Hallway"))
         // The morph and the bar's `data-fh-url` mirror are
@@ -162,7 +162,7 @@ class UiSmokeSuite extends SmokeSuite {
         // thread is in one of its calls, so polling a buffer from `IO` waits
         // forever.
         _ <- IO.blocking(
-          page.waitForRequest("**/sse/var/**", () => climateTab.click())
+          page.waitForRequest("**/sse/call/**", () => climateTab.click())
         )
         _ <- IO.blocking(assertThat(climateTab).hasClass(active))
         _ <- ts.forgetConnections

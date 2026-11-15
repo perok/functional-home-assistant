@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import fh.view.model.NodeId
 import fh.view.testkit.FixtureEntity
 import io.circe.Json
 import munit.CatsEffectSuite
@@ -66,8 +67,11 @@ class LightSliderSuite extends CatsEffectSuite {
         url.split('/').last.takeWhile(_ != '?')
     })
 
+  /** A control button's press: the declarer whose ask it writes, and the
+    * control.
+    */
   private val controlRoute =
-    """sse/var/[^/]+/([A-Za-z0-9_]+)/control/([A-Za-z]+)""".r
+    """\$_var_([A-Za-z0-9_]+)__control__pending = '([A-Za-z]+)'""".r
 
   test(
     "first paint is the brightness slider, its button stepping to the next"
@@ -107,9 +111,10 @@ class LightSliderSuite extends CatsEffectSuite {
           .findFirstMatchIn(doc.html)
           .fold(fail(s"no control button on the page: ${doc.html}"))(_.group(1))
         session <- ts.sessions.get(doc.conn)
-        result <- ts.postResult(
-          s"sse/var/${ts.slug}/$declarer/control/colour",
-          body = s"""{"${Server.ConnSignal}":"${doc.conn}"}"""
+        result <- ts.choose(
+          doc.conn,
+          VarKey(NodeId.derived(declarer), "control"),
+          Some("colour")
         )
         sent <- session
           .fold(IO.pure(List.empty[SseFrame]))(_.takeBacklog)
@@ -255,9 +260,10 @@ class LightSliderSuite extends CatsEffectSuite {
             .map(_.group(1))
             .toSet
           session <- ts.sessions.get(doc.conn)
-          result <- ts.postResult(
-            s"sse/var/${ts.slug}/${declarers.head}/control/colour",
-            body = s"""{"${Server.ConnSignal}":"${doc.conn}"}"""
+          result <- ts.choose(
+            doc.conn,
+            VarKey(NodeId.derived(declarers.head), "control"),
+            Some("colour")
           )
           sent <- session
             .fold(IO.pure(List.empty[SseFrame]))(_.takeBacklog)

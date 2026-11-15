@@ -19,7 +19,7 @@ class TabButton extends nodes.Node {
     // An anchor, so a theme can style the bar's `> a`.
     tag = "a"
     layoutCell = false
-    attrs = #"data-on:click="\#(tapMod.guardClick)\#(tapMod.onclick.raw)"\#(tapMod.guard)\#(tapMod.busyVisual.ifSet(" " + tapMod.busyTextClass)) data-class:fh-chosen="\#(activeSlot.raw)""#
+    attrs = #"data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.guard)\#(tapMod.busyVisual.ifSet(" " + tapMod.busyTextClass)) data-class:fh-chosen="\#(activeSlot.raw)""#
     // Not a `core/text.pkl` box: the bar scrolls, so a tab is reached rather
     // than shortened.
     template = "\(labelSlot)"

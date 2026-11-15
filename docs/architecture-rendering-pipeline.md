@@ -107,7 +107,7 @@ flowchart TB
 
   GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>a call is admitted by its declared id, and only on a node that places it"]
   ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>(a popup's also from popstate: Back/Forward, ADR 0005)<br/>carries conn + the popup's ui-state<br/>a conn this process has forgotten is MINTED, not dropped (ADR 0024)<br/>the swap COMMITS ui_popups; the tap only says what it asked for (ADR 0025)"]
-  VAR["node variable (ADR 0033)<br/>POST var/&lt;slug&gt;/&lt;declarer&gt;/&lt;name&gt;/&lt;value&gt; · or v. on the page URL<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press is one: it swaps the panel it selects<br/>re-renders the readers this viewer is shown, commits LAST"]
+  VAR["node variable (ADR 0033)<br/>a declared SetVar call, POST call/&lt;slug&gt;/&lt;callId&gt;?node= · or v. on the page URL<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press is one: it swaps the panel it selects<br/>re-renders the readers this viewer is shown, commits LAST"]
   SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>open set, holds (what this DOM has: byte-slot values, signals),<br/>position, told, vars (this viewer's choices),<br/>initialValues (where the document opened a variable)<br/>+ a backlog for a client with no stream"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
 
@@ -467,10 +467,13 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   rides the `.fh-slider` track wrapper (and the head badge, whose icon spins
   during the commit).
 - **A press is the server's own evaluation of a declared call** (ADR 0023).
-  `POST /sse/call/<slug>/<callId>?node=<id>`, its body `{posted, seen}`, which
-  `tapMod.post` spells: `Server.tapCall` looks the id up in `Dashboard.calls`
-  and the call on the node as it stands now (`Renderer.componentAt`, so a set
-  member is its current clause), decodes `posted` as each `Posted` source
+  `POST /sse/call/<slug>/<callId>?node=<id>`, its body
+  `{conn, ui_popups, posted, seen}`, which `tapMod.post` spells:
+  `Server.tapCall` looks the id up in `Dashboard.calls`, by its kind. A
+  `SetVar` is a choice of a node variable (`Server.choose`, below), which
+  reads only `conn` and the popup. A service call is checked against the call
+  on the node as it stands now (`Renderer.componentAt`, so a set member is its
+  current clause); the server decodes `posted` as each `Posted` source
   types it, runs every field through `decided` (a fetch answered first,
   `Renderer.press`), refuses a `seen` that is not exactly the node's seen
   fields at their values now, and calls HA. A seen field is a `Handler` slot
@@ -1194,7 +1197,10 @@ A choice is addressed to the node that DECLARED the variable, which is what keep
 independent from the write side. It arrives two ways, both narrowed to real declarations before
 they are recorded on the session (a pull has no request to read either off again): as a
 `v.<declarer>.<name>` query param on the document (`Server.varChoicesOf` — the carrier that
-survives a refresh), and as `POST /sse/var/:slug/:declarer/:name/:value` while the page is live.
+survives a refresh), and as a press of a declared `SetVar` call while the page is live
+(`POST /sse/call/:slug/:callId?node=`, `Server.choose`), whose declarer the server resolves at the
+pressed node (`VarGraph.keyAt`), as a read is resolved. Its value is the declaration's, or none:
+a clear drops the viewer's choice, so the variable holds what it opened at again.
 A choice matching no declaration is inert rather than an error — the same treatment
 `SurfaceGraph.openPopup` gives a surface id this dashboard no longer has. A choice that does match
 one passes the same check either way (`Renderer.refusals`): every declared reader must still parse
@@ -1225,7 +1231,8 @@ this session shows, the filter a pull uses, since a closed surface renders the v
 Each reader is re-rendered against a snapshot resolved with the new values, suppressed where the bytes did not
 move, and then the value is COMMITTED as `_var_<declarer>__<name>` — ADR 0025's pair, so a control
 shows the press immediately from its own pending signal and the ask ends only when the server
-agrees. A refused value ends the ask instead (ADR 0024's 200 of signals, naming the group), leaving
+agrees. A refused value ends the ask instead (ADR 0024's 200 of signals, naming the ask of the
+declaration it resolved), leaving
 the display on a value that never moved. The committed signals are seeded by the document's shell,
 ahead of the body, and ride the opening frame again — both TOTAL over the build's declarations at
 this viewer's values (`VarGraph.committed`), so a stale control is corrected and a control never
@@ -1248,9 +1255,10 @@ hand the renderer: the popup's surface id and each chosen bake group's member in
 member at every other value (`VarAt.Otherwise`, an If over a variable's `else`).
 
 The authoring side is one component (`c.chooser(c.select(v))`, `c.history.chooser` for the window): it
-declares the variable, and its bar is a `tab` node per option. A button names the declaring node in the route it posts to and the signal
-it reads through `@@VAR:window@@`, which the build splices with the nearest declarer's id (ADR
-0033), so each button is a node with its own busy guard.
+declares the variable, and its bar is a `tab` node per option. A button's press names only the
+variable; the renderer fills its pending ask (`{{{tap.pending}}}`) from the declaration at that node,
+and the highlight it reads names the declarer through `@@VAR:window@@`, which the build splices
+with the nearest declarer's id (ADR 0033). Each button is a node with its own busy guard.
 
 Two consequences worth stating, because neither is obvious:
 

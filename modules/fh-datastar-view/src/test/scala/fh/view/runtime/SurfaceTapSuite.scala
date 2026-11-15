@@ -121,7 +121,7 @@ class SurfaceTapSuite extends ServerHarness {
         elsewhere <- ownerlessSession("other")
         _ <- ts.sessions.register("shared", elsewhere)
         result <- ts.postResult(
-          s"sse/surface/${ts.slug}/open/det?group=tabs",
+          s"sse/surface/${ts.slug}/open/det",
           body = as("shared")
         )
         untouched <- ts.sessions.get("shared").map(_.exists(_.slug == "other"))
@@ -129,9 +129,6 @@ class SurfaceTapSuite extends ServerHarness {
         val (status, body) = result
         assertEquals(status, Status.Ok)
         assert(body.contains(Server.WrongSlugMessage), clue = body)
-        // With no status to infer it from, the server clears the tab's pending
-        // selection in the same frame.
-        assert(body.contains("_tabs__pending"), clue = body)
         assert(untouched)
       }
     }

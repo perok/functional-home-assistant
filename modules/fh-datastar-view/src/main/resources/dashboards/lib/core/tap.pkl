@@ -33,7 +33,7 @@ const busy: slotMod.Slot = slotMod.bool("busy")
 const busyVisual: slotMod.Slot = slotMod.bool("busyVisual")
 const current: slotMod.Slot = slotMod.bool("current")
 
-/// A [[Call]] or a [[Click]], rendered in one place ([[tapRoute]]).
+/// A [[Press]] or a [[Click]], rendered in one place ([[tapRoute]]).
 ///
 /// A card that can be an anchor must prefer `href` when set: that is what gives
 /// a navigate real link behaviour (middle-click, open-in-new-tab, no JS).
@@ -61,7 +61,13 @@ abstract class TapAction {
   hidden lit: slotMod.Reading? = null
 }
 
-class Call extends TapAction {
+/// A declared call ([[post]]): what HA is asked ([[Call]]), or this viewer's
+/// choice of a node variable ([[SetVar]]). Its answer is a wait worth showing.
+abstract class Press extends TapAction {
+  busy = true
+}
+
+class Call extends Press {
   /// `"<domain>/<service>"`: a literal, or a reading of the target's live
   /// state ([[stateService]]), which the server runs again at the press.
   service: slotMod.Reading|String
@@ -94,7 +100,6 @@ class Call extends TapAction {
   /// card sending the same call cannot go unguarded. Not the busy guard: this
   /// follows the ENTITY, including a lock someone moved from its keypad.
   disabledWhile: Listing<String> = new {}
-  busy = true
 }
 
 /// A tap that is its own click expression. `onclick` is what a card whose root
@@ -109,11 +114,13 @@ class OpenSurface extends Click {
   busy = true
 }
 
-/// A choice of a node variable (`varMod.Variable.choose`). Guarded for the
-/// same reason as [[OpenSurface]]: the write answers once its readers have
+/// A choice of a node variable (`varMod.Variable.choose`), declared at the
+/// nearest node above that declares it. It answers once its readers have
 /// re-rendered.
-class SetVar extends Click {
-  busy = true
+class SetVar extends Press {
+  variable: String
+  /// Null clears the choice, back to the declared value.
+  value: String?
 }
 
 // URLs are relative to the page's <base href>, which is the ingress prefix
@@ -121,12 +128,14 @@ class SetVar extends Click {
 // admit only calls that dashboard declares (ADR 0023): `{{dashboardSlug}}` in a
 // template, `dashboard_slug` in a transform, whose output is inserted raw.
 
-/// The press of the call `s` names: its id, and as the body (a `payload`, which
-/// the bundle sends instead of the signals) each of `posts` beside its key and
-/// what the node shows of the call. `posts` are the card's, since one template
-/// serves every node of it; each node's call says how its value is typed.
+/// The press of the call `s` names: its pending ask, its id, and as the body (a
+/// `payload`, which the bundle sends instead of the signals) the page's `conn`
+/// and popup, which a choice is made in, then each of `posts` beside its key
+/// and what the node shows of the call. `posts` are the card's, since one
+/// template serves every node of it; each node's call says how its value is
+/// typed.
 const function post(s: slotMod.CallSlot, posts: List<slotMod.PostedRead>): String =
-  "@post('sse/call/{{dashboardSlug}}/\(s.callId)?node={{id}}', {payload: {posted: {"
+  "\(s.pending)@post('sse/call/{{dashboardSlug}}/\(s.callId)?node={{id}}', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {"
     + posts.map((p) -> "'\(p.key)': \(p.js)").join(", ")
     + "}, seen: \(s.seen) } })"
 
@@ -317,7 +326,11 @@ const function tapDisabledSlot(states: List<String>): slotMod.Reading =
 /// (`Dashboard.calls`, ADR 0023). Every read names its entity: a declaration
 /// has no subject. A set is its tally, which the press narrows to the
 /// candidates present then.
-const function declOf(c: Call): slotMod.ServiceCall = new {
+const function declOf(t: Press): slotMod.CallDecl =
+  if (t is SetVar) new slotMod.SetVarCall { variable = t.variable; value = t.value }
+  else serviceOf(t as Call)
+
+const local function serviceOf(c: Call): slotMod.ServiceCall = new {
   service =
     if (c.service is slotMod.Reading && c.target is hass.Entity)
       (c.service as slotMod.Reading) { entityId = (c.target as hass.Entity).entity_id }
@@ -352,7 +365,7 @@ const function tapRoute(t: TapAction): Listing<slotMod.Slot> =
   let (reads = if (target is hass.Entity) target.entity_id else null)
   let (states = refusedStates(t, target))
     new {
-      when (t is Call) {
+      when (t is Press) {
         (tapCall) { declares = declOf(t) }
       } else {
         onclick.of((t as Click).onclick)

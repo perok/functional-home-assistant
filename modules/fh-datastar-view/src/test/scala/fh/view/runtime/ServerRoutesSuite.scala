@@ -142,7 +142,7 @@ class ServerRoutesSuite extends ServerHarness {
       .foreach(body => assert(Server.callBody(body).isLeft, clue = body))
     assertEquals(
       Server.callBody(""),
-      Right(Server.CallBody(JsonObject.empty, JsonObject.empty))
+      Right(Server.CallBody(None, None, JsonObject.empty, JsonObject.empty))
     )
   }
 

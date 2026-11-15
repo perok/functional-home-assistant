@@ -239,7 +239,11 @@ names a declared call, `POST /sse/call/:slug/:callId?node=<id>`, and `Server`
 refuses an id its dashboard does not declare. The id is the first 16 hex
 characters of the SHA-256 of the call's declaration as Scala decodes it
 (`CallDecl`: its `service`, its target keys and its `data` keys, each a value
-expression, ADR 0035), each key's entries sorted. Equal calls on two cards share
+expression, ADR 0035), each key's entries sorted. A call is one kind, by `kind`
+on the wire, so no call both reaches HA and sets a variable: `Service` is that
+HA call, and `SetVar` is this viewer's choice of a node variable (a tab, a select
+option, ADR 0033), its variable and value hashed the same way, its declarer
+resolved at the pressed node and its value held to every reader there. Equal calls on two cards share
 one id, the order of two `.with` calls does not move it, and an edited call gets
 a new one, so a stale page's press is refused as a stale URL always was. The
 allowlist is `Dashboard.calls`, by id. The press is refused, too, on a node that

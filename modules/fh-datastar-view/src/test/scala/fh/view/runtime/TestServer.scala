@@ -178,6 +178,27 @@ final class TestServer(
         case (d: CallDecl.Service, url) => d -> url
       })
 
+  /** The press choosing `value` for `key` (`None` clears it), as a node placing
+    * that choice posts it.
+    */
+  def choice(key: VarKey, value: Option[String]): IO[String] =
+    (server.liveSlug(slug).flatMap(_.renderer.get), store.current).mapN {
+      (state, now) =>
+        state.rendererOf
+          .flatMap(r => r.choicePress(slug, key, value, r.shared(now)))
+          .getOrElse(sys.error(s"no node places the choice $value of $key"))
+    }
+
+  /** [[choice]] of `value`, posted under `conn`: the status and the body. */
+  def choose(
+      conn: String,
+      key: VarKey,
+      value: Option[String]
+  ): IO[(Status, String)] =
+    choice(key, value).flatMap(
+      postResult(_, body = s"""{"${Server.ConnSignal}":"$conn"}""")
+    )
+
   /** An action that works answers 204 and nothing else; the effect is the
     * recorded [[ServiceCall]].
     */

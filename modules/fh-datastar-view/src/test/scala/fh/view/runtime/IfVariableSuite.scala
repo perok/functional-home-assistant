@@ -23,6 +23,7 @@ class IfVariableSuite extends CatsEffectSuite {
       |    c.iff(window.valueIs("30d")).then(c.title("Month")).`else`(c.title("Other"))
       |    // No else: still takes every value, showing nothing at the others.
       |    c.iff(window.valueIs("7d")).then(c.title("Week"))
+      |    for (w in List("30d", "7d", "1h")) { c.button(w, window.choose(w)) }
       |  }
       |}
       |""".stripMargin
@@ -32,9 +33,10 @@ class IfVariableSuite extends CatsEffectSuite {
       .fromWorkspace("if-variable", entry, Nil)
       .use { ts =>
         def write(value: String, conn: String) =
-          ts.postResult(
-            s"sse/var/${ts.slug}/c/window/$value?group=var_c__window",
-            body = s"""{"${Server.ConnSignal}":"$conn"}"""
+          ts.choose(
+            conn,
+            VarKey(fh.view.model.NodeId.derived("c"), "window"),
+            Some(value)
           )
         for {
           page <- ts.page()

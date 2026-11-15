@@ -24,16 +24,23 @@ enum CallDecl derives CanEqual:
       exclude: ListMap[IdKind, List[ValueExpr]] = ListMap.empty
   )
 
+  /** This viewer's choice of the node variable `variable`, its declarer the
+    * nearest one at the pressing node; `None` clears the choice.
+    */
+  case SetVar(variable: String, value: Option[String])
+
   def all: List[ValueExpr] = this match
     case Service(service, target, data, exclude) =>
       service :: target.values.flatten.toList ++
         exclude.values.flatten ++ data.values
+    case _: SetVar => Nil
 
   lazy val id: CallId = CallId.of(this)
 
   /** How a message names it. */
   def named: String = this match
-    case s: Service => s"the call ${s.service.literal.getOrElse(id)}"
+    case s: Service   => s"the call ${s.service.literal.getOrElse(id)}"
+    case SetVar(v, _) => s"the choice of '$v'"
 
 extension (s: CallDecl.Service)
   /** What it does, besides what it reaches: the fields a node can see. */
@@ -89,6 +96,11 @@ object CallDecl:
           if (c.downField("exclude").succeeded) keyed(c, "exclude")
           else Right(ListMap.empty)
         ).mapN(Service.apply)
+      case "SetVar" =>
+        Strict.only(c, Set("kind", "variable", "value")) *> (
+          c.get[String]("variable"),
+          c.get[Option[String]]("value")
+        ).mapN(SetVar.apply)
       case other =>
         Left(DecodingFailure(s"unknown call kind '$other'", c.history))
     }
@@ -114,12 +126,14 @@ object CallId:
           m.map((k, es) => k.key -> es.map(e => sized(e.inputKey)).mkString)
         )
       )
-    // A service call's canonical form names no kind, so no id moved with
-    // the union.
+    // A service call's canonical form names no kind, so no id moved with the
+    // union; it opens with a digit, which a choice's never does.
     val canonical = d match
       case CallDecl.Service(service, target, data, exclude) =>
         sized(service.inputKey) + ids(target) + ids(exclude) +
           sized(keyed(data.map((k, e) => k -> e.inputKey)))
+      case CallDecl.SetVar(variable, value) =>
+        "SetVar" + sized(variable) + value.fold("-")(sized)
     MessageDigest
       .getInstance("SHA-256")
       .digest(canonical.getBytes(StandardCharsets.UTF_8))

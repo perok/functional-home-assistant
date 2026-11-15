@@ -266,6 +266,7 @@ class WireShapeSuite extends munit.FunSuite {
       ),
       pklOnly = Set("kind")
     )
+    check("SetVarCall", CallDecl.SetVar("x", None), pklOnly = Set("kind"))
     check("Attr", Part.Attr("x"))
     check("Whole", Part.Whole)
     // Scala's `inputs` is Pkl's `wireInputs`: Pkl's `inputs` is the hidden one.
@@ -366,7 +367,7 @@ class WireShapeSuite extends munit.FunSuite {
       ),
       caseNames[Window] -> Set("Raw", "Statistics"),
       caseNames[Choice[Window]] - "Fixed" -> Set("Chosen"),
-      caseNames[CallDecl] -> Set("ServiceCall")
+      caseNames[CallDecl] -> Set("ServiceCall", "SetVarCall")
     )
     families.foreach { (scalaNames, pklClasses) =>
       pklClasses.foreach { cls =>

@@ -19,6 +19,7 @@ import fh.view.model.{
   Surface
 }
 import fh.view.fetch.FetchSnapshot
+import fh.view.testkit.DashboardBuilders
 import fh.view.testkit.DashboardBuilders.{declared, st}
 import fh.view.testkit.TestIds.given
 import io.circe.Json
@@ -30,6 +31,7 @@ import org.http4s.Status
 class MemberNodesSuite extends ServerHarness {
 
   private val cards = Map(
+    DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard,
     "tile" -> TestCard("<b>{{state}}</b>"),
     "col" -> TestCard(
       """<div>{{{children}}}</div>""",
@@ -221,7 +223,7 @@ class MemberNodesSuite extends ServerHarness {
                 )
               )
             }.toMap
-          )
+          ) :: DashboardBuilders.choices("tab", "1")*
         )
       ),
       surfaces = Map(
@@ -249,9 +251,10 @@ class MemberNodesSuite extends ServerHarness {
     live(panels, twoOn) { ts =>
       for {
         v <- ts.viewer()
-        wrote <- ts.postResult(
-          s"sse/var/${ts.slug}/c/tab/1?group=var_c__tab",
-          body = s"""{"${Server.ConnSignal}":"${v.document.conn}"}"""
+        wrote <- ts.choose(
+          v.document.conn,
+          VarKey(NodeId.derived("c"), "tab"),
+          Some("1")
         )
         frames <- v.session.takeBacklog
       } yield {

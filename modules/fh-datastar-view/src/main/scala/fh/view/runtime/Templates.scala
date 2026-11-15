@@ -73,9 +73,12 @@ object Templates {
     case JsValue extends View("jsValue")
     case Signal extends View("signal")
 
-    /** A placed call's id and its `seen` object, for `tapMod.post`. */
+    /** A placed call's id, its `seen` object and its pending ask, for
+      * `tapMod.post`.
+      */
     case CallId extends View("callId")
     case Seen extends View("seen")
+    case Pending extends View("pending")
 
   object View:
     private val bySpelling: Map[String, View] =

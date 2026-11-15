@@ -27,7 +27,9 @@ local lamp: hass.LightEntity = new {
   effects = new hass.Effects { owner = lamp; list { "none"; "Rainbow Slow" } }
 }
 
-local function route(n: Any): String = (n.slotsByName["onclick"].value as slotMod.Reading).source.src
+/// What a button's tap chooses, as `variable=value`.
+local function route(n: Any): String =
+  let (d = n.declared["tap"] as slotMod.SetVarCall) "\(d.variable)=\(d.value)"
 
 // A baked select's members in order: what each shows, and the value showing it.
 local function members(s: selectMod.Select): List<Pair<Any, String?>> =
@@ -54,7 +56,7 @@ facts {
     s is selectMod.SelectButtons
     local opts = s.children.toList()
     opts.length == 2
-    route(opts[0]).contains("/shade/pale") && route(opts[1]).contains("/shade/deep")
+    route(opts[0]) == "shade=pale" && route(opts[1]) == "shade=deep"
     // Lit by the ask while one is out, else the commit.
     (opts[1].slotsByName["active"].value as String).endsWith("=== 'deep'")
     (opts[1].slotsByName["active"].value as String).contains("__pending")
@@ -91,7 +93,7 @@ facts {
     cyc.children.isEmpty
     local bs = members(cyc)
     bs.map((m) -> m.second) == List("a", "b", "c")
-    route(bs[0].first).contains("/shade/b") && route(bs[1].first).contains("/shade/c") && route(bs[2].first).contains("/shade/a")
+    route(bs[0].first) == "shade=b" && route(bs[1].first) == "shade=c" && route(bs[2].first) == "shade=a"
     // Each face is a pill in its option's look: an icon replaces the label,
     // which still names it, and the pill is round.
     local iconic = members(c.select(shade)

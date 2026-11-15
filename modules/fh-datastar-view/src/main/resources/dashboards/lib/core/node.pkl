@@ -444,6 +444,9 @@ const local themeStage: simpleMod.ThemeClassesStage = new {}
 
 // Every read named: a call has no subject, and its id is a hash of this.
 const local function wireCall(c: slotMod.CallDecl): Map<String, Any> =
+  if (c is slotMod.SetVarCall)
+    Map("kind", c.kind, "variable", c.variable) + (if (c.value == null) Map() else Map("value", c.value))
+  else
   let (d = c as slotMod.ServiceCall)
   Map(
     "kind", d.kind,

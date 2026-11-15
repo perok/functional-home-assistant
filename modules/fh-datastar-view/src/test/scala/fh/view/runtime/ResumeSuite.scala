@@ -18,7 +18,12 @@ import fh.view.model.{
   Surface,
   Theme
 }
-import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, TestAuth}
+import fh.view.testkit.{
+  DashboardBuilders,
+  FakeHomeAssistant,
+  FixtureEntity,
+  TestAuth
+}
 import fh.view.testkit.TestIds.given
 import fs2.concurrent.SignallingRef
 import io.circe.Json
@@ -551,8 +556,36 @@ class ResumeSuite extends ServerHarness {
   }
 
   test("a dashboard edit repaints the tab selected now, not at connect") {
+    // The bar with a button choosing the second tab.
+    val withButton = mixedTabsDash.card match
+      case col: LayoutNode.Component =>
+        col.copy(regions =
+          col.regions.updatedWith(LayoutNode.DefaultRegion)(
+            _.map(_.map {
+              case bar: LayoutNode.Component if bar.card == "tabs" =>
+                bar.copy(regions =
+                  Map("buttons" -> DashboardBuilders.choices("tab", "1"))
+                )
+              case n => n
+            })
+          )
+        )
+      case other => other
     def twoTabs(card: String) = mixedTabsDash.copy(
-      cards = mixedTabsDash.cards.updated("card", TestCard(card)),
+      cards = mixedTabsDash.cards
+        .updated("card", TestCard(card))
+        .updated(
+          "tabs",
+          TestCard(
+            """<div id="{{hostId}}" class="tabs">{{{buttons}}}{{{panel}}}</div>""",
+            regions = Map(
+              "panel" -> fh.view.model.Region(fh.view.model.Region.Baked),
+              "buttons" -> fh.view.model.Region()
+            )
+          )
+        )
+        .updated(DashboardBuilders.ChoiceCard, DashboardBuilders.choiceCard),
+      card = withButton,
       surfaces = mixedTabsDash.surfaces + ("t1" -> tabMember(
         LayoutNode.Component(
           "card",
@@ -584,10 +617,7 @@ class ResumeSuite extends ServerHarness {
             .map(_.group(1))
             .head
         )
-        _ <- ts.post(
-          s"sse/var/${ts.slug}/c_1/tab/1",
-          body = s"""{"${Server.ConnSignal}":"$conn"}"""
-        )
+        _ <- ts.choose(conn, VarKey(NodeId.derived("c_1"), "tab"), Some("1"))
         _ <- client.arrived *> client.drain
         slug <- ts.server.liveSlug(ts.slug)
         _ <- slug.renderer.set(
