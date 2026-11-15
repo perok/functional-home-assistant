@@ -242,7 +242,7 @@ class DecisionFetchSuite extends munit.FunSuite {
   }
 
   test("a press on a set decides its members by a fetch") {
-    // As `tapMod.declOf` writes it: the set's tally as a target entry.
+    // As `tapMod.Call.decl` writes it: the set's tally as a target entry.
     val tally =
       """{"source":{"kind":"Present","candidates":["sensor.a","sensor.b"],
         |"when":{"sensor.b":{"source":{"kind":"Cel","src":"size(past) > 0",

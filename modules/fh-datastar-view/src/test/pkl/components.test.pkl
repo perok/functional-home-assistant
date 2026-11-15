@@ -418,7 +418,7 @@ facts {
   ["a variable choice is guarded, and takes only plain tokens"] {
     historyMod.windowVar.choose("7d").busy
     // Null clears the choice: a call naming the variable and no value.
-    tapMod.declOf(historyMod.windowVar.choose(null)) == new slotMod.SetVarCall { variable = "window"; value = null }
+    historyMod.windowVar.choose(null).decl == new slotMod.SetVarCall { variable = "window"; value = null }
     // A space would split the URL parameter, and a `'` close the JS string.
     module.catch(() -> historyMod.windowVar.choose("7 d")).contains("matches")
     module.catch(() -> historyMod.windowVar.choose("it's")).contains("matches")
