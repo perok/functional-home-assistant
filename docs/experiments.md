@@ -294,25 +294,33 @@ source is parsed once per process and validation never shows the parser.
 **Worth asking again if** those caches go (per-validation scoping), or a profile of a cold start
 shows CEL parsing.
 
-## A set guard that reads no member, run once per decision
+## A set's equal guards, compiled once and run once per decision
 
 2026-11-15, set-guard-sharing (#708). **No effect here.**
 
-**Question.** A `where` lands as one guard per candidate. One that reads no member (it names
-every entity it reads; every guard on an area or floor set) answers every candidate alike. Would
-running it once per decision, not once per candidate, make a set's decision cheaper?
+**Question.** A `where` lands as one guard per candidate, so a set of N carries N equal copies.
+Would compiling equal guards once make the build cheaper? And would running a guard that reads
+no member (it names every entity it reads, so it answers every candidate alike) once per
+decision, not once per candidate, make a set's decision cheaper?
 
-**How.** A per-decision memo of those guards' answers (an `IdentityHashMap` by compiled run),
-in `MemberGraph`'s decision and `Evaluator.present`. One round, escape analysis off, before and
-after: `RenderBench.publishSetNamedGuard` (200 candidates, one guard naming a ticked entity, so
-every frame re-decides all 200), `publishSetGuarded`, `leaderRow`, `tickRender`.
+**How.** Compile: equal guards (by `ValueExpr.inputKey`, not `key`, which leaves out the
+source's entity) sharing one compiled `Condition` in `Ready.Compile.set` and `Evaluator.present`;
+`ValidateBench.validated` before and after. Run: a per-decision memo of member-free guards'
+answers (an `IdentityHashMap` by compiled run) in `MemberGraph`'s decision and
+`Evaluator.present`. One round, escape analysis off, before and after:
+`RenderBench.publishSetNamedGuard` (200 candidates, one guard naming a ticked entity, so every
+frame re-decides all 200), `publishSetGuarded`, `leaderRow`, `tickRender`.
 
-**Numbers.** `publishSetNamedGuard` 197 ± 91 → 173 ± 143 µs, inside the error bars, and
-137,817 → 141,345 B/op; `leaderRow` 3,120 → 3,360 B/op for the memo; the rest equal.
+**Numbers.** Compile: `validated` equal within error on all four fixtures. Run:
+`publishSetNamedGuard` 197 ± 91 → 173 ± 143 µs, inside the error bars, and 137,817 → 141,345
+B/op; `leaderRow` 3,120 → 3,360 B/op for the memo; the rest equal.
 
-**Verdict.** The guard is a map lookup and a compare. Next to deciding and placing 200 members
-it is noise, and the memo costs more bytes than it saves. Sharing the compile (equal guards by
-`inputKey`) is kept: it costs nothing per frame.
+**Verdict.** Both dropped. A guard's CEL program was already shared per scope
+(`Evaluator.Scope`), so sharing the compile saved only a small wrapper. The guard run is a map
+lookup and a compare; next to deciding and placing 200 members it is noise, and the memo cost
+more bytes than it saved. What costs is re-deciding every candidate when the named entity
+changes, which neither touches.
 
 **Worth asking again if** a member-free guard gets expensive (a CEL guard over a fetch or a
-large list), or a profile of a set's decision shows guard runs in its top frames.
+large list), a profile of a set's decision shows guard runs in its top frames, or the guard
+moves to the set on the wire, which would make one compile and one decision fall out.

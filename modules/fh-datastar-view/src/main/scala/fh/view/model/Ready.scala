@@ -283,15 +283,11 @@ object Ready:
         }
 
     def set(s: LayoutNode.SetNode): Built[SetNode] =
-      // A `where` lands once per candidate; equal ones share one compile.
-      val guards =
-        scala.collection.mutable.HashMap.empty[String, Built[Condition]]
-      def guard(e: ValueExpr) = guards.getOrElseUpdate(e.inputKey, condition(e))
       (
         s.members.toList.traverse((e, m) =>
           m.clauses
             .traverse(cl =>
-              (cl.when.traverse(guard), node(cl.node)).mapN(SetClause(_, _))
+              (cl.when.traverse(condition), node(cl.node)).mapN(SetClause(_, _))
             )
             .map(e -> SetMember(_))
         ),

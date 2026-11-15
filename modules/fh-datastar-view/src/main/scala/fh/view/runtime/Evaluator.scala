@@ -498,9 +498,7 @@ private[view] object Evaluator {
     case l: java.util.List[?]     => List.from(l.iterator.asScala)
     case other                    => other
 
-  /** Whether a candidate is present: unguarded, or its guard holds over it.
-    * Each guard lands per candidate; equal ones share one compile.
-    */
+  /** Whether a candidate is present: unguarded, or its guard holds over it. */
   private def present(
       p: Value.Present,
       scope: Scope
@@ -508,14 +506,9 @@ private[view] object Evaluator {
     (String, Map[String, EntityState], Lookup) => Boolean
   ] =
     p.when.toList
-      .groupBy(_._2.inputKey)
-      .values
-      .toList
-      .traverse(same =>
-        inner(same.head._2, scope).map(c => same.map((id, _) => id -> c.run))
-      )
-      .map { lists =>
-        val guards = lists.flatten.toMap
+      .traverse((id, g) => inner(g, scope).map(id -> _.run))
+      .map { list =>
+        val guards = list.toMap
         val ofEntities = p.of == IdKind.Entity
         (id, states, fetched) =>
           val g = guards.getOrElse(id, null)

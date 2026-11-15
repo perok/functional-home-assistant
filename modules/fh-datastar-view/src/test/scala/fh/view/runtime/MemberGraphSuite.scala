@@ -447,22 +447,11 @@ class MemberGraphSuite extends munit.FunSuite {
   private val onItself: ValueExpr =
     Conds.cmp("state", Op.Eq, Json.fromString("on"), None)
 
-  test(
-    "equal guards on the member compile once, yet decide each member apart"
-  ) {
+  test("equal guards on the member decide each member apart") {
     val s = set(
       List("light.a", "light.b", "light.c"),
       e => List(clause(e, Some(onItself)))
     )
-    val runs = compile
-      .set(s)
-      .members
-      .values
-      .flatMap(_.clauses)
-      .flatMap(_.when)
-      .map(_.run)
-      .toList
-    assert(runs.sizeIs == 3 && runs.forall(_ eq runs.head), clue = runs)
     assertEquals(
       graphOf(s).memberEntities(
         gid,
