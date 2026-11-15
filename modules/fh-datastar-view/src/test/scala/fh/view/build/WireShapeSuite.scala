@@ -6,6 +6,9 @@ import fh.view.model.{
   SortTerm,
   Access,
   Activation,
+  CallDecl,
+  CardDef,
+  Case,
   Cell,
   Dashboard,
   LayoutNode,
@@ -198,6 +201,8 @@ class WireShapeSuite extends munit.FunSuite {
   test("ordering and layout-cell shapes agree on both sides") {
     check("SortTerm", SortTerm(Conds.prop("state")))
     check("Cell", Cell())
+    // `CardDef` is the author's side; `cardsIn` lowers it to a `WireCard`.
+    check("WireCard", CardDef(""))
   }
 
   test("the slot shape agrees, minus what only one side names") {
@@ -235,7 +240,12 @@ class WireShapeSuite extends munit.FunSuite {
       Window.Statistics(1L, StatisticsPeriod.Hour),
       pklOnly = Set("kind")
     )
-    check("Chosen", Choice.Chosen("w", Map.empty), pklOnly = Set("kind"))
+    check(
+      "Chosen",
+      Choice.Chosen(ValueExpr(Value.Var("w")), Nil),
+      pklOnly = Set("kind")
+    )
+    check("Case", Case(Lit.Text("1h"), Window.Raw(1L)))
   }
 
   test("the value model agrees on both sides") {
@@ -246,6 +256,17 @@ class WireShapeSuite extends munit.FunSuite {
     check("Tally", Value.Present(Nil, Map.empty))
     check("PresentList", Value.Present(Nil, Map.empty))
     check("ListRead", Value.List(ValueType.Bool, Nil))
+    check("VarRead", Value.Var("x"))
+    check("PostedRead", Value.Posted("x", ValueType.Int))
+    check(
+      "ServiceCall",
+      CallDecl.Service(
+        ValueExpr.literal("a/b"),
+        scala.collection.immutable.ListMap()
+      ),
+      pklOnly = Set("kind")
+    )
+    check("SetVarCall", CallDecl.SetVar("x", None), pklOnly = Set("kind"))
     check("Attr", Part.Attr("x"))
     check("Whole", Part.Whole)
     // Scala's `inputs` is Pkl's `wireInputs`: Pkl's `inputs` is the hidden one.
@@ -274,6 +295,7 @@ class WireShapeSuite extends munit.FunSuite {
     check("AnyOfStep", Step.AnyOf)
     check("CompareStep", Step.Compare(Op.Eq, lit))
     check("NotStep", Step.Not)
+    check("CheckStep", Step.Check(Nil))
     check("FirstStep", Step.First())
     check("ThemeClassesStage", Step.ThemeClasses)
     check("JsonStage", Step.Json)
@@ -305,7 +327,9 @@ class WireShapeSuite extends munit.FunSuite {
           "FetchRead",
           "Tally",
           "ListRead",
-          "CelRead"
+          "CelRead",
+          "VarRead",
+          "PostedRead"
         ),
       (caseNames[Step] - "Simple" - "Stage" ++ caseNames[
         Step.Simple
@@ -326,6 +350,7 @@ class WireShapeSuite extends munit.FunSuite {
         "AnyOfStep",
         "CompareStep",
         "NotStep",
+        "CheckStep",
         "FirstStep",
         "ThemeClassesStage",
         "JsonStage",
@@ -341,7 +366,8 @@ class WireShapeSuite extends munit.FunSuite {
         "BindClass"
       ),
       caseNames[Window] -> Set("Raw", "Statistics"),
-      caseNames[Choice[Window]] - "Fixed" -> Set("Chosen")
+      caseNames[Choice[Window]] - "Fixed" -> Set("Chosen"),
+      caseNames[CallDecl] -> Set("ServiceCall", "SetVarCall")
     )
     families.foreach { (scalaNames, pklClasses) =>
       pklClasses.foreach { cls =>

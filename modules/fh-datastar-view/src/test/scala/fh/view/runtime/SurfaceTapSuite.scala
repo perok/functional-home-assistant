@@ -21,35 +21,32 @@ class SurfaceTapSuite extends ServerHarness {
 
   private def as(conn: String): String = s"""{"${Server.ConnSignal}":"$conn"}"""
 
-  test("a tap on a connection the server has forgotten still opens the popup") {
-    // An idle page outlives its session while looking alive. Every tap on it
-    // answered 204, and the client showed a URL claiming a popup the DOM did
-    // not have, until a second tap or a reload.
+  test(
+    "a tap on a connection the server has forgotten is refused, not minted"
+  ) {
+    // An idle page outlives its session while looking alive. A tap carries too
+    // little of the page to rebuild the session, so it says so, and the
+    // reconnecting stream, which carries the rest, rebuilds it.
     live(
       popupDash,
       warm,
-      // The tap mints a `Fresh` session with its reap this far out, inside the
-      // window the test lets the first session be reaped in; 50 ms was not
-      // enough on a loaded machine.
-      Server.SessionWindows.default.copy(adoption = 2.seconds)
+      Server.SessionWindows.default.copy(adoption = 50.millis)
     ) { ts =>
       for {
         conn <- ts.load().map(_.conn)
         // The idle page: nothing registered under the `conn` its DOM carries.
         _ <- (IO.sleep(10.millis) *> ts.sessions.get(conn))
           .iterateWhile(_.isDefined)
-        status <- ts.post(s"sse/surface/${ts.slug}/open/det", body = as(conn))
-        // The tap re-establishes the session, so the patch waits for the
-        // reconnecting stream to adopt and drain it.
+        result <- ts.postResult(
+          s"sse/surface/${ts.slug}/open/det",
+          body = as(conn)
+        )
         revived <- ts.sessions.get(conn)
-        open <- revived.traverse(_.state.map(_.open))
-        queued <- revived.flatTraverse(_.takeBacklog.map(_.headOption))
       } yield {
-        assertEquals(status, Status.NoContent)
-        assertEquals(revived.map(_.slug), Some(ts.slug))
-        assertEquals(open, Some(Set("det")))
-        val patch = queued.flatMap(_.data)
-        assert(patch.exists(_.contains(Dashboard.PopupHostId)), clue = patch)
+        val (status, body) = result
+        assertEquals(status, Status.Ok)
+        assert(body.contains(Server.NotConnectedMessage), clue = body)
+        assertEquals(revived, None)
       }
     }
   }
@@ -60,10 +57,11 @@ class SurfaceTapSuite extends ServerHarness {
     // ui-state: the selection can only come from the swap.
     live(popupDash, warm) { ts =>
       for {
-        opened <- ts.post(s"sse/surface/${ts.slug}/open/det", body = as("c"))
-        session <- ts.sessions.get("c")
+        conn <- ts.load().map(_.conn)
+        opened <- ts.post(s"sse/surface/${ts.slug}/open/det", body = as(conn))
+        session <- ts.sessions.get(conn)
         afterOpen <- session.traverse(drain)
-        closed <- ts.post(s"sse/popup/${ts.slug}/close", body = as("c"))
+        closed <- ts.post(s"sse/popup/${ts.slug}/close", body = as(conn))
         afterClose <- session.traverse(drain)
       } yield {
         assertEquals(opened, Status.NoContent)
@@ -78,6 +76,18 @@ class SurfaceTapSuite extends ServerHarness {
           afterClose.exists(_.contains(s""""$sig":""""")),
           clue = afterClose
         )
+        // The close empties the host the chrome owns; it never writes the
+        // host element, so attributes a theme put on it survive.
+        val host = Dashboard.PopupHostId
+        assert(afterClose.exists(_.contains("mode remove")), clue = afterClose)
+        assert(
+          afterClose.exists(_.contains(s"selector #$host > *")),
+          clue = afterClose
+        )
+        assert(
+          !afterClose.exists(_.contains(s"""id="$host"""")),
+          clue = afterClose
+        )
       }
     }
   }
@@ -89,13 +99,19 @@ class SurfaceTapSuite extends ServerHarness {
     // Ids are location-derived, so an edit renames surfaces below it and a page
     // open across the rebuild taps an unknown name; it must say so.
     live(popupDash, warm) { ts =>
-      ts.postResult(s"sse/surface/${ts.slug}/open/gone", body = as("c")).map {
-        (status, body) =>
+      ts.load()
+        .flatMap(doc =>
+          ts.postResult(
+            s"sse/surface/${ts.slug}/open/gone",
+            body = as(doc.conn)
+          )
+        )
+        .map { (status, body) =>
           // 200 carrying signals (ADR 0024).
           assertEquals(status, Status.Ok)
           assert(body.contains("gone"), clue = body)
           assert(body.contains(Server.ToastSignal), clue = body)
-      }
+        }
     }
   }
 
@@ -109,7 +125,7 @@ class SurfaceTapSuite extends ServerHarness {
         elsewhere <- ownerlessSession("other")
         _ <- ts.sessions.register("shared", elsewhere)
         result <- ts.postResult(
-          s"sse/surface/${ts.slug}/open/det?group=tabs",
+          s"sse/surface/${ts.slug}/open/det",
           body = as("shared")
         )
         untouched <- ts.sessions.get("shared").map(_.exists(_.slug == "other"))
@@ -117,9 +133,6 @@ class SurfaceTapSuite extends ServerHarness {
         val (status, body) = result
         assertEquals(status, Status.Ok)
         assert(body.contains(Server.WrongSlugMessage), clue = body)
-        // With no status to infer it from, the server clears the tab's pending
-        // selection in the same frame.
-        assert(body.contains("_tabs__pending"), clue = body)
         assert(untouched)
       }
     }

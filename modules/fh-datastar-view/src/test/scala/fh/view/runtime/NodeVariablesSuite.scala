@@ -1,5 +1,8 @@
 package fh.view.runtime
 
+import fh.view.testkit.DashboardBuilders
+
+import fh.view.testkit.TestCard
 import io.github.iltotore.iron.autoRefine
 import fh.view.model.*
 import fh.view.history.{ChartStyle, Window, Windows}
@@ -16,16 +19,17 @@ import fh.view.testkit.DashboardBuilders.declared
   */
 class NodeVariablesSuite extends munit.FunSuite {
 
-  private val chartCard = CardDef(
+  private val chartCard = TestCard(
     "<div>{{{chart}}}</div>"
   )
-  private val plainCard = CardDef("<span>{{name}}</span>")
-  private val boxCard = CardDef(
+  private val plainCard = TestCard("<span>{{name}}</span>")
+  private val boxCard = TestCard(
     "<div>{{{children}}}</div>",
     regions = Map("children" -> Region())
   )
 
-  private val chosen: Choice[Window] = Choice.Chosen("window", Windows.presets)
+  private val chosen: Choice[Window] =
+    DashboardBuilders.chosenBy("window", Windows.presets)
 
   private def chartSlot(param: Choice[Window] = chosen) =
     TemplateSlot(
@@ -130,10 +134,10 @@ class NodeVariablesSuite extends munit.FunSuite {
     val t = Option(chartSlot(Choice.Fixed(Windows.day)).expr.source).collect {
       case Value.Fetch(f) => f
     }.get
-    assertEquals(t.references, Nil)
+    assertEquals(t.variables, Nil)
     assertEquals(
-      t.resolve(Map("window" -> "7d")),
-      Right(FetchRequest.History("sensor.t", Windows.day))
+      t.resolve(FetchTemplate.atDeclared(Map("window" -> "7d"))),
+      Some(FetchRequest.History("sensor.t", Windows.day))
     )
   }
 
@@ -332,8 +336,8 @@ class NodeVariablesSuite extends munit.FunSuite {
     assert(paint(r, a, "1h" -> "<svg id='hour'/>").contains("hour"))
     assert(paint(r, b, "30d" -> "<svg id='month'/>").contains("month"))
 
-    // The render key moves with them, so one viewer's bytes are never served
-    // for another's span. Asked of the chart: the panel is structure and has no
+    // The key moves with them, so one viewer's bytes are never served for
+    // another's span. Asked of the chart: the panel is structure and has no
     // key.
     val chartId = LayoutNode.childId(
       "",
@@ -342,10 +346,13 @@ class NodeVariablesSuite extends munit.FunSuite {
       chartNode()
     )
     def keyFor(env: VarEnv, window: String) =
-      r.renderInputs(
+      r.byteSlotValues(
         chartId,
         Shared.of(states),
-        FetchSnapshot.of(Map(readAt(window) -> Staged(100L, "<svg/>")), env)
+        FetchSnapshot.of(
+          Map(readAt(window) -> Staged(100L, s"<svg id='$window'/>")),
+          env
+        )
       )
     assert(keyFor(a, "1h").isDefined)
     assertNotEquals(keyFor(a, "1h"), keyFor(b, "30d"))
@@ -421,21 +428,35 @@ class NodeVariablesSuite extends munit.FunSuite {
     assertEquals(d.fetchesIn(d.card).size, 2)
   }
 
-  test("a window decodes as written, a `Chosen` object as a table") {
+  test("a window decodes as written, a `Chosen` object as its cases") {
     assertEquals(
       decode[Choice[Window]]("""{"kind":"Raw","span":3600}"""),
       Right(Choice.Fixed(Windows.hour))
     )
     assertEquals(
       decode[Choice[Window]](
-        """{"kind":"Chosen","by":{"var":"window"},
-          |"options":{"1h":{"kind":"Raw","span":3600}}}""".stripMargin
+        """{"kind":"Chosen","by":{"source":{"kind":"Var","name":"window"}},
+          |"cases":[{"is":"1h","value":{"kind":"Raw","span":3600}}]}""".stripMargin
       ),
-      Right(Choice.Chosen("window", Map("1h" -> Windows.hour)))
+      Right(DashboardBuilders.chosenBy("window", Map("1h" -> Windows.hour)))
     )
+    assertEquals(
+      decode[Choice[Window]](
+        """{"kind":"Chosen","by":true,"cases":[],
+          |"otherwise":{"kind":"Raw","span":3600}}""".stripMargin
+      ),
+      Right(
+        Choice.Chosen(
+          ValueExpr(Value.Literal(Lit.Bool(true))),
+          Nil,
+          Some(Windows.hour)
+        )
+      )
+    )
+    // The table the cases replaced: a field the decoder does not know.
     assert(
       decode[Choice[Window]](
-        """{"kind":"Chosen","by":{"nope":"window"},"options":{}}"""
+        """{"kind":"Chosen","by":"window","cases":[],"options":{}}"""
       ).isLeft
     )
   }

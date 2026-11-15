@@ -3,6 +3,7 @@ package fh.view.runtime
 import fh.view.testkit.Conds
 
 import fh.view.model.{
+  IdKind,
   SortTerm,
   LayoutNode,
   MemberId,
@@ -441,5 +442,75 @@ class MemberGraphSuite extends munit.FunSuite {
       Member.entitiesOf(compile.node(nested)).sorted,
       List("light.a", "sensor.k")
     )
+  }
+
+  private val onItself: ValueExpr =
+    Conds.cmp("state", Op.Eq, Json.fromString("on"), None)
+
+  test("equal guards on the member decide each member apart") {
+    val s = set(
+      List("light.a", "light.b", "light.c"),
+      e => List(clause(e, Some(onItself)))
+    )
+    assertEquals(
+      graphOf(s).memberEntities(
+        gid,
+        Shared.of(
+          snapshot(
+            st("light.a", "on"),
+            st("light.b", "off"),
+            st("light.c", "on")
+          )
+        )
+      ),
+      List("light.a", "light.c")
+    )
+  }
+
+  test(
+    "a guard naming no member decides those sharing it alike, and no other"
+  ) {
+    val hall = isOn("binary_sensor.hall")
+    val g = graphOf(
+      set(
+        List("light.a", "light.b", "light.c"),
+        e =>
+          val guard = if (e == "light.c") isOn(e) else hall
+          List(clause(e, Some(guard), as = "slider"), clause(e, as = "pill"))
+      )
+    )
+    def cards(hallState: String, c: String) =
+      g.membersOf(
+        gid,
+        Shared.of(
+          snapshot(st("binary_sensor.hall", hallState), st("light.c", c))
+        )
+      ).map(_.node.card)
+        .toList
+    assertEquals(cards("on", "off"), List("slider", "slider", "pill"))
+    assertEquals(cards("off", "on"), List("pill", "pill", "slider"))
+  }
+
+  test("an area set decides by what its guards name, shared or not") {
+    val disco = isOn("light.disco")
+    val s = LayoutNode.SetNode(
+      candidates = List("stue", "kjokken", "bad"),
+      members = Map(
+        "stue" -> LayoutNode.SetMember(List(clause("stue", Some(disco)))),
+        "kjokken" -> LayoutNode.SetMember(List(clause("kjokken", Some(disco)))),
+        "bad" -> LayoutNode.SetMember(
+          List(clause("bad", Some(isOn("fan.bad"))))
+        )
+      ),
+      of = IdKind.Area
+    )
+    val g = graphOf(s)
+    def present(d: String, fan: String) =
+      g.memberEntities(
+        gid,
+        Shared.of(snapshot(st("light.disco", d), st("fan.bad", fan)))
+      )
+    assertEquals(present("on", "off"), List("stue", "kjokken"))
+    assertEquals(present("off", "on"), List("bad"))
   }
 }

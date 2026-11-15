@@ -117,6 +117,67 @@ class RenderGoldenSuite extends munit.FunSuite {
     )
   }
 
+  test("a call id is numbered by first appearance, an equal one alike") {
+    def page(a: String, b: String) =
+      s"@post('sse/call/x/$a?node=c_0') @post('sse/call/x/$b?node=c_1') @post('sse/call/x/$a?node=c_2')"
+    assertEquals(
+      RenderGoldenSuite.normaliseCallIds(
+        page("0123456789abcdef", "fedcba9876543210")
+      ),
+      "@post('sse/call/x/call_1?node=c_0') @post('sse/call/x/call_2?node=c_1') @post('sse/call/x/call_1?node=c_2')"
+    )
+  }
+
+  test("normaliseIds numbers every shape of node id by first appearance") {
+    val page =
+      """<div id="c_0" data-fh-node="c_0_light_kitchen"></div>""" +
+        """<div id="c_0_light_kitchen" data-signals="{_c_0__x: 1, _var_c_0__tab: 'a'}">""" +
+        """<span data-text="$_s_c_1_self__c__busy $v.c_0.tab"></span>""" +
+        """<div id="s_c_1_self"></div>patch c_1 #c_1 fh-cell"""
+    assertEquals(
+      RenderGoldenSuite.normaliseIds(page),
+      """<div id="n#1" data-fh-node="n#2"></div>""" +
+        """<div id="n#2" data-signals="{_n#1__x: 1, _var_n#1__tab: 'a'}">""" +
+        """<span data-text="$_n#3__busy $v.n#1.tab"></span>""" +
+        """<div id="n#4"></div>patch n#5 #n#5 fh-cell"""
+    )
+  }
+
+  test("a node added before the others moves only the ids after it") {
+    def page(ids: String*) =
+      ids.map(i => s"""<p id="$i" x="$$_${i}__e"/>""").mkString
+    assertEquals(
+      RenderGoldenSuite.normaliseIds(page("c_0", "c_1", "c_2")),
+      RenderGoldenSuite.normaliseIds(page("c_0", "c_0_group", "c_1"))
+    )
+  }
+
+  // On demand: `sbt dashboardGoldensVs <rev>` (defaults to HEAD).
+  test("goldens equal a revision's once ids are numbered by first appearance") {
+    sys.props.get(RenderGoldenSuite.AgainstProp) match {
+      case None      => ()
+      case Some(rev) =>
+        def norm(s: String) =
+          RenderGoldenSuite.normaliseIds(RenderGoldenSuite.normaliseHashes(s))
+        for (e <- FixtureEntries.all) {
+          val rel =
+            (TextSnapshot.resources / "goldens" / s"${e.slug}.html")
+              .relativeTo(os.pwd)
+          val old = norm(
+            os.proc("git", "show", s"$rev:$rel").call(cwd = os.pwd).out.text()
+          )
+          val now = norm(golden(e))
+          if (old != now) {
+            val (a, b) = old.linesIterator
+              .zipAll(now.linesIterator, "<end>", "<end>")
+              .find(_ != _)
+              .getOrElse(("", ""))
+            fail(s"${e.slug}: first differing line\n  $rev: $a\n  now: $b")
+          }
+        }
+    }
+  }
+
   test("every test dashboard renders as its golden") {
     for (e <- FixtureEntries.all)
       TextSnapshot.check(
@@ -159,6 +220,26 @@ object RenderGoldenSuite {
     "supported_color_modes"
   )
 
+  val AgainstProp = "FH_GOLDENS_AGAINST"
+
+  /** A node id in any of its spellings: a path id (`c_0_light_kitchen`), or a
+    * surface's (`s_<id>` alone or `s_<id>__c_0`). Joined by single underscores,
+    * so a signal's `__name` ends it.
+    */
+  private val NodeIdToken =
+    """(?<![A-Za-z0-9])(?:s_[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*(?:__c(?:_[A-Za-z0-9]+)*)?|c(?:_[A-Za-z0-9]+)*)(?![A-Za-z0-9])""".r
+
+  /** Every node id becomes `n#<k>`, `k` counting distinct ids by first
+    * appearance, so a change that only moves ids compares equal.
+    */
+  def normaliseIds(text: String): String = {
+    val seen = scala.collection.mutable.LinkedHashMap.empty[String, Int]
+    NodeIdToken.replaceAllIn(
+      text,
+      m => s"n#${seen.getOrElseUpdate(m.matched, seen.size + 1)}"
+    )
+  }
+
   private val TransformHash = """\bt[0-9a-f]{8}\b""".r
   private val Seed = """data-signals="[^"]*"""".r
   private val Leaf = """\{([^{}]*)\}""".r
@@ -174,7 +255,23 @@ object RenderGoldenSuite {
     def n(hash: String) = seen.getOrElseUpdate(hash, seen.size + 1)
     TransformHash.findAllIn(Seed.replaceAllIn(text, "")).foreach(n)
     val named = TransformHash.replaceAllIn(text, m => s"t#${n(m.matched)}")
-    Seed.replaceAllIn(named, m => quoteReplacement(sortLeaves(m.matched)))
+    normaliseCallIds(
+      Seed.replaceAllIn(named, m => quoteReplacement(sortLeaves(m.matched)))
+    )
+  }
+
+  private val CallIdToken = """(?<=sse/call/[^/']{1,64}/)[0-9a-f]{16}\b""".r
+
+  /** A call id becomes `call_<n>` by first appearance: an edit to one
+    * declaration then shows in the wire snapshot, not in every golden with a
+    * tap.
+    */
+  def normaliseCallIds(text: String): String = {
+    val seen = scala.collection.mutable.LinkedHashMap.empty[String, Int]
+    CallIdToken.replaceAllIn(
+      text,
+      m => s"call_${seen.getOrElseUpdate(m.matched, seen.size + 1)}"
+    )
   }
 
   /** `state` sorts before every `t…` in a seed, so it stays first. */

@@ -27,14 +27,17 @@ The tier is each step's own form; nothing infers one from expression spelling.
 `type`). A card names each one once, as a handle (`const local label = slotMod.slot("label")`), and
 places it through the handle (`\(label)`, `label.bind`, `label.ifSet(…)`). That is a **template
 slot**; a **cell slot** is placed by the renderer on the node's **cell** instead, keyed by the class
-or the CSS custom property it sets (`cell.classes`, `cell.styles`; ADR 0008).
+or the CSS custom property it sets (`cell.classes`, `cell.styles`; ADR 0008). A class decided at
+render (`cell.atRender`, `cellClassAtRender`) is not a cell slot: it is written once, in the
+document form, for the viewer, with no signal and no binding (ADR 0033).
 
 **Signal slot** — a slot whose value is pushed to the browser as a Datastar signal instead of being
 baked into re-rendered HTML, so it can change without the card being re-rendered at all. ADR 0017.
 
 **View** — a way a template reaches a slot besides its value, spelled `x.view`: `bind` (a signal
 slot's binding), `has` (whether the node sets it), `jsValue` (the value as JavaScript), `signal`
-(the signal's name, placed only inside `x.ifSignal(…)`, a section on it). ADR 0017.
+(the signal's name, placed only inside `x.ifSignal(…)`, a section on it). A placed call has two of
+its own, `callId` and `seen`. ADR 0017.
 
 **Display signal** vs **interaction signal** — which of the two a signal is decides how it is NAMED,
 so the distinction is load-bearing rather than descriptive. A *display* signal carries an entity's
@@ -79,7 +82,8 @@ evaluator runs every reading, slot and condition alike.
 without a reading's slot fields: `q.from(xs).where(…).any()`, `q.entity(e).stateIs("on")` — and a
 reading of a bool is one too, CEL included (`c.exprOf(e, "value.state == 'on'")`). A boolean input
 takes one where it takes a reading. `c.iff` also takes a node variable at a value (`v.valueIs("30d")`),
-which is not a condition: it is a viewer's selection, so it is not shared and never flips. The library
+which is a bool reading but not a condition there: it is a viewer's selection, so it is not shared
+and never flips. The library
 writes one of the fast tier's steps (ADR 0028) — a read and `Compare`, `Not`, `AllOf`/`AnyOf` over a
 `List`, `Count` over a set's **present** ids, `First` over a list of ids — and the one evaluator
 decides it as it fills a slot (ADR 0035); a build refuses one that is not a bool. So a slot can read one, which is how every boolean input (`active`,
@@ -114,11 +118,11 @@ Not a **guard**, which is a tap's (ADR 0019), and not `c.iff`, which shows or hi
 content, a card's own part included.
 ADR 0034.
 
-**Live cell class** — a class on a node's `.fh-cell` wrapper while a reading holds
-(`LayoutNode.cellClassWhen`). The renderer binds it on the wrapper itself, so it works on any card and
+**Live cell class** — a class on a node's cell while a reading holds
+(`LayoutNode.cellClassWhen`). The renderer binds it on the root itself, so it works on any card and
 no template places it. A button's `active` is one (`fh-active`).
 
-**Live cell property** — a CSS custom property on a node's `.fh-cell` wrapper, set from a reading
+**Live cell property** — a CSS custom property on a node's cell, set from a reading
 and kept live (`LayoutNode.cellStyle`) — a live cell class's value-carrying twin, read by the
 card's CSS through inheritance. Only `--…` names. ADR 0034.
 
@@ -158,8 +162,8 @@ Three words go with it, and they are not interchangeable:
 
 - **Declarer** — the node whose `vars` a reference resolved to. Resolution is by NAME up the
   ancestor chain, so a node declaring nothing is transparent and the NEAREST declarer wins.
-- **Reference** (`varMod.Ref`, a `Choice.Chosen`'s `by`) — a read of one, as opposed to a value
-  written down (`Choice.Fixed`). The distinction is the access story rather than a convenience:
+- **Reference** (`v.value`, a `Choice.Chosen`'s `by` as `p.history.chosen` writes it) — a read
+  of one, as opposed to a value written down (`Choice.Fixed`). The distinction is the access story rather than a convenience:
   only a declared variable is writable, so a value written down has nowhere for a write to land.
 - **Shadow** — a nested declaration of a name an ancestor also declares, winning for its own
   subtree and nothing else. What "one control over three charts, except this one" is made of.
@@ -167,9 +171,15 @@ Three words go with it, and they are not interchangeable:
   reader holds without knowing who declares it. A declaration (`varMod.Declaration`, an entry in
   `Component.vars`) is one node owning a value for that name, and holds the variable.
 
+A variable is also a **source** (`Value.Var`, `v.value` in Pkl): a reading of the viewer's value,
+which a leaf's value slot may show. A reading is decided where its most local source lives: once
+per state version for every viewer when it reads only entities, fetches and literals, per viewer
+when it reads a variable (ADR 0033).
+
 What a variable holds, highest first:
 
-- **Choice** — what the viewer picked: a write, a `v.` URL param, a link.
+- **Choice** — what the viewer picked: a write, a `v.` URL param, a link. Not `Choice[A]`, the
+  model's value picked from cases by what `by` reads (ADR 0033).
 - **Initial value** — what the declaration's **initial transform** gave this session: CEL over one
   whole entity as `value` (`Declaration.initialTransform`, `withInitialTransform` in Pkl), run ONCE as the
   page opens. Not a choice (no URL param) and not a flip (it never follows the entity). A slider's
@@ -183,11 +193,13 @@ beside the declaration would be a second, weaker copy of that, free to disagree 
 the author actually rendered. Where a closed set of values is the point, it lives in the Pkl that
 emits the declaration and its control from one list.
 
-**Cell** — a node's cell is the wrapper element the renderer puts around it (`.fh-cell`), and the
-item the layout sizes: the grid or flex item that `columns(n)`, `hug()` and `grow()` act on. It
-carries the layout classes (`fh-cols-3`, `fh-hug`, `fh-grow`, `fh-stick-top`) and the node's cell
-slots (`cellClass`, `cellClassWhen`, `cellStyle`). Layout is the backend's job, not each card's.
-ADR 0008.
+**Cell** — a node's cell is its card's root element, which the library writes (`CardDef.tag`,
+`classes`, `attrs`; a `div` by default) and the renderer fills with the node's id: the item the
+layout sizes, the grid or flex item that `columns(n)`, `hug()` and `grow()` act on, marked
+`.fh-cell`. It carries the layout classes (`fh-cols-3`, `fh-hug`, `fh-grow`, `fh-stick-top`, the
+wire's `cell.layout`) and the node's cell slots (`cellClass`, `cellClassWhen`, `cellStyle`). A
+`layoutCell = false` card's root is no layout box: it keeps its id and loses `.fh-cell` and the
+layout classes. Layout is the library's job, not each card's. ADR 0008.
 
 **Surface** — a chunk of layout that is shown only sometimes and rendered only while shown: a popup,
 a tab panel, an `if`/`else` branch. Registered separately from the main tree and addressed by id.
@@ -211,9 +223,32 @@ derived from the owning node, and the `@@NODE_ID@@` token resolves only to a nod
 second tap can name it. Sharing means registering it and using `openPopup("detail")`.
 
 **Tap / tap action** — what a click does, as a value rather than a string: a service call on a
-**target** (an entity, an area, a floor or a query set), a navigation, opening or closing a popup. A tap names its
+**target** (an entity, an area, a floor or a query set), a viewer's choice of a node variable, a
+navigation, opening or closing a popup. A tap names its
 own target and never borrows the card's subject entity, so one card may show an entity and act on
 another. ADR 0016, 0023, 0024.
+
+**Declared call** — what a press asks, as a value the build writes down (`CallDecl`), one kind
+per call: a service call (`service`, its target keys and its `data` keys, each a value expression,
+every entity read named), or a **choice** (`SetVar`: a node variable and the value it chooses, or
+none to clear it). A node places its calls by name (`tapMod.tapCall` is `tap`). The server
+evaluates the declaration itself at the press; the page only names it. ADR 0023.
+
+**Exclusion** — what a call's `exclude` leaves out of its target: ids under the target's own keys
+(entity, area, floor), or a set that leaves out the members present at the press. HA subtracts it
+when the call runs, so an excluded area stays excluded as it grows. It is not a set's `where`,
+which decides who is in the set; an exclusion is a second set the call subtracts. ADR 0023.
+
+**Call id** — a declared call's name on the wire, a hash of the declaration: equal calls share
+one, and an edited call gets a new one. The route admits only an id its dashboard declares.
+
+**Posted** — a value the press supplies (a drag's position), read by a `Posted(key, type)` source
+in the call and decoded as its type: the one client input that reaches HA.
+
+**Seen** — what the page last knew of the call a node places: each `service` or `data` field that
+reads live state, and reads no fetch and no posted value. The build adds a `Handler` slot for
+each; the press posts their values and the server refuses one that differs from its own.
+ADR 0016, 0023.
 
 **Guard** — the attribute on a tappable element that refuses a second click while the first is still
 in flight. The point of the busy machinery; the spinner is decoration. ADR 0019.
@@ -249,6 +284,8 @@ gets the first clause whose condition holds; a clause with none always holds.
 (`Value.Present`, `pred.Tally` in Pkl). It is what a `List` of the candidates' reads filtered by
 their guards would mean, kept as one source so a candidate is its id on the wire. A tally counts
 it, `.present()` hands the ids to CEL, `first()` picks its leader, and a set call acts on it.
+Its candidates are entities, or areas or floors (`of`, an `IdKind`); an area or a floor has no
+state, so its guard names every entity it reads, and only those move it.
 
 **Member** — one materialised entity inside a candidate set, or one row inside a grouped slider.
 Members are addressable nodes in their own right, and so is every node below a member, under an id
@@ -286,7 +323,9 @@ Note this is authorship, not tree position: it means "the card that wrote this",
 renderer cannot derive it from the parent link.
 
 `@@VAR:<name>@@` (`varMod.Variable.declarer`) is the other token, and it IS tree position: the nearest
-node above declaring the node variable `name`, spliced node by node so a shadow holds (ADR 0033).
+node above declaring the node variable `name`, spliced node by node so a shadow holds (ADR 0033). A
+highlight reading the declarer's signal from below spells it; a choice names only the variable,
+and the server resolves the same declarer at the pressing node.
 
 ---
 
@@ -408,11 +447,14 @@ shared one.
 **Mutation (Gone / Placed)** — a structural change in the log: a node left the DOM, or arrived.
 Replayed to a reconnecting client as a remove and an insert.
 
-**Holds** — one session's map of `node id -> digest of the bytes that tab currently has`. The answer
-to "does this client already have this?", asked per session and nowhere else.
+**Holds** — one session's map of `node id -> what that tab currently has`: the byte-slot values
+the node's bytes were rendered from, and its signal values (`Held`). The answer to "does this
+client already have this?", asked per session and nowhere else: equal values, equal bytes, so
+"unchanged" is decided without rendering or keeping the bytes.
 
-**Digest** — a hash of a node's own HTML, so "unchanged" is cheap to decide without keeping the
-bytes.
+**Byte-slot values** — a node's resolved byte-slot values (not its signal slots'), plus a member's
+clause: what its patch form is rendered from, so both what a session holds and the render cache's
+key (`Renderer.byteSlotValues`, ADR 0012).
 
 **Claims / invalidates** — what a patch reports about itself: the nodes whose bytes it just wrote
 (so the session can record them) and the nodes it displaced (so their records stop describing
@@ -449,13 +491,11 @@ them. Keyed by what the render *read*, not by node id alone.
 of its bake group is selected. A node whose bytes carry its children has no sound key and is simply
 not cached.
 
-**Generation** — one version of a node's bytes in the cache. Kept per selection, so viewers on
-different tabs stop evicting each other.
-
 **Straggler** — a session that renders from an older snapshot than its peers. It is served its own
-render, but it may not overwrite newer bytes in the cache.
+render; its install may replace newer bytes in the cache, which costs the next session a render,
+never wrong bytes.
 
-**Traced** — a render that also hands back every node's own bytes from inside it, so a caller that
+**Traced** — a render that also hands back what every node inside it now holds, so a caller that
 rendered a whole subtree can record what it placed without walking it again.
 
 ---

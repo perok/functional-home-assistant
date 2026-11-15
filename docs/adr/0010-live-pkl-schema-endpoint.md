@@ -88,14 +88,18 @@ personas differ only in **where the cache is seeded from** and **who seeds the
 | **Component developer** | their laptop | repo lib package + their own components | `fh pull` from the instance | works (push for their own cards) |
 
 **End user, `/edit` on the server.** Edits `site.pkl` in the browser;
-`LspBridge` spawns pkl-lsp as a **server-side subprocess** and the client sends
-absolute on-disk paths in `initialize`, so completion resolves the library (from
-the persistent package cache — `moduleCacheDir` is declared IN the generated
-`.fh/base.pkl` the user's `PklProject` amends, which reads it from this process's
-environment and defaults to pkl's own `~/.pkl/cache`, so pkl-lsp finds it with no
-extra configuration) and the
-freshly-seeded `@fh-home` dump package, through the project. Nothing is fetched. This is the default path and it needs no network
-story at all.
+`LspBridge` spawns pkl-lsp as a **server-side subprocess**, and completion
+resolves the library and the freshly-seeded `@fh-home` dump package through the
+project. Nothing is fetched. This is the default path and it needs no network
+story at all. pkl-lsp loads a project only from the state its own sync leaves,
+a sync runs a `pkl` CLI the image does not ship, and it reads packages only from
+`$XDG_CACHE_HOME/pkl`, never the project's `moduleCacheDir`. So the backend
+stands in for the sync: each build writes that state from what pkl-core
+resolved and links a `pkl-lsp-xdg/pkl` beside the cache to it, and the bridge
+names the workspace in `initialize` (the browser's client sends none) and
+starts pkl-lsp with `XDG_CACHE_HOME` there. `PklEditorSupportSuite` asks
+pkl-lsp through the bridge as `/edit` connects, and `docs/pkl-editor-support.md`
+lists what it answers.
 
 The pkl-lsp jar itself is **resolved by the build**: an ordinary
 `libraryDependencies` entry in a hidden Ivy configuration
@@ -145,7 +149,7 @@ any existing file), which fixes IDE sync as long as the instance is reachable.
 the **same package-form workspace the add-on does** — there is no separate "dev
 mode" and no meaningful difference from the deployed add-on. The bundled library
 is the repo's own `resources/dashboards/lib`, packaged and seeded into a shared
-cache (pkl's own `~/.pkl/cache`, which the `fh` script also uses), the
+cache (pkl's own `~/.cache/pkl`, which the `fh` script also uses), the
 workspace is whichever local scratch dir the run NAMES (gitignored; there is no
 default — a run that guessed one served a workspace nobody chose), and
 `prepareDumps` seeds the dump package from a dev HA. So a local instance is a
@@ -465,13 +469,14 @@ as `package://fh.invalid/fh-dashboard@<version>`, resolved from a **persistent
 package cache** under `/data/pkl-cache` that survives image upgrades.
 
 **Where that cache is, by default, is pkl's own answer**: `AddonBootstrap.defaultCacheDir`
-asks `pkl-core` (`IoUtils.getDefaultModuleCacheDir`) rather than deriving a path, so the
-server, `BuildApp`, a laptop `fh`, the `pkl` CLI and pkl-lsp share `~/.pkl/cache` without
-any of them declaring one. It replaced an appdirs data dir of our own, which was both a
-path pkl-lsp did not share and, because appdirs reads `XDG_DATA_HOME`, a way for a leaked
-environment value to point a container at a home directory it could not access. The add-on
+asks `pkl-core` (`IoUtils.getSystemModuleCacheDir`) rather than deriving a path, so the
+server, `BuildApp`, a laptop `fh`, the `pkl` CLI and pkl-lsp share one cache without any of
+them declaring one. From pkl 0.33 that is `$XDG_CACHE_HOME/pkl`, else `~/.cache/pkl`; an
+existing `~/.pkl/cache` is ignored, so the first run after the bump downloads again. It
+replaced an appdirs data dir of our own, which was a path pkl-lsp did not share; that the
+answer now reads an XDG variable too is pkl's choice, made for every tool at once. The add-on
 still overrides it (`FH_PKL_CACHE_DIR=/data/pkl-cache`) and MUST: in that container the
-default is `/root/.pkl/cache`, an image layer, so every update would drop the packages the
+default is `/root/.cache/pkl`, an image layer, so every update would drop the packages the
 workspace's pins name.
 
 The cache dir is therefore checked FIRST, before anything is written, and an unusable one

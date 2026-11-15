@@ -1,5 +1,6 @@
 package fh.view.build
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import fh.view.model.{
@@ -8,6 +9,7 @@ import fh.view.model.{
   CardDef,
   Cell,
   Dashboard,
+  IdKind,
   LayoutNode,
   Lit,
   Op,
@@ -80,7 +82,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   test("validate reports a component missing a required card slot") {
     val d = Dashboard(
       cards = Map(
-        "card" -> CardDef(
+        "card" -> TestCard(
           """<div id="{{id}}">{{label}}</div>"""
         )
       ),
@@ -99,8 +101,8 @@ class BuildPhaseSuite extends munit.FunSuite {
   ): List[String] =
     Dashboard(
       cards = Map(
-        "card" -> CardDef(template, regions = regions),
-        "leaf" -> CardDef("<i></i>")
+        "card" -> TestCard(template, regions = regions),
+        "leaf" -> TestCard("<i></i>")
       ),
       card =
         LayoutNode.Component("card", templateSlots = slots, regions = filled)
@@ -119,15 +121,8 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(errs.exists(_.contains("never reads slots: round")), clue = errs)
   }
 
-  test("validate: a view reads its slot; the route is the server's") {
-    val errs = oneCard(
-      "<b {{{label.bind}}}></b>",
-      Map(
-        "label" -> text,
-        Dashboard.ServiceSlot -> text,
-        Dashboard.TargetIdSlot -> text
-      )
-    )
+  test("validate: a view reads its slot") {
+    val errs = oneCard("<b {{{label.bind}}}></b>", Map("label" -> text))
     assertEquals(errs, Nil)
   }
 
@@ -290,7 +285,7 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   test("validate names a surface's node by the id it renders with") {
     val d = Dashboard(
-      cards = Map("card" -> CardDef("<div>x</div>")),
+      cards = Map("card" -> TestCard("<div>x</div>")),
       card = LayoutNode.Component(card = "card"),
       surfaces = Map(
         "detail" -> Surface(
@@ -314,7 +309,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     // Interpolated into the wrapper's class attribute, so anything beyond
     // [A-Za-z0-9_-]+ fails the build.
     val d = Dashboard(
-      cards = Map("card" -> CardDef("""<div>x</div>""")),
+      cards = Map("card" -> TestCard("""<div>x</div>""")),
       card = LayoutNode.Component(
         card = "card",
         cell = Some(classes("fh-cols-3", """bad"><script"""))
@@ -333,7 +328,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       styles = ListMap("--x" -> reading)
     )
     val errs = Dashboard(
-      cards = Map("card" -> CardDef("<i></i>")),
+      cards = Map("card" -> TestCard("<i></i>")),
       card = LayoutNode.SetNode(cell = Some(cell))
     ).validate()
     assert(errs.exists(_.contains("cell class 'fh-on' reads state")), errs)
@@ -345,7 +340,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     // A literal class is written as it is; a literal style is no cell slot.
     val cell = Cell(styles = ListMap("--x" -> ValueExpr.literal("1")))
     val errs = Dashboard(
-      cards = Map("card" -> CardDef("<i></i>")),
+      cards = Map("card" -> TestCard("<i></i>")),
       card = LayoutNode.Component("card", cell = Some(cell))
     ).validate()
     assert(
@@ -849,7 +844,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     val mixed = Dashboard(
       // The bake target must declare the region its surfaces name.
       cards = Map(
-        "ok" -> CardDef(
+        "ok" -> TestCard(
           "<i>{{{branch}}}</i>",
           regions = Map("branch" -> Region(Region.Baked))
         )
@@ -897,7 +892,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       )
     val dash = Dashboard(
       cards = Map(
-        "ok" -> CardDef(
+        "ok" -> TestCard(
           "<i>{{{branch}}}</i>",
           regions = Map("branch" -> Region(Region.Baked))
         )
@@ -928,7 +923,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     def dash(condition: ValueExpr) = Dashboard(
       // The bake target must declare the region its surfaces name.
       cards = Map(
-        "ok" -> CardDef(
+        "ok" -> TestCard(
           "<i>{{{branch}}}</i>",
           regions = Map("branch" -> Region(Region.Baked))
         )
@@ -987,12 +982,35 @@ class BuildPhaseSuite extends munit.FunSuite {
       assertEquals(dash(c).validate(), Nil, clue = c)
   }
 
+  test("validate refuses a set of areas whose guard reads the area itself") {
+    val card = Map("t" -> TestCard("<i>t</i>"))
+    def rooms(guard: ValueExpr) = Dashboard(
+      cards = card,
+      card = LayoutNode.SetNode(
+        candidates = List("soverom"),
+        members = Map(
+          "soverom" -> LayoutNode.SetMember(
+            List(LayoutNode.SetClause(Some(guard), LayoutNode.Component("t")))
+          )
+        ),
+        of = IdKind.Area
+      )
+    )
+    def on(of: Option[String]) = ValueExpr(
+      Value.Entity(of),
+      List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("on"))))
+    )
+    assertEquals(rooms(on(Some("light.disco"))).validate(), Nil)
+    val itself = rooms(on(None)).validate()
+    assert(itself.exists(_.contains("reads its member")), clue = itself)
+  }
+
   test("validate refuses a clause or a state surface that does not decide") {
     // A wire Pkl never writes, so only a hand-built one reaches this.
     val text = ValueExpr(Value.Entity(Some("light.a")))
     val viaCel = ValueExpr(Value.Cel("'on'"))
     val ok = Map(
-      "ok" -> CardDef(
+      "ok" -> TestCard(
         "<i>{{{branch}}}</i>",
         regions = Map("branch" -> Region(Region.Baked))
       )
@@ -1071,7 +1089,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         )
       )
     )
-    val hasBranch = CardDef(
+    val hasBranch = TestCard(
       "<i>{{{branch}}}</i>",
       regions = Map("branch" -> Region(Region.Baked))
     )
@@ -1081,16 +1099,16 @@ class BuildPhaseSuite extends munit.FunSuite {
       clue = dash(hasBranch, "panel").validate()
     )
     assert(
-      dash(CardDef("<i></i>"), "branch")
+      dash(TestCard("<i></i>"), "branch")
         .validate()
         .exists(_.contains("it declares none")),
-      clue = dash(CardDef("<i></i>"), "branch").validate()
+      clue = dash(TestCard("<i></i>"), "branch").validate()
     )
     // A surface fills its hole lazily and an eager region is filled by the
     // node's children; the fills differ by declared kind, not spelling.
     assert(
       dash(
-        CardDef(
+        TestCard(
           "<i>{{{branch}}}</i>",
           regions = Map("branch" -> Region())
         ),
@@ -1162,7 +1180,7 @@ class BuildPhaseSuite extends munit.FunSuite {
 
   test("validate checks card references inside a surface") {
     val d = Dashboard(
-      cards = Map("ok" -> CardDef("<i>{{label}}</i>")),
+      cards = Map("ok" -> TestCard("<i>{{label}}</i>")),
       card = LayoutNode.Component(
         "ok",
         templateSlots = Map("label" -> TemplateSlot(ValueExpr.literal("x")))
@@ -1180,7 +1198,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     "validate reports a slot whose transform fails to compile (blocks load)"
   ) {
     val d = Dashboard(
-      cards = Map("card" -> CardDef("<span>{{state}}</span>")),
+      cards = Map("card" -> TestCard("<span>{{state}}</span>")),
       card = LayoutNode.Component(
         "card",
         templateSlots = Map(

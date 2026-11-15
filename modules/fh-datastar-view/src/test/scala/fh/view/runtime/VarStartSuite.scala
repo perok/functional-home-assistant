@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import cats.effect.IO
 import fh.view.model.{CardDef, Dashboard, LayoutNode}
 import fh.view.testkit.FixtureEntity
@@ -72,7 +73,7 @@ class VarStartSuite extends CatsEffectSuite {
 
   private def startOn(vars: Dashboard.Declaration*): Dashboard =
     Dashboard(
-      cards = Map("plain" -> CardDef("<span></span>")),
+      cards = Map("plain" -> TestCard("<span></span>")),
       card = LayoutNode.Component("plain", vars = vars.toList)
     )
 

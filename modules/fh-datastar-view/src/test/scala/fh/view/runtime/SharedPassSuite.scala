@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.fetch.FetchSnapshot
+import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.effect.kernel.Ref
 import cats.syntax.all.*
@@ -15,6 +15,7 @@ import fh.view.model.{
   TemplateSlot
 }
 import fh.view.testkit.TestIds.given
+import RendererTestOps.heldFor
 
 import scala.concurrent.duration.*
 
@@ -27,11 +28,11 @@ class SharedPassSuite extends ServerHarness {
   // later heals it; the other is a barrier proving the connection is live.
   private def twoLeafDash = Dashboard(
     cards = Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>")
+      "card" -> TestCard("<span>{{state}}</span>")
     ),
     card = LayoutNode.Component(
       "col",
@@ -54,8 +55,8 @@ class SharedPassSuite extends ServerHarness {
   )
 
   test("a session records what its own connection was actually sent") {
-    // The digest kept must be of the bytes that went out, and the position the
-    // version they were rendered at.
+    // What is kept must be what the bytes that went out were rendered from, and
+    // the position the version they were rendered at.
     live(twoLeafDash, ab0) { ts =>
       for {
         _ <- ts.connect()
@@ -65,15 +66,8 @@ class SharedPassSuite extends ServerHarness {
         held <- session.state.map(_.holds)
         now <- ts.store.current
       } yield {
-        val renderer = Renderer.create(twoLeafDash)
         def rendered(id: NodeId) =
-          renderer
-            .renderNodeById(
-              id,
-              Shared.of(now.entities),
-              Viewing(Selections.none, FetchSnapshot.empty)
-            )
-            .map(Held.of)
+          Renderer.create(twoLeafDash).heldFor(id, now.entities)
         // The repaint claimed everything it painted, and the tick re-claimed
         // the one node that moved at its new bytes: a record of what this
         // connection was sent.

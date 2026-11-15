@@ -19,22 +19,10 @@ typealias Target = hass.Entity|hass.Area|hass.Floor|pred.Tally
 typealias CallScalar = String|Number|Boolean
 typealias CallValue = CallScalar|List<CallScalar>
 
-const local jsonRenderer = new JsonRenderer {}
-
-/// Placed in an HTML attribute by an escaping `{{…}}`, so a `"` reaches the
-/// expression as written.
-const function jsonLiteral(v: CallValue): String =
-  if (v is List) "[" + v.map((x) -> jsonRenderer.renderValue(x)).join(",") + "]"
-  else jsonRenderer.renderValue(v)
-
 // The slots a tap fills ([[tapSlots]]), for the template pieces below and the
 // cards that place them.
-const service: slotMod.Slot = slotMod.textRaw("service")
-const targetKind: slotMod.Slot = slotMod.slot("targetKind")
-const targetId: slotMod.Slot = slotMod.slot("targetId")
-const targetSet: slotMod.Slot = slotMod.slot("targetSet")
-const dataKey: slotMod.Slot = slotMod.slot("dataKey")
-const dataValue: slotMod.Slot = slotMod.slot("dataValue")
+/// The call a tap declares, as its template pieces place it ([[post]]).
+const tapCall: slotMod.CallSlot = new { name = "tap" }
 const onclick: slotMod.Slot = slotMod.textRaw("onclick")
 /// The tap's own refusal ([[refusedStates]]) and the card's (`nodes.disabledSlot`).
 const tapDisabled: slotMod.Slot = slotMod.bool("tapDisabled")
@@ -45,7 +33,7 @@ const busy: slotMod.Slot = slotMod.bool("busy")
 const busyVisual: slotMod.Slot = slotMod.bool("busyVisual")
 const current: slotMod.Slot = slotMod.bool("current")
 
-/// A [[Call]] or a [[Click]], rendered in one place ([[tapRoute]]).
+/// A [[Press]] or a [[Click]], rendered in one place ([[tapRoute]]).
 ///
 /// A card that can be an anchor must prefer `href` when set: that is what gives
 /// a navigate real link behaviour (middle-click, open-in-new-tab, no JS).
@@ -73,34 +61,48 @@ abstract class TapAction {
   hidden lit: slotMod.Reading? = null
 }
 
-class Call extends TapAction {
-  /// `"<domain>/<service>"`: a literal when known at build time, a handler
-  /// signal when the target's live state picks it ([[stateService]]). Only the
-  /// service, not the URL: only a card's template can name the slug and node id
-  /// ([[serviceClick]]).
+/// A declared call ([[post]]): what HA is asked ([[Call]]), or this viewer's
+/// choice of a node variable ([[SetVar]]). Its answer is a wait worth showing.
+abstract class Press extends TapAction {
+  busy = true
+  /// What the server runs at the press (`Dashboard.calls`, ADR 0023).
+  hidden decl: slotMod.CallDecl
+}
+
+class Call extends Press {
+  /// `"<domain>/<service>"`: a literal, or a reading of the target's live
+  /// state ([[stateService]]), which the server runs again at the press.
   service: slotMod.Reading|String
   /// Named by the tap, never borrowed from the card, so a card may show one
   /// entity and act on another, or on a room.
   target: Target
-  /// The one value a call carries, in its body as `{data: {<key>: <value>}}`. A
-  /// key with no value is a commit whose value the card supplies (the slider).
-  dataKey: String? = null
-  /// A JS literal, spliced as written: JSON, so it is one for a string too.
-  dataValue: String? = null
+  /// What HA gets as the call's data, by HA's field name.
+  data: Mapping<String, CallValue|slotMod.Expr> = new {}
+  /// What the target leaves out, HA resolving it at every call ([[exclude]]).
+  excluding: Listing<Target> = new {}
+  /// The target without `x`: an entity, a room, a floor, or a set, whose
+  /// members present at the press are left out. HA 2026.11 or later.
+  function exclude(x: Target|pred.TallyOf): this =
+    let (self = this) (self) { excluding { if (x is pred.TallyOf) x.count() else x as Target } }
   /// `call("light/turn_on", l).with("effect", "colorloop")`, or
   /// `.with("hs_color", List(120, 100))`. HA gets the value as typed here.
-  function with(key: String, value: CallValue): Call =
-    let (self = this)
-      (self) {
-        dataKey = key
-        dataValue = jsonLiteral(value)
-      }
+  function with(key: String, value: CallValue): this =
+    let (self = this) (self) { data { [key] = value } }
+  /// `key` set to what the press posts as `p`: a drag's position.
+  function posting(key: String, p: slotMod.PostedRead): this = postingChecked(key, p, List())
+  /// [[posting]] kept to what `checks` ([[simpleMod.within]], [[simpleMod.checkCel]])
+  /// let through: a posted value outside them gives the field no value, and the
+  /// press is refused before HA hears of it.
+  function postingChecked(key: String, p: slotMod.PostedRead, checks: List<simpleMod.Step>): this =
+    let (self = this) (self) {
+      data { [key] = new slotMod.Expr { source = p; steps { ...checks } } }
+    }
   /// States of the target in which this call is meaningless, so every card that
   /// sends it refuses the press. On the call rather than the card, so a second
   /// card sending the same call cannot go unguarded. Not the busy guard: this
   /// follows the ENTITY, including a lock someone moved from its keypad.
   disabledWhile: Listing<String> = new {}
-  busy = true
+  decl = serviceOf(this)
 }
 
 /// A tap that is its own click expression. `onclick` is what a card whose root
@@ -115,25 +117,31 @@ class OpenSurface extends Click {
   busy = true
 }
 
-/// A choice of a node variable (`varMod.Variable.choose`). Guarded for the
-/// same reason as [[OpenSurface]]: the write answers once its readers have
+/// A choice of a node variable (`varMod.Variable.choose`), declared at the
+/// nearest node above that declares it. It answers once its readers have
 /// re-rendered.
-class SetVar extends Click {
-  busy = true
+class SetVar extends Press {
+  variable: String
+  /// Null clears the choice, back to the declared value.
+  value: String?
+  decl = let (t = this) new slotMod.SetVarCall { variable = t.variable; value = t.value }
 }
 
 // URLs are relative to the page's <base href>, which is the ingress prefix
 // behind the HA proxy. Every route names the dashboard slug so the server can
 // admit only calls that dashboard declares (ADR 0023): `{{dashboardSlug}}` in a
 // template, `dashboard_slug` in a transform, whose output is inserted raw.
-//
-// A call reads only its value from the request body, so it sends no signals.
-const noSignals = #"{filterSignals:{exclude:'.*'}}"#
 
-/// A call's request options carrying `value`, a JS expression, as its body
-/// (`Server.callData`). The bundle sends a `payload` instead of the signals.
-const function withData(key: String, value: String): String =
-  "{payload: {data: {'" + key + "': " + value + " } } }"
+/// The press of the call `s` names: its pending ask, its id, and as the body (a
+/// `payload`, which the bundle sends instead of the signals) the page's `conn`
+/// and popup, which a choice is made in, then each of `posts` beside its key
+/// and what the node shows of the call. `posts` are the card's, since one
+/// template serves every node of it; each node's call says how its value is
+/// typed.
+const function post(s: slotMod.CallSlot, posts: List<slotMod.PostedRead>): String =
+  "\(s.pending)@post('sse/call/{{dashboardSlug}}/\(s.callId)?node={{id}}', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {"
+    + posts.map((p) -> "'\(p.key)': \(p.js)").join(", ")
+    + "}, seen: \(s.seen) } })"
 
 // What a card writes for a guarded tap:
 //
@@ -296,22 +304,12 @@ const busyClassChange: String =
 /// For the slider's head badge, which spins for the whole commit.
 const busyShapeClassChange: String = busySpinner("_{{id}}__busy_change")
 
-/// A service call, assembled in the card's template from [[routeSlots]]: the
-/// one place that can name `{{dashboardSlug}}`, `{{id}}` and the slot read.
-///
-/// `service.jsValue` is a quoted literal for a build-time service and a signal
-/// for a state-picked one, so the template is the same either way, and a lock
-/// tile's bytes stay constant across lock/unlock (ADR 0017).
-const serviceClick: String =
-  #"@post('sse/call/{{dashboardSlug}}/' + "# + service.jsValue +
-    #" + '/\#(targetKind)/\#(targetId)?node={{id}}', "# +
-    dataKey.ifSetElse(withData("\(dataKey)", "\(dataValue)"), noSignals) + ")"
-
 /// What every card with a tap places: `data-on:click="\(guardClick)\(click)"`.
-/// The arm is picked by whether [[tapSlots]] set [[service]]. Service URLs stay
-/// in Pkl because nothing in Scala knows an HA domain (ADR 0016).
+/// The arm is picked by whether [[tapSlots]] placed [[tapCall]]. A lock
+/// tile's bytes stay constant across lock/unlock: the service it saw rides
+/// `seen`, a signal (ADR 0017).
 const click: String =
-  refusalGuard + service.ifSetElse(serviceClick, onclick.raw)
+  refusalGuard + tapCall.ifSetElse(post(tapCall, List()), onclick.raw)
 
 /// Every state in which this tap must refuse the press: the call's own
 /// [[Call.disabledWhile]], plus `unavailable`, which HA rejects in every
@@ -328,48 +326,46 @@ const function refusedStates(t: TapAction, target: Target?): List<String> =
 const function tapDisabledSlot(states: List<String>): slotMod.Reading =
   simpleMod.stateIn(states.toListing())
 
-/// What [[serviceClick]] builds the URL from, and what the server reads back as
-/// the call this node declares (`Dashboard.calls`, ADR 0023). A set call
-/// carries its tally as [[targetSet]], the JSON the press filters by. A service
-/// the live state picks is a handler signal (ADR 0016).
-const local function routeSlots(
-  action: slotMod.Reading|String,
-  target: Target,
-  key: String?
-): Listing<slotMod.Slot> =
-  new {
-    if (action is slotMod.Reading)
-      (service) {
-        value = if (target is hass.Entity) (action as slotMod.Reading) { entityId = target.entity_id } else action
-        signal = slotMod.asHandler
+/// What the call `c` asks HA. Every read names its entity: a declaration has
+/// no subject. A set is its tally, which the press narrows to the candidates
+/// present then.
+const local function serviceOf(c: Call): slotMod.ServiceCall = new {
+  service =
+    if (c.service is slotMod.Reading && c.target is hass.Entity)
+      (c.service as slotMod.Reading) { entityId = (c.target as hass.Entity).entity_id }
+    else c.service
+  target = new Mapping { [targetKey(c.target)] = new Listing { targetId(c.target) } }
+  exclude =
+    let (xs = c.excluding.toList())
+      new Mapping {
+        for (k in List("entity_id", "area_id", "floor_id")) {
+          when (xs.any((x) -> targetKey(x) == k)) {
+            [k] = new Listing { for (x in xs) { when (targetKey(x) == k) { targetId(x) } } }
+          }
+        }
       }
-    else service.of(action)
-    targetKind.of(
-      if (target is hass.Entity) "entity" else if (target is hass.Area) "area"
-      else if (target is hass.Floor) "floor" else "set")
-    targetId.of(
-      if (target is hass.Entity) target.entity_id
-      else if (target is hass.Area) target.area_id
-      else if (target is hass.Floor) target.floor_id
-      else setId(target as pred.Tally))
-    when (target is pred.Tally) {
-      targetSet.of(jsonRenderer.renderValue(target))
-    }
-    dataKey.of(key)
-  }
+  data = c.data
+}
 
-/// The route slots [[click]] reads, and the refusal with them, so no card can
-/// place a route without it. Separate from [[tapSlots]] for a card with no
-/// [[tappable]] section (a [[Button]]'s anchor arm). One node holds one tap's
-/// route.
+/// The key of HA's target a [[Target]] fills: a set's is its candidates' kind.
+const local function targetKey(t: Target): "entity_id"|"area_id"|"floor_id" =
+  let (kind = if (t is pred.Tally) t.of else pred.kindOf(t as pred.Addressed))
+    if (kind == "area") "area_id" else if (kind == "floor") "floor_id" else "entity_id"
+
+const local function targetId(t: Target): slotMod.Expr|String =
+  if (t is pred.Tally) new slotMod.Expr { source = t }
+  else pred.idOf(t as pred.Addressed)
+
+/// The call [[click]] posts, and the refusal with it, so no card can place a
+/// call without it. Separate from [[tapSlots]] for a card with no
+/// [[tappable]] section (a [[Button]]'s anchor arm).
 const function tapRoute(t: TapAction): Listing<slotMod.Slot> =
   let (target = if (t is Call) t.target else null)
   let (reads = if (target is hass.Entity) target.entity_id else null)
   let (states = refusedStates(t, target))
     new {
-      when (t is Call) {
-        ...routeSlots(t.service, t.target, t.dataKey)
-        dataValue.of(t.dataValue)
+      when (t is Press) {
+        (tapCall) { declares = (t as Press).decl }
       } else {
         onclick.of((t as Click).onclick)
       }
@@ -380,10 +376,6 @@ const function tapRoute(t: TapAction): Listing<slotMod.Slot> =
         }
       }
     }
-
-/// A set's route id: only a key into `Dashboard.calls`, so two taps over an
-/// equal set share one.
-const local function setId(t: pred.Tally): String = jsonRenderer.renderValue(t).sha256.take(16)
 
 /// Every slot a tap contributes, for a card to fold in:
 /// `slots { ...tapMod.tapSlots(tapAction) }`.
@@ -442,7 +434,10 @@ const function call(action: String, on: Target): Call =
 const local function setCall(action: String, on: pred.Tally): Call =
   let (domain = action.split("/").first)
   let (ids = on.candidates.toList())
-  let (stray = if (domain == "homeassistant") List() else ids.filter((id) -> !id.startsWith("\(domain).")))
+  // An area or a floor is no entity of a domain: HA picks the domain's own.
+  let (stray =
+    if (domain == "homeassistant" || on.of != null) List()
+    else ids.filter((id) -> !id.startsWith("\(domain).")))
     if (ids.isEmpty)
       throw("call(\"\(action)\", …): the set has no candidates, so the call would act on nothing.")
     else if (!stray.isEmpty)
@@ -455,9 +450,9 @@ const function toggle(e: hass.Entity): Call =
   byDomain(e) ?? call("homeassistant/toggle", e)
 
 /// A call whose service the target's CURRENT state picks (a lock: unlock while
-/// locked, else lock). The service rides a handler signal, so the card's bytes
-/// stay constant across state changes; it arrives in the same frame as the
-/// visible state, so a click acts on what the user is looking at (ADR 0016).
+/// locked, else lock). The server picks it again at the press, and refuses one
+/// the card showed otherwise: you act on what you saw, or not at all (ADR
+/// 0016).
 const local function stateService(e: hass.Entity, byState: hassActions.CallByState): Call =
   new {
     service = simpleMod.enumOf(byState.whenState, byState.then, byState.otherwise)

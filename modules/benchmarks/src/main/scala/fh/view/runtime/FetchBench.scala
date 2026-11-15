@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
@@ -179,8 +180,8 @@ object FetchBench {
 
   def dashboard: Dashboard = Dashboard(
     cards = RenderBench.cards ++ Map(
-      "chart" -> CardDef("<div>{{{chart}}}</div>"),
-      "host" -> CardDef(
+      "chart" -> TestCard("<div>{{{chart}}}</div>"),
+      "host" -> TestCard(
         """<div id="{{hostId}}">{{{panel}}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )

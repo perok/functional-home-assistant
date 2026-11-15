@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{
@@ -13,6 +14,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.FixtureEntity
 import fh.view.testkit.TestIds.given
+import fh.view.testkit.DashboardBuilders
 import fh.view.testkit.DashboardBuilders.declared
 import org.http4s.*
 
@@ -24,11 +26,11 @@ import scala.concurrent.duration.*
   */
 class TabVariableSuite extends ServerHarness {
 
-  private val barCard = CardDef(
-    """<div id="{{hostId}}">{{{panel}}}</div>""",
-    regions = Map("panel" -> Region(Region.Baked))
+  private val barCard = TestCard(
+    """<div id="{{hostId}}">{{{buttons}}}{{{panel}}}</div>""",
+    regions = Map("panel" -> Region(Region.Baked), "buttons" -> Region())
   )
-  private val textCard = CardDef("<p>{{text}}</p>")
+  private val textCard = TestCard("<p>{{text}}</p>")
 
   private def panel(i: Int, text: String) =
     Surface(
@@ -42,11 +44,24 @@ class TabVariableSuite extends ServerHarness {
   private def lit(s: String) =
     fh.view.model.TemplateSlot(fh.view.model.ValueExpr.literal(s))
 
+  /** With a button per tab, and one past them, where it declares `tab`. */
   private def barNode(vars: Map[String, String]) =
-    LayoutNode.Component("bar", id = Some("bar"), vars = declared(vars.toList*))
+    LayoutNode.Component(
+      "bar",
+      id = Some("bar"),
+      vars = declared(vars.toList*),
+      regions =
+        if (vars.contains("tab"))
+          Map("buttons" -> DashboardBuilders.choices("tab", "0", "1", "5"))
+        else Map.empty
+    )
 
   private val dash = Dashboard(
-    cards = Map("bar" -> barCard, "text" -> textCard),
+    cards = Map(
+      "bar" -> barCard,
+      "text" -> textCard,
+      DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard
+    ),
     card = barNode(Map("tab" -> "0")),
     surfaces = Map("t0" -> panel(0, "first"), "t1" -> panel(1, "second"))
   )
@@ -60,6 +75,9 @@ class TabVariableSuite extends ServerHarness {
   private def post(ts: TestServer, conn: String, path: String) =
     ts.postResult(path, body = s"""{"${Server.ConnSignal}":"$conn"}""")
 
+  private def press(ts: TestServer, conn: String, tab: String) =
+    ts.choose(conn, VarKey(NodeId.derived("bar"), "tab"), Some(tab))
+
   private def drain(session: Option[Session]): IO[String] =
     session
       .fold(IO.pure(List.empty[SseFrame]))(_.takeBacklog)
@@ -70,7 +88,7 @@ class TabVariableSuite extends ServerHarness {
       for {
         conn <- ts.load().map(_.conn)
         session <- ts.sessions.get(conn)
-        result <- post(ts, conn, s"sse/var/${ts.slug}/bar/tab/1")
+        result <- press(ts, conn, "1")
         open <- session.traverse(_.state.map(_.open))
         sent <- drain(session)
       } yield {
@@ -91,7 +109,7 @@ class TabVariableSuite extends ServerHarness {
       for {
         conn <- ts.load().map(_.conn)
         session <- ts.sessions.get(conn)
-        _ <- post(ts, conn, s"sse/var/${ts.slug}/bar/tab/0")
+        _ <- press(ts, conn, "0")
         sent <- drain(session)
       } yield assertEquals(sent, """signals {"_var_bar__tab":"0"}""")
     }
@@ -102,7 +120,7 @@ class TabVariableSuite extends ServerHarness {
       for {
         conn <- ts.load().map(_.conn)
         session <- ts.sessions.get(conn)
-        result <- post(ts, conn, s"sse/var/${ts.slug}/bar/tab/5")
+        result <- press(ts, conn, "5")
         chose <- session.traverse(_.state.map(_.vars))
         sent <- drain(session)
       } yield {

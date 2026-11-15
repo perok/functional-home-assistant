@@ -234,17 +234,56 @@ WHO may use a dashboard; this says WHAT that lets them do, and without it the
 two come apart badly — the call route forwards whatever service and target are
 in its URL, so admission to the most permissive dashboard in the house would be
 admission to every service on every entity in it. `Public` makes that sharp: no
-login, and the front door lock one URL edit away from the street. So
-`POST /sse/call/:slug/<domain>/<service>/<entity|area|floor|set>/<id>` carries its
-dashboard, and `Server` refuses any call that dashboard's taps do not declare:
-the allowlist is `Dashboard.calls`, the exact (service, target, value key)
-combinations read off `tap.pkl`'s route slots. A service the target's state
-picks (a lock's `unlock`/`lock`) declares every arm of its match. The value
-rides in the body, `{"data": {<key>: <value>}}`, at most one key, and stays
-free: a slider's position is the one thing the build cannot know. It is JSON as
-the page typed it, so a number is a number, text is text and a list is a list,
-with nothing on the server guessing which from a path segment. A hue slider's
-`hs_color = [h, 100]` is such a list.
+login, and the front door lock one URL edit away from the street. So a tap
+names a declared call, `POST /sse/call/:slug/:callId?node=<id>`, and `Server`
+refuses an id its dashboard does not declare. The id is the first 16 hex
+characters of the SHA-256 of the call's declaration as Scala decodes it
+(`CallDecl`: its `service`, its target keys and its `data` keys, each a value
+expression, ADR 0035), each key's entries sorted. A call is one kind, by `kind`
+on the wire, so no call both reaches HA and sets a variable: `Service` is that
+HA call, and `SetVar` is this viewer's choice of a node variable (a tab, a select
+option, ADR 0033), its variable and value hashed the same way, its declarer
+resolved at the pressed node and its value held to every reader there. Equal calls on two cards share
+one id, the order of two `.with` calls does not move it, and an edited call gets
+a new one, so a stale page's press is refused as a stale URL always was. The
+allowlist is `Dashboard.calls`, by id. The press is refused, too, on a node that
+does not place the call, the node as it stands now: a set member is its current
+clause.
+
+**The server runs its own evaluation of the call.** At the press it evaluates
+every field of the declaration, a fetch answered first, and calls HA with what
+it got. The page sends two things beside the id:
+
+- `posted`, the values the card supplies (a drag's position, a wheel's hue). A
+  `Posted(key, type)` source reads each, decoded as its type, and the press
+  must post exactly the keys the call reads. These are the one client input
+  that reaches HA, which is why they are typed.
+- `seen`, what the page last knew of what the call does. Per node, at build, a
+  `service` or `data` field that reads live state is *seen*: the build adds a
+  `Handler` slot holding that field's output (ADR 0017), and the press must post
+  exactly the fields the node sees, each equal to what the server computes now.
+  A refusal names the field and both values. A literal field, a field reading a
+  posted value (it exists only at the press) or a fetch (its window moves
+  between the render and the press), and the target are decided at the press.
+  `seen` can only refuse.
+
+  Whether anything paints the field does not matter. The slot is a live
+  signal, so on a page that is up to date it always agrees and nothing is
+  refused; it refuses only while the page is behind (a patch in flight, a dead
+  stream), and then everything on the page is behind, painted or not. Tying it
+  to what the node paints missed a button beside the card that shows the state
+  (a sibling's paint, not the node's), and widening that to ancestors ends at
+  the whole page. The slot holds the field's output, not the raw state, so it
+  moves only when the output does.
+
+No call field reads a node variable, and `validate` refuses one: the press is
+answered as a decision, which reads no viewer's variable. Allowing it would mean
+the press carrying its viewer.
+
+A service the target's state picks is such a field: a lock's tile or a button
+beside it sees its service, and a press that races a lock change the page has
+not shown yet is refused rather than acting on what the screen did not show
+(ADR 0016).
 
 It is decidable statically because a candidate set's membership is live but its
 candidate LIST is not (ADR 0003) — the walk covers the layout and every surface
@@ -257,22 +296,28 @@ a lock tile could be edited into `lock/open`, and naming a light was leave to
 call anything on it. Area and floor calls (issue #389) settle it anyway: HA
 expands the target when the call runs, so the call reaches entities the
 dashboard never names, one added to the room after the build included — the
-point of the feature, and bounded only by the exact combination. So a "lights
+point of the feature, and bounded only by the declaration. So a "lights
 off in the living room" button cannot be edited into `lock/unlock` on the same
 room, but it does turn off every light HA puts there.
 
-A call over a query set (#583) is the opposite trade. Its route names the set by
-an id, never an entity: `Dashboard.calls` maps the call to the set's tally (its
-candidates, fixed at build, and each one's live guard), and the server picks the
-candidates present at the press from its own store and sends one call listing
-them. So the browser cannot add an entity, and the call never reaches one the
-build did not name, including a light added to the room later. The id is the
-first 16 hex characters of the sha256 of the tally's JSON, only a key, so two
-taps over an equal set share one. The tally rides in the route itself, as the
-`targetSet` slot holding its JSON, so every card that spreads `tapMod.tapRoute`
-carries it with nothing more to spread. `validate` refuses a set route whose
-`targetSet` is missing or unreadable, and one id naming two different tallies. A press that finds no candidate present
-succeeds without a call (ADR 0024).
+A call over a query set (#583) is the opposite trade. Its target is the set's
+tally, a `Present` under `entity_id`: its candidates, fixed at build, and each
+one's live guard. The server picks the candidates present at the press from its
+own store and sends one call listing them, so the browser cannot add an entity,
+and the call never reaches one the build did not name, including a light added
+to the room later. A press that finds no candidate present succeeds without a
+call (ADR 0024).
+
+A call's `exclude` has the target's shape and is decided at the press like the target: its sets
+narrow to the members present then, and HA subtracts it from the target at the call (2026.11),
+so an excluded area keeps its later additions. It is part of the declaration, hence of the id.
+A set may hold areas or floors (`Value.Present.of`, an `IdKind`, the same enum that keys the
+call's target and exclude); it sits under its own kind's key, and `validate` refuses one that
+does not. That is how an area is left out only while a condition holds: a set of one area,
+guarded, and HA still expands the area. A `When` step that gates any value was the alternative;
+widening the one place a set's ids live kept the syntax a set of entities already has, and one
+set class (no split for areas) keeps rendering, ordering and counting a set of rooms as they are.
+A target left with no key is the press that finds no candidate.
 
 Not built yet: an allow or deny list per user or dashboard, set in the same
 place a future per-user or per-dashboard list of allowed entities would live, so
@@ -299,16 +344,16 @@ The slug cannot be authored: a dashboard module does not know its own (the
 entrypoint supplies it as a key, and `fh push --slug` can rename it), so the
 renderer supplies it. Two spellings, one fact, and each names the mechanism
 that actually fills it: `{{dashboardSlug}}` is a Mustache var for a card that
-builds its URL in its own template (every call, `tap.serviceClick`);
+builds its URL in its own template (every call, `tapMod.post`);
 `dashboard_slug` is a CEL binding for a surface tap, whose URL is a transform.
 Spelling both `{{…}}` was tried and reverted — in a transform it reads as
 Mustache and never is one, because a transform's OUTPUT is inserted raw at
 `{{{onclick}}}` and Mustache never sees it.
 
 Rejected in the other direction too: making the slider's URL a transform so one
-spelling would do. Its service and value key are deliberately baked LITERALS —
-a whole runtime domain-lookup tier was removed to stop computing build-time facts
-at runtime.
+spelling would do. Its call is declared at build like every other, and a whole
+runtime domain-lookup tier was removed to stop computing build-time facts at
+runtime.
 
 **A dashboard is validated under the slug it will be served as.** The slug is
 applied in `DashboardBuild.decode`, before `validated`, rather than to the

@@ -296,9 +296,8 @@ class ControlSmokeSuite extends SmokeSuite {
   }
 
   test("an icon-only button is ROUND, not stretched to its cell") {
-    // `.fh-cell>:is(.fh-button,button)` sets `inline-size:100%` at (0,2,0), which
-    // beat BeerCSS's `.circle` (0,1,0) and stretched the round button into a
-    // wide, short pill. Geometry rather than a screenshot: a computed size is
+    // A width on the labelled button's rule, at (0,2,0), once beat BeerCSS's
+    // `.circle` (0,1,0) and stretched the round button into a wide, short pill. Geometry rather than a screenshot: a computed size is
     // assertable directly, with no font-dependent baseline, and no visual
     // baseline has a round button anyway.
     withPage(Scene.of(SmokeDashboard.busyIcon)) { (page, _) =>
@@ -327,9 +326,9 @@ class ControlSmokeSuite extends SmokeSuite {
   }
 
   test("a LABELLED button still fills its cell") {
-    // `:not(.circle)` narrows a rule labelled buttons depend on, so a "fix"
-    // that deleted it would pass the roundness test and shrink every button to
-    // its text. Asserted relative to the cell, whose width is the dashboard's.
+    // A "fix" to the roundness above that dropped the labelled rule would pass
+    // it and shrink every button to its text. The button is its own cell, so it
+    // is held to the tile beside it in the column, whose width is the cell's.
     withPage(scene) { (page, _) =>
       for {
         button <- IO.blocking(
@@ -342,13 +341,13 @@ class ControlSmokeSuite extends SmokeSuite {
             .boundingBox()
         )
         cell <- IO.blocking(
-          page.locator(".fh-cell:has(> button)").first().boundingBox()
+          page.locator(".fh-col > article.fh-cell").first().boundingBox()
         )
         _ <- IO(
           assert(
             math.abs(button.width - cell.width) <= 2,
             f"a labelled button must fill its cell, but it is " +
-              f"${button.width}%.1f wide in a ${cell.width}%.1f cell"
+              f"${button.width}%.1f wide beside a ${cell.width}%.1f tile"
           )
         )
       } yield ()
@@ -427,7 +426,7 @@ class ControlSmokeSuite extends SmokeSuite {
             .hasCount(2)
         )
         _ <- IO.blocking(
-          assertThat(page.locator(".fh-cell.fh-active>article.fh-entity"))
+          assertThat(page.locator("article.fh-entity.fh-cell.fh-active"))
             .hasCount(1)
         )
         json <- IO.blocking(

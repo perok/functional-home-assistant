@@ -1,0 +1,26 @@
+/// What the page shell tells a card or a theme about the connections, as
+/// Datastar expressions to place in an attribute:
+/// `data-show="\(shell.streamLost)"`, `data-effect="\(shell.streamDown) && (…)"`.
+///
+/// The shell (`Server.pageInto`) declares and sets the signals these read; a
+/// reader uses the expressions, so what the values mean is written only here.
+module core.shell
+
+/// The shell's signal names, held equal to the server's (`Server.SseSignal`,
+/// `Server.HaDownSignal`) by a test. Read the expressions below instead.
+const sseSignal: String = "_sse"
+const haDownSignal: String = "_haDown"
+
+/// The page's own stream is down, retrying or given up: no frame will arrive
+/// until it is back. A card needs it only for state the server does not track,
+/// such as a drag's local value (the slider, the wheel): what the server tracks
+/// is restated on reconnect, and a pending ask is cleared by the shell
+/// (ADR 0025).
+const streamDown: String = "$\(sseSignal) > 0"
+/// The stream is retrying.
+const streamRetrying: String = "$\(sseSignal) == 1"
+/// The stream gave up retrying, and stays given up: only a reload brings the
+/// page back.
+const streamLost: String = "$\(sseSignal) >= 2"
+/// Home Assistant is unreachable from the server.
+const haDown: String = "$\(haDownSignal)"

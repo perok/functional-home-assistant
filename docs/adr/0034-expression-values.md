@@ -122,7 +122,7 @@ and kept into the next version until a change dirties them (pipeline doc §1a). 
 walk reaches asks for its fetches: one it lacks the answers for reads as not shown, and the walk
 runs again once a batch has answered them (`Renderer.decide`), so a hidden branch's fetch is never
 asked, and a decision inside another costs a round. Because the decision is shared, the build
-refuses a fetch in one that reads a viewer's variable (a chooser's window). As in a slot, a moved
+refuses a viewer's variable in one, read directly or by a fetch's window (ADR 0033). As in a slot, a moved
 answer wakes nothing: the decision is made again when its entities change, or an entity its fetch
 names with `updateOnEntityChange()` (a value's `dependsOn`, an edge like an entity read). Without
 it, a decision over a fetch alone is carried as made; an author who wants the history to count
@@ -146,8 +146,8 @@ binds the slot, beside `signal` — the card says how its template reads the val
 has no binding of its own (`docs/terminology.md`). The build checks every place a template puts a
 slot against its type, so escaping is removed only where a card writes `textRaw` down: a live
 `onclick` handler, a service spliced into one, a chart's SVG. A `class:` binding is a bool by
-kind. One field rather than a per-card list, so another type is one more case: `"number"`, once a
-signal can carry a JSON number (a slot value is `String | Boolean` today).
+kind. One field rather than a per-card list, so another type is one more case, as `"number"` was:
+an int, a real or a `dyn`, carried as a number in its signal (ADR 0017).
 
 Text, a number, a bool and `dyn` become text where a value meets its slot, and only there: they
 fit `text` and `textRaw`, a bool printing `true` or `false`, which a client library can read.
@@ -200,8 +200,8 @@ render key, the paint and the signal path ask the same decisions, so none decide
 little raises. The condition's entities wake the slot, and it is part of the slot's `valueKey`, so the signal a slot
 with one sends is not the one a card without one shares (ADR 0017). It may read a fetch, as every
 decision may: it is decided in an earlier round than the fetches it gates, so it never waits on
-them. A decision is made once for every viewer, so the build refuses a fetch in
-one that reads a viewer's variable (a chooser's window). It also refuses one that does not produce
+them. A decision is made once for every viewer, so the build refuses a viewer's variable in
+one, read directly or by a fetch's window. It also refuses one that does not produce
 a bool, and one on a `once` slot, whose memo would keep its first answer.
 
 `""` is the empty value, as a CEL `null` already is: a `null` in a signals frame deletes the signal
@@ -232,7 +232,7 @@ slot, the same mechanism on its own element.
 | | |
 |---|---|
 | Which entities can move it | Shared: `ValueExpr.entities`, which for a tally walks its candidates plus the entities their residuals name. They join the node's `liveEntities` (the reverse index that wakes a page node) and `referencedEntities`, so the watched set the upstream subscription asks for (ADR 0030) and ADR 0023's bound. |
-| Evaluating it | Shared: `Evaluator`, the one compiler (ADR 0035) — `presentOf` lists a tally, `holds` decides a condition. |
+| Evaluating it | Shared: `Evaluator`, the one compiler (ADR 0035) — a tally runs as any value does, `holds` decides a condition. |
 | What fires | Not shared, deliberately. A flipped `c.iff` swaps a surface (`SurfaceGraph.affectedStateGroups`); a moved value patches a slot. Two jobs, two paths. |
 
 **The server computes the result.** The whole expression is evaluated on the server and sent the

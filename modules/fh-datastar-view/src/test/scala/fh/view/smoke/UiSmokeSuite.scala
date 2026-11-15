@@ -102,7 +102,7 @@ class UiSmokeSuite extends SmokeSuite {
         _ = assert(!before.contains("v."), clue = before)
         _ <- IO.blocking(
           page.route(
-            "**/sse/var/**",
+            "**/sse/call/**",
             route =>
               route.fulfill(
                 new com.microsoft.playwright.Route.FulfillOptions()
@@ -116,7 +116,7 @@ class UiSmokeSuite extends SmokeSuite {
         // starting point.
         _ <- IO.blocking(
           page.waitForResponse(
-            "**/sse/var/**",
+            "**/sse/call/**",
             () => climateTab.click()
           )
         )
@@ -131,7 +131,7 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- IO.blocking(
           assertThat(page.locator(".fh-toast")).containsText("404")
         )
-        _ <- IO.blocking(page.unroute("**/sse/var/**"))
+        _ <- IO.blocking(page.unroute("**/sse/call/**"))
         _ <- IO.blocking(climateTab.click())
         _ <- IO.blocking(assertThat(panel).containsText("Hallway"))
         // The morph and the bar's `data-fh-url` mirror are
@@ -162,7 +162,7 @@ class UiSmokeSuite extends SmokeSuite {
         // thread is in one of its calls, so polling a buffer from `IO` waits
         // forever.
         _ <- IO.blocking(
-          page.waitForRequest("**/sse/var/**", () => climateTab.click())
+          page.waitForRequest("**/sse/call/**", () => climateTab.click())
         )
         _ <- IO.blocking(assertThat(climateTab).hasClass(active))
         _ <- ts.forgetConnections
@@ -194,11 +194,12 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
-  test("popup: a tap lands on a connection the server has forgotten") {
-    // A reaped session's idle page tapped into a `conn` the server lacks, got
-    // 204, and showed the popup only on the second tap (ADR 0024). The
-    // reconnect is blocked across the tap, or Datastar may reconnect first and
-    // the test passes exercising nothing.
+  test("popup: a tap on a forgotten connection says so, and works once back") {
+    // A reaped session's idle page taps into a `conn` the server lacks. Only
+    // the stream rebuilds a session (ADR 0024), so the tap is refused with a
+    // toast, and the next one after the reconnect lands. The reconnect is
+    // blocked across the tap, or Datastar may reconnect first and the test
+    // passes exercising nothing.
     withPage(scene) { (page, ts) =>
       val kitchenCard = page
         .locator(
@@ -216,8 +217,13 @@ class UiSmokeSuite extends SmokeSuite {
         )
         forgotten <- ts.forgetConnections
         _ <- ts.awaitNoConnections
-        _ <- IO.blocking(kitchenCard.click())
+        _ <- IO.blocking(
+          page.waitForResponse("**/sse/surface/**", () => kitchenCard.click())
+        )
         _ <- IO.blocking(assertThat(popup).hasCount(0))
+        _ <- IO.blocking(
+          assertThat(page.locator(".fh-toast")).containsText("Not connected")
+        )
         // Unroute inside the wait: the aborts fed Datastar's reconnect backoff,
         // so the next attempt can be a dozen seconds out, racing the
         // assertion's timeout.
@@ -228,6 +234,8 @@ class UiSmokeSuite extends SmokeSuite {
             () => page.unroute("**/sse/dashboard/**")
           )
         )
+        _ <- ts.awaitLive()
+        _ <- IO.blocking(kitchenCard.click())
         _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
       } yield assertEquals(forgotten, 1)
     }

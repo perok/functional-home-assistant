@@ -93,7 +93,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         .use(_.page())
         .timeout(60.seconds)
         .map { html =>
-          """<a class="[^"]*fh-current-dashboard[^"]*" aria-current="page" href="d/(\w+)">""".r
+          """<a class="fh-cell [^"]*fh-current-dashboard[^"]*" id="[^"]+" href="d/(\w+)" aria-current="page">""".r
             .findAllMatchIn(html)
             .map(_.group(1))
             .toList
@@ -110,10 +110,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // against <base href>, which works before Datastar loads. Its size is
       // BeerCSS's own class, through the theme's class rules.
       assert(
-        html.contains(
-          """<a class="fh-button button fh-press large  " href="d/other">""" +
-            """<span class="fh-text"><span class="fh-text-run">Elsewhere</span></span></a>"""
-        ),
+        ("""<a class="fh-cell fh-button button fh-press large  " id="[^"]+" href="d/other">""" +
+          """<span class="fh-text"><span class="fh-text-run">Elsewhere</span></span></a>""").r
+          .findFirstIn(html)
+          .nonEmpty,
         clue = html
       )
     }
@@ -147,14 +147,20 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         clue = html
       )
       assert(
+        raw"""\? '' : @post\('sse/call/fixture-home/[0-9a-f]{16}\?node=c_2'""".r
+          .findFirstIn(html)
+          .isDefined,
+        clue = html
+      )
+      // The busy signal is created client-side by the indicator, so only a
+      // payload, which the bundle sends in place of the signals, keeps it out
+      // of the request body.
+      assert(
         html.contains(
-          "? '' : @post('sse/call/fixture-home/' + 'light/toggle'"
+          "{payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
         ),
         clue = html
       )
-      // The busy signal is created client-side by the indicator, so only
-      // no-signals POSTs keep it out of the request body.
-      assert(html.contains("{filterSignals:{exclude:'.*'}}"), clue = html)
       // A more-info tap is guarded too: the open answers once the popup's
       // fetches have resolved, and a chart's fetch is a wait (issue #412).
       assert(html.contains("data-indicator=\"_c_1__busy\""), clue = html)
@@ -187,7 +193,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           )
           assert(
             html.contains(s"data-on:change=\"$refusal") && html.contains(
-              s"? '' : $$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-slider/light/turn_on/entity/"
+              s"? '' : $$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-slider/"
             ),
             clue = html
           )
@@ -304,7 +310,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             )
             assert(
               html.contains(s"data-on:change=\"$refusal") && html.contains(
-                s"? '' : $$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-quiet-slider/light/turn_on/entity/"
+                s"? '' : $$_c_0_head_0__busy_change ? '' : @post('sse/call/fixture-quiet-slider/"
               ),
               clue = html
             )
@@ -409,9 +415,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
 
   test("each tab is guarded on its own busy signal (issue #412)") {
     withBranchServer(_.page()).map { html =>
-      val tabs = s"""<a [^>]*sse/var/[^/]+/$tabsHost/tab/\\d[^>]*>""".r
-        .findAllIn(html)
-        .toList
+      val tabs =
+        s"""<a [^>]*\\$$_var_${tabsHost}__tab__pending = '\\d'[^>]*>""".r
+          .findAllIn(html)
+          .toList
       assertEquals(tabs.size, 2, clue = html)
       // One signal per tab (ADR 0019): a shared one would let one tab's
       // answer clear another's guard.
@@ -580,9 +587,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       for {
         doc <- ts.load()
         _ <- asked
-        y <- ts.postResult(
-          s"sse/var/nested-tabs/$outerBar/tab/1",
-          body = s"""{"${fh.view.runtime.Server.ConnSignal}":"${doc.conn}"}"""
+        y <- ts.choose(
+          doc.conn,
+          fh.view.runtime.VarKey(fh.view.model.NodeId.derived(outerBar), "tab"),
+          Some("1")
         )
         yAsked <- asked
       } yield {
@@ -639,20 +647,21 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           )
         )
         .use { ts =>
-          def post(conn: String, path: String) =
-            ts.postResult(
-              path,
-              body = s"""{"${fh.view.runtime.Server.ConnSignal}":"$conn"}"""
+          def choose(conn: String, declarer: String, name: String, v: String) =
+            ts.choose(
+              conn,
+              fh.view.runtime.VarKey(
+                fh.view.model.NodeId.derived(declarer),
+                name
+              ),
+              Some(v)
             )
           for {
             doc <- ts.load()
             loaded <- asked
-            week <- post(doc.conn, s"sse/var/chooser-tabs/$chooser/window/7d")
+            week <- choose(doc.conn, chooser, "window", "7d")
             chosen <- asked
-            opened <- post(
-              doc.conn,
-              s"sse/var/chooser-tabs/$bar/tab/1"
-            )
+            opened <- choose(doc.conn, bar, "tab", "1")
             revealed <- asked
           } yield {
             assertEquals(loaded, Set(nestedX1.entityId -> 24L))
@@ -696,15 +705,11 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         ts.page().map { html =>
           assert(html.contains("class=\"fh-slider-toggle\""), clue = html)
           assert(!html.contains("type=\"range\""), clue = html)
-          // The service is spliced as a quoted literal, the spelling a
-          // state-dependent tap fills with a signal read, so one template
-          // serves both (ADR 0017).
           // The refusal's signal is named by a hash of what it reads.
           assert(
             (raw"""data-on:click="\$$_c_0_head_0__busy_change \? '' : """ +
               raw"""\$$_e\.light\.plug\.t[0-9a-f]{8} \? '' : """ +
-              raw"""@post\('sse/call/fixture-plug/' \+ 'light/toggle' \+ """ +
-              raw"""'/entity/light\.plug\?node=c_0_head_0'""").r
+              raw"""@post\('sse/call/fixture-plug/[0-9a-f]{16}\?node=c_0_head_0'""").r
               .findFirstIn(html)
               .isDefined,
             clue = html
@@ -765,7 +770,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
         (html, click.getOrElse(fail(s"no action click in: $html")))
       })
 
-  test("a lock's tap reads its service from a signal, not from the markup") {
+  test("a lock's tap confirms the service it showed, from a signal") {
     (lockPage("locked"), lockPage("unlocked"))
       .mapN {
         case ((lockedHtml, lockedClick), (unlockedHtml, unlockedClick)) => {
@@ -773,7 +778,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           // lock/unlock costs a signals frame, not a repaint.
           assertEquals(lockedClick, unlockedClick)
           assert(
-            lockedClick.contains("+ $_e.lock.front_door."),
+            lockedClick.contains("seen: {service: $_e.lock.front_door."),
             clue = lockedClick
           )
           assert(!lockedClick.contains("lock/unlock"), clue = lockedClick)
@@ -898,8 +903,12 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
           val id = ids.head
           assert(
             html.contains(
-              s"@post('sse/var/fixture-windows/$id/window/7d?" +
-                s"group=var_${id}__window')"
+              s"$$_var_${id}__window__pending = '7d'; " +
+                "@post('sse/call/fixture-windows/" +
+                fh.view.model.CallDecl
+                  .SetVar("window", fh.view.model.VarValue.of("7d"))
+                  .id +
+                "?node="
             ),
             clue = html
           )
@@ -916,9 +925,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
   test(
     "each window is guarded on its own busy signal, posting to its chooser"
   ) {
-    // The buttons are nodes below the chooser, so the route and the signals
-    // name the chooser through `@@VAR:window@@`, and the guard names each
-    // button. Only a real page shows both ids landed where they belong.
+    // The buttons are nodes below the chooser, so the ask names the chooser,
+    // resolved per node, and the press and the guard name each button. Only a
+    // real page shows both ids landed where they belong.
     val windowEntry =
       s"""amends "@fh-dashboard/entry.pkl"
          |
@@ -944,11 +953,14 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             """data-fh-url:window="\['v\.([A-Za-z0-9_]+)\.window'""".r
               .findFirstMatchIn(html)
               .fold(fail("no chooser on the page", clues(html)))(_.group(1))
-          val buttons = """<a [^>]*sse/var/[^>]*>""".r.findAllIn(html).toList
+          val buttons =
+            """<a [^>]*__window__pending = '[^>]*>""".r.findAllIn(html).toList
           assertEquals(buttons.size, 4, clue = html)
           val signals = buttons.map { a =>
             assert(
-              a.contains(s"sse/var/fixture-window-guards/$chooser/window/"),
+              """@post\('sse/call/fixture-window-guards/[0-9a-f]{16}\?node=([A-Za-z0-9_]+)'""".r
+                .findFirstMatchIn(a)
+                .exists(m => a.contains(s"""data-fh-node="${m.group(1)}"""")),
               a
             )
             assert(a.contains(s"$$_var_${chooser}__window__pending = '"), a)

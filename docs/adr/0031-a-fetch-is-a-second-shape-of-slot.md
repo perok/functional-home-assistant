@@ -90,8 +90,7 @@ None of this was designed separately; all of it fell out.
   it into a Datastar signal must know that a null object FIELD deletes a signal, which an array
   entry never is.
 - **The fetch/draw split is structural.** `FetchSnapshot.resolve` deduplicates one call per FETCH and
-  one drawing per `(fetch, stage)` — `SlotRead` is that pair, and it is what `RenderInputs`
-  carries. Two cards charting one sensor over one window at different sizes cost one fetch and two
+  one drawing per `(fetch, stage)` — `SlotRead` is that pair. Two cards charting one sensor over one window at different sizes cost one fetch and two
   drawings *because the keys say so*.
 - **The staged-value cache needs no expiry, and no provider.** A series has a shelf life — it
   stops being current when its bucket rolls, which is what decides when a version moves. A staged
@@ -154,10 +153,11 @@ any span, and statistics at `5minute` up to `year`.
   (ADR 0028 point 3). The string `params` map parsed by its provider afterwards was dropped: a
   window would have needed a string grammar (`"7d@hour"`) parsed back out again.
 - **A node variable picks a window by key.** A variable lives in a URL and a signal, so it holds a
-  string; a `Chosen` window carries the table (`{"kind": "Chosen", "by": {"var": "window"},
-  "options": {…}}`), and `Renderer.refusals` refuses a key the table lacks. Simple's `Match` was
+  string; a `Chosen` window carries its cases, each a key and a window, and `Renderer.refusals`
+  refuses a key no case takes (ADR 0033 has the `Choice` and its wire). Simple's `Match` was
   considered and rejected: it maps a live entity's state, which nobody controls, so it must be
-  total, and its `otherwise` would hide a bad key instead of refusing it.
+  total, and its `otherwise` would hide a bad key instead of refusing it. A `Choice` keeps that
+  difference: its `otherwise` is optional, and without one a key no case takes is refused.
 - **A period no shorter than the span is a build error.** HA answers `hour` over one hour with
   nothing (measured), so the chart would be blank forever.
 
@@ -189,11 +189,10 @@ any span, and statistics at `5minute` up to `year`.
   are given on login?" — which was closed without being answered in the code: every call is still
   the add-on's. For reads the cost is a second HA connection per user, and whether history is
   worth that is a judgement about cost, not a technical blocker.
-- **The render key gained a second dimension**, which issue #209 should know about: its own note
-  says `RenderInputs` is entity versions only and that reintroducing a selection dimension should
-  re-measure `RenderCacheContentionSuite`. It is back, deliberately. The predicted cost is that
-  two sessions holding different reads have *unordered* keys, so neither is a straggler and each
-  install evicts the other — read off `RenderCache`'s source, not measured.
+- **Two viewers on two windows evict each other's cache entry.** The render key is a node's
+  byte-slot values (ADR 0012), a chart's answer among them, so two sessions holding different
+  reads hold different values and each install replaces the other's
+  (`RenderCacheSuite`: a render each, every pull).
 
 ## Open questions
 

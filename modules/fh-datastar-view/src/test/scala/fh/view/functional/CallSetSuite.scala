@@ -6,7 +6,6 @@ import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{Access, Dashboard}
 import fh.view.runtime.TestServer
-import fh.view.testkit.DashboardBuilders.{component, lit}
 import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture}
 import org.http4s.Status
 
@@ -50,17 +49,16 @@ class CallSetSuite extends FunctionalSuite {
       .resource(dashboard, states.toList, access = Access.Public)
       .use(f)
 
-  /** The route the page renders for the button: the one a browser posts. */
+  /** The call the page renders for the button: the one a browser posts. */
   private def pressUrl(ts: TestServer): IO[String] =
-    ts.page(as = None).map { html =>
-      val click = """@post\((.*?), \{filterSignals""".r
-        .findFirstMatchIn(html)
-        .fold(fail(s"no action on the page: $html"))(_.group(1))
-      """'([^']*)'""".r.findAllMatchIn(click).map(_.group(1)).mkString
-    }
+    ts.pressOf("c_0", as = None)
 
   private def targets(ts: TestServer): IO[Vector[Option[ServiceTarget]]] =
-    ts.fake.recordedCalls.map(_.map(_.group))
+    ts.fake.recordedCalls.map(_.map { c =>
+      c.group.orElse(
+        Option.when(c.entityId.nonEmpty)(ServiceTarget.Entity(c.entityId))
+      )
+    })
 
   test("a press sends one call naming the members present") {
     withHouse(kitchen, living.copy(state = "on"), sun) { ts =>
@@ -70,7 +68,6 @@ class CallSetSuite extends FunctionalSuite {
         sent <- targets(ts)
       } yield {
         assertEquals(status, Status.NoContent, clue = url)
-        assert(url.contains("/set/"), clue = url)
         assertEquals(
           sent,
           Vector(
@@ -112,17 +109,24 @@ class CallSetSuite extends FunctionalSuite {
     }
   }
 
-  test("a set id the dashboard does not declare is refused") {
+  test(
+    "a call id the dashboard does not declare, or another node's, is refused"
+  ) {
     withHouse(kitchen, living, sun) { ts =>
       for {
         url <- pressUrl(ts)
-        forged = url.replaceAll("/set/[0-9a-f]+", "/set/0000000000000000")
-        other = url.replace("light/turn_off", "light/turn_on")
-        answers <- List(forged, other).traverse(ts.postResult(_, as = None))
+        forged = url.replaceAll("/[0-9a-f]{16}\\?", "/0000000000000000?")
+        elsewhere = url.replace("node=c_0", "node=c")
+        answers <- List(forged, elsewhere).traverse(ts.postResult(_, as = None))
         sent <- targets(ts)
       } yield {
-        answers.foreach(a =>
-          assert(a._2.contains("no tap on this dashboard calls"), clue = a)
+        assert(
+          answers(0)._2.contains("no tap on this dashboard makes the call"),
+          clue = answers(0)
+        )
+        assert(
+          answers(1)._2.contains("does not place the call"),
+          clue = answers(1)
         )
         assertEquals(sent, Vector.empty)
       }
@@ -142,25 +146,69 @@ class CallSetSuite extends FunctionalSuite {
     }
   }
 
+  private def exclusion(on: String): Dashboard = build(
+    s"""c.button("Av", c.tap.call("light/turn_off", lit).exclude($on))"""
+  )
+
+  private def sentTo(d: Dashboard, states: FixtureEntity*) =
+    TestServer.resource(d, states.toList, access = Access.Public).use { ts =>
+      for {
+        url <- pressUrl(ts)
+        status <- ts.post(url, as = None)
+        sent <- targets(ts)
+      } yield (status, sent)
+    }
+
+  test("an exclusion reaches HA beside the target, as HA's own") {
+    val d = exclusion("dump.entities.light_living_room")
+    sentTo(d, kitchen, living.copy(state = "on"), sun).map { (status, sent) =>
+      assertEquals(status, Status.NoContent)
+      assertEquals(
+        sent.map(_.map(_.json)),
+        Vector(
+          Some(
+            io.circe.Json.obj(
+              "entity_id" -> io.circe.Json.arr(
+                io.circe.Json.fromString(kitchen.entityId),
+                io.circe.Json.fromString(living.entityId)
+              ),
+              "exclude" -> io.circe.Json.obj(
+                "entity_id" -> io.circe.Json.arr(
+                  io.circe.Json.fromString(living.entityId)
+                )
+              )
+            )
+          )
+        )
+      )
+    }
+  }
+
+  test("an excluded set with no member present leaves `exclude` out") {
+    val d = exclusion(
+      "q.from(List(dump.entities.light_living_room)).where(q.eq(q.stateProp, \"on\"))"
+    )
+    sentTo(d, kitchen, living, sun).map { (_, sent) =>
+      assertEquals(
+        sent.map(_.map(_.json.hcursor.downField("exclude").succeeded)),
+        Vector(Some(false))
+      )
+    }
+  }
+
+  test("an entity only an exclusion's guard reads is subscribed") {
+    val d = exclusion(
+      "q.from(List(dump.entities.light_living_room)).where((e) -> " +
+        "q.entity(dump.entities.sensor_outside_temp).stateIs(\"1\"))"
+    )
+    assert(!d.referencedEntities.contains("sensor.outside_temp"))
+    assert(d.watchedEntities.contains("sensor.outside_temp"))
+  }
+
   test("an entity only a set's guard reads is subscribed") {
     val unlabelled =
       build("""c.button("Av", c.tap.call("light/turn_off", lit))""")
     assert(!unlabelled.referencedEntities.contains(sun.entityId))
     assert(unlabelled.watchedEntities.contains(sun.entityId))
-  }
-
-  test("a set route whose card dropped its tally does not validate") {
-    val bare = component(
-      "light",
-      "name" -> lit("Av"),
-      "service" -> lit("light/turn_off"),
-      "targetKind" -> lit("set"),
-      "targetId" -> lit("0123456789abcdef")
-    )
-    val errors = scene.card(bare).dashboard.validate()
-    assert(
-      errors.exists(_.contains("without a readable 'targetSet' slot")),
-      errors
-    )
   }
 }

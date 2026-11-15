@@ -1,12 +1,11 @@
 package fh.view.model
 
-import api.homeassistant.ServiceTarget
 import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.fetch.FetchRequest
 import fh.view.history.Window
 import fh.view.runtime.{Cel, Evaluator, Templates}
-import io.circe.{Decoder, DecodingFailure, JsonObject}
+import io.circe.{Decoder, DecodingFailure}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 import scala.collection.immutable.ListMap
@@ -136,6 +135,11 @@ final case class BoundSlot(
     ) ++ inputs.values.toList.flatMap(_.entities) ++
       valueWhile.toList.flatMap(w => w.entityId.toList ++ w.valueEntities)
 
+  /** The node variables it reads, its inputs' and `valueWhile`'s included. */
+  def variables: List[String] =
+    (expr.variables ++ inputs.values.flatMap(_.variables) ++
+      valueWhile.toList.flatMap(_.variables)).distinct
+
   /** `validate` refuses a fetch slot without a stage: its series fits no slot.
     */
   def shape: SlotShape =
@@ -186,14 +190,20 @@ object BoundSlot:
 
   /** A node's reverse index entries: what its live slots read. */
   def liveEntities(slots: Iterable[BoundSlot]): List[String] =
-    entitiesOf(stateSlots(slots).filter(isLive))
+    (entitiesOf(stateSlots(slots).filter(isLive)) ++ choosing(slots)).distinct
 
   /** Minus entities reached only through signal slots: what the render key and
     * the structure rule use. The two fail in opposite directions if swapped —
     * this list in the reverse index silently stops signal frames.
     */
   def liveEntitiesAsBytes(slots: Iterable[BoundSlot]): List[String] =
-    entitiesOf(stateSlots(slots).filter(s => isLive(s) && s.signal.isEmpty))
+    (entitiesOf(stateSlots(slots).filter(s => isLive(s) && s.signal.isEmpty)) ++
+      choosing(slots)).distinct
+
+  // A fetch slot's own entity is no wake (its answer is never pushed), but
+  // what picks its window is.
+  private def choosing(slots: Iterable[BoundSlot]): List[String] =
+    slots.toList.flatMap(_.fetch.toList.flatMap(_.window.entities))
 
   private def stateSlots(slots: Iterable[BoundSlot]): List[BoundSlot] =
     slots.toList.flatMap(_.shape match
@@ -229,54 +239,102 @@ object BoundSlot:
       subject
     )
 
-/** A value written down, or picked by a node variable from a table the build
-  * checked whole (issue #209). A variable's value lives in a URL and a signal,
-  * so it is a key rather than the value: a key the table lacks is refused at
-  * the write ([[fh.view.runtime.Renderer.refusals]]), never defaulted.
+/** A value written down, or picked from a table the build checked whole by what
+  * `by` reads: a node variable's value, or anything else a value can read
+  * (issue #209). The case whose `is` equals it, else `otherwise`, else no
+  * value. `A` never depends on the key at render, so only `by` is an
+  * expression. Deciding is the compile's ([[Ready.Compile]]), since `by` needs
+  * the evaluator: this is data, and [[decide]] takes `by`'s answer.
   */
 enum Choice[+A] derives CanEqual:
   case Fixed(value: A)
-  case Chosen(by: String, options: Map[String, A])
+  case Chosen(by: ValueExpr, cases: List[Case[A]], otherwise: Option[A] = None)
 
-  def variable: Option[String] = this match
-    case Fixed(_)      => None
-    case Chosen(by, _) => Some(by)
+  /** The node variables `by` reads: a write to one is refused where no case
+    * takes its value and there is no `otherwise`.
+    */
+  def variables: List[String] = this match
+    case Fixed(_)         => Nil
+    case Chosen(by, _, _) => by.variables
+
+  /** The entities `by` reads, which wake its reader as any entity read does. */
+  def entities: List[String] = this match
+    case Fixed(_)         => Nil
+    case Chosen(by, _, _) => by.entities
+
+  /** Whether the viewer's variables alone decide `by` (it reads no entity and
+    * no fetch) with no `otherwise` to fall back on: then a value no case
+    * [[takes]] is refused at the write and checked at the declared value.
+    */
+  def refusesUntaken: Boolean = this match
+    case Chosen(by, _, None) => by.entities.isEmpty && by.fetches.isEmpty
+    case _                   => false
+
+  /** Whether a case takes what `by` read. */
+  def takes(read: Any): Boolean = Choice.keyOf(read).exists(table.contains)
 
   def all: List[A] = this match
-    case Fixed(a)           => List(a)
-    case Chosen(_, options) => options.values.toList
+    case Fixed(a)                    => List(a)
+    case Chosen(_, cases, otherwise) => cases.map(_.value) ++ otherwise
 
-  def resolve(env: Map[String, String]): Either[String, A] = this match
-    case Fixed(a)            => Right(a)
-    case Chosen(by, options) =>
-      env
-        .get(by)
-        .toRight(s"the variable '$by' has no value here")
-        .flatMap(value =>
-          options
-            .get(value)
-            .toRight(
-              s"'$value' is not one of ${options.keys.toList.sorted.mkString(", ")}"
-            )
-        )
+  /** Each case's value by its key's [[Lit.key]], the first of a repeated key
+    * winning; `validate` refuses one.
+    */
+  lazy val table: Map[String, A] = this match
+    case Fixed(_)         => Map.empty
+    case Chosen(_, cs, _) => cs.reverse.map(c => Lit.key(c.is) -> c.value).toMap
+
+  /** `answer` is what `by` reads now. */
+  def decide(answer: ValueExpr => Any): Option[A] = this match
+    case Fixed(a)                     => Some(a)
+    case c @ Chosen(by, _, otherwise) =>
+      Choice.keyOf(answer(by)).flatMap(c.table.get).orElse(otherwise)
 
   def key(of: A => String): String = this match
-    case Fixed(a)            => of(a)
-    case Chosen(by, options) =>
-      s"$$$by{" + options.toList
-        .sortBy(_._1)
-        .map((k, a) => s"${k.length}:$k=${of(a)}")
-        .mkString(";") + "}"
+    case Fixed(a)                     => of(a)
+    case Chosen(by, cases, otherwise) =>
+      s"$$${by.inputKey.length}:${by.inputKey}{" + cases
+        .map(c => s"${Lit.key(c.is)}=${of(c.value)}")
+        .mkString(";") + "}" + otherwise.fold("")(a => s"|else=${of(a)}")
+
+/** One case of a [[Choice.Chosen]]: its value where `by` reads `is`. */
+final case class Case[+A](is: Lit, value: A) derives CanEqual
 
 object Choice:
 
-  /** `{"kind": "Chosen", "by": {"var": …}, "options": {…}}`, else the value. */
+  /** What `by` may read as: what a case's literal can spell. */
+  val KeyTypes: Set[ValueType] =
+    Set(ValueType.Text, ValueType.Bool, ValueType.Int)
+
+  /** A value's key as a case's `is` is keyed, or none for a value no literal
+    * spells: a `by` reads text, a bool or a whole number.
+    */
+  def keyOf(v: Any): Option[String] = v match
+    case s: String            => Some(Lit.key(Lit.Text(s)))
+    case b: java.lang.Boolean => Some(Lit.key(Lit.Bool(b.booleanValue)))
+    case n: java.lang.Long    => Some(Lit.key(Lit.Whole(n.longValue)))
+    case n: java.lang.Integer => Some(Lit.key(Lit.Whole(n.longValue)))
+    case _                    => None
+
+  /** `{"kind": "Chosen", "by": <value>, "cases": [{"is": …, "value": …}],
+    * "otherwise": …}`, else the value. A list, since a JSON object's keys are
+    * strings and typing them by `by` would derive in the decoder.
+    */
   given [A: Decoder]: Decoder[Choice[A]] = Decoder.instance { c =>
     c.get[String]("kind") match
       case Right("Chosen") =>
-        (c.downField("by").get[String]("var"), c.get[Map[String, A]]("options"))
-          .mapN(Chosen(_, _))
+        Strict.only(c, Set("kind", "by", "cases", "otherwise")) *> (
+          c.get[ValueExpr]("by"),
+          c.get[List[Case[A]]]("cases"),
+          c.getOrElse[Option[A]]("otherwise")(None)
+        ).mapN(Chosen(_, _, _))
       case _ => c.as[A].map(Fixed(_))
+  }
+
+object Case:
+  given [A: Decoder]: Decoder[Case[A]] = Decoder.instance { c =>
+    Strict.only(c, Set("is", "value")) *>
+      (c.get[Lit]("is"), c.get[A]("value")).mapN(Case(_, _))
   }
 
 /** A history fetch as authored, its window written down or chosen. `history` is
@@ -285,10 +343,11 @@ object Choice:
 case class FetchTemplate(entity: String, window: Choice[Window])
     derives CanEqual:
 
-  def references: List[String] = window.variable.toList
+  def variables: List[String] = window.variables
 
-  def resolve(env: Map[String, String]): Either[String, FetchRequest] =
-    window.resolve(env).map(FetchRequest.History(entity, _))
+  /** No value where its window's choice decides none: it asks nothing. */
+  def resolve(answer: ValueExpr => Any): Option[FetchRequest] =
+    window.decide(answer).map(FetchRequest.History(entity, _))
 
   def key: String =
     s"${FetchTemplate.Provider}($entity,${window.key(_.key)})"
@@ -296,6 +355,14 @@ case class FetchTemplate(entity: String, window: Choice[Window])
 object FetchTemplate:
 
   val Provider: String = "history"
+
+  /** A `by` read at the declared values `scope`, over no state, as the build
+    * reads one: a read of an entity is null there, so it decides no case.
+    */
+  def atDeclared(scope: Map[String, String]): ValueExpr => Any = by =>
+    Evaluator
+      .compile(by, Evaluator.Scope(""))
+      .fold(_ => null, _.run(null, Map.empty, Evaluator.Lookup.of(scope)))
 
   given Decoder[FetchTemplate] = Decoder.instance { c =>
     c.get[String]("provider").flatMap {
@@ -325,26 +392,25 @@ enum SlotShape derives CanEqual:
 case class SlotAsk(fetch: FetchTemplate, stage: Step.FetchStage)
     derives CanEqual:
 
-  /** `validate` proved the declared values resolve, and the write refuses a
-    * chosen one that does not, so a `Left` here is a bug.
+  /** `answer` is what its window's `by` reads now; none where the choice
+    * decides no case, which asks nothing.
     */
-  def resolve(env: Map[String, String]): SlotRead =
-    SlotRead(
-      fetch
-        .resolve(env)
-        .fold(
-          e => throw FHError.internal(s"${fetch.key} reached a render: $e"),
-          identity
-        ),
-      stage
-    )
+  def resolve(answer: ValueExpr => Any): Option[SlotRead] =
+    fetch.resolve(answer).map(SlotRead(_, stage))
+
+  /** A window written down: what a decision reads, the same for every viewer,
+    * where `validate` refuses a chosen one.
+    */
+  def fixed: SlotRead = fetch.window match
+    case Choice.Fixed(w) =>
+      SlotRead(FetchRequest.History(fetch.entity, w), stage)
+    case _: Choice.Chosen[?] =>
+      throw FHError.internal(s"${fetch.key} reached a decision chosen")
 
 object SlotAsk:
-  /** What a decision reads of `fetches`: raw, at no viewer's variables, which
-    * `validate` refuses there.
-    */
+  /** What a decision reads of `fetches`, raw. */
   def decision(fetches: List[FetchTemplate]): Set[SlotRead] =
-    fetches.map(SlotAsk(_, Step.Json).resolve(Map.empty)).toSet
+    fetches.map(SlotAsk(_, Step.Json).fixed).toSet
 
 /** One slot's asks, read only while `gate` holds. */
 final case class Fetching(asks: List[SlotAsk], gate: Option[Fetching.Gate])
@@ -400,6 +466,11 @@ enum SlotType(val wire: String) derives CanEqual:
   case TextRaw extends SlotType("textRaw")
   case Bool extends SlotType("bool")
 
+  /** A number at both ends: unquoted in a signal and a seed, so a binding reads
+    * it as one (a range input's `data-bind` keeps a string a string).
+    */
+  case Number extends SlotType("number")
+
 object SlotType:
   given Decoder[SlotType] = Decoder[String].emap(s =>
     values.find(_.wire == s).toRight(s"unknown slot type: $s")
@@ -442,10 +513,13 @@ object SignalBind:
   * ([[fh.view.runtime.Templates.card]]), which `validate` holds every node of
   * it to.
   *
-  *   - `wrapAsCell`: off only for a card whose root must stay a direct child of
-  *     a structural parent (the tab anchors under `.tabs`). Such a card is
-  *     never its own morph target, so `validate` rejects live slots, `cell` and
-  *     set-clause use on it.
+  *   - `template`: the card's root element and its content, the root written by
+  *     the Pkl library (ADR 0008) with the two [[CardDef.RootHoles]] the
+  *     renderer fills: the node's cell classes inside its `class`, and its id,
+  *     signal seed and cell bindings after it.
+  *   - `layoutCell`: off for a root that must not be a layout box (the tab
+  *     anchors under `.fh-tabs`): it has no `fh-cell` class, and `validate`
+  *     refuses a node's `cell.layout` on it.
   *   - `regions`: a card is a leaf (none) or structure (some). Every region is
   *     filled by nodes with ids of their own, so a node's patch never carries a
   *     region's contents and a host changing cannot re-render what it hosts
@@ -459,7 +533,7 @@ object SignalBind:
   */
 case class CardDef(
     template: String,
-    wrapAsCell: Boolean = true,
+    layoutCell: Boolean = true,
     regions: Map[String, Region] = Map.empty,
     css: String = "",
     script: Option[String] = None
@@ -472,9 +546,19 @@ case class CardDef(
 
   def isStructure: Boolean = regions.nonEmpty
 
+  /** What the template places as `{{{name}}}`, each once, outside every
+    * section: the regions and the root's holes.
+    */
+  def holes: Set[String] = regions.keySet ++ CardDef.RootHoles
+
   def bakedRegions: Map[String, Region] =
     regions.filter(_._2.fill == Region.Baked)
 }
+
+object CardDef:
+  val CellClassesHole: String = "cellClasses"
+  val CellHole: String = "cell"
+  val RootHoles: Set[String] = Set(CellClassesHole, CellHole)
 
 /** `eager`: the node's own children, in the same render. `baked`: a surface
   * selected per viewer, rendered only while shown.
@@ -486,21 +570,30 @@ object Region {
   val Baked: String = "baked"
 }
 
-/** The node's cell slots, which the renderer places on its `.fh-cell` wrapper
-  * ([[CellKey]]): classes by name, `"1"` for one always there, and custom
-  * properties. In wire order, which is the class attribute's. An object so it
-  * can grow `grid_options`-style fields without a wire break.
+/** The node's cell slots, which the renderer places on its card's root
+  * ([[CellKey]]): the layout builders' classes, classes by name, `"1"` for one
+  * always there, and custom properties. In wire order, `layout` first, which is
+  * the class attribute's. An object so it can grow `grid_options`-style fields
+  * without a wire break.
+  *
+  * @param atRender
+  *   classes decided for the viewer as the document renders, by a bool that may
+  *   read a node variable; no signal and no binding, and absent from the patch
+  *   form, so patches are the same for every viewer.
   */
 case class Cell(
+    layout: List[String] = Nil,
     classes: ListMap[String, ValueExpr] = ListMap.empty,
-    styles: ListMap[String, ValueExpr] = ListMap.empty
+    styles: ListMap[String, ValueExpr] = ListMap.empty,
+    atRender: ListMap[String, ValueExpr] = ListMap.empty
 ) derives ConfiguredDecoder:
 
   /** Keyed once for the render walk: a `ListMap` iterates by building a list,
-    * and each wrapper of each paint walks both.
+    * and each root of each paint walks both.
     */
   def ready: Ready.Cell = Ready.Cell(
-    classes.toList.map((n, s) => Cell.Entry(n, CellKey.Class(n), s.constant)),
+    layout.map(n => Cell.Entry(n, CellKey.Class(n), Some(true))) ++
+      classes.toList.map((n, s) => Cell.Entry(n, CellKey.Class(n), s.constant)),
     styles.toList.map((p, s) => Cell.Entry(p, CellKey.Style(p), s.constant))
   )
 
@@ -519,13 +612,7 @@ object Cell:
       constant: Option[SlotValue]
   )
 
-  private given Decoder[ListMap[String, ValueExpr]] = Decoder.instance(c =>
-    c.as[JsonObject]
-      .flatMap(
-        _.keys.toList.traverse(k => c.downField(k).as[ValueExpr].map(k -> _))
-      )
-      .map(ListMap.from)
-  )
+  private given Decoder[ListMap[String, ValueExpr]] = Strict.listMap
 
 /** Where a slot is placed: a template slot by its name, a cell slot by its
   * [[CellKey]]. The name stays a bare `String` so a template's lookup allocates
@@ -546,7 +633,7 @@ object CellKey:
   given CanEqual[SlotKey, SlotKey] = CanEqual.derived
 
 object SlotKey:
-  /** For messages; nothing reads it back. */
+  /** For messages. */
   def label(k: SlotKey): String = k match
     case name: String            => name
     case CellKey.Class(name)     => s"cell.classes.$name"
@@ -635,7 +722,9 @@ object LayoutNode:
       vars: List[Dashboard.Declaration] = Nil,
       // Inputs, this node's alone: never resolved up the
       // ancestors, and bound to the slots that read them ([[bound]]).
-      inputs: Map[String, ValueExpr] = Map.empty
+      inputs: Map[String, ValueExpr] = Map.empty,
+      // By the name its template places it under: `{{{tap.callId}}}`.
+      calls: Map[String, CallDecl] = Map.empty
   ) extends LayoutNode:
 
     /** [[templateSlots]] and the [[cell]]'s live ones, each with the inputs its
@@ -674,11 +763,16 @@ object LayoutNode:
       members: Map[String, SetMember] = Map.empty,
       orderBy: List[SortTerm] = Nil,
       limit: Option[Int] = None,
-      cell: Option[Cell] = None
+      cell: Option[Cell] = None,
+      of: IdKind = IdKind.Entity
   ) extends LayoutNode:
+    /** The candidates that are entities: an area or a floor has no state. */
+    def candidateEntities: List[String] =
+      if (of == IdKind.Entity) candidates else Nil
+
     /** Candidates plus any entity a guard names. */
     def liveEntities: List[String] =
-      (candidates ++ members.values
+      (candidateEntities ++ members.values
         .flatMap(_.clauses)
         .flatMap(_.when.toList.flatMap(_.entities))).distinct
 
@@ -822,6 +916,8 @@ object LayoutNode:
   *   - `chrome`: the frame, with the `#dashboard` swap target around
   *     `{{{body}}}` (checked by `validate`) and any popup host. Empty falls
   *     back to a bare `<main id="dashboard">`.
+  *   - `offlineBanners`: the connection banners' markup, placed in the page
+  *     shell; empty shows none.
   *   - `classes`: what the theme adds to, or puts in place of, an `fh-` class
   *     in card and cell markup ([[ThemeClasses]]).
   */
@@ -834,6 +930,7 @@ case class Theme(
     inlineScripts: List[String] = Nil,
     styles: String = "",
     chrome: String = "",
+    offlineBanners: String = "",
     classes: ThemeClasses = ThemeClasses.empty
 ) derives ConfiguredDecoder
 
@@ -917,6 +1014,8 @@ object Surface:
   *     before validation.
   *   - `css`: the base every dashboard gets, here rather than on [[Theme]] so a
   *     theme cannot drop it, only override it (ADR 0020).
+  *   - `failedLabel`: a template with a `{{text}}` hole, the line shown where a
+  *     read could not be answered. Empty shows nothing.
   *   - `title`: `None` falls back to the slug.
   *   - `access`: `None` until `Site.decode` folds in the site default.
   */
@@ -928,14 +1027,21 @@ case class Dashboard(
     slug: String = "dashboard",
     title: Option[String] = None,
     css: String = "",
+    failedLabel: String = "",
     access: Option[Access] = None
 ):
 
   /** Every registered card, not only those used: pruning would have to account
-    * for surfaces and set clauses (ADR 0020's open work).
+    * for surfaces and set clauses (ADR 0020's open work). Distinct, since a
+    * card's variants (`button`, `buttonLink`) share one stylesheet.
     */
   lazy val cardCss: String =
-    cards.toList.sortBy(_._1).map(_._2.css).filter(_.nonEmpty).mkString("\n")
+    cards.toList
+      .sortBy(_._1)
+      .map(_._2.css)
+      .filter(_.nonEmpty)
+      .distinct
+      .mkString("\n")
 
   /** Same selection as [[cardCss]]. Distinct, so cards sharing one script run
     * it once.
@@ -960,7 +1066,7 @@ case class Dashboard(
       case c: LayoutNode.Component =>
         fromSlots(c.bound, c.subjectEntity) ++ c.allChildren.flatMap(walk)
       case set: LayoutNode.SetNode =>
-        set.candidates ++ set.members.values.toList
+        set.candidateEntities ++ set.members.values.toList
           .flatMap(_.clauses)
           .flatMap(cl => walk(cl.node))
     }
@@ -968,67 +1074,22 @@ case class Dashboard(
     (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
   }
 
-  /** Every call a tap of this dashboard declares, as the build spelled it, and
-    * what it reaches: the allowlist for the call route (ADR 0023). Read off
-    * `tap.pkl`'s route slots. A service the target's state picks declares every
-    * arm of its match, since which one is posted is the click's to decide. A
-    * call over a set reaches its tally, which the press narrows; one whose card
-    * dropped the tally is left out, and `validate` says why.
+  /** Every call a node of this dashboard places, by id: the allowlist for the
+    * call route (ADR 0023). Equal declarations are one entry.
     */
-  lazy val calls: Map[TapCall, CallReach] =
-    declaredCalls.collect { case Dashboard.Declared(call, _, Some(reach)) =>
-      call -> reach
-    }.toMap
-
-  private[model] lazy val declaredCalls: List[Dashboard.Declared] = {
-    def services(s: ValueExpr): List[String] =
-      s.literal.toList ++ s.steps.flatMap {
-        case Step.Match(cases, otherwise) =>
-          (otherwise match
-            case Value.Literal(Lit.Text(v)) => List(v)
-            case _                          => Nil
-          ) ++ cases.values.toList.collect { case Lit.Text(v) => v }
-        case _ => Nil
-      }
-
-    def of(c: LayoutNode.Component): List[Dashboard.Declared] = {
-      def lit(name: String) = c.templateSlots.get(name).flatMap(_.literal)
-      def reachOf(target: ServiceTarget | CallSet): Option[CallReach] =
-        target match {
-          case t: ServiceTarget => Some(t)
-          case _: CallSet       =>
-            lit(Dashboard.TargetSetSlot).flatMap(
-              io.circe.parser
-                .decode[Value](_)
-                .toOption
-                .collect { case p: Value.Present => p }
-            )
-        }
-      for {
-        kind <- lit(Dashboard.TargetKindSlot).toList
-        id <- lit(Dashboard.TargetIdSlot).toList
-        target <- TapCall.targetOf(kind, id).toList
-        service <- c.templateSlots
-          .get(Dashboard.ServiceSlot)
-          .toList
-          .flatMap(s => services(s.expr))
-      } yield Dashboard.Declared(
-        TapCall(service, target, lit(Dashboard.DataKeySlot)),
-        c.card,
-        reachOf(target)
-      )
-    }
-
-    def walk(n: LayoutNode): List[Dashboard.Declared] = n match {
+  lazy val calls: Map[CallId, CallDecl] = {
+    def walk(n: LayoutNode): List[CallDecl] = n match {
       case c: LayoutNode.Component =>
-        of(c) ++ c.allChildren.flatMap(walk)
+        c.calls.values.toList ++ c.allChildren.flatMap(walk)
       case set: LayoutNode.SetNode =>
         set.members.values.toList
           .flatMap(_.clauses)
           .flatMap(cl => walk(cl.node))
     }
 
-    walk(card) ++ surfaces.toList.sortBy(_._1).flatMap(s => walk(s._2.content))
+    (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content)))
+      .map(d => d.id -> d)
+      .toMap
   }
 
   /** What the live subscription asks HA for: [[referencedEntities]] plus what
@@ -1052,12 +1113,9 @@ case class Dashboard(
           )
     }
 
-    // A set call's guards are read at the press, and an entity only a guard
-    // names would otherwise be missing from the store, failing its guard.
-    referencedEntities ++ calls.values.flatMap {
-      case p: Value.Present => ValueExpr(p).entities
-      case _: ServiceTarget => Nil
-    } ++
+    // A call is evaluated at the press, and an entity only a call or a set
+    // call's guard names would otherwise be missing from the store.
+    referencedEntities ++ calls.values.flatMap(_.all.flatMap(_.entities)) ++
       deciders(card) ++ surfaces.values.toList.flatMap(s =>
         deciders(s.content) ++ (s.activation match {
           case Activation.State(c) => c.toList.flatMap(_.entities)
@@ -1071,7 +1129,8 @@ case class Dashboard(
     */
   def validate(
       locateTransform: String => Option[String] = _ => None
-  ): List[String] = Validate.errors(this, locateTransform, compiledCards)
+  ): List[String] =
+    Validate.errors(this, locateTransform, compiledCards, compiledFailedLabel)
 
   // Each template once, theme classes applied, so what validation reads is
   // what renders.
@@ -1080,8 +1139,15 @@ case class Dashboard(
       name -> Templates.card(
         name,
         theme.classes.rewriteTemplate(cd.template),
-        cd.regions.keySet
+        cd.holes
       )
+    )
+
+  private def compiledFailedLabel: Either[String, Templates.Card] =
+    Templates.card(
+      "failedLabel",
+      theme.classes.rewriteTemplate(failedLabel),
+      Set.empty
     )
 
   /** Problems that still build but are silent in the browser, both about the
@@ -1111,36 +1177,39 @@ case class Dashboard(
       fetchesIn(s.content, scopeOf(s))
     )).distinct
 
-  /** Every fetch a decision reads, beside where it is read: a set's clauses and
-    * order, a `valueWhile`, a state surface, a set a press acts on.
+  /** Every expression a decision reads, beside where it is read: a set's
+    * clauses and order, a `valueWhile` and the inputs it reads, a state
+    * surface, a set a press acts on. Made once for every viewer, so none may
+    * read a viewer's variable.
     */
-  lazy val decisionFetches: List[(String, FetchTemplate)] = {
-    def walk(n: LayoutNode): List[(String, FetchTemplate)] = n match
+  lazy val decisionExprs: List[(String, ValueExpr)] = {
+    def walk(n: LayoutNode): List[(String, ValueExpr)] = n match
       case c: LayoutNode.Component =>
         c.bound.toList.sortBy((k, _) => SlotKey.label(k)).flatMap { (k, s) =>
           s.valueWhile.toList
-            .flatMap(_.fetches)
-            .map(s"slot '${SlotKey.label(k)}''s valueWhile" -> _.fetch)
+            .flatMap(w => w.expr :: w.inputs.values.toList)
+            .map(s"slot '${SlotKey.label(k)}''s valueWhile" -> _)
         } ++ c.allChildren.flatMap(walk)
       case s: LayoutNode.SetNode =>
-        s.orderBy.flatMap(_.by.fetches).map("a set's order" -> _) ++
+        s.orderBy.map("a set's order" -> _.by) ++
           s.members.values.toList.flatMap(_.clauses).flatMap { cl =>
-            cl.when.toList.flatMap(_.fetches).map("a set's clause" -> _) ++
-              walk(cl.node)
+            cl.when.toList.map("a set's clause" -> _) ++ walk(cl.node)
           }
 
-    (walk(card) ++ surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
+    walk(card) ++ surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
       (s.activation match
         case Activation.State(Some(c)) =>
-          c.fetches.map(s"surface '$sid''s condition" -> _)
+          List(s"surface '$sid''s condition" -> c)
         case _ => Nil
       ) ++ walk(s.content)
-    } ++ calls.values.toList
-      .collect { case p: Value.Present => p }
-      .flatMap(
-        ValueExpr(_).fetches.map("a set a press acts on" -> _)
-      )).distinct
+    } ++ calls.toList
+      .sortBy(_._1)
+      .flatMap((_, d) => d.all.map(d.named -> _))
   }
+
+  /** Every fetch a decision reads ([[decisionExprs]]), beside where. */
+  lazy val decisionFetches: List[(String, FetchTemplate)] =
+    decisionExprs.flatMap((where, e) => e.fetches.map(where -> _)).distinct
 
   /** Node variables in scope at every node, by name (issue #209). A popup is
     * its own scope root, since one content may be opened from many places. An
@@ -1231,8 +1300,20 @@ case class Dashboard(
       start: Map[String, String] = Map.empty
   ): List[SlotRead] =
     scopedSlots(n, start).flatMap { case (s, scope) =>
-      s.fetches.map(_.resolve(scope))
+      s.fetches.flatMap(_.resolve(FetchTemplate.atDeclared(scope)))
     }.distinct
+
+  /** Every chosen window's `by`, each compiled once ([[Ready.Compile]]). A
+    * decision's window is written down (`validate`), so a slot's are all.
+    */
+  lazy val choiceBys: List[ValueExpr] =
+    (scopedSlots(card, Map.empty) ++ surfaces.values.toList.flatMap(s =>
+      scopedSlots(s.content, Map.empty)
+    )).flatMap(_._1.fetches)
+      .collect { case SlotAsk(FetchTemplate(_, Choice.Chosen(by, _, _)), _) =>
+        by
+      }
+      .distinctBy(_.inputKey)
 
   /** `scope` is where a tree starts: empty, or a surface's [[scopeOf]]. */
   private def scopedSlots(
@@ -1255,7 +1336,8 @@ case class Dashboard(
       locateTransform: String => Option[String] = _ => None
   ): Either[List[String], Dashboard.Validated] =
     val compiled = compiledCards
-    Validate.errors(this, locateTransform, compiled) match
+    val label = compiledFailedLabel
+    Validate.errors(this, locateTransform, compiled, label) match
       case Nil =>
         Ready
           .Compile(Evaluator.Scope(slug))
@@ -1266,7 +1348,11 @@ case class Dashboard(
             Dashboard.Validated(
               this,
               ready,
-              Templates(compiled.collect { case (n, Right(c)) => n -> c })
+              Templates(
+                compiled.collect { case (n, Right(c)) => n -> c },
+                label
+                  .fold(_ => Templates.compile("failedLabel", ""), _.mustache)
+              )
             )
           )
       case errs => Left(errs)
@@ -1309,22 +1395,6 @@ object Dashboard:
 
   given Decoder[Dashboard] = ConfiguredDecoder.derived[Dashboard]
 
-  /** `tap.pkl`'s route slots that [[Dashboard.calls]] reads. */
-  val ServiceSlot: String = "service"
-  val TargetKindSlot: String = "targetKind"
-  val TargetIdSlot: String = "targetId"
-  val DataKeySlot: String = "dataKey"
-  val TargetSetSlot: String = "targetSet"
-
-  /** A call a node's tap declares; `reach` is `None` where a set call's card
-    * placed the route without its tally.
-    */
-  private[model] final case class Declared(
-      call: TapCall,
-      card: String,
-      reach: Option[CallReach]
-  )
-
   /** Constructed only by [[Dashboard.validated]]: the type is the proof, so its
     * constructor, `apply` and `copy` are private to the model.
     */
@@ -1339,6 +1409,9 @@ object Dashboard:
   ):
     def withAccess(siteDefault: Access): Validated =
       copy(access = dashboard.access.getOrElse(siteDefault))
+
+  /** What a failed read gives [[Dashboard.failedLabel]]. */
+  val FailedLabelHoles: Set[String] = Set("text")
 
   /** The theme's popup host. The dialog is a `popup` card composed into the
     * surface's content, so the backend renders every surface bare.
@@ -1376,11 +1449,5 @@ object Dashboard:
     case Templates.View.Signal => s"{{$slot.signal}}"
     case v                     => s"{{{$slot.${v.spelling}}}}"
 
-  /** Slots the server reads itself, so no template need name them: the subject
-    * and a tap's route ([[calls]]).
-    */
-  def readByRenderer(slot: String): Boolean =
-    slot == SubjectSlot || routeSlots(slot)
-
-  private val routeSlots: Set[String] =
-    Set(ServiceSlot, TargetKindSlot, TargetIdSlot, DataKeySlot, TargetSetSlot)
+  /** The slot the server reads itself, so no template need name it. */
+  def readByRenderer(slot: String): Boolean = slot == SubjectSlot

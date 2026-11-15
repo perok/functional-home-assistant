@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.NodeId
+import fh.view.model.{CallDecl, IdKind, NodeId}
 import fh.view.testkit.{FixtureEntity, HouseFixture}
 import io.circe.Json
 import munit.CatsEffectSuite
@@ -16,6 +16,9 @@ import scala.concurrent.duration.*
 class SelectSuite extends CatsEffectSuite {
 
   private val sensor = HouseFixture.outsideTemp
+
+  /** `shade` as the root column `c` declares it. */
+  private val shadeOfC = VarKey(NodeId.derived("c"), "shade")
 
   private val entry =
     s"""amends "@fh-dashboard/entry.pkl"
@@ -52,15 +55,18 @@ class SelectSuite extends CatsEffectSuite {
         // Buttons and dropdown offer both values; the cycle's two buttons
         // each choose the other.
         assertEquals(
-          s"/$declarer/shade/7d\\?group=${key.group}".r
-            .findAllMatchIn(html)
-            .size,
+          html
+            .sliding(s"$$${key.pendingSignal} = '7d'; @post".length)
+            .count(_ == s"$$${key.pendingSignal} = '7d'; @post"),
           3,
           clue = html
         )
         // The theme expands `fh-tabs`, so only the select's own class is fixed.
-        assert(html.contains("""fh-select">"""), html)
-        assert(html.contains("""<details class="fh-select-menu""""), html)
+        assert(html.contains("""fh-select" id="""), html)
+        assert(
+          html.contains("""<details class="fh-cell fh-select-menu""""),
+          html
+        )
         assert(html.contains("""class="fh-select-cycles""""), html)
         assert(
           html.contains(s"$$${key.pendingSignal} || $$${key.committedSignal}"),
@@ -76,10 +82,7 @@ class SelectSuite extends CatsEffectSuite {
         for {
           conn <- ts.load().map(_.conn)
           session <- ts.sessions.get(conn)
-          result <- ts.postResult(
-            s"sse/var/${ts.slug}/c/shade/7d?group=var_c__shade",
-            body = s"""{"${Server.ConnSignal}":"$conn"}"""
-          )
+          result <- ts.choose(conn, shadeOfC, Some("7d"))
           chose <- session.traverse(_.state.map(_.vars))
           queued <- session.fold(IO.pure(List.empty[SseFrame]))(_.takeBacklog)
         } yield {
@@ -109,6 +112,8 @@ class SelectSuite extends CatsEffectSuite {
        |  children {
        |    c.select(shade).options(List("24h", "7d", "30d")).style("dropdown")
        |    c.select(shade).options(List("24h", "7d", "30d")).style("cycle")
+       |    // A value no option takes, which the write refuses.
+       |    c.button("1y", shade.choose("1y"))
        |  }
        |}
        |""".stripMargin
@@ -116,12 +121,12 @@ class SelectSuite extends CatsEffectSuite {
   /** What the dropdown's summary and the cycle's face show. */
   private def shown(html: String): (List[String], List[String]) =
     (
-      """<summary class="fh-select-summary"><span id="[^"]+"><div[^>]*><span>([^<]*)</span>""".r
+      """<summary class="fh-select-summary"><span id="[^"]+"><span class="fh-cell" id="[^"]+">([^<]*)</span>""".r
         .findAllMatchIn(html)
         .map(_.group(1))
         .toList,
       // The cycle's face is a pill; nothing else here is one.
-      """<button class="fh-chip[^"]*".*?><span class="fh-text"><span class="fh-text-run">([^<]*)</span>""".r
+      """<button class="fh-cell fh-chip[^"]*".*?><span class="fh-text"><span class="fh-text-run">([^<]*)</span>""".r
         .findAllMatchIn(html)
         .map(_.group(1))
         .toList
@@ -147,23 +152,25 @@ class SelectSuite extends CatsEffectSuite {
         for {
           conn <- ts.load().map(_.conn)
           session <- ts.sessions.get(conn)
-          result <- ts.postResult(
-            s"sse/var/${ts.slug}/c/shade/7d?group=var_c__shade",
-            body = s"""{"${Server.ConnSignal}":"$conn"}"""
-          )
-          refused <- ts.postResult(
-            s"sse/var/${ts.slug}/c/shade/1y?group=var_c__shade",
-            body = s"""{"${Server.ConnSignal}":"$conn"}"""
-          )
+          result <- ts.choose(conn, shadeOfC, Some("7d"))
+          refused <- ts.choose(conn, shadeOfC, Some("1y"))
           queued <- session.fold(IO.pure(List.empty[SseFrame]))(_.takeBacklog)
         } yield {
           assertEquals(result._1, Status.NoContent, clue = result)
           val sent = queued.flatMap(_.data).mkString("\n")
           // Each panel's swap: the label, then the cycle's face.
-          assert(sent.contains("><span>7d</span></div>"), clue = sent)
+          assert(
+            """<span class="fh-cell" id="[^"]+">7d</span>""".r
+              .findFirstIn(sent)
+              .nonEmpty,
+            clue = sent
+          )
           assertEquals(shown(sent)._2, List("7d"), sent)
           // The cycle's 7d chooses the next, round.
-          assert(sent.contains("/c/shade/30d?group="), clue = sent)
+          assert(
+            sent.contains("$_var_c__shade__pending = '30d'; @post"),
+            clue = sent
+          )
           assert(
             refused._2.contains("one of its members' values (24h, 7d, 30d)"),
             clue = refused
@@ -214,14 +221,13 @@ class SelectSuite extends CatsEffectSuite {
   ) {
     TestServer
       .fromWorkspace("select-entity", entityEntry, List(robot))
-      .use(_.page())
+      .use(ts => (ts.page(), ts.presses).tupled)
       .timeout(60.seconds)
-      .map { html =>
+      .map { (html, presses) =>
         // A call per option per style, each to select_option.
         assertEquals(
-          "select/select_option' \\+ '/entity/select\\.robot_mode".r
-            .findAllMatchIn(html)
-            .size,
+          SelectSuite
+            .callsIn(html, presses, "select/select_option", robot.entityId),
           4,
           clue = html
         )
@@ -232,10 +238,13 @@ class SelectSuite extends CatsEffectSuite {
             .isDefined,
           html
         )
-        // Only `turbo`'s cells: lit in the list, marked in the cycle, whose
-        // face is a pill that a lit look would read as "on".
+        // Only `turbo`'s roots (an option is no cell, as a tab is not): lit in
+        // the list, marked in the cycle, whose face is a pill that a lit look
+        // would read as "on".
         assertEquals(
-          """class="[^"]*fh-cell[^"]*fh-active""".r.findAllMatchIn(html).size,
+          """class="[^"]*(?:fh-cell|fh-select-opt)[^"]*fh-active""".r
+            .findAllMatchIn(html)
+            .size,
           1,
           clue = html
         )
@@ -294,13 +303,11 @@ class SelectSuite extends CatsEffectSuite {
   ) {
     TestServer
       .fromWorkspace("select-options", optionsEntry, List(heater, vent))
-      .use(_.page())
+      .use(ts => (ts.page(), ts.presses).tupled)
       .timeout(60.seconds)
-      .map { html =>
+      .map { (html, presses) =>
         def calls(service: String, entity: String): Int =
-          s"$service' \\+ '/entity/${entity.replace(".", "\\.")}".r
-            .findAllMatchIn(html)
-            .size
+          SelectSuite.callsIn(html, presses, service, entity)
         assertEquals(calls("climate/set_hvac_mode", heater.entityId), 3, html)
         assertEquals(calls("climate/set_preset_mode", heater.entityId), 2, html)
         assertEquals(calls("fan/set_preset_mode", vent.entityId), 2, html)
@@ -314,7 +321,9 @@ class SelectSuite extends CatsEffectSuite {
         // `heat` in the buttons and `high` in the list are lit; `comfort` is
         // the cycle's marked face.
         assertEquals(
-          """class="[^"]*fh-cell[^"]*fh-active""".r.findAllMatchIn(html).size,
+          """class="[^"]*(?:fh-cell|fh-select-opt)[^"]*fh-active""".r
+            .findAllMatchIn(html)
+            .size,
           2,
           clue = html
         )
@@ -325,4 +334,27 @@ class SelectSuite extends CatsEffectSuite {
         )
       }
   }
+}
+
+object SelectSuite {
+
+  /** How many presses `html` renders of calls to `service` on `entity`. */
+  def callsIn(
+      html: String,
+      presses: List[(CallDecl.Service, String)],
+      service: String,
+      entity: String
+  ): Int =
+    presses
+      .collect {
+        case (d, url)
+            if d.service.literal.contains(service) &&
+              d.target
+                .get(IdKind.Entity)
+                .exists(_.flatMap(_.literal) == List(entity)) =>
+          url.split('/').last.takeWhile(_ != '?')
+      }
+      .distinct
+      .map(id => html.split(s"/$id\\?node=", -1).length - 1)
+      .sum
 }

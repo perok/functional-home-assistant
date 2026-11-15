@@ -103,12 +103,16 @@ Dashjoin is gone from the build, benchmarks included.
   entity's own cached references, unboxed.
 - **`attr` is CEL's own map type.** cel-java 0.14.0 converts a plain
   `java.util.Map` on every read of `attr`, walking every attribute, and passes
-  its own `CelValue`s through; so `javaAttributes` is a `MutableMapValue`,
-  built once per state. It is an `@Internal` class, used knowingly: the
-  fallback is the plain map, and `TransformsSuite` pins that CEL reads both the
-  same. Measured: `page` 726 → 589 µs, `pageLightAttributes` (a Hue bulb's
-  attributes on every light) 922 → 631 µs. Upstream `main` stops the walk for a
-  select chain (`attr.x`) but not for a bare `attr` (`'k' in attr`).
+  its own `CelValue`s through; so `javaAttributes` is our own `CelValue` map
+  (`EntityState.LazyAttrs`, shaped as cel-java's `MutableMapValue`, which
+  copies what it wraps), converting each attribute when first read and keeping
+  it. The fallback is the plain map, and `TransformsSuite` pins that CEL reads
+  both the same. Measured against the plain map: `page` 726 → 589 µs,
+  `pageLightAttributes` (a Hue bulb's attributes on every light) 922 → 631 µs;
+  against converting every attribute once per state, a signal tick on Hue
+  bulbs (`resumeSignalsLight`) 219 → 133 kB and 80 → 60 µs, at +19 ns on a
+  fresh state's first read (`conditionAttr`). Upstream `main` stops the walk
+  for a select chain (`attr.x`) but not for a bare `attr` (`'k' in attr`).
 - **The fast tier beside it is a closed catalog (`Step.Simple`).** The
   shapes the library bakes that CAN be read as data — the raw `state` read,
   the guarded attribute read, the fallback-to-id name, the unit suffix, a
@@ -121,16 +125,22 @@ Dashjoin is gone from the build, benchmarks included.
   recognition to explicit opt-in — the slot's own field, no spelling to
   match, no engine fallback: ADR 0028 owns that decision and the definition
   suite that pins each shape to its idiomatic CEL.**
-- **cel-java's compile-time optimizers were measured and declined.** The
-  codelab's pairing (`ConstantFoldingOptimizer` + `SubexpressionOptimizer`,
-  wired via `CelOptimizerFactory` between compile and `createProgram`) ran
-  green through the gate and suites but bought no CPU (every difference inside
-  the error bars) and cost a consistent ~1-2% MORE allocation per eval
-  (~2.15 MB/op → ~2.18-2.19 MB/op): the planner materializes a folded constant
-  node where inline arithmetic was free, and the shipped shapes carry no
-  repeated subtree for CSE to extract — each attribute read appears once, and
-  the sharing that exists is already authored as `cel.bind`. The "complex"
-  ceiling shape IS the repeated-subtree case (its map-literal lookup appears
-  twice) and still measured byte-identical, so the decline is not an artifact
-  of an easy fixture. Compile is once-per-transform at validate, so the
-  optimizers' own cost was never the issue; the eval side just does not pay.
+- **cel-java's compile-time optimizers are declined: no CPU gain.**
+  `ConstantFoldingOptimizer` + `SubexpressionOptimizer`, wired via
+  `CelOptimizerFactory` between compile and `createProgram`, measured on cel
+  0.15 over the shipped shapes (`RenderBench`, B/op with escape analysis off,
+  µs with it on, the optimized run first): every time inside the error bars
+  (`cel` 710 ± 62 µs against 656 ± 53 without, `celComplex` 106 against 110,
+  `page` 446 against 435). Allocation fell only where a subtree repeats:
+  `celComplex`, whose map-literal lookup appears twice, 195,200 → 168,000
+  B/op, and `cel` 1.7%; the conditions, `page` and `tickRender` were
+  byte-identical. The shipped shapes read each attribute once, and the sharing
+  that exists is authored as `cel.bind`. On cel 0.14 the same pairing cost
+  1–2% more allocation. Worth asking again if a shipped shape repeats a
+  subtree on a hot path.
+- **The standard macros are `has`, `all`, `exists`, `map` (with and without a
+  filter) and `filter`**, beside the extensions' two-variable comprehensions
+  and `cel.bind`. A macro expands at parse, so an expression that does not use
+  one costs what it did, and none can write a loop the comprehensions could
+  not already. `identifiers` parses with the same environment, so a name read
+  only inside a macro's body binds its input.

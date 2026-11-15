@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.history.Windows
 import cats.effect.{IO, Ref}
 import cats.effect.unsafe.implicits.global
@@ -59,13 +60,13 @@ class PullReadsSuite extends munit.FunSuite {
   private val renderer = Renderer.create(
     Dashboard(
       cards = Map(
-        "dot" -> CardDef("<span>{{state}}</span>"),
-        "chart" -> CardDef("<div>{{{chart}}}</div>"),
-        "col" -> CardDef(
+        "dot" -> TestCard("<span>{{state}}</span>"),
+        "chart" -> TestCard("<div>{{{chart}}}</div>"),
+        "col" -> TestCard(
           "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         ),
-        "tabs" -> CardDef(
+        "tabs" -> TestCard(
           """<div id="{{hostId}}">{{{panel}}}</div>""",
           regions = Map("panel" -> Region(Region.Baked))
         )

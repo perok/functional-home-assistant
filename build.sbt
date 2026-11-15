@@ -181,6 +181,18 @@ lazy val snapshotUpdateCommands = Seq(
   Command.command("dashboardSnapshotsUpdate") { state =>
     runWithFlag("FH_UPDATE_SNAPSHOTS", "fh-datastar-view/testFull", state)
   },
+  // The goldens against a git revision, ids numbered by first appearance: for
+  // a change meant to move only ids.
+  Command.args("dashboardGoldensVs", "<rev>") { (state, args) =>
+    val flag = "FH_GOLDENS_AGAINST"
+    sys.props.put(flag, args.headOption.getOrElse("HEAD"))
+    try
+      Command.process(
+        "fh-datastar-view/testOnly *RenderGoldenSuite",
+        state
+      )
+    finally sys.props.remove(flag)
+  },
   Command.command("dashboardVisualSnapshotsUpdate") { state =>
     runWithFlag(
       "FH_UPDATE_VISUAL_SNAPSHOTS",
@@ -361,6 +373,16 @@ lazy val `fh-datastar-view` = project
         }
       }
     }.taskValue,
+    // Where `PklEditorSupportSuite` finds pkl-lsp: tests run in the sbt
+    // server's JVM, which no env var set for one command reaches.
+    Test / resourceGenerators += Def.task {
+      val jar = stagePklLsp.value
+      val out = (Test / resourceManaged).value / "pkl-lsp-jar.txt"
+      Def.uncached {
+        IO.write(out, jar.getAbsolutePath)
+        Seq(out)
+      }
+    }.taskValue,
     // No DASHBOARDS_DIR here on purpose: a local run serves the workspace it is
     // GIVEN (`sbt 'dashboardServe <dir>'`), and refuses to guess one. See the
     // `dashboardServe` alias above.
@@ -502,18 +524,19 @@ lazy val `fh-datastar-view` = project
       // filesystem paths/IO for the build phase
       "com.lihaoyi" %% "os-lib" % "0.11.10",
       // pkl evaluation for the build phase (pure Java, needs JDK 17+)
-      "org.pkl-lang" % "pkl-core" % "0.32.2",
+      "org.pkl-lang" % "pkl-core" % "0.33.0",
       // already a runtime dep of pkl-core; explicit so PklDump can compile
       // against Lexer.maybeQuoteIdentifier (keep version in lockstep)
-      "org.pkl-lang" % "pkl-parser" % "0.32.2",
+      "org.pkl-lang" % "pkl-parser" % "0.33.0",
       // mustache templating for runtime value injection (pure Java)
       "com.github.spullara.mustache.java" % "compiler" % "0.9.14",
       // CEL for per-slot value transforms (compile-once/eval-many planner
       // runtime; bundles the extension libraries — string/list/math/bindings/
       // comprehensions — in the same jar).
-      "dev.cel" % "cel" % "0.14.0",
-      // already a runtime dep of cel; explicit so Digest can use murmur3 (keep
-      // version in lockstep with what cel resolves)
+      "dev.cel" % "cel" % "0.15.0",
+      // cel-java's own API takes and returns Guava collections, which Cel.scala
+      // builds (`StructType.create`, `CelTypeProvider.types`). cel 0.15 asks
+      // for 33.7.2-jre; this pin wins.
       "com.google.guava" % "guava" % "33.8.0-jre",
       // LTTB for chart series. The major version is the class-file baseline:
       // 21, because CI tests on JDK 21 (25.x fails there to load).
@@ -534,7 +557,7 @@ lazy val `fh-datastar-view` = project
       "org.graalvm.polyglot" % "js" % graalVmVersion,
       // The language server behind /edit, in the other hidden configuration:
       // staged beside the app jar and run as a subprocess (ADR 0010).
-      "org.pkl-lang" % "pkl-lsp" % "0.8.0" % PklLsp,
+      "org.pkl-lang" % "pkl-lsp" % "0.9.0" % PklLsp,
       // Logging, and the ONE slf4j binding in the build. log4cats and an
       // unbound slf4j-api were already on the classpath via http4s, which
       // means http4s' own logging went nowhere; logback lights that up too.
@@ -561,9 +584,9 @@ lazy val `fh-datastar-view` = project
       // and adds IO-aware assertions (assertIO, IO#assertEquals).
       "org.typelevel" %% "munit-cats-effect" % "2.2.1" % Test,
       "org.typelevel" %% "log4cats-testing" % log4catsVersion % Test,
-      // Property-based testing for the digest biconditional (ADR 0029):
-      // equal input digest ⟺ equal patch bytes must hold over GENERATED node
-      // shapes, because a missed input fails silently and permanently.
+      // Property-based testing: equal byte-slot values must mean equal patch
+      // bytes over GENERATED node shapes (ADR 0012), because a missed input
+      // fails silently and permanently.
       "qa.hedgehog" %% "hedgehog-core" % hedgehodVersion % Test,
       "qa.hedgehog" %% "hedgehog-runner" % hedgehodVersion % Test,
       "qa.hedgehog" %% "hedgehog-munit" % hedgehodVersion % Test,
@@ -608,7 +631,7 @@ lazy val benchmarks = project
       // Dev-tooling only: the shipped runtime is `fh-datastar-view`.
       // Bundles the extension libraries (strings/lists/math/
       // bindings/comprehensions) in the same jar.
-      "dev.cel" % "cel" % "0.14.0"
+      "dev.cel" % "cel" % "0.15.0"
     )
   )
 

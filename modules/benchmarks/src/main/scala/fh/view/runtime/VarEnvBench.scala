@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
+import fh.view.testkit.DashboardBuilders.chosenBy
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import fh.view.model.{
@@ -9,7 +11,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   FetchTemplate,
-  Choice,
   Value,
   ValueExpr,
   TemplateSlot
@@ -98,7 +99,7 @@ object VarEnvBench {
         "chart" -> TemplateSlot(
           ValueExpr(
             Value.Fetch(
-              FetchTemplate(entity, Choice.Chosen("window", Windows.presets))
+              FetchTemplate(entity, chosenBy("window", Windows.presets))
             ),
             List(Step.Json, Step.JsonText)
           )
@@ -108,7 +109,7 @@ object VarEnvBench {
 
   def dashboard: Dashboard = Dashboard(
     cards = RenderBench.cards ++ Map(
-      "chart" -> CardDef("<div>{{chart}}</div>")
+      "chart" -> TestCard("<div>{{chart}}</div>")
     ),
     card = LayoutNode.Component(
       "col",

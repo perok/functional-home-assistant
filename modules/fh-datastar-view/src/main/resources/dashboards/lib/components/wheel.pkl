@@ -5,6 +5,7 @@
 module components.wheel
 
 import "../core/node.pkl" as nodes
+import "../core/shell.pkl"
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
@@ -45,9 +46,9 @@ const local move: String =
     "\(shownS) = \(hs)[1] / 100, " +
     "\(shownP) = 'hsl(' + \(hs)[0] + ',' + \(hs)[1] + '%,50%)'"
 
-const local commit: String =
-  "@post('sse/call/{{dashboardSlug}}/\(tapMod.service.raw)/\(tapMod.targetKind)/\(tapMod.targetId)?node={{id}}', " +
-    tapMod.withData("\(tapMod.dataKey)", hs) + ")"
+const local picked: slotMod.PostedRead = new { key = "hs"; type = "list(real)"; js = hs }
+
+const local commit: String = tapMod.post(tapMod.tapCall, List(picked))
 
 const local function hsRead(body: String, otherwise: String): String =
   "value.attr[?'hs_color'].optMap(hs, \(body)).orValue('\(otherwise)')"
@@ -56,10 +57,16 @@ class ColourWheel extends nodes.Node {
   card = "colourWheel"
   cardDef = new nodes.CardDef {
     // Two elements carry the patch handlers: one element holds one
-    // `data-on-signal-patch` (the slider splits its two the same way).
-    template = #"<div class="fh-wheel" style="--fh-h:\#(hue);--fh-s:\#(sat)" \#(hue.bind) \#(sat.bind) \#(paint.bind) data-signals__ifmissing="{ _{{id}}__drag: false, _{{id}}__hs: [], _{{id}}__h: '\#(hue)', _{{id}}__s: '\#(sat)', _{{id}}__p: '\#(paint)' }" data-style:--fh-h="\#(shownH)" data-style:--fh-s="\#(shownS)" \#(adoptOnPatch) data-effect="$_sse > 0 && (\#(adopt))" data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(drag) = true; \#(move)" data-on:pointermove="\#(drag) && (\#(move))" data-on:pointerup="\#(drag) && (\#(drag) = false, \#(tapMod.refusalGuard)\#(commit))" data-on:pointercancel="\#(drag) && (\#(drag) = false, \#(adopt))"\#(tapMod.guardMechanism)><span class="fh-wheel-knob" style="background:\#(paint)" data-style:background="\#(shownP)" data-init="\#(adopt)" data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(adopt))"></span></div>"#
+    // `data-on-signal-patch` (the slider splits its two the same way). The
+    // knob's position is on the knob, which alone reads it, so the root, which
+    // the cell writes `style` on, needs none: a `cellStyle` would bind the
+    // server's reading where the knob shows the drag.
+    classes = "fh-wheel"
+    attrs = #"\#(hue.bind) \#(sat.bind) \#(paint.bind) data-signals__ifmissing="{ _{{id}}__drag: false, _{{id}}__hs: [], _{{id}}__h: \#(hue.jsValue), _{{id}}__s: \#(sat.jsValue), _{{id}}__p: \#(paint.jsValue) }" \#(adoptOnPatch) data-effect="\#(shell.streamDown) && (\#(adopt))" data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(drag) = true; \#(move)" data-on:pointermove="\#(drag) && (\#(move))" data-on:pointerup="\#(drag) && (\#(drag) = false, \#(tapMod.refusalGuard)\#(commit))" data-on:pointercancel="\#(drag) && (\#(drag) = false, \#(adopt))"\#(tapMod.guardMechanism)"#
+    template = #"<span class="fh-wheel-knob" style="background:\#(paint);--fh-h:\#(hue);--fh-s:\#(sat)" data-style:background="\#(shownP)" data-style:--fh-h="\#(shownH)" data-style:--fh-s="\#(shownS)" data-init="\#(adopt)" data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(adopt))"></span>"#
+    // `flex:none`: its size is the wheel's, whatever share a row hands a cell.
     css = """
-      .fh-wheel{--fh-wheel-r:7rem;position:relative;inline-size:calc(2 * var(--fh-wheel-r));aspect-ratio:1;margin:1rem auto;
+      .fh-wheel{--fh-wheel-r:7rem;position:relative;inline-size:calc(2 * var(--fh-wheel-r));aspect-ratio:1;margin:1rem auto;flex:none;
       border-radius:50%;touch-action:none;cursor:crosshair;
       background:radial-gradient(closest-side,#fff,rgba(255,255,255,0)),conic-gradient(#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}
       .fh-wheel-knob{position:absolute;left:50%;top:50%;inline-size:1.75rem;aspect-ratio:1;border-radius:50%;pointer-events:none;
@@ -69,7 +76,10 @@ class ColourWheel extends nodes.Node {
     script = wheelScript
   }
   hidden light: hass.LightEntity(colour != null)
-  hidden setColour: tapMod.Call = (tapMod.call("light/turn_on", light)) { dataKey = "hs_color"; busyVisual = false }
+  hidden setColour: tapMod.Call =
+    (tapMod.call("light/turn_on", light).postingChecked("hs_color", picked, List(
+      simpleMod.checkCel("value.size() == 2 && value[0] >= 0.0 && value[0] <= 360.0 && value[1] >= 0.0 && value[1] <= 100.0")
+    ))) { busyVisual = false }
   slots {
     slotMod.signalled(hue, new slotMod.Reading {
       entityId = light.entity_id

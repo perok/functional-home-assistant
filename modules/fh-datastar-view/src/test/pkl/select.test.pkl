@@ -27,7 +27,9 @@ local lamp: hass.LightEntity = new {
   effects = new hass.Effects { owner = lamp; list { "none"; "Rainbow Slow" } }
 }
 
-local function route(n: Any): String = (n.slotsByName["onclick"].value as slotMod.Reading).source.src
+/// What a button's tap chooses, as `variable=value`.
+local function route(n: Any): String =
+  let (d = n.declared["tap"] as slotMod.SetVarCall) "\(d.variable)=\(d.value)"
 
 // A baked select's members in order: what each shows, and the value showing it.
 local function members(s: selectMod.Select): List<Pair<Any, String?>> =
@@ -39,13 +41,13 @@ facts {
   ["style keeps what was set on the select before it; every node field is carried or the card's"] {
     local before = c.select(shade).options(List("a", "b")).columns(6).cellStyle("--x", new slotMod.Reading { entityId = "sensor.x"; steps { simpleMod.cel("state") } }) as selectMod.Select
     local after = before.style("dropdown")
-    after.cellClasses.toList() == List("fh-cols-6")
+    after.layoutClasses.toList() == List("fh-cols-6")
     after.liveStyles == before.liveStyles && !after.liveStyles.isEmpty
     after.card == "selectVarDropdown"
     // A field Node gains must be named here: carried by `style`, or computed by
     // the card. Otherwise it is dropped by `.style(…)` without a word.
-    local carried = Set("cellClasses", "stateClasses", "liveClasses", "liveStyles", "id", "vars", "inputs")
-    local cards = Set("kind", "cell", "card", "cardDef", "slots", "templateSlots", "slotsByName", "children", "regions", "wireInputs", "inlineSurfaces")
+    local carried = Set("cellClasses", "layoutClasses", "stateClasses", "liveClasses", "liveStyles", "renderClasses", "id", "vars", "inputs")
+    local cards = Set("kind", "cell", "card", "cardDef", "variants", "slots", "templateSlots", "slotsByName", "declared", "calls", "children", "regions", "wireInputs", "inlineSurfaces")
     reflect.Class(nodes.LayoutNode).properties.keys + reflect.Class(nodes.Node).properties.keys == carried + cards
   }
 
@@ -54,7 +56,7 @@ facts {
     s is selectMod.SelectButtons
     local opts = s.children.toList()
     opts.length == 2
-    route(opts[0]).contains("/shade/pale") && route(opts[1]).contains("/shade/deep")
+    route(opts[0]) == "shade=pale" && route(opts[1]) == "shade=deep"
     // Lit by the ask while one is out, else the commit.
     (opts[1].slotsByName["active"].value as String).endsWith("=== 'deep'")
     (opts[1].slotsByName["active"].value as String).contains("__pending")
@@ -91,7 +93,7 @@ facts {
     cyc.children.isEmpty
     local bs = members(cyc)
     bs.map((m) -> m.second) == List("a", "b", "c")
-    route(bs[0].first).contains("/shade/b") && route(bs[1].first).contains("/shade/c") && route(bs[2].first).contains("/shade/a")
+    route(bs[0].first) == "shade=b" && route(bs[1].first) == "shade=c" && route(bs[2].first) == "shade=a"
     // Each face is a pill in its option's look: an icon replaces the label,
     // which still names it, and the pill is round.
     local iconic = members(c.select(shade)
@@ -107,7 +109,7 @@ facts {
     opts.map((o) -> o.slotsByName["label"].value) == List("quiet", "turbo", "it's max")
     local tap = (opts[1] as selectMod.EntityOption).tapAction
     tap.service == "select/select_option"
-    tap.dataKey == "option" && tap.dataValue == #""turbo""#
+    tap.data.toMap() == Map("option", "turbo")
     local lit = (opts[2] as selectMod.EntityOption).active as predMod.Cmp
     lit.part == null && lit.op == "eq" && lit.value == "it's max" && lit.entity == "select.robot_mode"
     // The dropdown's label is the server's, so the first HTML names it.
@@ -129,7 +131,7 @@ facts {
     // not lit, which would read as "on".
     local tap = (cyc[0] as buttonMod.Pill).tapAction as tapMod.Call
     tap.service == "light/turn_on"
-    tap.dataKey == "effect" && tap.dataValue == #""Rainbow Slow""#
+    tap.data.toMap() == Map("effect", "Rainbow Slow")
     (((cyc[1] as buttonMod.Pill).liveClasses["fh-chosen"].source as slotMod.EntityRead).part as simpleMod.Attr).name == "effect"
     (cyc[1] as buttonMod.Pill).active == false
   }

@@ -91,7 +91,7 @@ facts {
     memberOf.apply(s, "light.taklys")[0].`when` == null
     memberOf.apply(s, "light.taklys")[0].node.card == "tile"
     memberOf.apply(s, "light.lampe").length == 1
-    memberOf.apply(s, "light.lampe")[0].node.card == "pill"
+    memberOf.apply(s, "light.lampe")[0].node.card == "pillLink"
   }
 
   ["dispatch on LIVE state keeps both renderings, first match winning"] {
@@ -405,7 +405,7 @@ facts {
       .build()
     memberOf.apply(s, "light.taklys")[0].node.card == "tile"
     // The motion sensor is a SensorEntity, so it takes the sensor branch.
-    memberOf.apply(s, "binary_sensor.stue_motion")[0].node.card == "pill"
+    memberOf.apply(s, "binary_sensor.stue_motion")[0].node.card == "pillLink"
     guards.apply(s).every((g) -> g == null)
   }
 

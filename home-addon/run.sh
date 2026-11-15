@@ -60,7 +60,7 @@ export FH_ASSETS_DIR=/data/assets-cache
 # written into it is one imposed on every other machine reading it.
 #
 # FH_PKL_CACHE_DIR is REQUIRED, not a preference: the default is pkl's own
-# ~/.pkl/cache, which in this container is /root/.pkl/cache — an image layer, so
+# ~/.cache/pkl, which in this container is /root/.cache/pkl — an image layer, so
 # every add-on update would drop the lib and dump packages the workspace's pins
 # name. /data is the add-on's persistent volume, so the cache survives updates.
 export FH_PKL_CACHE_DIR=/data/pkl-cache

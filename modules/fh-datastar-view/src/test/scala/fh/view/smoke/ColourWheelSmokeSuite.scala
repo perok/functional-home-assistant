@@ -102,7 +102,7 @@ class ColourWheelSmokeSuite extends SmokeSuite {
           .setBody("no")
       def hue = IO.blocking(
         page
-          .locator(".fh-wheel")
+          .locator(".fh-wheel-knob")
           .evaluate("e => e.style.getPropertyValue('--fh-h').trim()")
           .toString
       )

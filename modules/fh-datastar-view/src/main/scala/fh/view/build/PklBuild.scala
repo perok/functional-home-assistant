@@ -54,6 +54,7 @@ object PklBuild {
       // After `applyFromProject`, which leaves its own default when the
       // project declares none; the seeded packages live here.
       val moduleCache = cacheDir(dashboardsDir, project)
+      project.foreach(PklLspProject.refresh(dashboardsDir, _, moduleCache))
       builder.setModuleCacheDir(moduleCache.toNIO)
       val evalCache = SiteEvalCache.dir(moduleCache)
       val before = importGraph(dashboardsDir, entry, project)
@@ -168,7 +169,7 @@ object PklBuild {
   /** Shared by resolver, evaluator and analyzer. None declared is the normal
     * case off the add-on; the fallback is pkl's default, as the seed uses.
     */
-  private[build] def workspaceCacheDir(dashboardsDir: os.Path): os.Path = {
+  private[view] def workspaceCacheDir(dashboardsDir: os.Path): os.Path = {
     val projectFile = dashboardsDir / "PklProject"
     val project = Try(
       Option.when(os.exists(projectFile))(

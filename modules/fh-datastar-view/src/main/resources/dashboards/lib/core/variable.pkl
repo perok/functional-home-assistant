@@ -24,6 +24,8 @@ module core.variable
 
 import "tap.pkl" as tapMod
 import "surface.pkl" as surfaceMod
+import "slot.pkl" as slotMod
+import "simple.pkl" as simpleMod
 import "../hass.pkl"
 
 /// A plain token: it is spelled into signal names and the URL.
@@ -33,20 +35,10 @@ typealias Name = String(matches(Regex("[A-Za-z][A-Za-z0-9_]*")))
 /// segment and a JS string.
 typealias Value = String(matches(Regex("[A-Za-z0-9_.:-]+")))
 
-/// The wire shape of a read: what a chosen window is chosen `by`
-/// (`fh.view.model.Choice.Chosen`). `var` is the wire key, hence the backticks;
-/// get one from [[Variable.ref]].
-class Ref {
-  `var`: String
-}
-
 /// A node variable as one typed value: its name, and every spelling of it a
 /// reader below its declarer needs.
 class Variable {
   name: Name
-
-  /// A read of it, resolved up the ancestors at build time.
-  fixed ref: Ref = let (n = name) new Ref { `var` = n }
 
   /// The declaring node's id, written from a node below it: a token the build
   /// splices (`DashboardBuild.declarerToken`) and refuses where nothing above
@@ -54,7 +46,7 @@ class Variable {
   fixed declarer: String = "@@VAR:\(name)@@"
 
   /// Its signals and URL param, written from a node below the declarer: a
-  /// button, a highlight.
+  /// highlight. A [[choose]] needs none: it names only the variable.
   fixed below: Spelling =
     let (n = name) let (d = declarer) new Spelling { variable = n; declarerId = d }
 
@@ -75,8 +67,16 @@ class Variable {
   fixed selectingAnyOther: surfaceMod.VarActivation =
     let (n = name) new { name = n; at = new surfaceMod.AtOtherwise {} }
 
-  /// Whether it holds `at`, as an If's condition: `c.iff(window.valueIs("30d"))`.
-  /// Not a predicate, so it cannot be combined with one over entity state. Named
+  /// Its value as this viewer holds it, a text reading: `label.of(window.value)`.
+  /// The viewer's own, so only a leaf's value slot reads it; the build refuses it
+  /// in a signal, on a card holding regions, and in anything decided once for
+  /// every viewer (a clause, a condition, a `valueWhile`, an order).
+  fixed value: slotMod.Reading =
+    let (n = name) new slotMod.Reading { source = new slotMod.VarRead { name = n } }
+
+  /// Whether it holds `at`: `value == at`, a bool reading. As an If's condition,
+  /// `c.iff(window.valueIs("30d"))`, it picks the branch per viewer. Not a
+  /// predicate, so it cannot be combined with one over entity state. Named
   /// beside `q`'s `stateIs`, since `is` is a Pkl keyword.
   function valueIs(at: Value): ValueIs = let (self = this) new ValueIs { variable = self; value = at }
 
@@ -85,23 +85,17 @@ class Variable {
   function defaultingTo(value: Value): Declaration =
     let (self = this) let (v = value) new Declaration { variable = self; default = v }
 
-  /// Choose `value`, from a node below the declarer. It sets only the pending
-  /// ask; the server commits once the readers have re-rendered (ADR 0025).
-  function choose(value: Value): tapMod.SetVar =
-    let (n = name) let (d = declarer) let (s = below)
-      new tapMod.SetVar {
-        onclick = tapMod.clickSlot(
-          "\"$" + s.pending + " = '" + value + "'; " +
-            #"@post('sse/var/" + dashboard_slug + "/"# + d + "/" + n + "/" + value +
-            "?group=\(s.group)'" + #")""#
-        )
-      }
+  /// Choose `at`, from the declarer or a node below it; null clears the
+  /// choice, back to the declared value. It sets only the pending ask; the
+  /// server commits once the readers have re-rendered (ADR 0025).
+  function choose(at: Value?): tapMod.SetVar =
+    let (n = name) new tapMod.SetVar { variable = n; value = at }
 }
 
 /// One node's declaration of a [[Variable]]. Its value, highest first: the
 /// viewer's choice, its [[initialTransform]]'s result, its [[default]].
 class Declaration {
-  /// What it declares, for the readers below: `d.variable.ref`.
+  /// What it declares, for the readers below: `d.variable.value`.
   hidden variable: Variable
   fixed name: Name = variable.name
   /// What it holds before anyone chooses.
@@ -114,19 +108,22 @@ class Declaration {
 
   /// Kept out of the page URL: a choice a refresh may forget, such as one
   /// light's control in a set of many. A link naming it is still read.
-  function notInUrl(): Declaration = let (self = this) (self) { inUrl = false }
+  function notInUrl(): this = (this) { inUrl = false }
 
   /// Opened by CEL over `e`'s state, run once as a session opens; it does not
   /// follow the entity afterwards. A result no reader takes keeps [[default]].
-  function withInitialTransform(e: hass.Entity, cel: String): Declaration =
+  function withInitialTransform(e: hass.Entity, cel: String): this =
     let (self = this) let (id = e.entity_id)
       (self) { initialTransform = new InitialTransform { entityId = id; transform = cel } }
 }
 
-/// A node variable at one value: what an If over a variable is chosen by.
-class ValueIs {
-  variable: Variable
-  value: Value
+/// A node variable at one value: what an If over a variable is chosen by, and a
+/// bool reading wherever a variable may be read.
+class ValueIs extends slotMod.Expr {
+  hidden variable: Variable
+  hidden value: Value
+  source = let (n = variable.name) new slotMod.VarRead { name = n }
+  steps { let (v = value) new simpleMod.CompareStep { op = "eq"; to = v } }
 }
 
 /// Where a session opens a variable: CEL over one entity's state, which the

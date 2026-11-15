@@ -53,8 +53,8 @@ class LayoutFillSmokeSuite extends SmokeSuite {
     withPage(Scene.of(SmokeDashboard.layoutFill(2)), Some(400 -> height)) {
       (page, _) =>
         IO.blocking {
-          val row = box(page, ".fh-stick-top .fh-row")
-          val end = box(page, ".fh-stick-top .fh-row > :last-child")
+          val row = box(page, ".fh-row.fh-stick-top")
+          val end = box(page, ".fh-row.fh-stick-top > :last-child")
           assertEqualsDouble(end.x + end.width, row.x + row.width, 1.0)
         }
     }

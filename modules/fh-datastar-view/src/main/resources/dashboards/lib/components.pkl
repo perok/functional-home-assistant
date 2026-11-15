@@ -266,16 +266,23 @@ const modules: List<Module> = List(
   wheelMod
 )
 
-/// Every concrete card class in [[modules]], by card name. A class that
-/// extends a card without naming its own IS that card (`EntityButton` is a
-/// `button`), so it is not listed twice.
+/// Every concrete card class in [[modules]], by card name, a class with
+/// `variants` under each of its names. A class that extends a card without
+/// naming its own IS that card (`EntityButton` is a `button`), so it is not
+/// listed twice.
 cards: Mapping<String, nodes.CardDef> = new {
   for (m in modules) {
     for (_, cls in reflect.Module(m).classes) {
       when (cls.isSubclassOf(nodeClass) && !cls.modifiers.contains("abstract")
         && cls.properties.containsKey("card")) {
-        [cls.properties["card"].defaultValue as String] =
-          cls.properties["cardDef"].defaultValue as nodes.CardDef
+        when (cls.properties.containsKey("variants")) {
+          for (name, d in cls.properties["variants"].defaultValue as Mapping<String, nodes.CardDef>) {
+            [name] = d
+          }
+        } else {
+          [cls.properties["card"].defaultValue as String] =
+            cls.properties["cardDef"].defaultValue as nodes.CardDef
+        }
       }
     }
   }

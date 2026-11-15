@@ -57,10 +57,7 @@ class ControlChooserSuite extends CatsEffectSuite {
         for {
           viewer <- ts.viewer()
           key = VarKey(NodeId.derived(declarer), "control")
-          wrote <- ts.postResult(
-            s"sse/var/${ts.slug}/$declarer/control/$value?group=${key.group}",
-            body = s"""{"${Server.ConnSignal}":"${viewer.document.conn}"}"""
-          )
+          wrote <- ts.choose(viewer.document.conn, key, Some(value))
           frames <- viewer.session.takeBacklog
         } yield (
           viewer.document.html,

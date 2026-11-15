@@ -1,22 +1,32 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.runtime.RendererTestOps.*
 
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{
   Activation,
+  CallDecl,
+  CallField,
   CardDef,
   Dashboard,
+  IdKind,
   LayoutNode,
   NodeId,
   Region,
+  SlotValue,
   Surface,
-  Theme
+  Theme,
+  Value,
+  ValueExpr,
+  ValueType
 }
 import fh.view.testkit.DashboardBuilders.declared
+import fh.view.testkit.PklFixture
 import fh.view.testkit.TestIds.given
-import io.circe.Json
+import io.circe.JsonObject
+import scala.collection.immutable.ListMap
 import org.http4s.*
 import org.http4s.headers.`Content-Type`
 import org.http4s.implicits.*
@@ -92,30 +102,86 @@ class ServerRoutesSuite extends ServerHarness {
     assertEquals(r.surfaces.selectionAnomalies(env).size, 1)
   }
 
-  test("callData keeps the value as the page typed it") {
-    def value(json: String) =
-      Server.callData(s"""{"data":{"k":$json}}""").map(_.map(_._2))
-    assertEquals(value("128"), Right(Some(Json.fromInt(128))))
-    assertEquals(value("\"128\""), Right(Some(Json.fromString("128"))))
+  private def posting(key: String, t: ValueType) = CallDecl.Service(
+    ValueExpr.literal("light/turn_on"),
+    ListMap(IdKind.Entity -> List(ValueExpr.literal("light.a"))),
+    ListMap(key -> ValueExpr(Value.Posted(key, t)))
+  )
+
+  private def posted(d: CallDecl, json: String) =
+    Server
+      .callBody(s"""{"posted":$json}""")
+      .flatMap(b => Server.postedValues(d, b.posted))
+
+  test("a posted value is decoded as its source declares") {
     assertEquals(
-      value("\"Fire, slow\""),
-      Right(Some(Json.fromString("Fire, slow")))
+      posted(posting("v", ValueType.Int), """{"v":128}"""),
+      Right(Map("v" -> 128L))
     )
     assertEquals(
-      value("[120,100]"),
-      Right(Some(Json.arr(Json.fromInt(120), Json.fromInt(100))))
+      posted(posting("v", ValueType.Text), """{"v":"Fire, slow"}"""),
+      Right(Map("v" -> "Fire, slow"))
+    )
+    assertEquals(
+      posted(
+        posting("v", ValueType.List(ValueType.Real)),
+        """{"v":[120,100]}"""
+      ),
+      Right(Map("v" -> List(120.0, 100.0)))
     )
   }
 
-  test("callData: no body, no data or an empty one is a call with no value") {
-    List("", "  ", "{}", """{"data":{}}""").foreach(body =>
-      assertEquals(Server.callData(body), Right(None), clue = body)
+  test("a press posting the wrong type, too little or too much is refused") {
+    val int = posting("v", ValueType.Int)
+    List("""{"v":"128"}""", """{"v":1.5}""", "{}", """{"v":1,"w":2}""")
+      .foreach(json => assert(posted(int, json).isLeft, clue = json))
+  }
+
+  test("a body that is not an object of objects is refused") {
+    List("brightness=1", "[1]", """{"posted":[1]}""", """{"seen":"x"}""")
+      .foreach(body => assert(Server.callBody(body).isLeft, clue = body))
+    assertEquals(
+      Server.callBody(""),
+      Right(Server.CallBody(None, None, JsonObject.empty, JsonObject.empty))
     )
   }
 
-  test("callData refuses what no page sends") {
-    List("brightness=1", """{"data":{"a":1,"b":2}}""", """{"data":[1]}""")
-      .foreach(body => assert(Server.callData(body).isLeft, clue = body))
+  test("seen must name exactly the fields the node sees, as they are now") {
+    def seen(json: String) =
+      Server.callBody(s"""{"seen":$json}""").toOption.get.seen
+    val now = List(
+      CallField.Service -> ("lock/unlock": SlotValue),
+      CallField.Data("on") -> (true: SlotValue)
+    )
+    assertEquals(
+      Server.seenRefusal(
+        now,
+        seen("""{"service":"lock/unlock","data":{"on":true}}""")
+      ),
+      None
+    )
+    assertEquals(
+      Server.seenRefusal(
+        now,
+        seen("""{"service":"lock/lock","data":{"on":true}}""")
+      ),
+      Some("""service: "lock/lock" shown, "lock/unlock" now""")
+    )
+    assert(
+      Server.seenRefusal(now, seen("""{"service":"lock/unlock"}""")).isDefined
+    )
+    assert(
+      Server
+        .seenRefusal(
+          now,
+          seen("""{"service":"lock/unlock","data":{"on":true,"x":1}}""")
+        )
+        .isDefined
+    )
+    assert(
+      Server.seenRefusal(Nil, seen("""{"service":"lock/unlock"}""")).isDefined
+    )
+    assertEquals(Server.seenRefusal(Nil, JsonObject.empty), None)
   }
 
   test("escapeHtml neutralizes HTML metacharacters") {
@@ -128,7 +194,7 @@ class ServerRoutesSuite extends ServerHarness {
   private def titleDash(slug: String, title: Option[String]): Dashboard =
     Dashboard(
       cards = Map(
-        "col" -> CardDef(
+        "col" -> TestCard(
           "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         )
@@ -137,6 +203,19 @@ class ServerRoutesSuite extends ServerHarness {
       slug = slug,
       title = title
     )
+
+  /** The banners are the theme's markup, so a page that shows them comes from
+    * the library's theme, not a hand-built dashboard.
+    */
+  private lazy val libraryDash: Dashboard = PklFixture.buildDashboard(
+    "home",
+    """amends "@fh-dashboard/entry.pkl"
+      |
+      |import "@fh-dashboard/components.pkl" as c
+      |
+      |card = c.title("x")
+      |""".stripMargin
+  )
 
   private def pageHtml(dash: Dashboard, query: String = ""): IO[String] =
     TestServer.resource(dash, Nil).use(_.page(query)).timeout(30.seconds)
@@ -274,6 +353,28 @@ class ServerRoutesSuite extends ServerHarness {
     }
   }
 
+  test("the page names an icon the server serves, and asks for no buffering") {
+    TestServer
+      .resource(titleDash("home", None), Nil)
+      .use { s =>
+        for {
+          page <- s.pageResponse()
+          html <- page.as[String]
+          href = """<link rel="icon" href="([^"]+)">""".r
+            .findFirstMatchIn(html)
+            .map(_.group(1))
+          icon <- href.traverse(h => s.get(Uri.unsafeFromString(s"/$h")))
+        } yield {
+          assertEquals(
+            page.headers.get(CIString("X-Accel-Buffering")).map(_.head.value),
+            Some("no")
+          )
+          assertEquals(icon.map(_.status), Some(Status.Ok), clue = html)
+        }
+      }
+      .timeout(30.seconds)
+  }
+
   test("the page head links the manifest and registers the service worker") {
     pageHtml(titleDash("home", None)).map { html =>
       assert(
@@ -372,14 +473,14 @@ class ServerRoutesSuite extends ServerHarness {
     // Every fetch type but retrying/error/retries-failed is "fine", so without
     // a latch any later event cleared the banner, and the 600ms debounce could
     // swallow the failure before it painted.
-    pageHtml(titleDash("home", None)).map { html =>
+    pageHtml(libraryDash).map { html =>
       val handler = html.linesIterator
         .find(_.contains(s"data-on:${Server.StreamEvent}"))
         .getOrElse(fail(s"no stream handler in the shell: $html"))
       assert(handler.contains("$_sse >= 2 ? 2 :"), clue = handler)
       assert(handler.contains("'retries-failed' ? 2"), clue = handler)
       assert(handler.contains("'retrying'"), clue = handler)
-      assert(html.contains("""data-show="$_sse < 2""""), clue = html)
+      assert(html.contains("""data-show="$_sse == 1""""), clue = html)
       assert(html.contains("""data-show="$_sse >= 2""""), clue = html)
       // A blip is not latched: 1 must fall back to 0, or an ordinary refetch
       // pins "Reconnecting…".
@@ -539,7 +640,7 @@ class ServerRoutesSuite extends ServerHarness {
     val base = titleDash("home", None)
     val r = Renderer.create(
       base.copy(
-        cards = base.cards + ("tabs" -> CardDef(
+        cards = base.cards + ("tabs" -> TestCard(
           """<div id="{{hostId}}">{{{panel}}}</div>""",
           regions = Map("panel" -> Region(Region.Baked))
         )),
@@ -623,7 +724,7 @@ class ServerRoutesSuite extends ServerHarness {
   }
 
   test("page serves both connection indicators (SSE transport + HA feed)") {
-    pageHtml(titleDash("home", None)).map { html =>
+    pageHtml(libraryDash).map { html =>
       assert(html.contains(Server.HaDownSignal), html)
       // Transport-down is derived client-side from the shell's own
       // [[Server.StreamEvent]], not `datastar-fetch`, which fires for every
@@ -700,7 +801,7 @@ class ServerRoutesSuite extends ServerHarness {
     val cardJs = "document.addEventListener('pointermove',()=>{});"
     val themeJs = "void 0;"
     val base = titleDash("home", None)
-    val shared = CardDef("<i></i>", script = Some(cardJs))
+    val shared = TestCard("<i></i>", script = Some(cardJs))
     val dash = base.copy(
       cards = base.cards ++ Map("a" -> shared, "b" -> shared),
       theme = Theme(inlineScripts = List(themeJs))

@@ -49,15 +49,20 @@ class LiveCellClassSuite extends munit.CatsEffectSuite {
   /** The one signal a `data-class:<cls>` names, read off the markup rather than
     * spelled here, since its name is the renderer's to choose.
     */
+  private def classesOf(tag: String): List[String] =
+    """class="([^"]*)"""".r
+      .findFirstMatchIn(tag)
+      .fold(Nil)(_.group(1).split(' ').filter(_.nonEmpty).toList)
+
   private def classSignal(html: String, cls: String): String =
     s"""data-class:$cls="\\$$([^"]+)"""".r
       .findFirstMatchIn(html)
       .map(_.group(1))
       .getOrElse(fail(s"no data-class:$cls binding", clues(html)))
 
-  /** Every wrapper opening tag that carries a live class binding. */
+  /** Every cell opening tag that carries a live class binding. */
   private def boundWrappers(html: String): List[String] =
-    """<div class="fh-cell[^>]*>""".r
+    """<[a-z]+ class="fh-cell[^>]*>""".r
       .findAllIn(html)
       .filter(_.contains("data-class:"))
       .toList
@@ -69,7 +74,11 @@ class LiveCellClassSuite extends munit.CatsEffectSuite {
         case List(w) => w
         case other   => fail("expected one bound wrapper", clues(other, html))
       }
-      assert(wrapper.startsWith("""<div class="fh-cell warm" """), wrapper)
+      assert(wrapper.startsWith("<button "), wrapper)
+      assertEquals(
+        classesOf(wrapper),
+        List("fh-cell", "fh-press", "large", "warm")
+      )
       // Seeded with the node's other signals, so it holds before any frame.
       assert(wrapper.contains(sig.split('.').last + ": true"), wrapper)
     }
@@ -112,7 +121,8 @@ class LiveCellClassSuite extends munit.CatsEffectSuite {
       .timeout(60.seconds)
       .map { html =>
         assert(
-          boundWrappers(html).exists(_.startsWith("""<div class="fh-cell" """)),
+          boundWrappers(html)
+            .exists(w => classesOf(w) == List("fh-cell", "fh-press", "large")),
           clue = html
         )
       }

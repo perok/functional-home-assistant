@@ -3,6 +3,7 @@ package fh.view.runtime
 import fh.view.testkit.Conds
 
 import fh.view.model.{
+  IdKind,
   Lit,
   Op,
   Part,
@@ -53,6 +54,33 @@ class ConditionsSuite extends munit.FunSuite {
     Evaluator.holds(run(p, st, states))
 
   private def matches(p: ValueExpr, st: EntityState) = holds(p, st, Map.empty)
+
+  test("a set of areas is present by what its guards name, with no state") {
+    val rooms = ValueExpr(
+      Value.Present(
+        List("sofies_soverom", "stue"),
+        Map("sofies_soverom" -> isOn("light.disco")),
+        IdKind.Area
+      )
+    )
+    def present(disco: String) =
+      run(rooms, noSubject, snapshot(st("light.disco", disco)))
+    assertEquals(present("on"), List("sofies_soverom", "stue"))
+    assertEquals(present("off"), List("stue"))
+    // What moves it is the disco light, never an area.
+    assertEquals(rooms.entities, List("light.disco"))
+    val readsItself = ValueExpr(
+      Value.Present(
+        List("stue"),
+        Map("stue" -> cmp("state", Op.Eq, Json.fromString("on"), None)),
+        IdKind.Area
+      )
+    )
+    assert(
+      readsItself.typed(Nil).left.exists(_.message.contains("no state")),
+      clue = readsItself.typed(Nil)
+    )
+  }
 
   test("comparisons read state and attributes off the subject") {
     val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))
@@ -160,6 +188,31 @@ class ConditionsSuite extends munit.FunSuite {
     assert(holds(count, noSubject, states))
   }
 
+  test("equal guards on the candidate decide each by its own state") {
+    val itself = cmp("state", Op.Eq, Json.fromString("on"), None)
+    val ids = List("light.a", "light.b", "light.c")
+    val present = ValueExpr(Value.Present(ids, ids.map(_ -> itself).toMap))
+    val states =
+      snapshot(st("light.a", "on"), st("light.b", "off"), st("light.c", "on"))
+    assertEquals(run(present, noSubject, states), List("light.a", "light.c"))
+  }
+
+  test("a guard naming no candidate holds alike, but HA must know each") {
+    val hall = isOn("sensor.hall")
+    val ids = List("light.a", "light.gone", "light.b")
+    val guards = ids.map(_ -> hall).toMap
+    val present = ValueExpr(Value.Present(ids, guards))
+    def states(h: String) =
+      snapshot(st("sensor.hall", h), st("light.a", "off"), st("light.b", "off"))
+    assertEquals(
+      run(present, noSubject, states("on")),
+      List("light.a", "light.b")
+    )
+    assertEquals(run(present, noSubject, states("off")), Nil)
+    val two = Conds.count(ids, guards, Op.Eq, Json.fromInt(2))
+    assert(holds(two, noSubject, states("on")))
+  }
+
   test("a condition decides as the rule says, over a sweep") {
     // The literal's type picks the comparison: a number on the number line
     // (`21.0` is `21`), `ne` its negation; text as text, ordering numeric when
@@ -255,9 +308,13 @@ class ConditionsSuite extends munit.FunSuite {
       n <- -1 to size + 1
     } {
       val full = Evaluator
-        .presentOf(Value.Present(ids, guards), Evaluator.Scope(""))
-        .fold(m => fail(m.message), _(states, Evaluator.unanswered))
-        .size
+        .compile(ValueExpr(Value.Present(ids, guards)), Evaluator.Scope(""))
+        .fold(
+          m => fail(m.message),
+          _.run(null, states, Evaluator.unanswered)
+        ) match
+        case present: List[?] => present.size
+        case other            => fail(s"a tally gave $other")
       assertEquals(
         holds(
           Conds.count(ids, guards, op, Json.fromInt(n)),

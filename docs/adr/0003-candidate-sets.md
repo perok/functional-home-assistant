@@ -29,7 +29,9 @@ runtime query, and that turned out to be the wrong half to make dynamic.
 **The candidates are decided at BUILD time; the runtime decides only presence
 and order.** A set carries:
 
-- `candidates` — entity ids, in render order;
+- `candidates` — entity ids, in render order, or area or floor ids (`of`, one kind
+  per set). An area or a floor has no state, so its guards and order terms name
+  every entity they read, and only those wake it;
 - `members` — per candidate, a list of guarded renderings (`SetClause`);
 - `orderBy` / `limit` — present only when they need live state.
 
@@ -92,6 +94,11 @@ Three more things fell out of the same change:
 - **Presence** — per candidate, the first clause whose guard holds; none means
   absent. Absent means **absent from the DOM**, not present-and-hidden: a hidden
   wrapper ships the bytes anyway and still costs layout and morph work.
+  A `where` lands as one guard per candidate, on the wire and in the compile,
+  and each candidate runs its own, even one that reads no member and so answers
+  every candidate alike. Sharing equal guards' compile, and running a
+  member-free one once per decision, both saved nothing measurable
+  (`docs/experiments.md`).
 - **Order** — `orderBy` is a lexicographic list of `SortTerm`s, each a value read
   per member (`by`, a `ValueExpr`): a property, or a condition's truth, true
   first under `asc`. They are compared only among the PRESENT members, and a
@@ -145,8 +152,7 @@ Three silent failure modes are worth naming, because all three were real bugs:
 - **A clause switch whose arriving card binds nothing live** contributes no
   reverse-index edge, so nothing would name it while its bytes moved. The
   member's ID is the sound handle — it exists whatever the card renders, since
-  `validate` rejects a `wrapAsCell = false` card as a clause precisely so every
-  member has its own element — so `syncMembers` reports the members it REPLACED
+  every card's root carries its id (ADR 0008) — so `syncMembers` reports the members it REPLACED
   and the recorder touches those by id.
 - **Container selection reads `MemberGraph.sources`, not the static index.** A nested
   set is not in the static index — it hangs off a member — so selecting from the

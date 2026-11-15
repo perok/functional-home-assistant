@@ -7,14 +7,14 @@
 #
 # WHY this exists: `pkl project resolve <dir>…` — exactly how the plugin syncs —
 # ignores the project's own `evaluatorSettings`. Its `http.rewrites` can be
-# lifted to `~/.pkl/settings.pkl` (`fh init-lsp-fix`), but from pkl 0.32 the
+# lifted to the user settings.pkl (`fh init-lsp-fix`), but from pkl 0.32 the
 # resource allowlist is ALSO checked against the rewritten url, and `pkl:settings`
 # has no `allowedResources` property to lift. The command line is the only
 # remaining lever, and the plugin does not expose it — so we wrap the executable
 # instead. See docs/issue-report-1-pkl-cli-http-rewrites-project-resolve.md.
 #
 # Nothing is baked in: instance URLs come from the workspaces' own
-# `.fh/machine.json`, falling back to the rewrite in ~/.pkl/settings.pkl for the
+# `.fh/machine.json`, falling back to the rewrite in the user settings.pkl for the
 # commands that name no directory — so this keeps working when you re-point at
 # another instance. Widening is additive (pkl's defaults are always relisted)
 # and never names a host you have not already configured.
@@ -51,7 +51,7 @@ case "${1:-} ${2:-}" in
 esac
 
 # Never override a flag the caller already passed. The plugin supplies its own
-# `--cache-dir ~/.pkl/cache` on `download-package`, and pkl takes the LAST
+# `--cache-dir` on `download-package`, and pkl takes the LAST
 # occurrence — so appending ours would send the download to a different cache
 # than the one the IDE then reads, which looks exactly like the bug this script
 # exists to fix. We never inject `--cache-dir` at all for the same reason:
@@ -104,12 +104,15 @@ if [[ $inject == true ]]; then
 
   # `download-package` carries package URIs and NO directory, so there is no
   # workspace to read. Fall back to the rewrite `fh init-lsp-fix` already put in
-  # ~/.pkl/settings.pkl: its target names the same instance, and allowing that
-  # exact prefix is tighter than allowing the origin.
-  if [[ ${#urls[@]} -eq 0 && -f $HOME/.pkl/settings.pkl ]]; then
+  # the user settings: its target names the same instance, and allowing that
+  # exact prefix is tighter than allowing the origin. The lookup is pkl 0.33's
+  # own: the XDG file if it exists, else the legacy ~/.pkl one.
+  settings=${XDG_CONFIG_HOME:-$HOME/.config}/pkl/settings.pkl
+  [[ -f $settings ]] || settings=$HOME/.pkl/settings.pkl
+  if [[ ${#urls[@]} -eq 0 && -f $settings ]]; then
     target=$(sed -n \
       's|.*"https://fh[.]invalid/"\][[:space:]]*=[[:space:]]*"\([^"]*\)".*|\1|p' \
-      "$HOME/.pkl/settings.pkl")
+      "$settings")
     [[ -n $target ]] && urls+=("${target%/}/")
   fi
 fi

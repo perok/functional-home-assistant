@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
 
@@ -48,11 +49,9 @@ class SignalSlotSuite extends ServerHarness {
     "'rgb_color' in value.attr ? value.attr['rgb_color'] : null"
   private val tintRead = "'tint' in value.attr ? value.attr['tint'] : null"
 
-  private val cards = Map(
-    "gauge" -> CardDef(
-      "<b>{{label}}</b><i {{{value.bind}}}>{{value}}</i>"
-    )
-  )
+  private val gaugeMarkup = "<b>{{label}}</b><i {{{value.bind}}}>{{value}}</i>"
+
+  private val cards = Map("gauge" -> TestCard(gaugeMarkup))
 
   private def gauge(entity: String): LayoutNode.Component =
     LayoutNode.Component(
@@ -142,7 +141,7 @@ class SignalSlotSuite extends ServerHarness {
       """<u data-on:x="{{#value.signal}}${{value.signal}} = 1{{/value.signal}}"></u>"""
     def guarded(value: TemplateSlot) = Renderer.create(
       Dashboard(
-        Map("gauge" -> CardDef(cards("gauge").template + write)),
+        Map("gauge" -> TestCard(gaugeMarkup + write)),
         gauge("sensor.a").copy(templateSlots =
           gauge("sensor.a").templateSlots + ("value" -> value)
         )
@@ -166,40 +165,27 @@ class SignalSlotSuite extends ServerHarness {
     assert(plain.contains("data-on:x=\"\""), clue = plain)
   }
 
-  test("a node with no signal slot renders one form, by reference") {
-    val plain = Dashboard(
-      Map("plain" -> CardDef("<b>{{value}}</b>")),
-      LayoutNode.Component(
-        "plain",
-        Map(
-          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
-          "value" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some("sensor.a")))
-          )
-        )
-      )
-    )
-    // A signal-free node must not pay for a second template execute. Asserted
-    // on one walk, the only place the two forms can share bytes. Structure has
-    // no patch form at all (`Traced` carries none), so there is nothing to
-    // check for it.
-    val freeR = Renderer.create(plain)
-    val free =
-      freeR.renderBodyTraced(
-        Shared.of(at("21.4")),
-        Viewing(Selections.none, FetchSnapshot.empty)
-      )
-    val freeId = free.own.keys.head
-    assert(
-      free.own(freeId).digest == Digest.of(free.html),
-      clue = "a signal-free node rendered twice"
-    )
+  test("a walk records a node's byte-slot values, never its signal slots") {
+    // What a session compares a tick against: the patch form's inputs, which
+    // leave a signal slot's value out (it moves by a signal frame).
     val signalled =
       renderer.renderBodyTraced(
         Shared.of(at("21.4")),
         Viewing(Selections.none, FetchSnapshot.empty)
       )
     val signalledId = signalled.own.keys.head
+    assertEquals(
+      Some(signalled.own(signalledId).values),
+      renderer.byteSlotValues(
+        signalledId,
+        Shared.of(at("21.4")),
+        FetchSnapshot.empty
+      )
+    )
+    assert(
+      !signalled.own(signalledId).values.slots.values.toList.contains("21.4"),
+      clue = signalled.own(signalledId).values
+    )
     val signalledPatch = renderer
       .renderNodeById(
         signalledId,
@@ -207,8 +193,6 @@ class SignalSlotSuite extends ServerHarness {
         Viewing(Selections.none, FetchSnapshot.empty)
       )
       .get
-    assert(signalled.own(signalledId).digest == Digest.of(signalledPatch))
-    assert(signalled.own(signalledId).digest != Digest.of(signalled.html))
     assert(signalled.html.contains("21.4"), clue = signalled.html)
     assertEquals(signalledPatch.contains("21.4"), false, signalledPatch)
   }
@@ -219,7 +203,7 @@ class SignalSlotSuite extends ServerHarness {
       states: Map[String, EntityState]
   ): Map[NodeId, Held] =
     r.renderPageTraced(states).own.map { case (id, p) =>
-      id -> Held(Some(p.digest), p.signals)
+      id -> p.held
     }
 
   private def resumeFrom(
@@ -277,7 +261,7 @@ class SignalSlotSuite extends ServerHarness {
     // silently keeps one, so the second slot never updates.
     val two = Dashboard(
       Map(
-        "pair" -> CardDef(
+        "pair" -> TestCard(
           "<i {{{value.bind}}}>{{value}}</i><u {{{other.bind}}}>{{other}}</u>"
         )
       ),
@@ -363,7 +347,7 @@ class SignalSlotSuite extends ServerHarness {
     */
   private val sliderish = Dashboard(
     Map(
-      "slider" -> CardDef(
+      "slider" -> TestCard(
         """<div class="slider" style="--_end: {{fill}}" {{{fill.bind}}}>""" +
           """<span class="fh-reading" {{{state.bind}}}>{{state}}</span>""" +
           """<input type="range" value="{{value}}" {{{value.bind}}}""" +
@@ -477,7 +461,7 @@ class SignalSlotSuite extends ServerHarness {
 
   private val boolDash = Dashboard(
     Map(
-      "sw" -> CardDef(
+      "sw" -> TestCard(
         """<button {{#off}}disabled{{/off}} {{{off.bind}}}>go</button>"""
       )
     ),
@@ -548,7 +532,7 @@ class SignalSlotSuite extends ServerHarness {
         if reads == Reads.Once then """ data-r="{{{on.jsValue}}}"""" else ""
       Dashboard(
         Map(
-          "flag" -> CardDef(
+          "flag" -> TestCard(
             s"""<i{{#on}} class="on"{{/on}}$read></i>"""
           )
         ),
@@ -584,16 +568,16 @@ class SignalSlotSuite extends ServerHarness {
   test(
     "a page load holds structure's seeds, so its first frame sends what moved"
   ) {
-    // Structure has no bytes of its own to digest, but its wrapper seeds its
+    // Structure has no bytes of its own, but its wrapper seeds its
     // signals like any node's. Left out of the page's holds, the first frame
     // after a load re-sent every value the client already had.
     val boxed = Dashboard(
       Map(
-        "box" -> CardDef(
+        "box" -> TestCard(
           """<div><b {{{state.bind}}}>{{state}}</b><i {{{bright.bind}}}>{{bright}}</i>{{{children}}}</div>""",
           regions = Map("children" -> Region())
         ),
-        "plain" -> CardDef("<p>x</p>")
+        "plain" -> TestCard("<p>x</p>")
       ),
       LayoutNode.Component(
         "box",
@@ -642,7 +626,7 @@ class SignalSlotSuite extends ServerHarness {
       r,
       log,
       r.renderPageTraced(lit(40)).own.map { case (id, p) =>
-        id -> Held(Some(p.digest), p.signals)
+        id -> p.held
       },
       lit(41),
       1L,
@@ -670,7 +654,7 @@ class SignalSlotSuite extends ServerHarness {
     "value.state == 'locked' ? 'lock/unlock' : 'lock/lock'"
 
   /** The template never learns which tier filled `service`. */
-  private val lockCard = CardDef(
+  private val lockCard = TestCard(
     """<article data-on:click="@post('a/' + {{{service.jsValue}}})">""" +
       """<span {{{state.bind}}}>{{state}}</span></article>"""
   )
@@ -748,7 +732,7 @@ class SignalSlotSuite extends ServerHarness {
       r,
       log,
       r.renderPageTraced(lock("locked")).own.map { case (id, p) =>
-        id -> Held(Some(p.digest), p.signals)
+        id -> p.held
       },
       lock("unlocked"),
       1L,
@@ -774,7 +758,7 @@ class SignalSlotSuite extends ServerHarness {
     * and a merge has to reach both.
     */
   private val twoNodes = Dashboard(
-    cards + ("col" -> CardDef(
+    cards + ("col" -> TestCard(
       "<div>{{{children}}}</div>",
       regions = Map("children" -> Region())
     )),
@@ -786,7 +770,7 @@ class SignalSlotSuite extends ServerHarness {
 
   /** The shape issue #134 was opened on. */
   private val twiceOver = Dashboard(
-    cards + ("col" -> CardDef(
+    cards + ("col" -> TestCard(
       "<div>{{{children}}}</div>",
       regions = Map("children" -> Region())
     )),
@@ -832,11 +816,11 @@ class SignalSlotSuite extends ServerHarness {
     // #134's measurement: one light in three places through the same transforms
     // was 9 entries under node-scoped names, of which 3 were distinct.
     val trio = Map(
-      "trio" -> CardDef(
+      "trio" -> TestCard(
         "<i {{{state.bind}}}>{{state}}</i><b {{{fill.bind}}}></b>" +
           "<u {{{tint.bind}}}></u>"
       ),
-      "col" -> CardDef(
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       )
@@ -952,7 +936,7 @@ class SignalSlotSuite extends ServerHarness {
       .touched(NodeId.derived("c_0"), 1L)
       .touched(NodeId.derived("c_1"), 1L)
     val held = r.renderPageTraced(both("1", "2")).own.map { case (id, p) =>
-      id -> Held(Some(p.digest), p.signals)
+      id -> p.held
     }
     val out =
       resumeNow(r, log, held, both("9", "8"), 1L, Set.empty, Selections.none)
@@ -1093,7 +1077,7 @@ class SignalSlotSuite extends ServerHarness {
     val next = Shared.of(gone, 1L)
     val sets = List(SetId.of(NodeId.derived("c"), LayoutNode.SetNode()))
     val held = r.renderPageTraced(on).own.map { case (id, p) =>
-      id -> Held(Some(p.digest), p.signals)
+      id -> p.held
     }
     val seededLog = List("c_light_a", "c_light_b")
       .foldLeft(FragmentLog("test"))((l, id) =>
@@ -1135,7 +1119,7 @@ class SignalSlotSuite extends ServerHarness {
 
   test("a card that never places the binding is rejected") {
     val unbound = Dashboard(
-      Map("gauge" -> CardDef("<i>{{value}}</i>")),
+      Map("gauge" -> TestCard("<i>{{value}}</i>")),
       LayoutNode.Component(
         "gauge",
         Map(
@@ -1159,7 +1143,7 @@ class SignalSlotSuite extends ServerHarness {
 
   test("a handler slot is rejected unless the card READS it") {
     def card(tpl: String) = Dashboard(
-      Map("t" -> CardDef(tpl)),
+      Map("t" -> TestCard(tpl)),
       LayoutNode.Component(
         "t",
         Map(
@@ -1179,6 +1163,8 @@ class SignalSlotSuite extends ServerHarness {
     assertEquals(
       card("""<i data-on:click="@post('a')"></i>""").validate(),
       List(
+        "c: card 't' never reads slots: service — its template names none " +
+          "of them; drop them",
         "c: card 't' has slot 'service' marked as a signal slot, but no part " +
           "of its template places {{{service.jsValue}}} or {{service.signal}} " +
           "— the value would stop updating"
@@ -1200,7 +1186,7 @@ class SignalSlotSuite extends ServerHarness {
     // it would move the element's bytes every tick.
     val bad = Dashboard(
       Map(
-        "t" -> CardDef(
+        "t" -> TestCard(
           """<i x="{{{service.jsValue}}}"></i>"""
         )
       ),
@@ -1256,7 +1242,7 @@ class SignalSlotSuite extends ServerHarness {
     // would keep resolving against the old entity.
     val subject = Dashboard(
       Map(
-        "gauge" -> CardDef(
+        "gauge" -> TestCard(
           "<i {{{entity_id.bind}}}>{{value}}</i>"
         )
       ),
@@ -1291,7 +1277,7 @@ class SignalSlotSuite extends ServerHarness {
     * updated.
     */
   private val structural = Dashboard(
-    cards + ("frame" -> CardDef(
+    cards + ("frame" -> TestCard(
       "<section {{{tint.bind}}}>{{{body}}}</section>",
       regions = Map("body" -> Region())
     )),

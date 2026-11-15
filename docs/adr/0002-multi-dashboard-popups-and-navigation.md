@@ -73,7 +73,7 @@ entry, and closing one goes back to the popup it was opened from (ADR 0005).
 
 Open, switch, and close are the same operation (`Server.swapHost`): evict
 whatever surface(s) occupy a host, set the new occupant, inner-patch the host —
-or patch it to an empty `<div>` for a close (`POST /sse/popup/<slug>/close`; the
+or `remove` the host's children (`#popups > *`) for a close, so the chrome's host element and its attributes stay (`POST /sse/popup/<slug>/close`; the
 transient dialog simply disappears). A tab switch and a popup open are
 `swapHost(host, Some(id))`; no server state tracks "is a popup open" beyond the
 session's open set. A tab press reaches it through a variable write
@@ -136,11 +136,12 @@ repaint every connection does on reload.
 
 ### One click slot, whole Datastar expressions
 
-A component's click target is a single `onclick` slot holding the **entire**
-Datastar expression (spliced as literal text into
-`data-on:click="{{{onclick}}}"`):
+A component's click target is a declared call, which `tapMod.post` spells in the
+card's template, or a single `onclick` slot holding the **entire** Datastar
+expression (spliced as literal text into `data-on:click="{{{onclick}}}"`):
 
-- service call → `@post('/sse/call/<slug>/<domain>/<service>/<kind>/<id>')`
+- service call, or a choice of a node variable (a tab) →
+  `@post('sse/call/<slug>/<callId>?node=<id>', {payload: …})` (ADR 0023)
 - popup → `@post('/sse/surface/<slug>/open/<id>')` / `@post('/sse/popup/<slug>/close')`
 
 Every one of them names its dashboard: an action so the call can be bounded by

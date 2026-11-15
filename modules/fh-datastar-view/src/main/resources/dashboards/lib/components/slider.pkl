@@ -90,7 +90,7 @@ class EntitySlider extends sliderBase.Slider {
   hidden valueAttr: String = axis.attr
   /// The hue's full saturation, as Mushroom's hue slider: a pastel is a colour
   /// wheel's job, and white is the kelvin axis'.
-  valueRest = if (axis.sentWith.isEmpty) null else axis.sentWith.map((n) -> ",\(n)").join("")
+  valueRest = axis.sentWith
   hidden reportsRgb: Boolean =
     if (entity is hass.LightEntity) entity.reportsRgbColour else false
   hidden reportsKelvin: Boolean =
@@ -129,10 +129,14 @@ class EntitySlider extends sliderBase.Slider {
   /// What a tap on a [[toggleOnly]] row does; every domain with a slider row has
   /// a toggle.
   hidden toggleTap: tapMod.TapAction = tapMod.toggle(entity)
-  // A key and no value: the drag supplies it. Refuses only while unavailable —
-  // an `opening` cover takes a new position.
+  // The drag supplies the value. Refuses only while unavailable — an
+  // `opening` cover takes a new position.
   hidden commitTap: tapMod.Call =
-    let (k = key) (tapMod.call(action, entity)) { dataKey = k }
+    tapMod.call(action, entity).postingChecked(key,
+      (sliderBase.slide) { type = if (axis.sentWith == null) "int" else "list(real)" },
+      // The range the track draws, so the two cannot disagree.
+      if (axis.sentWith == null) simpleMod.within(rangeMin, rangeMax)
+      else List(simpleMod.checkCel("value.size() > 0 && value[0] >= \(minExpr) && value[0] <= \(maxExpr)")))
   /// The badge, defaulting to the entity's own icon ([[iconFor]]). An MDI name
   /// overrides it; `null` renders none.
   hidden icon: String? = icons.iconFor(entity)
@@ -156,11 +160,13 @@ class EntitySlider extends sliderBase.Slider {
   active = slotMod.activeOf(entity) ?? false
   title = slotMod.labelSlot(entity, label)
   glyph = if (icon != null) icons.mdiClass(icon!!) else null
-  // An unavailable entity reads "0", not "unavailable".
+  // An entity without the attribute (off, unavailable) reads the bottom of the
+  // range, not "unavailable": the drag signal adopts it, and a press posting a
+  // value outside the range is refused (`commitTap`'s check).
   position =
-    (if (element != null) slotMod.celReading("\(valueExpr).optMap(v, str(math.round(v))).orValue('0')")
+    (if (element != null) slotMod.celReading("\(valueExpr).optMap(v, math.round(v)).orValue(\(rangeMin.toFloat()))")
     else simpleMod.attr(valueAttr)) {
-      default = "0"
+      default = rangeMin.toString()
     }
   // Not rounded: beer.min.js recomputes the same percentage unrounded after
   // every morph, and a rounded value twitched into place.
@@ -288,18 +294,18 @@ class EntitySlider extends sliderBase.Slider {
       controlHead(offeredControls[0], false, true)
     else super.headNode
 
-  function label(l: String|slotMod.Reading): EntitySlider = let (self = this) (self) { label = l }
-  function action(a: String): EntitySlider = let (self = this) (self) { action = a }
-  function key(k: String): EntitySlider = let (self = this) (self) { key = k }
-  function min(m: Int): EntitySlider = let (self = this) (self) { min = m }
-  function max(m: Int): EntitySlider = let (self = this) (self) { max = m }
-  function valueAttr(a: String): EntitySlider = let (self = this) (self) { valueAttr = a }
-  function readout(r: Readout|slotMod.Reading): EntitySlider = let (self = this) (self) { readout = r }
+  function label(l: String|slotMod.Reading): this = (this) { label = l }
+  function action(a: String): this = (this) { action = a }
+  function key(k: String): this = (this) { key = k }
+  function min(m: Int): this = (this) { min = m }
+  function max(m: Int): this = (this) { max = m }
+  function valueAttr(a: String): this = (this) { valueAttr = a }
+  function readout(r: Readout|slotMod.Reading): this = (this) { readout = r }
   /// No switch of its own: it shows the control chosen by the nearest switch
   /// above it, a group head's or [[controlChooser]]'s, greyed on one its light
   /// lacks. One press, the whole group on colour. A light with no main
   /// controls keeps its plain row.
-  function fromChooser(): EntitySlider = let (self = this) (self) { chosenAbove = true }
+  function fromChooser(): this = (this) { chosenAbove = true }
   /// The order to try as the page opens: the first axis the light is on then,
   /// else the first control. Read once; an open page does not follow the
   /// light. Without it the slider follows `defaults.light.opensOn`, which
@@ -307,7 +313,7 @@ class EntitySlider extends sliderBase.Slider {
   /// the mode the light is in:
   ///
   ///   c.entitySlider(l).opensOn(List(l.colourTemp, l.colour))
-  function opensOn(xs: List<hass.Axis?>): EntitySlider =
+  function opensOn(xs: List<hass.Axis?>): this =
     let (self = this) let (axs = xs.filterNonNull() as List<hass.Axis>) (self) { opensOnAxes = axs }
   /// The member rows, each composed by the caller:
   ///
@@ -316,16 +322,16 @@ class EntitySlider extends sliderBase.Slider {
   ///   )
   ///
   /// A member that is not a slider goes through `members` directly.
-  function withSubSliders(sliders: List<EntitySlider>): EntitySlider =
-    let (self = this) (self) { members = sliders.toListing() }
+  function withSubSliders(sliders: List<EntitySlider>): this =
+    (this) { members = sliders.toListing() }
   /// `.icon(null)` renders no badge.
-  function icon(i: String?): EntitySlider = let (self = this) (self) { icon = i }
+  function icon(i: String?): this = (this) { icon = i }
   /// `.buttons(List(c.its.toggle, c.its.mainControl, c.its.colourWheel))`: on
   /// a light with main controls they are on its pill. Without
   /// `c.its.mainControl` the slider has one, its plain row.
-  function buttons(xs: List<sliderBase.SliderButton?>): EntitySlider =
-    let (self = this) (self) { buttons = xs }
-  function secondary(s: slotMod.Secondary): EntitySlider = let (self = this) (self) { secondary = s }
+  function buttons(xs: List<sliderBase.SliderButton?>): this =
+    (this) { buttons = xs }
+  function secondary(s: slotMod.Secondary): this = (this) { secondary = s }
 }
 
 /// One switch over the light sliders beneath it that are

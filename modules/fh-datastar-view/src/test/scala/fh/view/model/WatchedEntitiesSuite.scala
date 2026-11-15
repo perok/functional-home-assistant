@@ -1,5 +1,6 @@
 package fh.view.model
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import io.circe.Json
@@ -12,7 +13,7 @@ import io.circe.Json
 class WatchedEntitiesSuite extends munit.FunSuite {
 
   private val tile = Map(
-    "tile" -> CardDef("<b>{{state}}</b>")
+    "tile" -> TestCard("<b>{{state}}</b>")
   )
 
   private def tileNode(id: String): LayoutNode.Component =

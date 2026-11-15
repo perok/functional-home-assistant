@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.model.{CardDef, Dashboard, Region, Theme}
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
 
@@ -21,8 +22,8 @@ class PageStreamRouteSuite extends ServerHarness {
 
   private val wideDash = Dashboard(
     cards = Map(
-      "leaf" -> CardDef("""<div class="leaf">{{v}}</div>"""),
-      "col" -> CardDef(
+      "leaf" -> TestCard("""<div class="leaf">{{v}}</div>"""),
+      "col" -> TestCard(
         """<div>{{{children}}}</div>""",
         regions = Map("children" -> Region())
       )

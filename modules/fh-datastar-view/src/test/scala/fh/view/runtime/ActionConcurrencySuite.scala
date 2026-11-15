@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.syntax.all.*
+import fh.view.model.ValueType
 import fh.view.testkit.{
   DashboardBuilders,
   FakeConfig,
@@ -28,12 +29,16 @@ class ActionConcurrencySuite extends ServerHarness {
   private val sensor = FixtureEntity("sensor.a", "warm")
 
   /** Declares the call, or the server refuses it (ADR 0023). */
+  private val callNode =
+    FixtureDashboard.call(
+      "light/turn_on",
+      sensor,
+      "brightness" -> ValueType.Int
+    )
+
   private val dash = liveLeafDash.copy(
     cards = liveLeafDash.cards + ("call" -> FixtureDashboard.cards("call")),
-    card = DashboardBuilders.col(
-      liveLeafDash.card,
-      FixtureDashboard.call("light/turn_on", sensor, Some("brightness"))
-    )
+    card = DashboardBuilders.col(liveLeafDash.card, callNode)
   )
 
   test(
@@ -49,8 +54,8 @@ class ActionConcurrencySuite extends ServerHarness {
       .use { ts =>
         def setBrightness(v: Int) =
           ts.post(
-            s"sse/call/${ts.slug}/light/turn_on/entity/sensor.a",
-            body = s"""{"data":{"brightness":$v}}"""
+            FixtureDashboard.pressOf(ts.slug, callNode, "c_1"),
+            body = s"""{"posted":{"brightness":$v}}"""
           )
         for {
           // Arrival order at HA is not asserted; see below.

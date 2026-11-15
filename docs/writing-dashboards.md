@@ -211,6 +211,42 @@ and `c.tap.lights.on/off/toggle` are the light shortcuts. The target can be:
   `light/*` service cannot take a switch; use a `homeassistant/*` service to
   mix domains. A set that could never hold anything fails the build.
 
+`.exclude(x)` leaves something out of the target, and takes the same kinds: an
+entity, an area, a floor or a set. Turn off the whole loft except the bedroom:
+
+```pkl
+c.tap.lights.off(dump.floors.loft).exclude(dump.areas.soverom)
+```
+
+An excluded area or floor is worked out by Home Assistant at every press, so a
+light added to the bedroom later stays on. An excluded **set** leaves out the
+members it holds at the press, so a condition can decide: keep the kitchen
+light on while the sun is down.
+
+```pkl
+c.tap.lights.off(dump.floors.loft)
+  .exclude(q.from(List(dump.lights.kjokken)).where((e) -> q.entity(dump.entities.sun_sun).stateIs("below_horizon")))
+```
+
+A set can hold areas or floors as well, one kind per set, so a room is left out
+only while a condition holds, and Home Assistant still works out which lights
+are in it at the press. A room has no state of its own, so the condition names
+the entity it reads:
+
+```pkl
+local bedroomAtNight = q.from(List(dump.areas.soverom))
+  .where((a) -> q.entity(dump.entities.sun_sun).stateIs("below_horizon"))
+
+c.tap.lights.off(dump.floors.loft).exclude(bedroomAtNight)
+```
+
+The same set can be a call's target (`c.tap.lights.off(bedroomAtNight)`), be
+counted, or render a card per room while its condition holds.
+
+Exclusions need Home Assistant 2026.11 or later; on an older one the press is
+refused, with Home Assistant's message. Something to leave out needs something
+to leave it out of: an `exclude` alone is not a target.
+
 The server only runs the calls a dashboard declares, and only for someone who
 can view that dashboard. A set can only ever reach the entities you listed
 when you built it.
@@ -293,6 +329,10 @@ Each is a *variable*:
   and place `c.select(view)` where you want it.
   `c.iff(view.valueIs(…))` shows its `then` at that value and its `else` at
   any other; with no `else` it shows nothing there.
+- **Any button can choose:** `c.button("Detail", view.choose("detail"))`, on a
+  card at or below the one that declares `view`. `view.choose(null)` forgets
+  the viewer's choice, so the variable is back where it started and leaves the
+  address.
 - **The nearest declaration wins.** A card that declares the same name lower
   down makes a separate choice for its own part of the page.
 - **In a set, each member chooses for itself.** A variable declared in the

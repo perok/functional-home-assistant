@@ -60,6 +60,15 @@ Four things are going on:
 - `slots { message.of(text) }` is the per-copy half: what this particular
   banner says. A slot whose value is `null` is left out.
 
+To let a dashboard set an option in a chain, add a builder that returns `this`:
+
+```pkl
+  function text(t: String): this = (this) { text = t }
+```
+
+`this` is the class it is called on, a card extending `Banner` included, so
+`.columns(3)` and the card's own builders chain in any order.
+
 The build holds the two halves to each other. A slot placed outside every
 section, like `message` here, must be one the banner sets. Wrap anything
 optional: `\(icon.ifSet("<i>\(icon)</i>"))` shows the icon only when this node
@@ -75,8 +84,63 @@ that does not show leaves a trailing space, which HTML ignores. A piece that is 
 finished text, `""` when there is nothing, as `historyReadings` sets `postfix`
 to `" °C"`. And every slot you set must be placed somewhere in the template.
 
+A value your card's own JavaScript does arithmetic on, such as a position or
+a range end, is a `slotMod.number("pos")` slot. The build refuses a reading that
+is not a number, and the value reaches your script as a number:
+`\(pos.jsValue)` reads `180`, not `'180'`, so there is no `Number(…)` to write.
+In the markup, `\(pos)` prints it as usual.
+
+Inside a handler or any other Datastar expression (`data-on:*`, `data-effect`,
+`data-text`, …), place a text slot as `\(label.jsValue)`, never `\(label)`:
+the plain hole pastes the text into JavaScript, where a `'` in it breaks the
+handler, so the build refuses it. A number or bool slot may sit there bare.
+
 The `banner(...)` function at the bottom is just a friendlier way to write
 `new Banner { text = "..." }`. Every shipped component has one.
+
+### The card's outer element
+
+Every card gets an outer element the library writes for you: it carries the
+node's id (which live updates find it by) and its layout classes
+(`.columns(3)`, `.hug()`). By default it is a `<div class="fh-cell">` around
+your template, so the banner above is two elements. To make your own element
+the outer one, say what it is instead of writing it in the template:
+
+```pkl
+cardDef = new nodes.CardDef {
+  tag = "article"
+  classes = "banner"
+  attrs = #"data-on:click="$open = true""#
+  template = "\(message)"
+}
+```
+
+That renders `<article class="fh-cell banner" id="…" data-on:click="…">…</article>`,
+and the template is only what goes inside it. `tag` is a plain element name,
+`classes` the element's own classes, and `attrs` any other attributes —
+except `id`, `class`, `style` and `data-signals`, which the library writes
+itself; the build refuses those.
+
+The outer element is the same for every use of a card, so a card definition
+cannot branch on the node's own properties: `tag = if (href != null) "a" else
+"button"` fails the build with "card 'banner' has 2 different cardDefs". When it depends on
+something you know as you build the node — a link is an `<a>`, a press a
+`<button>` — give each form its own card name and a definition of its own,
+declared once at the top of your module, in `variants`, and pick both the name
+and its definition from the same fact:
+
+```pkl
+variants = new Mapping { ["banner"] = plainDef; ["bannerLink"] = linkDef }
+card = if (href != null) "bannerLink" else "banner"
+cardDef = variants!![card]
+```
+
+Set `layoutCell = false` when the element must not be a layout box — a tab
+inside a tab bar, which the bar lays out itself. It then has no `fh-cell`
+class, and `.columns(n)`, `.fullWidth()`, `.hug()`, `.grow()` and `.stick(…)`
+on such a card are a build error. `cellClass`, `cellClassWhen` and
+`cellStyle` still work. A `cellClassWhen("x", …)` on a card whose `attrs`
+already binds `data-class:x` is refused too: an element keeps only one of two.
 
 ## Using it
 
@@ -203,7 +267,7 @@ peak.of(new slotMod.Reading {
   entityId = entity.entity_id
   steps {
     new simpleMod.Cel {
-      src = "str(math.greatest(past.transformList(i, p, true, p[1])))"
+      src = "str(math.greatest(past.map(p, p[1])))"
       inputs = new Mapping { ["past"] = p.history.of(entity, p.history.raw(7.d)) }
     }
   }
@@ -221,12 +285,50 @@ It is fetched when the slot is read — when its entity changes, or when the
 card is drawn — and kept a while (a 720th of the span for readings, at least
 a minute; one period for statistics), so reading it on every change costs
 nothing. It does not change on its own: nothing redraws a card because
-new history was written. Use `transformList(i, p, keep, value)` to filter and
-map; this CEL has no `filter` or `map`.
+new history was written. `past.filter(p, keep)`, `past.map(p, value)` and
+`past.map(p, keep, value)` filter and map it; `has(value.attr.x)` asks whether
+an attribute is there.
 
 A card of your own that takes a window the way `c.history.chart` does takes
 `p.HistoryWindow` and resolves it with `p.historyWindow(w)`: either a window,
 or a function handed the providers, so its users need no import.
+
+### Showing a viewer's choice
+
+A node variable (a tab bar's `tab`, a chooser's `window`) can be read like an
+entity. `v.value` is the viewer's value as text, and `v.valueIs(x)` is a
+yes/no that holds while it is `x`:
+
+```pkl
+local window = c.variable("window")
+
+slots {
+  label.of(window.value)            // "24h", then "7d" once the viewer picks it
+  isWeek.of(window.valueIs("7d"))   // a bool slot
+}
+```
+
+Each viewer sees their own value, and a pick redraws the card for that viewer
+alone. A node above the card must declare the variable, or the build fails.
+
+Because the value is the viewer's, only a plain value slot of a card that holds
+no other cards may read one. The build refuses it in a signal slot (and so in
+`cellClassWhen` and `cellStyle`), in a `valueWhile`, and in a set's `where` or
+`orderBy`: those are worked out once for everyone. To show a different branch
+per viewer, use `c.iff(v.valueIs(x))`.
+
+To put a class on a node for the viewer when the page is drawn, use
+`cellClassAtRender`. It is how a tab bar lights the open tab before any script
+runs:
+
+```pkl
+myTab.cellClassAtRender("fh-chosen", v.valueIs("1"))
+```
+
+It is written once, into the page as it loads, and never sent again: when the
+viewer picks something else, nothing changes it. Pair it with the card's own
+`data-class` binding where the class has to follow a press, as the tab button
+does.
 
 ### A value only while something holds
 
@@ -289,9 +391,10 @@ a `tapMod.busy.ifSet(…)` section around anything — the pieces bring their ow
 place them whether or not this particular card guards its tap.
 
 **Do not build the click yourself.** The slots carry more than the click: the
-service and what it acts on, which the server checks every press against, and
-for a call over a set, the set itself. A card that leaves them out has a
-button the server refuses.
+call the tap declares, which the server runs itself at every press, and what the
+card shows of it. A lock's tile shows the lock's state, so its press says which
+service it showed, and the server refuses it if the lock has moved since. A card
+that leaves the slots out has a button the server refuses.
 
 `refusedAttr` disables the control while the tap would be refused (its entity is
 unavailable, say). It is for a `<button>` or other form control; on an element
@@ -318,6 +421,40 @@ icon's slot):
 
 The spinner is separate because its class name comes from the theme, and only
 your template knows which element holds the icon.
+
+### Posting a value with the press
+
+A slider or a colour wheel sends a value only the page knows: where the drag
+ended. Say what the press posts, under a name and with the page expression that
+gives it, once for the card:
+
+```pkl
+const local dragged: slotMod.PostedRead =
+  new { key = "drag"; type = "int"; js = "Number($_{{id}}__drag)" }
+```
+
+Place the post in your template with it. `tapMod.post` writes the URL and the
+body, so you never spell either:
+
+```pkl
+data-on:change="\(tapMod.refusalGuard)\(tapMod.post(tapMod.tapCall, List(dragged)))"
+```
+
+The tap says which of HA's fields the value fills, and may give it its own type:
+
+```pkl
+c.tap.call("light/turn_on", lamp).posting("brightness", dragged)
+c.tap.call("light/turn_on", lamp).posting("hs_color", (dragged) { type = "list(real)" })
+```
+
+The server reads the value as that type and refuses a press that posts anything
+else. A value fixed at build time is not posted at all: `.with("transition", 2)`
+goes straight into the call.
+
+A page can post anything, so keep the value to what the field takes. `postingChecked`
+takes checks, and a value they refuse refuses the press before Home Assistant hears of
+it: `.postingChecked("brightness", dragged, simpleMod.within(0, 255))`, or
+`simpleMod.checkCel("value.size() == 2 && value[0] <= 360.0")` for a list.
 
 ---
 

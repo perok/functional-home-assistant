@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Dashboard, NodeId, SlotAsk}
+import fh.view.model.{Dashboard, NodeId}
 import io.circe.Json
 
 /** A node variable's identity: the node declaring it and its name (ADR 0033). A
@@ -50,11 +50,6 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
 object VarKey:
 
   val ParamPrefix: String = "v."
-
-  /** `core/variable.pkl`'s `Value`: what a viewer can choose, and so the most a
-    * start may be.
-    */
-  val ValueToken: scala.util.matching.Regex = "[A-Za-z0-9_.:-]+".r
   val SignalPrefix: String = "_var_"
 
   /** `v.<declarer>.<name>`. Untrusted: the caller narrows it to declarations.
@@ -86,13 +81,14 @@ object VarKey:
   *   member included under its own id.
   * @param panelsSelected
   *   each variable-selected bake group, by the variable choosing its member.
-  * @param asksAt
-  *   a node's fetch asks, a member's whole subtree included.
+  * @param readsAt
+  *   the variables a node reads, by its fetches or its slots, a member's whole
+  *   subtree included.
   */
 private[runtime] final class VarGraph(
     scopes: Map[NodeId, Map[String, Dashboard.InScope]],
     panelsSelected: Map[NodeId, String],
-    asksAt: NodeId => List[SlotAsk]
+    readsAt: NodeId => Set[String]
 ):
 
   private val declarations: Map[VarKey, Dashboard.Declaration] =
@@ -147,12 +143,19 @@ private[runtime] final class VarGraph(
       })
     )
 
+  /** Every node with a variable in scope, each set member's included. */
+  def nodes: List[NodeId] = scopes.keys.toList
+
+  /** The variable `name` as `node` reads it: its nearest declaration. */
+  def keyAt(node: NodeId, name: String): Option[VarKey] =
+    scopes.get(node).flatMap(_.get(name)).map(in => VarKey(in.declarer, name))
+
   /** Exact: a write both checks every reader and re-renders them. */
   def readersOf(key: VarKey): List[NodeId] =
     scopes.toList.collect {
       case (id, scope)
           if scope.get(key.name).exists(_.declarer == key.declarer) &&
-            asksAt(id).exists(_.fetch.references.contains(key.name)) =>
+            readsAt(id).contains(key.name) =>
         id
     }
 

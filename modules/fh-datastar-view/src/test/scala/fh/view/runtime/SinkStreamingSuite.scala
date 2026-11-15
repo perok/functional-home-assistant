@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.{CardDef, Dashboard, NodeId, Region, Theme}
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
@@ -9,7 +10,8 @@ import java.nio.charset.StandardCharsets.UTF_8
 /** That a page open really streams, and that streaming changes nothing. The
   * benchmarks cannot tell a sink that buffered the document and wrote it once,
   * which loses the point, peak memory. `Sink.Buffer` and `Sink.Streaming`
-  * differ only in `digesting`, so "same bytes, same trace" is the invariant.
+  * differ only in where the bytes go, so "same bytes, same trace" is the
+  * invariant.
   */
 class SinkStreamingSuite extends munit.FunSuite {
 
@@ -29,8 +31,8 @@ class SinkStreamingSuite extends munit.FunSuite {
   }
 
   private val cards = Map(
-    "leaf" -> CardDef("""<div class="leaf">{{v}}</div>"""),
-    "col" -> CardDef(
+    "leaf" -> TestCard("""<div class="leaf">{{v}}</div>"""),
+    "col" -> TestCard(
       """<div>{{{children}}}</div>""",
       regions = Map("children" -> Region())
     )
@@ -95,8 +97,8 @@ class SinkStreamingSuite extends munit.FunSuite {
   }
 
   /** Peak, which no benchmark reports (`-prof gc` measures churn).
-    * `Sink.Streaming.digesting` hands each finished node run down as one
-    * `write`, so an unbuffered destination sees each transient at full size.
+    * `Sink.Streaming` hands each write the walk makes straight down, so an
+    * unbuffered destination sees each transient at full size.
     *
     * A classification, not a ratio (document/node is just the leaf count):
     * every write is either a node run, bounded by the largest node's rendering

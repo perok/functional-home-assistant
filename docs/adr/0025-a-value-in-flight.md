@@ -87,8 +87,10 @@ count stops growing.
 when it is *refused*, or when *nothing can answer it*:
 
 - **Refused** — the server answered, and the answer was no. It says so in
-  signals on a 200 (ADR 0024), clearing the pending value itself: the group id
-  rides in the action's query string precisely so it can. This is the only one
+  signals on a 200 (ADR 0024), clearing the pending value itself: a choice is
+  a declared call naming its variable, and the server resolves the same
+  declaration at the pressed node that the press wrote the ask for, so it names
+  the ask without the client claiming it. This is the only one
   of the three that ends ONE ask, because it is the only one that knows which.
 - **Unanswerable** — the commit rides the SSE stream, so a stream that is DOWN
   is the exact statement that no commit is coming. The shell's `_sse` counter,
@@ -251,7 +253,7 @@ committed value to catch up to and the other does not.
 ## The deeper reason only the server may write a committed signal
 
 The URL is the visible half, but not the load-bearing one. A session's `holds`
-records what THIS client's DOM has — digest and signal values — and every later
+records what THIS client's DOM has — byte-slot values and signal values — and every later
 diff is computed against it. **A client that writes a server-owned signal makes
 `holds` false**, and the server then computes "nothing owed" and never corrects
 it. That is why the rule is "only the server writes", not "the client should
@@ -341,16 +343,18 @@ restore makes it fail.
 
 A live list, not a backlog — delete an entry when it is answered.
 
-**One card still reads `_sse` by literal name**, and it is the slider's
-dead-stream rollback. The tabs half is gone — that rule moved to the page shell,
-where the counter already lives — so what is left is the single case that could
-not follow it, for a reason worth stating rather than working around:
+**Two cards still read the transport counter**, through `core/shell.pkl`'s
+`streamDown`: the slider's and the colour wheel's dead-stream rollback. The tabs
+half is gone — that rule moved to the page shell, where the counter already
+lives — so what is left is the one case that could not follow it, for a reason
+worth stating rather than working around:
 
 - The sweep can only SET a constant, and this fix is arithmetic: recompute the
   thumb, the fill and the readout from the committed value.
 - "The reconnect will restate truth" is false here, uniquely. `holds` says this
   DOM already has the correct `_<id>__value`, and it does — what is wrong is
-  `_<id>__slide`, which is client-owned and the server does not track. So the
+  `_<id>__slide` (the wheel's local hue and saturation likewise), which is
+  client-owned and the server does not track. So the
   server correctly sends nothing on reconnect and the thumb keeps lying.
 
 That makes it a genuine exception rather than a pattern, which is the important

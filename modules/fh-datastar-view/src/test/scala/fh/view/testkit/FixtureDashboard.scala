@@ -3,20 +3,25 @@ package fh.view.testkit
 import fh.view.model.{
   Part,
   Activation,
+  CallDecl,
   CardDef,
   Dashboard,
+  IdKind,
   LayoutNode,
   Op,
   Region,
   Step,
   Value,
   ValueExpr,
+  ValueType,
   TemplateSlot,
   Surface
 }
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
 import fh.view.testkit.TestIds.given
 import io.circe.Json
+
+import scala.collection.immutable.ListMap
 
 /** The Tier-B builder for the functional suite: the card templates, whose exact
   * HTML the behaviour tests assert on, plus typed constructors binding a card
@@ -25,42 +30,53 @@ import io.circe.Json
 object FixtureDashboard {
 
   val cards: Map[String, CardDef] = Map(
-    "col" -> CardDef(
+    "col" -> TestCard(
       """<div class="col">{{{children}}}</div>""",
       regions = Map("children" -> Region())
     ),
-    "reading" -> CardDef(
+    "reading" -> TestCard(
       """<div class="reading"><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
     ),
-    "light" -> CardDef(
+    "light" -> TestCard(
       """<div class="light">{{name}}: <span>{{state}}</span></div>"""
     ),
     // Name and state come from the member's own entity, so one card serves
     // every member.
-    "member" -> CardDef(
+    "member" -> TestCard(
       """<div class="member">{{name}}: <span>{{state}}</span></div>"""
     ),
-    "call" -> CardDef(
-      """<button>{{service}}</button>"""
+    "call" -> TestCard(
+      """<button data-call="{{{tap.callId}}}" data-seen="{{{tap.seen}}}"></button>"""
+    ),
+    // A call beside the state it is about, which the press then confirms.
+    "callShowing" -> TestCard(
+      """<button data-call="{{{tap.callId}}}" data-seen="{{{tap.seen}}}">{{state}}</button>"""
     )
   )
 
-  /** A tap's route slots and nothing else: what makes a call one this dashboard
-    * declares, and so one the server lets through (ADR 0023).
+  /** A declared call on `e` and nothing else: what makes a call one this
+    * dashboard declares, and so one the server lets through (ADR 0023). Each of
+    * `posted` is a data key read from the press under its own name.
     */
   def call(
       service: String,
       e: FixtureEntity,
-      dataKey: Option[String] = None
+      posted: (String, ValueType)*
   ): LayoutNode.Component =
-    component(
+    LayoutNode.Component(
       "call",
-      (List(
-        Dashboard.ServiceSlot -> lit(service),
-        Dashboard.TargetKindSlot -> lit("entity"),
-        Dashboard.TargetIdSlot -> lit(e.entityId)
-      ) ++ dataKey.map(Dashboard.DataKeySlot -> lit(_)))*
+      calls = Map(
+        "tap" -> CallDecl.Service(
+          ValueExpr.literal(service),
+          ListMap(IdKind.Entity -> List(ValueExpr.literal(e.entityId))),
+          ListMap.from(posted.map((k, t) => k -> ValueExpr(Value.Posted(k, t))))
+        )
+      )
     )
+
+  /** Where the page posts `node`'s call: its id, and the node it is on. */
+  def pressOf(slug: String, node: LayoutNode.Component, id: String): String =
+    s"sse/call/$slug/${node.calls("tap").asService.id}?node=$id"
 
   /** `guard` is every member's presence condition, `None` for always shown. */
   def set(
@@ -145,7 +161,7 @@ object FixtureDashboard {
       elseBranch: LayoutNode.Component
   ): Dashboard =
     Dashboard(
-      cards = cards + ("ifhost" -> CardDef(
+      cards = cards + ("ifhost" -> TestCard(
         template = """<div class="ifhost" id="{{hostId}}">{{{branch}}}</div>""",
         regions = Map("branch" -> Region(Region.Baked))
       )),

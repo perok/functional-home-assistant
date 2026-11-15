@@ -1,6 +1,8 @@
 # ADR 0029 — A node's fingerprint digests its render INPUTS, not its output bytes
 
-- **Status:** Rejected after measurement
+- **Status:** Rejected after measurement. Its question is answered by ADR 0012 since: `holds`
+  and the render cache hold a node's byte-slot VALUES, compared as they are, so nothing is hashed
+  and the walk renders no second form (`page` 1,677,274 -> 1,419,146 B/op).
 - **Date:** 2026-08-30
 - **Scope:** `modules/fh-datastar-view`
 - **Refines:** ADR 0012 (each session renders what it is owed — the render
@@ -82,18 +84,14 @@ system — the opposite regime.
 
 ## What survives
 
-- **The hedgehog property suite** (`DigestPropertySuite`): the walk's
-  recorded digest and the live path's rendered bytes must agree, node for
-  node, over generated shapes. The walk and the live path stopped sharing
+- **The hedgehog property suite** (`ByteValuesPropertySuite` now): the walk's
+  recorded values and the live path's must agree, node for node, and equal
+  values must mean equal bytes, over generated shapes. The walk and the live path stopped sharing
   one string when the walk started threading one buffer (#253, #254); this
   pins the agreement that "what `holds` recorded" and "what a morph sends"
   still match, and it caught two real divergences during the attempt.
-- **The finding that a digest-input scheme must include a template
-  generation token**: the render cache evicts on renderer identity, but a
-  session's `holds` survives a live re-evaluation — without it, a client
-  keeps stale bytes across a dashboard change, silently. If the input-digest
-  idea is ever revisited (for LARGE fragments), that token is a hard
-  requirement, and the shrink-failure mode demands a property test first.
-- **The wire contract is untouched**: `holds` still records `Digest.of(patch
-  bytes)`; issue #230 stays open for the day fragments are large enough to
-  change the economics.
+- **The finding that an input-keyed `holds` must not outlive its template**:
+  the render cache evicts on renderer identity, and `holds` must too, or a
+  client keeps stale bytes across a dashboard change, silently. It holds
+  today because a renderer swap repaints every session's body (or reloads
+  the page) and replaces its `holds` (`Server.reloadRepaints`).

@@ -3,12 +3,15 @@ package fh.view.runtime
 import api.homeassistant.ws.domain.EntitiesEvent
 import cats.effect.IO
 import cats.effect.kernel.Ref
-import dev.cel.common.values.MutableMapValue
+import dev.cel.common.exceptions.CelAttributeNotFoundException
+import dev.cel.common.types.{CelType, MapType, SimpleType}
+import dev.cel.common.values.{CelValue, SelectableValue}
 import fs2.{Chunk, Stream}
 import fs2.concurrent.{SignallingRef, Topic}
 import io.circe.Json
 
 import java.time.Instant
+import java.util.Optional
 
 case class EntityState(
     entityId: String,
@@ -16,47 +19,28 @@ case class EntityState(
     attributes: Map[String, Json],
     // So a reconnect's full set cannot clobber a fresher delta. `None` falls
     // back to value dedup.
-    lastUpdated: Option[Instant] = None,
-    // The store version at which this entity's content last moved — not the
-    // store's version, which untouched entities do not carry. The render key's
-    // stand-in for the value ([[Renderer.renderInputs]], ADR 0012).
-    contentVersion: Long = 0L
+    lastUpdated: Option[Instant] = None
 ) {
 
   val domain: String = entityId.takeWhile(_ != '.')
 
   val unavailable: Boolean = EntityState.unavailableStates(state)
 
-  /** What CEL reads as `value.attr`, converted once per state. Rebuilt per
-    * change on purpose: 3.4% of a signals tick (`RenderBench.resumeSignals`),
-    * not worth carrying across one.
+  /** What CEL reads as `value.attr`: each attribute converted when first read,
+    * so a light's `effect_list` costs nothing to a card reading `brightness`.
     *
-    * Held as CEL's own map type, which cel-java 0.14.0 passes through, because
-    * it converts a plain `java.util.Map` on every read of `attr` by walking
-    * every attribute: a quarter of `RenderBench.page`, and more on a light with
-    * a long `effect_list`. `MutableMapValue` is `@Internal`; should an upgrade
-    * break it, `toJavaObject(attributes)` alone is the fallback, at that cost.
-    * Upstream `main` stops the walk for `attr.x` but not for a bare `attr`
-    * (`'k' in attr`). `TransformsSuite` pins that both read the same.
+    * A CEL value, because cel-java (0.15 too) converts a plain `java.util.Map`
+    * by walking every attribute whenever `value.attr` is read: as a plain map,
+    * lazy or eager, `RenderBench.cel` measured 632 -> 1,000+ µs and
+    * `resumeSignalsLight` 57 -> 94+ µs. `CelValue` is `@Internal`; should an
+    * upgrade break it, a plain map is the fallback, at that cost.
+    * `TransformsSuite` pins that it reads as a plain map does.
     */
-  def javaAttributes: java.util.Map[Object, Object] =
-    val built = javaAttrs
-    if (built != null) built
-    else
-      val m = MutableMapValue.create(EntityState.toJavaObject(attributes))
-      javaAttrs = m
-      m
-
-  // Not a lazy val so [[attribute]] can tell whether the map exists: a
-  // condition reading one attribute of a fresh state would otherwise convert
-  // every attribute (`RenderBench.conditionAttr`, +174%). A race builds it twice.
-  @volatile private var javaAttrs: java.util.Map[Object, Object] | Null = null
+  lazy val javaAttributes: java.util.Map[Object, Object] =
+    EntityState.LazyAttrs(attributes)
 
   /** One attribute as [[javaAttributes]] holds it, `null` when absent. */
-  def attribute(name: String): Any =
-    val built = javaAttrs
-    if (built != null) built.get(name)
-    else attributes.get(name).fold(null: Any)(EntityState.toJava)
+  def attribute(name: String): Any = javaAttributes.get(name)
 
   /** CEL's `fh.Entity`, held here so an evaluation builds no struct. */
   lazy val celValue: Object = new Cel.EntityValue(this)
@@ -84,8 +68,8 @@ object EntityState {
 
   private[runtime] def toJavaObject(
       attrs: Map[String, Json]
-  ): java.util.Map[String, Any] = {
-    val m = new java.util.LinkedHashMap[String, Any](attrs.size)
+  ): java.util.Map[Object, Object] = {
+    val m = new java.util.LinkedHashMap[Object, Object](attrs.size)
     // Null dropped, so `'k' in attr` is false; a kept null makes CEL's index
     // throw.
     attrs.foreach {
@@ -95,19 +79,88 @@ object EntityState {
     m
   }
 
-  private def toJava(j: Json): Any =
-    j.fold(
+  private val dynMap: CelType = MapType.create(SimpleType.DYN, SimpleType.DYN)
+
+  /** CEL's map, built as cel-java's `MutableMapValue` is (a `CelValue`, so
+    * passed through unconverted) but without its copy, so an attribute is
+    * converted when first read. A null attribute is absent, as in
+    * [[toJavaObject]].
+    */
+  private[runtime] final class LazyAttrs(attrs: Map[String, Json])
+      extends CelValue
+      with SelectableValue[Object]
+      with java.util.Map[Object, Object] {
+    // Every value is kept, strings too: converting one allocates (circe's
+    // `fold`), and a page reads a state many times (`RenderBench.page`). Not a
+    // `ConcurrentHashMap`, which doubled a fresh state's first read
+    // (`RenderBench.conditionAttr`); a racing write may drop an entry, which
+    // costs a conversion.
+    @volatile private var read: Map[String, Object] = Map.empty
+    // Only a walk of the whole map builds it.
+    private lazy val whole = toJavaObject(attrs)
+
+    def get(key: Object | Null): Object | Null = key match
+      case k: String =>
+        val got = read.getOrElse(k, null)
+        if (got != null) got
+        else
+          attrs.get(k) match
+            case Some(j) if !j.isNull =>
+              val v = toJava(j)
+              if (v != null) read = read.updated(k, v)
+              v
+            case _ => null
+      case _ => null
+
+    def containsKey(key: Object | Null): Boolean = key match
+      case k: String => attrs.get(k).exists(!_.isNull)
+      case _         => false
+
+    def size(): Int = attrs.count(!_._2.isNull)
+    def isEmpty(): Boolean = size() == 0
+    def containsValue(v: Object | Null): Boolean = whole.containsValue(v)
+    def keySet(): java.util.Set[Object] = whole.keySet()
+    def values(): java.util.Collection[Object] = whole.values()
+    def entrySet(): java.util.Set[java.util.Map.Entry[Object, Object]] =
+      whole.entrySet()
+    def put(k: Object, v: Object): Object =
+      throw UnsupportedOperationException()
+    def remove(k: Object | Null): Object = throw UnsupportedOperationException()
+    def putAll(m: java.util.Map[? <: Object, ? <: Object]): Unit =
+      throw UnsupportedOperationException()
+    def clear(): Unit = throw UnsupportedOperationException()
+    override def equals(o: Any): Boolean = whole.equals(o)
+    override def hashCode(): Int = whole.hashCode()
+
+    def select(field: Object): Object =
+      get(field) match
+        case null =>
+          throw CelAttributeNotFoundException.forMissingMapKey(field.toString)
+        case v: Object => v
+    def find(field: Object): Optional[? <: Object] =
+      Optional.ofNullable(get(field))
+
+    def value(): Object = this
+    def isZeroValue(): Boolean = isEmpty()
+    def celType(): CelType = dynMap
+  }
+
+  private def toJava(j: Json): Object | Null =
+    j.fold[Object | Null](
       null,
-      b => b,
-      n => n.toLong.map(l => l: Any).getOrElse(n.toDouble),
+      b => java.lang.Boolean.valueOf(b),
+      n =>
+        n.toLong.fold(java.lang.Double.valueOf(n.toDouble))(
+          java.lang.Long.valueOf
+        ),
       s => s,
       arr => {
-        val l = new java.util.ArrayList[Any](arr.size)
+        val l = new java.util.ArrayList[Object | Null](arr.size)
         arr.foreach(x => l.add(toJava(x)))
         l
       },
       obj => {
-        val m = new java.util.LinkedHashMap[String, Any]()
+        val m = new java.util.LinkedHashMap[String, Object | Null]()
         obj.toIterable.foreach { case (k, v) => m.put(k, toJava(v)) }
         m
       }
@@ -209,25 +262,14 @@ class StateStore private (
                   value: EntityState,
                   previous: Option[EntityState]
               ) =
-                // Stored and published with the same stamp, or a render would
-                // be keyed to a version the snapshot never had.
-                previous.filter(EntityState.sameContent(_, value)) match {
-                  case Some(same) =>
-                    (
-                      m.updated(
-                        value.entityId,
-                        value.copy(contentVersion = same.contentVersion)
-                      ),
+                if (previous.exists(EntityState.sameContent(_, value)))
+                  (m.updated(value.entityId, value), changes)
+                else
+                  (
+                    m.updated(value.entityId, value),
+                    StateChange.Moved(value.entityId, previous, value) ::
                       changes
-                    )
-                  case None =>
-                    val stamped = value.copy(contentVersion = batch)
-                    (
-                      m.updated(value.entityId, stamped),
-                      StateChange.Moved(value.entityId, previous, stamped) ::
-                        changes
-                    )
-                }
+                  )
 
               val previous = m.get(ingest.entityId)
               ingest match {

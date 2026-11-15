@@ -11,7 +11,10 @@ import java.io.{Reader, StringReader, Writer}
 /** Card templates, compiled once by validation ([[Templates.card]]). A missing
   * slot renders empty.
   */
-final class Templates(cards: Map[String, Templates.Card]):
+final class Templates(
+    cards: Map[String, Templates.Card],
+    val failedLabel: JavaMustache
+):
   /** One template per card: a leaf's is its patch fragment. */
   val components: Map[String, JavaMustache] =
     cards.view.mapValues(_.mustache).toMap
@@ -70,6 +73,13 @@ object Templates {
     case JsValue extends View("jsValue")
     case Signal extends View("signal")
 
+    /** A placed call's id, its `seen` object and its pending ask, for
+      * `tapMod.post`.
+      */
+    case CallId extends View("callId")
+    case Seen extends View("seen")
+    case Pending extends View("pending")
+
   object View:
     private val bySpelling: Map[String, View] =
       values.map(v => v.spelling -> v).toMap
@@ -96,6 +106,13 @@ object Templates {
       * children, the chrome's body. A string would be a full copy of them.
       */
     def writerHoles: Map[String, Writer => Unit] = Map.empty
+
+    /** Writes the hole `name` if this scope has one. A scope that fills a hole
+      * on every run (a card root's) answers it here, so no map is built per
+      * run.
+      */
+    def writeHole(name: String, writer: Writer): Boolean =
+      writerHoles.contains(name) && { writerHoles(name)(writer); true }
 
   private class FhObjectHandler
       extends com.github.mustachejava.reflect.SimpleObjectHandler() {
@@ -151,10 +168,8 @@ object Templates {
       var i = scopes.size() - 1
       while wrote == null && i >= 0 do
         scopes.get(i) match
-          case s: FhScope if s.writerHoles.contains(name) =>
-            val _ = s.writerHoles(name)(writer)
-            wrote = writer
-          case _ => i -= 1
+          case s: FhScope if s.writeHole(name, writer) => wrote = writer
+          case _                                       => i -= 1
       // The literal after the hole lives in this code's `appended` text;
       // skipping `appendText` dropped every template's trailing bytes.
       if wrote != null then appendText(wrote)
@@ -200,6 +215,9 @@ object Templates {
     * @param unguardedSignals
     *   the slots whose `x.signal` sits outside `{{#x.signal}}`, where it would
     *   print nothing on a node whose `x` is not a signal
+    * @param inExpression
+    *   the names placed as `{{x}}` inside a Datastar expression attribute,
+    *   where the value is pasted into JavaScript
     */
   final case class Reads(
       names: Set[String],
@@ -211,7 +229,8 @@ object Templates {
       views: Set[(String, View)],
       boundInOwnSection: Set[String],
       unknownViews: Set[String],
-      unguardedSignals: Set[String]
+      unguardedSignals: Set[String],
+      inExpression: Set[String] = Set.empty
   )
 
   /** A `{{#tag}}` section, or `{{^tag}}` when inverted. */
@@ -246,11 +265,24 @@ object Templates {
         Card(
           tpl,
           readCodes(tpl.getCodes(), regions, Nil, Reads.empty)
+            .copy(inExpression = inExpression(template))
         )
       )
     catch
       case e: com.github.mustachejava.MustacheException =>
         Left(Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+
+  // An attribute whose value the bundle evaluates as JavaScript; a bare
+  // `data-bind` or `data-indicator` names a signal, and is not one.
+  private val ExpressionAttr =
+    """\sdata-(?:on[:-][^\s=]*|effect|init|computed[^\s=]*|text|show|class[^\s=]*|style[^\s=]*|attr[^\s=]*|signals[^\s=]*)="([^"]*)"""".r
+  private val EscapedTag = """(?<!\{)\{\{\s*([A-Za-z_][\w]*)\s*\}\}(?!\})""".r
+
+  private def inExpression(template: String): Set[String] =
+    ExpressionAttr
+      .findAllMatchIn(template)
+      .flatMap(m => EscapedTag.findAllMatchIn(m.group(1)).map(_.group(1)))
+      .toSet
 
   private def readCodes(
       codes: Array[com.github.mustachejava.Code],

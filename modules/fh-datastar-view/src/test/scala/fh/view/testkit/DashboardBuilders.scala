@@ -1,8 +1,22 @@
 package fh.view.testkit
 
-import fh.view.model.{Cell, Dashboard, LayoutNode, ValueExpr, TemplateSlot}
+import fh.view.model.{
+  CallDecl,
+  CardDef,
+  Case,
+  Cell,
+  Choice,
+  Dashboard,
+  LayoutNode,
+  Lit,
+  TemplateSlot,
+  Value,
+  ValueExpr,
+  VarValue
+}
 
 import scala.collection.immutable.ListMap
+import io.github.iltotore.iron.refineUnsafe
 import fh.view.runtime.EntityState
 import io.circe.Json
 
@@ -28,6 +42,15 @@ object DashboardBuilders {
     }
   }
 
+  /** A table chosen by the variable `name`, as `p.history.chosen` writes one:
+    * each key a text case, no `otherwise`.
+    */
+  def chosenBy[A](name: String, table: Map[String, A]): Choice[A] =
+    Choice.Chosen(
+      ValueExpr(Value.Var(name)),
+      table.toList.sortBy(_._1).map((k, a) => Case(Lit.Text(k), a))
+    )
+
   /** An [[EntityState]] with optional typed attributes. */
   def st(entityId: String, state: String, attrs: (String, Json)*): EntityState =
     EntityState(entityId, state, attrs.toMap)
@@ -40,6 +63,30 @@ object DashboardBuilders {
     */
   def declared(defaults: (String, String)*): List[Dashboard.Declaration] =
     defaults.toList.map(Dashboard.Declaration(_, _))
+
+  /** The card [[choices]] places, under [[ChoiceCard]]. */
+  val choiceCard: CardDef =
+    TestCard("""<a>{{{tap.pending}}}{{{tap.callId}}}</a>""")
+
+  val ChoiceCard: String = "choice"
+
+  /** A node per value choosing it for the variable `name`, as a tab bar's
+    * buttons do: what a test presses to write it.
+    */
+  def choices(name: String, values: String*): List[LayoutNode] =
+    values.toList.map(v => choosing(name, Some(v)))
+
+  /** A node whose press chooses `value` for `name`, or clears it at `None`. */
+  def choosing(name: String, value: Option[String]): LayoutNode =
+    LayoutNode.Component(
+      ChoiceCard,
+      calls = Map(
+        "tap" -> CallDecl.SetVar(
+          name,
+          value.map(_.refineUnsafe[VarValue.Token])
+        )
+      )
+    )
 
   /** A constant literal slot (a bare value, no entity/transform). */
   def lit(s: String): TemplateSlot = TemplateSlot(ValueExpr.literal(s))

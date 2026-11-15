@@ -57,6 +57,10 @@ reference; these are the guide, so they need only what a reader would otherwise 
 build it": the question, how it was measured, the numbers, and what would reopen it. Check it
 before measuring something, and add an entry when an experiment's answer is no.
 
+[`docs/pkl-editor-support.md`](docs/pkl-editor-support.md) records what `/edit`'s pkl-lsp
+offers through the library. Check it before choosing a library shape, and add a case to
+`PklEditorSupportSuite` when a change bets on the editor following it.
+
 A `docs/plan-*.md` is a design for work **in flight**, not a description of the sources — do not
 assume an API written there exists.
 

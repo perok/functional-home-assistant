@@ -1,6 +1,6 @@
 ---
 name: scala-hedgehog
-description: Hedgehog property-based testing for Scala with munit — artifact, idioms, shrinking, seed replay, and pitfalls verified in this repo (DigestPropertySuite). Use when writing or reviewing property-based tests here, or whenever property testing with hedgehog comes up (context7 only indexes the HASKELL hedgehog).
+description: Hedgehog property-based testing for Scala with munit — artifact, idioms, shrinking, seed replay, and pitfalls verified in this repo (ByteValuesPropertySuite, ByteValuesShapePropertySuite). Use when writing or reviewing property-based tests here, or whenever property testing with hedgehog comes up (context7 only indexes the HASKELL hedgehog).
 ---
 
 ## Why this skill exists
@@ -34,7 +34,7 @@ class MySuite extends HedgehogSuite {
 ## Idioms (the documented shape)
 
 ```scala
-property("a leaf's recorded digest matches what the live path renders") {
+property("a leaf's recorded values are the live path's") {
   for {
     v      <- genValue.forAll        // <- .forAll INSIDE the for-comprehension
     signal <- Gen.boolean.forAll
@@ -70,7 +70,7 @@ property("a leaf's recorded digest matches what the live path renders") {
   newlines, unicode, empty).
 - Shrinking is INTEGRATED and automatic — never hand-write a shrink. What you
   owe instead: properties that fail WELL — assert the invariant, not the
-  instance (`equal digest <=> equal bytes` shrinks to a minimal counterexample;
+  instance (`equal values => equal bytes` shrinks to a minimal counterexample;
   a big structural comparison does not).
 
 ## Pitfalls (all hit in this repo once)
@@ -97,7 +97,10 @@ property("a leaf's recorded digest matches what the live path renders") {
 
 ## The reference in this repo
 
-`modules/fh-datastar-view/src/test/scala/fh/view/runtime/DigestPropertySuite.scala`
-— two properties pinning walk-trace vs live-path byte agreement over generated
-shapes (interesting-character pool, both render forms, named seeds). Read it
-before writing a new property suite here.
+`modules/fh-datastar-view/src/test/scala/fh/view/runtime/ByteValuesPropertySuite.scala`
+— the walk's recorded values against the live path's, and equal values meaning
+equal bytes, over an interesting-character pool, with named seeds.
+`ByteValuesShapePropertySuite` beside it generates the node SHAPES too, pairs
+each world with a neighbour one input away, and uses `cover` so the case that
+matters (an input moved, the values did not) cannot silently stop generating.
+Read them before writing a new property suite here.

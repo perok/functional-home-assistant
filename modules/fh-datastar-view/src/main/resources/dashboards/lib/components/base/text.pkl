@@ -12,9 +12,9 @@ const local toneSlot: slotMod.Slot = slotMod.slot("tone")
 class SectionTitle extends nodes.Node {
   card = "sectionTitle"
   cardDef = new nodes.CardDef {
-    template = """
-      <h2 class="fh-section \(textMod.BOX)">\(textMod.run(labelSlot))</h2>
-      """
+    tag = "h2"
+    classes = "fh-section \(textMod.BOX)"
+    template = textMod.run(labelSlot)
   }
   hidden text: String
   slots { labelSlot.of(text) }

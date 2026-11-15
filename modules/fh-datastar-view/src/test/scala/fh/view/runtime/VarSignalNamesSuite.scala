@@ -50,8 +50,8 @@ class VarSignalNamesSuite extends CatsEffectSuite {
           .toList
         assertEquals(keys.map(_.name).sorted, List("tab", "window"), html)
         keys.foreach { key =>
-          // The mirror, the shell's seeds and clear, and every button's route
-          // and ask.
+          // The mirror, the shell's seeds and clear, and every button's ask
+          // before its press.
           assert(
             html.contains(
               s"""data-fh-url:${key.name}="['${key.urlParam}', $$${key.committedSignal}, '${declared(
@@ -68,11 +68,11 @@ class VarSignalNamesSuite extends CatsEffectSuite {
             key
           )
           assert(
-            html.contains(s"/${key.declarer}/${key.name}/") &&
-              html.contains(s"?group=${key.group}'"),
+            s"""\\$$${key.pendingSignal} = '[^']*'; @post\\('sse/call/""".r
+              .findFirstIn(html)
+              .isDefined,
             clue = key
           )
-          assert(html.contains(s"$$${key.pendingSignal} = '"), clue = key)
         }
       }
   }

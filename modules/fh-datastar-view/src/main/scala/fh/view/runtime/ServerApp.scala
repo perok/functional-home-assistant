@@ -90,7 +90,7 @@ object ServerApp extends IOApp {
           workspaceDir(args, dirEnv).leftMap(Exception(_))
         )
         dashboardsDir = os.Path(dir, os.pwd)
-        // A dev run shares `~/.pkl/cache` with the `pkl` CLI and pkl-lsp.
+        // A dev run shares pkl's own cache with the `pkl` CLI and pkl-lsp.
         cacheDir <- pathFromEnv(
           "FH_PKL_CACHE_DIR",
           AddonBootstrap.defaultCacheDir

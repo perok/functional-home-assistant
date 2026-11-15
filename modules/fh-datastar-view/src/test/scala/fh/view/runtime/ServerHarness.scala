@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import fh.view.fetch.FetchSnapshot
@@ -160,12 +161,12 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def tabsDash: Dashboard = {
     val cards = Map(
       "btn" ->
-        CardDef("<button>{{label}}</button>"),
+        TestCard("<button>{{label}}</button>"),
       "card" ->
-        CardDef("<span>{{state}}</span>"),
+        TestCard("<span>{{state}}</span>"),
       // Shaped like the shipped `Tabs`: the bar is structure, never a patch
       // target.
-      "tabs" -> CardDef(
+      "tabs" -> TestCard(
         template = """<div class="tabs">""" +
           """{{{children}}}</div>""" +
           """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>""",
@@ -241,11 +242,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
   // No bake groups, so its live patches belong entirely to the shared pass.
   def liveLeafDash = Dashboard(
     cards = Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>")
+      "card" -> TestCard("<span>{{state}}</span>")
     ),
     card = LayoutNode.Component(
       "col",
@@ -293,7 +294,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
   val isOn: ValueExpr = Conds.cmp("state", Op.Eq, Json.fromString("on"))
 
   def dynDash = Dashboard(
-    cards = Map("dot" -> CardDef("<span>{{state}}</span>")),
+    cards = Map("dot" -> TestCard("<span>{{state}}</span>")),
     // Sorted, which the placement assertions were written against; a set places
     // by authored order.
     card = onSet(
@@ -323,17 +324,17 @@ trait ServerHarness extends munit.CatsEffectSuite {
   val armedCond = entityIs("alarm.h", "armed")
 
   val ifCards = Map(
-    "col" -> CardDef(
+    "col" -> TestCard(
       "<div>{{{children}}}</div>",
       regions = Map("children" -> Region())
     ),
     // Pure structure, like `lib/components/base/surface.pkl`'s `If`.
-    "ifhost" -> CardDef(
+    "ifhost" -> TestCard(
       template = """<div id="{{hostId}}">{{{branch}}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
     ),
-    "card" -> CardDef("<span>{{state}}</span>"),
-    "dot" -> CardDef("<b>{{state}}</b>")
+    "card" -> TestCard("<span>{{state}}</span>"),
+    "dot" -> TestCard("<b>{{state}}</b>")
   )
 
   def branchCard(entity: String): LayoutNode.Component =
@@ -389,12 +390,12 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def mixedTabsDash = Dashboard(
     cards = Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>"),
-      "tabs" -> CardDef(
+      "card" -> TestCard("<span>{{state}}</span>"),
+      "tabs" -> TestCard(
         template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )
@@ -673,12 +674,12 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def twoTabsDash = Dashboard(
     cards = Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>"),
-      "tabs" -> CardDef(
+      "card" -> TestCard("<span>{{state}}</span>"),
+      "tabs" -> TestCard(
         template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )

@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
   CardDef,
@@ -14,6 +15,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.FixtureEntity
 import fh.view.testkit.TestIds.given
+import RendererTestOps.heldFor
 import io.circe.Json
 
 /** End to end over the real stream, with several clients: what one connection
@@ -95,16 +97,16 @@ class LiveStreamSuite extends ServerHarness {
 
   private def tabsInBranchDash = Dashboard(
     cards = Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>"),
-      "ifhost" -> CardDef(
+      "card" -> TestCard("<span>{{state}}</span>"),
+      "ifhost" -> TestCard(
         template = """<div id="{{hostId}}">{{{branch}}}</div>""",
         regions = Map("branch" -> Region(Region.Baked))
       ),
-      "tabs" -> CardDef(
+      "tabs" -> TestCard(
         template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )
@@ -145,21 +147,20 @@ class LiveStreamSuite extends ServerHarness {
   )
 
   /** Structure is refused by id: its rendering holds hosts, and the log is per
-    * slug, so a digest for it is one viewer's bytes presented as everyone's.
-    * The failure it caused: a client on tab 1 reconnected and was morphed onto
-    * tab 0.
+    * slug, so a record of it is one viewer's bytes presented as everyone's. The
+    * failure it caused: a client on tab 1 reconnected and was morphed onto tab 0.
     */
 
   private def barePopupTabsDash = Dashboard(
     cards = Map(
       // Pure structure, like the shipped `Column`: no markup of its own to
       // fingerprint.
-      "col" -> CardDef(
+      "col" -> TestCard(
         template = "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>"),
-      "tabs" -> CardDef(
+      "card" -> TestCard("<span>{{state}}</span>"),
+      "tabs" -> TestCard(
         template = """<div>bar</div><div id="{{hostId}}">{{{panel}}}</div>""",
         regions = Map("panel" -> Region(Region.Baked))
       )
@@ -192,11 +193,11 @@ class LiveStreamSuite extends ServerHarness {
     // and sends nothing.
     val dash = Dashboard(
       cards = Map(
-        "col" -> CardDef(
+        "col" -> TestCard(
           template = "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         ),
-        "card" -> CardDef("<span>{{state}}</span>")
+        "card" -> TestCard("<span>{{state}}</span>")
       ),
       card = LayoutNode.Component("col"),
       surfaces = Map(
@@ -208,16 +209,10 @@ class LiveStreamSuite extends ServerHarness {
         )
       )
     )
-    val painted = Held.of(
-      Renderer
-        .create(dash)
-        .renderNodeById(
-          "s_det__c_0",
-          Shared.of(Map("sensor.a" -> es("sensor.a", "cold"))),
-          Viewing(Selections.none, FetchSnapshot.empty)
-        )
-        .get
-    )
+    val painted = Renderer
+      .create(dash)
+      .heldFor("s_det__c_0", Map("sensor.a" -> es("sensor.a", "cold")))
+      .get
     val node = NodeId.derived("s_det__c_0")
     live(dash, Map("sensor.a" -> es("sensor.a", "cold"))) { ts =>
       for {
@@ -301,7 +296,7 @@ class LiveStreamSuite extends ServerHarness {
     // never be resolved.
     val d = Dashboard(
       cards = ifCards ++ Map(
-        "col" -> CardDef(
+        "col" -> TestCard(
           template = "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         )
@@ -342,14 +337,7 @@ class LiveStreamSuite extends ServerHarness {
     // Holding exactly what a patch for that node alone would carry, which makes
     // the two comparable.
     val leaf: NodeId = "s_then__c_0"
-    assertEquals(
-      patch.establishes.get(leaf),
-      r.renderNodeById(
-        leaf,
-        Shared.of(armed),
-        Viewing(Selections.none, FetchSnapshot.empty)
-      ).map(Held.of)
-    )
+    assertEquals(patch.establishes.get(leaf), r.heldFor(leaf, armed))
     val root = NodeId.derived("s_then__c")
     assertEquals(
       r.renderNodeById(
@@ -379,12 +367,8 @@ class LiveStreamSuite extends ServerHarness {
     val log = FragmentLog("w23").touched(host, 5L)
     val holds: Map[NodeId, Held] =
       Map(
-        host -> Held.of(
-          r.renderNodeById(
-            host,
-            Shared.of(states),
-            Viewing(Selections.none, FetchSnapshot.empty)
-          ).get
+        host -> Held(
+          r.byteSlotValues(host, Shared.of(states), FetchSnapshot.empty)
         )
       )
     val owed = resumeNow(
@@ -430,11 +414,8 @@ class LiveStreamSuite extends ServerHarness {
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
-      r.renderNodeById(
-        id,
-        Shared.of(before),
-        Viewing(mine, FetchSnapshot.empty)
-      ).map(h => id -> Held.of(h))
+      r.byteSlotValues(id, Shared.of(before), FetchSnapshot.empty)
+        .map(v => id -> Held(Some(v)))
     }.toMap
 
     val tab0Moved = before.updated("sensor.a", es("sensor.a", "A1"))
@@ -541,17 +522,17 @@ class LiveStreamSuite extends ServerHarness {
 
   private def serverHighlightDash = Dashboard(
     cards = Map(
-      "col" -> CardDef(
+      "col" -> TestCard(
         template = "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       ),
-      "card" -> CardDef("<span>{{state}}</span>"),
-      "tabs" -> CardDef(
+      "card" -> TestCard("<span>{{state}}</span>"),
+      "tabs" -> TestCard(
         template =
           """<div class="active-{{bakeIndex}}">{{{bar}}}</div><div id="{{hostId}}">{{{panel}}}</div>""",
         regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
       ),
-      "bar" -> CardDef("""<div>{{title}}</div>""")
+      "bar" -> TestCard("""<div>{{title}}</div>""")
     ),
     card = LayoutNode.Component(
       "col",
@@ -589,10 +570,10 @@ class LiveStreamSuite extends ServerHarness {
   )
 
   test(
-    "a variant keeps its own digest, so an unchanged tick is suppressed"
+    "a variant keeps its own record, so an unchanged tick is suppressed"
   ) {
     // Variants of a bake owner are static, one per member, so each has its own
-    // digest: two viewers on different tabs get their own suppression.
+    // record: two viewers on different tabs get their own suppression.
     live(
       serverHighlightDash,
       Map(
@@ -762,11 +743,11 @@ class LiveStreamSuite extends ServerHarness {
     // twice.
     val twoCards = Dashboard(
       cards = Map(
-        "col" -> CardDef(
+        "col" -> TestCard(
           "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
         ),
-        "card" -> CardDef("<span>{{state}}</span>")
+        "card" -> TestCard("<span>{{state}}</span>")
       ),
       card = LayoutNode.Component(
         "col",
@@ -820,7 +801,7 @@ class LiveStreamSuite extends ServerHarness {
     "viewers SHARING a selection each get the fill, not just the first"
   ) {
     // The verdict is memoised, not the render. Sharing the render let the first
-    // viewer write the digest, so the second was told its branch was unchanged
+    // viewer write the record, so the second was told its branch was unchanged
     // and sat on an empty host. The other multi-client tests use different
     // selections, so none pinned this.
     live(

@@ -63,7 +63,7 @@ class ServiceCallsRestSuite extends munit.CatsEffectSuite {
               Some(
                 Json.obj(
                   "brightness" -> Json.fromInt(80),
-                  "entity_id" -> Json.fromString("light.overetasje")
+                  "entity_id" -> Json.arr(Json.fromString("light.overetasje"))
                 )
               )
             )

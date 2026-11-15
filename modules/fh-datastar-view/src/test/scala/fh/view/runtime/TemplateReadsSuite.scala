@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
+
 /** What [[Templates.card]] reads off a template: the names a node must set, the
   * names it may, and where each region is placed.
   */
@@ -81,7 +83,7 @@ class TemplateReadsSuite extends munit.FunSuite:
     import fh.view.model.*
     val d = Dashboard(
       Map(
-        "card" -> CardDef(
+        "card" -> TestCard(
           """<div><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
         )
       ),

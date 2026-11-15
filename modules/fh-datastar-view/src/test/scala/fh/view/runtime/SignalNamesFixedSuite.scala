@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
   Part,
@@ -24,14 +25,14 @@ import io.circe.Json
 class SignalNamesFixedSuite extends munit.FunSuite {
 
   private val cards = Map(
-    "col" -> CardDef(
+    "col" -> TestCard(
       "<div>{{{children}}}</div>",
       regions = Map("children" -> Region())
     ),
-    "card" -> CardDef(
+    "card" -> TestCard(
       """<span {{{value.bind}}}>{{value}}</span>"""
     ),
-    "two" -> CardDef(
+    "two" -> TestCard(
       """<span {{{a.bind}}} {{{b.bind}}}>{{a}}{{b}}</span>"""
     )
   )

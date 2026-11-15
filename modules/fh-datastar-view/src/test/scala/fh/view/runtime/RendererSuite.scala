@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import fh.view.fetch.FetchSnapshot
@@ -48,26 +49,26 @@ class RendererSuite extends munit.FunSuite {
       r.affectedSets(List(change))
 
   private val cards = Map(
-    "card" -> CardDef(
+    "card" -> TestCard(
       """<div><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
     ),
-    "btn" -> CardDef("""<button>{{label}}</button>"""),
-    "gauge" -> CardDef("""<i>{{bri}}</i>"""),
-    "act" -> CardDef(
+    "btn" -> TestCard("""<button>{{label}}</button>"""),
+    "gauge" -> TestCard("""<i>{{bri}}</i>"""),
+    "act" -> TestCard(
       """<a href="{{{action}}}">go</a>"""
     ),
-    "col" -> CardDef(
+    "col" -> TestCard(
       """<div class="fh-col">{{{children}}}</div>""",
       regions = Map("children" -> Region())
     ),
-    "row" -> CardDef(
+    "row" -> TestCard(
       """<div class="fh-row">{{{children}}}</div>""",
       regions = Map("children" -> Region())
     ),
     // Shaped like the shipped `Tabs`, structure with a bar region and a baked
     // panel region, because `CardDef.isStructure` is what the engine dispatches
     // on: a fixture whose shape drifted would be a different kind of card.
-    "tabs" -> CardDef(
+    "tabs" -> TestCard(
       template = """<div class="fh-col"><div class="fh-row tabbar">""" +
         """{{{children}}}</div>""" +
         """<div id="{{hostId}}" class="fh-tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
@@ -75,12 +76,12 @@ class RendererSuite extends munit.FunSuite {
     ),
     // The live header is a node in the bar region, so a title tick patches that
     // node and cannot reach the panel.
-    "tabsLive" -> CardDef(
+    "tabsLive" -> TestCard(
       template = """<div><div class="tabs">{{{bar}}}</div>""" +
         """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
       regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
     ),
-    "tabsBar" -> CardDef("""<span>{{title}}</span>""")
+    "tabsBar" -> TestCard("""<span>{{title}}</span>""")
   )
 
   // As `c.tabs` plus the hoist produce it: the surfaces carry `bakeInto:"c"`,
@@ -284,7 +285,9 @@ class RendererSuite extends munit.FunSuite {
       Conds.cmp("state", Op.Eq, Json.fromString("off"), Some("switch.x"))
     val r = Renderer.create(
       Dashboard(
-        Map("flag" -> CardDef("<b>{{#off}}OFF{{/off}}{{^off}}lit{{/off}}</b>")),
+        Map(
+          "flag" -> TestCard("<b>{{#off}}OFF{{/off}}{{^off}}lit{{/off}}</b>")
+        ),
         LayoutNode.Component(
           card = "flag",
           templateSlots =
@@ -315,7 +318,7 @@ class RendererSuite extends munit.FunSuite {
     )
     val r = Renderer.create(
       Dashboard(
-        Map("lead" -> CardDef("<b>{{lead}}</b>")),
+        Map("lead" -> TestCard("<b>{{lead}}</b>")),
         LayoutNode.Component(
           card = "lead",
           templateSlots = Map("lead" -> TemplateSlot(leader))
@@ -517,19 +520,23 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
+  // A tab anchor's root, as `core/node.pkl` writes `tag = "a"`, `layoutCell =
+  // false`.
+  private val anchor = CardDef(
+    """<a class="tab{{{cellClasses}}}"{{{cell}}} data-tab="{{id}}"><span>{{state}}</span></a>""",
+    layoutCell = false
+  )
+
   test(
-    "a wrapAsCell=false card renders bare: no fh-cell wrapper, no injected id wrapper"
+    "a layoutCell=false card's root is the card's own element, with its id"
   ) {
-    // Opted out of the wrapper, so its root stays a direct child of a
-    // framework-structural parent. Such a card may only carry literal or
-    // identity slots (rejection test below).
-    val bareCards = cards + ("naked" -> CardDef(
-      """<a class="tab" data-tab="{{id}}"><span>{{state}}</span></a>""",
-      wrapAsCell = false
-    ))
     val d = Dashboard(
-      bareCards,
-      LayoutNode.Component("naked", templateSlots = Map("state" -> lit("42")))
+      cards + ("naked" -> anchor),
+      LayoutNode.Component(
+        "naked",
+        templateSlots = Map("state" -> lit("42")),
+        cell = Some(classes("hero"))
+      )
     )
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
@@ -539,20 +546,27 @@ class RendererSuite extends munit.FunSuite {
         Shared.of(Map.empty),
         Viewing(Selections.none, FetchSnapshot.empty)
       ).get,
-      """<a class="tab" data-tab="c"><span>42</span></a>"""
+      """<a class="tab hero" id="c" data-tab="c"><span>42</span></a>"""
     )
   }
 
   test(
-    "validate rejects the wrapper-dependent shapes on a wrapAsCell=false card"
+    "a layoutCell=false card refuses only layout classes: its root keeps its id"
   ) {
-    // All of these fail silently at render time without the wrapper, so each is
-    // a build error.
-    val bareCards = cards + ("naked" -> CardDef(
-      "<a>{{state}}</a>",
-      wrapAsCell = false
-    ))
-    // A live-entity slot: the pushed morphs could never match an element.
+    val bareCards = cards + ("naked" -> anchor)
+    val sized = Dashboard(
+      bareCards,
+      LayoutNode.Component(
+        "naked",
+        templateSlots = Map("state" -> lit("42")),
+        cell = Some(Cell(layout = List("fh-cols-3")))
+      )
+    )
+    assert(
+      sized.validate().exists(_.contains("layoutCell=false")),
+      clue = sized.validate()
+    )
+    // A live slot has its morph target and a set clause its patch target.
     val live = Dashboard(
       bareCards,
       LayoutNode.Component(
@@ -564,24 +578,7 @@ class RendererSuite extends munit.FunSuite {
         )
       )
     )
-    assert(
-      live.validate().exists(_.contains("binds live entities")),
-      clue = live.validate()
-    )
-    // Cell params: there is no wrapper to carry the classes.
-    val sized = Dashboard(
-      bareCards,
-      LayoutNode.Component(
-        "naked",
-        templateSlots = Map("state" -> lit("42")),
-        cell = Some(classes("fh-cols-3"))
-      )
-    )
-    assert(
-      sized.validate().exists(_.contains("carries cell params")),
-      clue = sized.validate()
-    )
-    // A set clause: every member is a wrapped per-candidate patch target.
+    assertEquals(live.validate(), Nil)
     val clause = Dashboard(
       bareCards,
       onSet(
@@ -589,9 +586,17 @@ class RendererSuite extends munit.FunSuite {
         List((None, "naked", Map("state" -> lit("x")), None))
       )
     )
+    assertEquals(clause.validate(), Nil)
+  }
+
+  test("validate refuses a card whose template does not write the root") {
+    val d = Dashboard(
+      cards + ("bare" -> CardDef("<a>{{state}}</a>")),
+      LayoutNode.Component("bare", templateSlots = Map("state" -> lit("42")))
+    )
     assert(
-      clause.validate().exists(_.contains("cannot be a set clause")),
-      clue = clause.validate()
+      d.validate().exists(_.contains("{{{cell}}} exactly once")),
+      clue = d.validate()
     )
   }
 
@@ -991,8 +996,8 @@ class RendererSuite extends munit.FunSuite {
     // arriving later in one <style>. The content is `pkl test`'s to assert.
     val d = Dashboard(
       Map(
-        "b" -> CardDef("<b></b>", css = ".b{color:blue}"),
-        "a" -> CardDef("<i></i>", css = ".a{color:green}")
+        "b" -> TestCard("<b></b>", css = ".b{color:blue}"),
+        "a" -> TestCard("<i></i>", css = ".a{color:green}")
       ),
       LayoutNode.Component(card = "a"),
       theme = Theme(styles = ".card{color:red}"),
@@ -1011,11 +1016,13 @@ class RendererSuite extends munit.FunSuite {
     // (`Server.headPatches`), so card CSS the hash missed would leave a stale
     // stylesheet.
     val base = Dashboard(
-      Map("a" -> CardDef("<i></i>")),
+      Map("a" -> TestCard("<i></i>")),
       LayoutNode.Component(card = "a")
     )
     val styled =
-      base.copy(cards = Map("a" -> CardDef("<i></i>", css = ".a{color:green}")))
+      base.copy(cards =
+        Map("a" -> TestCard("<i></i>", css = ".a{color:green}"))
+      )
     assertNotEquals(
       Renderer.create(base).styleHash,
       Renderer.create(styled).styleHash
@@ -1223,7 +1230,7 @@ class RendererSuite extends munit.FunSuite {
     // The hole is the same raw spelling for both fills, so the check is
     // presence.
     val eagerMissing = dash(
-      CardDef("<div>nothing</div>", regions = Map("kids" -> Region()))
+      TestCard("<div>nothing</div>", regions = Map("kids" -> Region()))
     )
     assert(
       eagerMissing
@@ -1233,7 +1240,7 @@ class RendererSuite extends munit.FunSuite {
     )
 
     val bakedWrongHole = dash(
-      CardDef(
+      TestCard(
         // A section where the hole goes: what an older workspace card has.
         "<div>{{#panel}}{{{html}}}{{/panel}}</div>",
         regions = Map("panel" -> Region(Region.Baked))
@@ -1249,7 +1256,7 @@ class RendererSuite extends munit.FunSuite {
     // Non-vacuous: the raw hole, placed for both fills, is accepted.
     assertEquals(
       dash(
-        CardDef(
+        TestCard(
           """<div>{{{kids}}}<i id="{{hostId}}">{{{panel}}}</i></div>""",
           regions = Map("kids" -> Region(), "panel" -> Region(Region.Baked))
         )
@@ -1306,7 +1313,7 @@ class RendererSuite extends munit.FunSuite {
     * asserted.
     */
   test("two eager regions splice separately and address separately") {
-    val two = CardDef(
+    val two = TestCard(
       template = """<div><b>{{{children}}}</b>""" +
         """<i>{{{extra}}}</i></div>""",
       regions = Map("children" -> Region(), "extra" -> Region())
@@ -1426,7 +1433,7 @@ class RendererSuite extends munit.FunSuite {
     */
   test("structure may READ an entity, as long as the slot is not reactive") {
     def dash(mode: Reads) = Dashboard(
-      cards + ("box" -> CardDef(
+      cards + ("box" -> TestCard(
         """<div title="{{name}}">{{{children}}}</div>""",
         regions = Map("children" -> Region())
       )),
@@ -1475,7 +1482,7 @@ class RendererSuite extends munit.FunSuite {
   test("validate: a region name that could be read as an index is rejected") {
     def card(region: String) = Dashboard(
       Map(
-        "box" -> CardDef(
+        "box" -> TestCard(
           s"<div>{{{$region}}}</div>",
           regions = Map(region -> Region())
         )
@@ -1712,7 +1719,7 @@ class RendererSuite extends munit.FunSuite {
   private val ifCards =
     // Mirrors lib/components.pkl's `If`: one baked region and no markup of its
     // own. The region's id is `Surface.hostId`.
-    cards + ("ifhost" -> CardDef(
+    cards + ("ifhost" -> TestCard(
       template = """<div id="{{hostId}}">{{{branch}}}</div>""",
       regions = Map("branch" -> Region(Region.Baked))
     ))
@@ -1889,7 +1896,7 @@ class RendererSuite extends munit.FunSuite {
     def dash(container: CardDef) = Dashboard(
       cards = Map(
         "box" -> container,
-        "card" -> CardDef("<span>{{state}}</span>")
+        "card" -> TestCard("<span>{{state}}</span>")
       ),
       card = LayoutNode.Component(
         "box",
@@ -1907,7 +1914,7 @@ class RendererSuite extends munit.FunSuite {
     )
 
     val undeclared =
-      dash(CardDef("<div>{{{children}}}</div>"))
+      dash(TestCard("<div>{{{children}}}</div>"))
     assert(
       undeclared
         .validate()
@@ -1916,7 +1923,7 @@ class RendererSuite extends munit.FunSuite {
     )
 
     val declared = dash(
-      CardDef(
+      TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
       )
@@ -1951,15 +1958,15 @@ class RendererSuite extends munit.FunSuite {
     */
   test("a live head beside its members carries none of them") {
     val cards = Map(
-      "host" -> CardDef(
+      "host" -> TestCard(
         template = """{{{head}}}""" +
           """<div>{{{children}}}</div>""",
         regions = Map("head" -> Region(), "children" -> Region())
       ),
-      "head" -> CardDef("""<span>{{state}}</span>"""),
+      "head" -> TestCard("""<span>{{state}}</span>"""),
       // A member that is itself a container broke this when the answer was a
       // walk over what the children carried.
-      "member" -> CardDef(
+      "member" -> TestCard(
         template = """<div>m{{{children}}}</div>""",
         regions = Map("children" -> Region())
       )
@@ -2134,13 +2141,13 @@ class RendererSuite extends munit.FunSuite {
   /** A live node beside the children (ADR 0012): `bar` holds the live header,
     * `children` the rest.
     */
-  private val splitCards = cards + ("split" -> CardDef(
+  private val splitCards = cards + ("split" -> TestCard(
     // No `{{hostId}}`: a region needs an id only where `bakeAs` names it for
     // filling.
     template = """<div class="fh-col">{{{bar}}}""" +
       """<div class="panel">{{{children}}}</div></div>""",
     regions = Map("bar" -> Region(), "children" -> Region())
-  )) + ("bar" -> CardDef(
+  )) + ("bar" -> TestCard(
     """<div class="bar">{{state}}</div>"""
   ))
 
@@ -2220,7 +2227,7 @@ class RendererSuite extends munit.FunSuite {
     val names = Dashboard.injectedStatic.toList.sorted
     val d = Dashboard(
       Map(
-        "probe" -> CardDef(
+        "probe" -> TestCard(
           names.map(v => s"$v=[{{$v}}]").mkString("<p>", " ", "</p>")
         )
       ),

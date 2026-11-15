@@ -1,8 +1,9 @@
 package fh.view.model
 
-import api.homeassistant.ServiceTarget
 import cats.syntax.all.*
 import fh.view.runtime.{Cel, EntityState, Evaluator}
+
+import scala.collection.immutable.ListMap
 
 /** The compiled model: what `Dashboard.validated` walks the wire into, every
   * expression beside its run, and all the runtime reads. A class here stands in
@@ -20,7 +21,8 @@ object Ready:
       cell: Option[Cell],
       authoredId: Option[String],
       vars: List[fh.view.model.Dashboard.Declaration],
-      subjectEntity: Option[String]
+      subjectEntity: Option[String],
+      calls: Map[String, Placed] = Map.empty
   ) extends Node:
 
     /** Name order, for a reproducible walk; ids do not come from this. */
@@ -30,14 +32,14 @@ object Ready:
     lazy val liveEntities: List[String] =
       BoundSlot.liveEntities(slots.values.map(_.bound))
 
-    /** [[liveEntities]] without signal slots: the render key's. */
+    /** [[liveEntities]] without signal slots: those that can move its bytes. */
     lazy val liveEntitiesAsBytes: List[String] =
       BoundSlot.liveEntitiesAsBytes(slots.values.map(_.bound))
 
-    /** Per slot, each with the `valueWhile` it waits for. In the render key but
-      * not [[liveEntities]]: otherwise a sensor ticking every second would
-      * refetch its history every second. Ungated without an entity to decide
-      * over: asking too much is safe where too little raises.
+    /** Per slot, each with the `valueWhile` it waits for. Not in
+      * [[liveEntities]]: otherwise a sensor ticking every second would refetch
+      * its history every second. Ungated without an entity to decide over:
+      * asking too much is safe where too little raises.
       */
     lazy val fetching: List[Fetching] =
       slots.values.toList.flatMap { s =>
@@ -54,6 +56,12 @@ object Ready:
       */
     lazy val fetches: List[SlotAsk] = fetching.flatMap(_.asks).distinct
 
+    /** The node variables its slots read: a write re-renders it for that
+      * viewer.
+      */
+    lazy val variables: Set[String] =
+      slots.values.flatMap(_.bound.variables).toSet
+
   /** A set: `order` is `None` where the candidates are already in order. Not a
     * case class: `MemberGraph`'s sources hold it, and hashing one walked every
     * clause (`publishSet` 11 µs -> 1.4 ms).
@@ -63,7 +71,8 @@ object Ready:
       val members: Map[String, SetMember],
       val order: Option[Evaluator.Keys],
       val limit: Option[Int],
-      val cell: Option[Cell]
+      val cell: Option[Cell],
+      val of: IdKind = IdKind.Entity
   ) extends Node:
     def authoredId: Option[String] = None
 
@@ -99,6 +108,7 @@ object Ready:
     val valueKey: String = bound.valueKey
     val signal: Option[SignalBind] = bound.signal
     val isBool: Boolean = bound.isBool
+    val isNumber: Boolean = bound.`type` == SlotType.Number
     val bypassUnavailable: Boolean = bound.bypassUnavailable
     val gate: Option[Fetching.Gate] =
       valueWhile.map(w => Fetching.Gate(w, w.entityId))
@@ -108,8 +118,12 @@ object Ready:
     */
   final case class Cell(
       classSlots: List[fh.view.model.Cell.Entry],
-      styleSlots: List[fh.view.model.Cell.Entry]
+      styleSlots: List[fh.view.model.Cell.Entry],
+      atRender: List[AtRender] = Nil
   )
+
+  /** A class the document form writes while `run` holds for the viewer. */
+  final case class AtRender(name: String, run: Evaluator.Run)
 
   enum Activation:
     case User(defaultOpen: Boolean)
@@ -128,18 +142,33 @@ object Ready:
       case Activation.Var(_, at) => Some(at)
       case _                     => None
 
-  /** What a declared call acts on: its fixed target, or a set a press narrows
-    * to the candidates present then.
-    */
-  type Reach = ServiceTarget | SetCall
+  /** A declared call ready to run at the press. */
+  sealed trait Call:
+    def decl: CallDecl
 
-  final class SetCall(
-      val present: (
-          Map[String, EntityState],
-          FetchTemplate => Object
-      ) => List[String],
+  /** Every field ready to run, and the fetches any of them reads, which the
+    * press answers first.
+    */
+  final class ServiceCall(
+      val decl: CallDecl.Service,
+      val service: Evaluator.Run,
+      val target: ListMap[IdKind, List[Evaluator.Run]],
+      val exclude: ListMap[IdKind, List[Evaluator.Run]],
+      val data: ListMap[String, Evaluator.Run],
       val reads: Set[SlotRead]
-  )
+  ) extends Call
+
+  final case class SetVarCall(decl: CallDecl.SetVar) extends Call
+
+  /** A call as a node places it: its id, and each field the node sees with the
+    * slot the build added for it, a `Handler` signal holding the field's output
+    * as the page shows it.
+    */
+  final case class Placed(id: CallId, seen: List[(CallField, String)])
+
+  /** A seen field's slot: a name no Pkl slot can have, holding a `.`. */
+  def seenSlot(call: String, field: CallField): String =
+    s"$call.seen.${field.name}"
 
   /** The compile walk, from `validate`'s typing of each slot; a `Left` is an
     * expression `validate` passed but that does not compile.
@@ -151,13 +180,16 @@ object Ready:
       (
         node(d.card),
         d.surfaces.toList.traverse((k, s) => surface(s).map(k -> _)),
-        d.calls.toList.traverse((call, r) => reach(r).map(call -> _)),
+        d.calls.toList.traverse((id, decl) => call(decl).map(id -> _)),
         d.varScopes.values.toList
           .flatMap(_.values.flatMap(_.declaration.initialTransform))
           .map(_.celKey)
           .distinct
-          .traverse(k => scope.program(k).map(k -> _))
-      ).mapN((card, surfaces, calls, initials) =>
+          .traverse(k => scope.program(k).map(k -> _)),
+        d.choiceBys.traverse(by =>
+          Evaluator.compile(by, scope).map(by.inputKey -> _.run)
+        )
+      ).mapN((card, surfaces, calls, initials, choices) =>
         Dashboard(
           d.cards,
           card,
@@ -172,6 +204,7 @@ object Ready:
           d.watchedEntities,
           calls.toMap,
           initials.toMap,
+          choices.toMap,
           d.varScopes,
           d.warnings
         )
@@ -182,20 +215,72 @@ object Ready:
       case s: LayoutNode.SetNode   => set(s)
 
     def component(c: LayoutNode.Component): Built[Component] =
+      val placed = placedCalls(c)
+      val seenSlots = placed.toList.flatMap((name, seen) =>
+        seen.map((field, b) => (Ready.seenSlot(name, field): SlotKey) -> b)
+      )
       (
-        c.bound.toList.traverse((k, b) => slot(b).map(k -> _)),
-        c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _))
-      ).mapN((slots, regions) =>
+        (c.bound.toList ++ seenSlots).traverse((k, b) => slot(b).map(k -> _)),
+        c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _)),
+        c.cell.traverse(cell =>
+          cell.atRender.toList
+            .traverse((n, e) =>
+              Evaluator
+                .compile(e.about(c.subjectEntity), scope)
+                .map(r => AtRender(n, r.run))
+            )
+            .map(at => cell.ready.copy(atRender = at))
+        )
+      ).mapN((slots, regions, cell) =>
         Component(
           c.card,
           slots.toMap,
           regions.toMap,
-          c.cell.map(_.ready),
+          cell,
           c.id,
           c.vars,
-          c.subjectEntity
+          c.subjectEntity,
+          placed.map((name, seen) =>
+            name -> Placed(
+              c.calls(name).id,
+              seen.map((field, _) => field -> Ready.seenSlot(name, field))
+            )
+          )
         )
       )
+
+    /** Per call the node places, each field of what it does that reads live
+      * state, as the slot that holds it: the press is held to what the page
+      * last knew, whether or not anything paints it, since a page that is
+      * behind is behind everywhere. A fetch's answer moves between the render
+      * and the press, and a posted value exists only at the press, so a field
+      * reading either is decided there.
+      */
+    private def placedCalls(
+        c: LayoutNode.Component
+    ): Map[String, List[(CallField, BoundSlot)]] =
+      if (c.calls.isEmpty) Map.empty
+      else
+        c.calls.map {
+          // A choice reads nothing: the press is its value.
+          case (name, _: CallDecl.SetVar)     => name -> Nil
+          case (name, decl: CallDecl.Service) =>
+            name -> decl.doing.collect {
+              case (field, e)
+                  if e.entityReads.nonEmpty && e.fetches.isEmpty &&
+                    !e.readsPosted =>
+                field -> BoundSlot(
+                  e,
+                  Map.empty,
+                  signal = Some(SignalBind.Handler),
+                  `type` = e.typed(Nil).map(_.out) match
+                    case Right(ValueType.Bool)                 => SlotType.Bool
+                    case Right(ValueType.Int | ValueType.Real) =>
+                      SlotType.Number
+                    case _ => SlotType.Text
+                )
+            }
+        }
 
     def set(s: LayoutNode.SetNode): Built[SetNode] =
       (
@@ -215,7 +300,8 @@ object Ready:
           members.toMap,
           order,
           s.limit,
-          s.cell.map(_.ready)
+          s.cell.map(_.ready),
+          s.of
         )
       )
 
@@ -231,12 +317,31 @@ object Ready:
         case fh.view.model.Activation.State(c)   =>
           c.traverse(condition).map(Activation.State(_))
 
-    private def reach(r: CallReach): Built[Reach] = r match
-      case t: ServiceTarget => Right(t)
-      case p: Value.Present =>
-        Evaluator
-          .presentOf(p, scope)
-          .map(SetCall(_, SlotAsk.decision(ValueExpr(p).fetches)))
+    private def call(decl: CallDecl): Built[Call] = decl match
+      case d: CallDecl.Service => service(d)
+      case d: CallDecl.SetVar  => Right(SetVarCall(d))
+
+    private def service(d: CallDecl.Service): Built[ServiceCall] =
+      def run(e: ValueExpr) = Evaluator.compile(e, scope.call).map(_.run)
+      def keys(m: ListMap[IdKind, List[ValueExpr]]) =
+        m.toList
+          .traverse((k, es) => es.traverse(run).map(k -> _))
+          .map(ListMap.from)
+      (
+        run(d.service),
+        keys(d.target),
+        keys(d.exclude),
+        d.data.toList.traverse((k, e) => run(e).map(k -> _)).map(ListMap.from)
+      ).mapN((service, target, exclude, data) =>
+        ServiceCall(
+          d,
+          service,
+          target,
+          exclude,
+          data,
+          SlotAsk.decision(d.all.flatMap(_.fetches))
+        )
+      )
 
     private def slot(b: BoundSlot): Built[Slot] =
       for
@@ -264,9 +369,23 @@ object Ready:
       cardScripts: List[String],
       referencedEntities: Set[String],
       watchedEntities: Set[String],
-      calls: Map[TapCall, Reach],
+      calls: Map[CallId, Call],
       // Where a session opens a node variable, by its transform.
       initials: Map[Cel.Key, Cel.Program],
+      // Each chosen window's `by`, by its `inputKey`.
+      choices: Map[String, Evaluator.Run],
       varScopes: Map[NodeId, Map[String, fh.view.model.Dashboard.InScope]],
       warnings: List[String]
-  )
+  ):
+    /** What a chosen window's `by` reads over `states` and `in`. */
+    def answer(
+        states: Map[String, EntityState],
+        in: Evaluator.Lookup
+    ): ValueExpr => Any = by =>
+      choices
+        .getOrElse(
+          by.inputKey,
+          throw fh.view.FHError.internal(
+            "a chosen window the compile did not see"
+          )
+        )(null, states, in)

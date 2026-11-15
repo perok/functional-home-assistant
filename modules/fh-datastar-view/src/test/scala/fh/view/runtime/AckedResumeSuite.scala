@@ -9,9 +9,9 @@ import scala.concurrent.duration.*
 
 /** '''The client's cursor is the only proof bytes were applied.''' `holds`
   * records what was sent: a stream broken mid-batch, or a frozen tab whose
-  * socket kept filling, leaves a session claiming digests the DOM never got,
-  * and every resume computes "nothing owed". That shipped: a backgrounded tab
-  * never caught up.
+  * socket kept filling, leaves a session claiming bytes the DOM never got, and
+  * every resume computes "nothing owed". That shipped: a backgrounded tab never
+  * caught up.
   *
   * The cursor rides last in its batch ([[Server.pull]]), so an echo of V means
   * everything before it applied. It is measured against `Session.told`, the

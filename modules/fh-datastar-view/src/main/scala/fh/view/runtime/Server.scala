@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import api.homeassistant.{HomeAssistantApi, ServiceTarget}
 import scala.util.chaining.*
-import cats.data.{NonEmptyList, OptionT}
+import cats.data.{EitherT, NonEmptyList, OptionT}
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
 import cats.effect.std.Supervisor
@@ -23,6 +23,9 @@ import fh.view.history.{ChartRenderer, History, SeriesSource}
 import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.model.{
   Ready,
+  CallDecl,
+  CallField,
+  CallId,
   ChromeColors,
   Dashboard,
   DomId,
@@ -30,13 +33,15 @@ import fh.view.model.{
   Permission,
   SignalId,
   SlotRead,
-  TapCall,
+  SlotValue,
   ThemeClasses,
-  Step
+  Step,
+  Value,
+  ValueType
 }
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
-import io.circe.{Decoder, Json}
+import io.circe.{Decoder, Json, JsonObject}
 import org.http4s.*
 import org.http4s.circe.*
 import org.http4s.dsl.io.*
@@ -218,11 +223,10 @@ class Server(
     // `domain` is the service's, not always the target's
     // (`homeassistant.toggle` on a `light`). `kind` is `entity`, `area` or
     // `floor`; HA expands the last two (issue #389).
-    case req @ POST -> Root / "sse" / "call" / slug / domain / service / kind / id =>
+    case req @ POST -> Root / "sse" / "call" / slug / id =>
       req.bodyText.compile.string.flatMap(body =>
-        Server.callData(body) match {
-          case Right(data) =>
-            tapCall(req, slug, domain, service, kind, id, data)
+        Server.callBody(body) match {
+          case Right(b)  => tapCall(req, slug, CallId.parse(id), b)
           case Left(why) => actionRefused(req, why)
         }
       )
@@ -238,84 +242,138 @@ class Server(
       withSession(req, slug)((session, renderer, selections) =>
         swapHost(session, renderer, Dashboard.PopupHostId, None, selections)
       )
-
-    // Addressed to the node that declared the variable (issue #209).
-    case req @ POST -> Root / "sse" / "var" / slug / node / name / value =>
-      withSession(req, slug)((session, renderer, selections) =>
-        setVar(
-          session,
-          renderer,
-          VarKey(NodeId.derived(node), name),
-          value,
-          selections
-        )
-      )
   }
 
-  /** Refused unless a tap on this dashboard declares exactly this call; the
-    * value itself is free (ADR 0023). A missing or failed dashboard permits
-    * nothing.
+  /** Refused unless this dashboard declares the call and the pressed node
+    * places it; then the server runs its own evaluation of it now, the posted
+    * values being the one client input (ADR 0023). A missing or failed
+    * dashboard permits nothing.
     */
   private def tapCall(
       req: Request[IO],
       slug: String,
-      domain: String,
-      service: String,
-      kind: String,
-      id: String,
-      data: Option[(String, Json)]
+      id: CallId,
+      body: Server.CallBody
   ): IO[Response[IO]] =
     gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
       (site.permissionFor(Some(slug)), gate.of(req)).flatMapN {
         (permission, user) =>
-          TapCall
-            .targetOf(kind, id)
-            .map(TapCall(s"$domain/$service", _, data.map(_._1)))
-            .flatMap(permission.reachOf(user, _)) match {
-            case Some(reach) =>
-              targetAtPress(slug, reach).flatMap {
-                case Some(target) =>
-                  callService(
-                    domain,
-                    service,
-                    target,
-                    data.fold(Json.obj())((k, v) => Json.obj(k -> v)),
-                    req
-                  )
-                // Nothing to act on is already the state asked for.
-                case None => NoContent()
-              }
+          permission.callOf(user, id) match
             case None =>
-              actionRefused(
-                req,
-                s"no tap on this dashboard calls $domain/$service on $kind $id"
-              )
-          }
+              actionRefused(req, s"no tap on this dashboard makes the call $id")
+            case Some(call: Ready.ServiceCall) =>
+              (for
+                posted <- EitherT.fromEither[IO](
+                  Server.postedValues(call.decl, body.posted)
+                )
+                p <- EitherT(pressed(req, slug, id, call, posted))
+                _ <- EitherT.fromEither[IO](
+                  Server.seenRefusal(p.seen, body.seen).toLeft(())
+                )
+              yield p).foldF(actionRefused(req, _), send(req, _))
+            case Some(Ready.SetVarCall(d)) => choose(req, slug, id, d, body)
       }
     )
 
-  /** A set's candidates present in the store now, the same rule a label's count
-    * of it reads (`Evaluator.presentOf`); `None` when none is. Only ever a
-    * subset of the candidates fixed at build, so a press reaches nothing the
-    * dashboard does not name.
+  /** This viewer's choice of a node variable, declared at the nearest node
+    * above the pressed one that declares it (issue #209). A refusal clears the
+    * pending ask the press wrote (ADR 0025).
     */
-  private def targetAtPress(
+  private def choose(
+      req: Request[IO],
       slug: String,
-      reach: Ready.Reach
-  ): IO[Option[ServiceTarget]] =
-    reach match {
-      case t: ServiceTarget => IO.pure(Some(t))
-      case s: Ready.SetCall =>
+      id: CallId,
+      d: CallDecl.SetVar,
+      body: Server.CallBody
+  ): IO[Response[IO]] =
+    (for
+      (renderer, node) <- EitherT(pressAt(req, slug))
+        .leftMap(_ -> Option.empty[String])
+      key <- EitherT.fromOption[IO](
+        renderer.vars.keyAt(node, d.variable),
+        s"no node at or above $node declares the variable '${d.variable}'" ->
+          Option.empty[String]
+      )
+      pending = Option(key.pendingSignal)
+      _ <- EitherT(placedAt(renderer, node, id)((_, _, _) => Right(())))
+        .leftMap(_ -> pending)
+      conn <- EitherT.fromOption[IO](body.conn, "missing conn" -> pending)
+    yield (renderer, key, conn)).foldF(
+      (why, pending) => actionRefused(req, why, pending),
+      (renderer, key, conn) =>
+        inSession(
+          req,
+          slug,
+          IO.pure(renderer),
+          conn,
+          body.popup,
+          Some(key.pendingSignal)
+        )((session, renderer, selections) =>
+          setVar(session, renderer, key, d.value, selections)
+        )
+    )
+
+  private def pressed(
+      req: Request[IO],
+      slug: String,
+      id: CallId,
+      call: Ready.ServiceCall,
+      posted: Map[String, Any]
+  ): IO[Either[String, Renderer.Pressed]] =
+    EitherT(pressAt(req, slug)).flatMapF { (renderer, node) =>
+      placedAt(renderer, node, id)((c, placed, at) =>
+        renderer.press(call, placed.seen, c, at, posted)
+      )
+    }.value
+
+  /** The pressed node, the client's claim, and the dashboard's renderer. */
+  private def pressAt(
+      req: Request[IO],
+      slug: String
+  ): IO[Either[String, (Renderer, NodeId)]] =
+    req.uri.query.params.get(Server.NodeParam).map(NodeId.derived) match
+      case None       => IO.pure(Left("the press names no node"))
+      case Some(node) =>
         rendererFor(slug).flatMap {
           case None =>
             IO.raiseError(FHError.unavailable(s"dashboard '$slug' is not live"))
-          case Some(renderer) =>
-            stateStore.current
-              .flatMap(decided(renderer, _)(renderer.pressed(s, _)))
-              .map((present, _) =>
-                NonEmptyList.fromList(present).map(ServiceTarget.Entities(_))
-              )
+          case Some(renderer) => IO.pure(Right(renderer -> node))
         }
+
+  /** `f` over the call `id` as `node` places it now: a set member is its
+    * current clause, so a page drawn from another one is refused here when that
+    * clause's call differs, and by `seen` when both declare the same call.
+    */
+  private def placedAt[A](renderer: Renderer, node: NodeId, id: CallId)(
+      f: (Ready.Component, Ready.Placed, Shared) => Either[String, A]
+  ): IO[Either[String, A]] =
+    stateStore.current
+      .flatMap(decided(renderer, _) { at =>
+        renderer
+          .componentAt(node, at)
+          .flatMap(c => c.calls.values.find(_.id == id).map(c -> _))
+          .toRight(s"the node $node does not place the call $id")
+          .flatMap((c, placed) => f(c, placed, at))
+      })
+      .map(_._1)
+
+  private def send(req: Request[IO], p: Renderer.Pressed): IO[Response[IO]] =
+    p.service.split('/') match {
+      case Array(domain, service) =>
+        ServiceTarget.of(p.target, p.exclude) match {
+          case Some(target) =>
+            callService(
+              domain,
+              service,
+              target,
+              Json.fromFields(p.data.toList.map((k, v) => k -> Server.json(v))),
+              req
+            )
+          // Nothing to act on is already the state asked for.
+          case None => NoContent()
+        }
+      case _ =>
+        actionRefused(req, s"the service '${p.service}' is not domain/service")
     }
 
   /** `store`'s version with what `walk` reaches decided: its result, and the
@@ -1051,10 +1109,7 @@ class Server(
         case None =>
           (s.holds -- Patches.hostEvicts(renderer, host)) ->
             Option
-              .when(newSurface.isEmpty)(
-                Datastar
-                  .patch(s"""<div id="$host"></div>""", PatchMode.Outer, None)
-              )
+              .when(newSurface.isEmpty)(Datastar.remove(s"#$host > *"))
               .toList
       }
       // Committed here only, so a tap that never got this far cannot leave the
@@ -1098,10 +1153,11 @@ class Server(
       .flatMap((reads, shared) => answer(reads, env).map(_ -> shared))
 
   /** Set a node variable for this viewer and re-render the readers it is shown
-    * (issue #209): the fetches that read it, and the tab panels it selects,
-    * swapped as a tab press always was. Per session: no `Mutation`.
+    * (issue #209): the nodes whose fetches or slots read it, and the tab panels
+    * it selects, swapped as a tab press always was. Per session: no `Mutation`.
     *
     * The untrusted value is checked ([[Renderer.refusals]]) before it is kept.
+    * `None` drops the choice, so the variable holds what it opened at again.
     * Committed last even when no bytes moved: the commit ends the pending ask
     * (ADR 0025).
     */
@@ -1109,12 +1165,14 @@ class Server(
       session: Session,
       renderer: Renderer,
       key: VarKey,
-      value: String,
+      chosen: Option[String],
       selections: Selections
   )(s: SessionState): IO[Session.Step[Unit]] = {
     val readers = renderer.vars.readersOf(key)
     val groups = renderer.vars.panelsSelectedBy(key)
-    val proposed = s.vars + (key -> value)
+    val proposed = chosen.fold(s.vars - key)(v => s.vars + (key -> v))
+    val value = (s.initialValues ++ proposed)
+      .getOrElse(key, renderer.vars.defaults(key))
     for {
       store <- stateStore.current
       reached <- decided(renderer, store) { at =>
@@ -1253,7 +1311,7 @@ class Server(
       f: (Session, Renderer, Selections) => SessionState => IO[
         Session.Step[Unit]
       ]
-  ): IO[Response[IO]] = {
+  ): IO[Response[IO]] =
     req.bodyText.compile.string
       .map(io.circe.parser.parse(_).toOption.flatMap { body =>
         connOf(body).map(_ -> Server.popupFromSignals(body.hcursor).flatten)
@@ -1263,65 +1321,61 @@ class Server(
           actionRefused(req, "missing conn")
         case Some((conn, requested)) =>
           gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
-            rendererFor(slug)
-              .flatMap {
-                case None =>
-                  IO.raiseError(
-                    FHError.notFound(s"no dashboard '$slug' is being served")
-                  )
-                case Some(renderer) =>
-                  sessionFor(slug, conn, renderer, requested).flatMap {
-                    case None => actionRefused(req, Server.WrongSlugMessage)
-                    case Some(session) =>
-                      session.run(s =>
-                        f(
-                          session,
-                          renderer,
-                          selectionsOf(renderer, requested, s.values)
-                        )(s)
-                      ) *> NoContent()
-                  }
-              }
-              // A 4xx becomes a refusal; a 5xx is our bug and stays with
-              // [[FHError.handle]] rather than showing the user an internal
-              // message.
-              .recoverWith {
-                case e: FHError if e.status < 500 =>
-                  actionRefused(req, e.message)
-              }
+            inSession(
+              req,
+              slug,
+              rendererFor(slug).flatMap(
+                _.liftTo[IO](
+                  FHError.notFound(s"no dashboard '$slug' is being served")
+                )
+              ),
+              conn,
+              requested,
+              None
+            )(f)
           )
       }
-  }
 
-  /** Mints a session when `conn` names nothing (an idle page whose session was
-    * reaped); its patches wait in the backlog until the reconnecting stream
-    * adopts it. `None`: `conn` is another dashboard's, and re-registering it
-    * would unroute that page.
+  /** [[withSession]] once `conn` and the page's popup are read and the request
+    * is admitted. A refusal also clears `pending`.
     */
-  private def sessionFor(
+  private def inSession(
+      req: Request[IO],
       slug: String,
+      served: IO[Renderer],
       conn: String,
-      renderer: Renderer,
-      requested: Option[String]
-  ): IO[Option[Session]] =
-    sessions.get(conn).flatMap {
-      case Some(session) => IO.pure(Option.when(session.slug == slug)(session))
-      case None          =>
-        Session
-          .create(
-            slug,
-            supervisor,
-            logger,
-            SessionState.initial.copy(open =
-              renderer.surfaces.selectedSurfaces(
-                selectionsOf(renderer, requested, Map.empty)
-              )
-            )
-          )
-          .flatTap(sessions.register(conn, _))
-          .flatTap(reapAfter(conn, _, Tenure.Fresh, windows.adoption))
-          .map(Some(_))
-    }
+      requested: Option[String],
+      pending: Option[String]
+  )(
+      f: (Session, Renderer, Selections) => SessionState => IO[
+        Session.Step[Unit]
+      ]
+  ): IO[Response[IO]] =
+    served
+      .flatMap { renderer =>
+        // Only the stream makes a session: a press carries too little of the
+        // page to rebuild one (ADR 0024).
+        sessions.get(conn).flatMap {
+          case None =>
+            actionRefused(req, Server.NotConnectedMessage, pending)
+          case Some(session) if session.slug != slug =>
+            actionRefused(req, Server.WrongSlugMessage, pending)
+          case Some(session) =>
+            session.run(s =>
+              f(
+                session,
+                renderer,
+                selectionsOf(renderer, requested, s.values)
+              )(s)
+            ) *> NoContent()
+        }
+      }
+      // A 4xx becomes a refusal; a 5xx is our bug and stays with
+      // [[FHError.handle]] rather than showing the user an internal message.
+      .recoverWith {
+        case e: FHError if e.status < 500 =>
+          actionRefused(req, e.message, pending)
+      }
 
   private def connOf(body: Json): Option[String] =
     body.hcursor.get[String](Server.ConnSignal).toOption
@@ -1412,15 +1466,16 @@ class Server(
 
   /** Every refused action answers 200 with signals, never 4xx: the pinned
     * bundle drops a non-200 body unread (ADR 0024). The signals set the pressed
-    * control's `_<node>__error`, clear its group's `_<group>__pending` (ADR
-    * 0025) and raise `_toast`. Both ids are the client's claim from the query
-    * string; nothing is authorized off them.
+    * control's `_<node>__error`, clear the `pending` ask a choice wrote (ADR
+    * 0025) and raise `_toast`. The node is the client's claim from the query
+    * string; nothing is authorized off it.
     */
   private def actionRefused(
       req: Request[IO],
-      message: String
+      message: String,
+      pending: Option[String] = None
   ): IO[Response[IO]] =
-    Ok(Server.actionSignals(req, message))
+    Ok(Server.actionSignals(req, message, pending))
 
   /** The live state of every entity a node binds, for the editor preview's
     * overlay. An unknown node is `[]`.
@@ -1718,6 +1773,7 @@ class Server(
               },
               renderer.themeColorTags,
               renderer.themeClasses,
+              renderer.offlineBanners,
               renderer.stylesheets.map(assets.rewrite),
               renderer.deferredStylesheets.map(assets.rewrite),
               renderer.scripts.map(assets.rewrite),
@@ -1738,7 +1794,7 @@ class Server(
           }.flatMap { own =>
             // Nodes with a rendering of their own, as before structure's seeds
             // joined the holds.
-            val painted = own.count(_._2.digest.isDefined).toLong
+            val painted = own.count(_._2.values.isDefined).toLong
             ownRef.set(own) *>
               tracer.currentSpanOrNoop.flatMap(
                 _.addAttribute(Attribute("fh.nodes", painted))
@@ -1765,7 +1821,12 @@ class Server(
         }
         .onFinalize(fetch.cancel)
       resp <- Ok(body)
-    } yield resp.withContentType(`Content-Type`(MediaType.text.html))
+      // A buffering nginx in front (Nginx Proxy Manager here) otherwise gzips
+      // the whole page before its first byte, so the head no longer arrives
+      // first.
+    } yield resp
+      .withContentType(`Content-Type`(MediaType.text.html))
+      .putHeaders(Header.Raw(CIString("X-Accel-Buffering"), "no"))
   }
 
   /** A self-contained page for a slug whose build failed: no theme, session or
@@ -1811,6 +1872,7 @@ class Server(
       bodyInto: Sink => Unit,
       themeColorTags: String,
       themeClasses: ThemeClasses,
+      offlineBanners: String,
       stylesheets: List[String],
       deferredStylesheets: List[String],
       scripts: List[String],
@@ -1855,10 +1917,8 @@ class Server(
     // (`healthy`, pushed as a signal); the SSE transport down only the client
     // can see, through [[Server.StreamEvent]] (not `datastar-fetch`, which
     // fires for every fetch — see the re-dispatch in `shell.ts`). A dead
-    // transport freezes `haDown`, so the HA banner waits on `$_sse == 0`.
-    //
-    // This pinned build needs the `$` sigil even for a bare read.
-    val ha = "$" + Server.HaDownSignal
+    // transport freezes `haDown`, so the HA banner waits on `$_sse == 0`
+    // (`theme.pkl`'s `offlineBanners`).
     // 2 = gave up, 1 = trying, 0 = fine.
     val sseState =
       "evt.detail.type === 'retries-failed' ? 2 : " +
@@ -1866,7 +1926,7 @@ class Server(
     // 2 latches: any later event classifies as 0, and a `finished` in the same
     // debounce window swallowed the failure before it painted. Only a reload
     // gets out, which is all that reconnects once retries are exhausted.
-    val sseLatched = s"$$_sse >= 2 ? 2 : ($sseState)"
+    val sseLatched = s"$$${Server.SseSignal} >= 2 ? 2 : ($sseState)"
     // Inline, or the banners flash before the deferred module runs; and not
     // in CSS, because `data-show` only clears the inline `display`.
     val hidden = """style="display:none""""
@@ -1914,22 +1974,18 @@ class Server(
           .sortBy(_.committedSignal)
           .map(_.pendingClear)
           .mkString(s"""\n  <div $hidden data-effect="""", "; ", "\"></div>")
-    // The banners' `fh-offline*` classes are the theme's to rename, as a card's.
+    // The banners are the theme's markup, so its class rules apply as to a card's.
     val connBanner = themeClasses.rewriteTemplate(
-      s"""<div data-signals="{${Server.HaDownSignal}: $haDown, _sse: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
+      s"""<div data-signals="{${Server.HaDownSignal}: $haDown, ${Server.SseSignal}: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, $popupSignalName: '$popupSeed', ${Server.ConnSignal}: '${Server
           .escapeJsString(restore.conn)}'$varSeed}"
          |     data-effect="$$${Server.ReloadSignal} && window.location.reload()"
          |     data-fh-url__history="['$popupParamName', $$$popupSignalName]"
          |     data-on:popstate__window="$popupFromUrl"
          |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
          |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
-         |     data-on:$sseEvent="$$_sse = $sseLatched">
+         |     data-on:$sseEvent="$$${Server.SseSignal} = $sseLatched">
          |  <div $hidden ${Server.PendingSweep}></div>$varClear
-         |  <div class="fh-offline fh-offline-sse" $hidden role="status" aria-live="assertive" data-show="$$_sse > 0">
-         |    <span $hidden data-show="$$_sse < 2">Reconnecting to the dashboard…</span>
-         |    <span $hidden data-show="$$_sse >= 2">Dashboard connection lost. <button class="fh-offline-action" data-on:click="window.location.reload()">Reload</button></span>
-         |  </div>
-         |  <div class="fh-offline fh-offline-ha" $hidden role="status" aria-live="polite" data-show="$ha && $$_sse == 0">Home Assistant unavailable — reconnecting…</div>
+         |$offlineBanners
          |</div>""".stripMargin
     )
     val _ = out.append(s"""<!doctype html>
@@ -1940,6 +1996,7 @@ class Server(
        |  $themeColorTags
        |  <base href="$baseHref">
        |  <link rel="manifest" href="${PwaAssets.manifestUrl}">
+       |  <link rel="icon" href="icon-192.png">
        |  $pageTitle
        |  <script>${Server.ShellScript}</script>
        |  <script>${Server.swRegisterCall}</script>
@@ -1980,12 +2037,20 @@ object Server {
   private[runtime] case class LiveSlug(
       renderer: SignallingRef[IO, RendererState],
       log: Ref[IO, FragmentLog],
-      // Not rotated on a swap: [[RenderCache]] invalidates by renderer
-      // identity.
+      // The same cache across swaps, emptied by each ([[install]]).
       cache: RenderCache,
       // The newest store version the log covers.
       doorbell: SignallingRef[IO, Long]
-  )
+  ) {
+
+    /** Empties the cache after the swap, not before, or a pull that read the
+      * old renderer just ahead of the set refills it. One already rendering can
+      * still install afterwards; its entry holds its bytes, not the renderer
+      * ([[Renderer.generation]]).
+      */
+    def install(state: RendererState): IO[Unit] =
+      renderer.set(state) *> cache.clear
+  }
 
   private[runtime] object LiveSlug {
     def of(state: RendererState): IO[LiveSlug] =
@@ -2066,7 +2131,7 @@ object Server {
           case Some(live) =>
             live.renderer.get.map {
               case RendererState.Ready(r) =>
-                Permission(r.access, r.reachOf)
+                Permission(r.access, r.callOf)
               // Its page carries build diagnostics.
               case RendererState.Failed(_) => Permission.none
             }
@@ -2109,7 +2174,7 @@ object Server {
               case None => (es + (slug -> Entry(fresh, Origin.Pushed)), None)
             }
           }
-          .flatMap(_.traverse_(_.renderer.set(state)))
+          .flatMap(_.traverse_(_.install(state)))
       }
 
     def setPreferred(slug: Option[String]): IO[Unit] = preferred.set(slug)
@@ -2144,7 +2209,7 @@ object Server {
           }
         }
         _ <- installs.traverse_ { case (_, entry, state, _) =>
-          entry.live.renderer.set(state)
+          entry.live.install(state)
         }
       } yield installs.map(_._4) ++ plan.removals.toList.sorted.map(
         Change.Removed(_)
@@ -2176,7 +2241,7 @@ object Server {
         ) *>
           broken
             .traverse_ { case (_, live, _) =>
-              live.renderer.set(RendererState.Failed(message))
+              live.install(RendererState.Failed(message))
             }
             .as(broken.map(_._3))
       }
@@ -2545,11 +2610,16 @@ object Server {
   private[runtime] val WrongSlugMessage: String =
     "connection belongs to another dashboard"
 
-  /** What an action says about itself: the pressed control and the waiting
-    * selection group, filled at click time (`core/tap.pkl`).
+  /** A press under a `conn` this process does not hold: the page's stream is
+    * down or not yet back, and only the stream rebuilds the session.
+    */
+  private[runtime] val NotConnectedMessage: String =
+    "Not connected — press again once the page has reconnected"
+
+  /** What an action says about itself: the pressed control, filled at click
+    * time (`core/tap.pkl`).
     */
   val NodeParam: String = "node"
-  val GroupParam: String = "group"
 
   val ToastSignal: String = "_toast"
 
@@ -2578,14 +2648,13 @@ object Server {
 
   private[runtime] def actionSignals(
       req: Request[IO],
-      message: String
+      message: String,
+      pending: Option[String]
   ): Json = {
     val text = Json.fromString(message)
     Json.fromFields(
       idParam(req, NodeParam).map(id => s"_${id}__error" -> text).toList ++
-        idParam(req, GroupParam).map(id =>
-          s"_${id}__pending" -> Json.fromString("")
-        ) ++
+        pending.map(_ -> Json.fromString("")) ++
         List(ToastSignal -> text)
     )
   }
@@ -2598,6 +2667,11 @@ object Server {
   val CursorSignal: String = "_cursor"
 
   val HaDownSignal: String = "_haDown"
+
+  /** The stream's state as the client sees it: 0 fine, 1 retrying, 2 gave up.
+    * The offline banners (`theme.pkl`) and the slider and wheel read it.
+    */
+  val SseSignal: String = "_sse"
 
   /** Re-dispatched by `shell.ts` for the SSE stream's own fetch. Shared with
     * the TypeScript: rename one and the banner silently stops updating.
@@ -2830,11 +2904,7 @@ object Server {
       .when(
         requested.nonEmpty && renderer.surfaces.openPopup(requested).isEmpty
       )(
-        Datastar.patch(
-          s"""<div id="${Dashboard.PopupHostId}"></div>""",
-          PatchMode.Outer,
-          None
-        )
+        Datastar.remove(s"#${Dashboard.PopupHostId} > *")
       )
       .toList
 
@@ -2913,16 +2983,12 @@ object Server {
   /** How long a never-adopted session waits for its stream: a parse and a round
     * trip, and shorter than [[LingerWindow]] because an abandoned load (a burst
     * of reloads) is the common case.
-    *
-    * Too short drops a tap-minted session's queued patch (ADR 0024), so the
-    * popup does not open and the user taps again. Measure a real reconnect
-    * before shortening it.
     */
   val AdoptionWindow: FiniteDuration = 10.seconds
 
   /** How long a returning client is told only what moved: a phone waking, a
-    * lid, a wifi handover. Too short costs a fatter first patch, not
-    * correctness — true only because a tap mints (ADR 0024).
+    * lid, a wifi handover. Too short costs a fatter first patch, and a tap in
+    * that window is refused until the stream is back (ADR 0024).
     */
   val LingerWindow: FiniteDuration = 2.minutes
 
@@ -2952,24 +3018,118 @@ object Server {
       .replace("\"", "&quot;")
       .replace("'", "&#39;")
 
-  /** A call's value, from its body `{"data": {<key>: <value>}}`, typed as the
-    * page sent it. One key at most: a tap declares one (ADR 0023). An empty
-    * body is a call with no data.
+  /** A press's body (`tapMod.post`): the values the card posts, and what the
+    * node showed of the fields it sees. A blank body is neither.
     */
-  def callData(body: String): Either[String, Option[(String, Json)]] =
-    if (body.isBlank) Right(None)
+  /** `tapMod.post`'s body: the page's `conn` and popup, which only a choice
+    * reads, and what the press posts and saw.
+    */
+  final case class CallBody(
+      conn: Option[String],
+      popup: Option[String],
+      posted: JsonObject,
+      seen: JsonObject
+  )
+
+  def callBody(body: String): Either[String, CallBody] =
+    if (body.isBlank)
+      Right(CallBody(None, None, JsonObject.empty, JsonObject.empty))
     else
       io.circe.parser
         .parse(body)
         .toOption
-        .toRight("the call's body is not JSON")
-        .flatMap(_.hcursor.downField("data").focus match {
-          case None       => Right(None)
-          case Some(data) =>
-            data.asObject.map(_.toList) match {
-              case Some(Nil)           => Right(None)
-              case Some(single :: Nil) => Right(Some(single))
-              case _ => Left("a call's data is one key and its value")
-            }
-        })
+        .flatMap(_.asObject)
+        .toRight("the call's body is not a JSON object")
+        .flatMap { o =>
+          def part(k: String) = o(k).fold(Right(JsonObject.empty))(
+            _.asObject.toRight(s"the call's $k is not an object")
+          )
+          val c = Json.fromJsonObject(o).hcursor
+          (part("posted"), part("seen")).mapN(
+            CallBody(
+              c.get[String](ConnSignal).toOption.filter(_.nonEmpty),
+              popupFromSignals(c).flatten,
+              _,
+              _
+            )
+          )
+        }
+
+  /** Each posted value decoded as the source reading it declares, exactly the
+    * keys the call reads: the one client input that reaches HA.
+    */
+  def postedValues(
+      decl: CallDecl,
+      posted: JsonObject
+  ): Either[String, Map[String, Any]] = {
+    val declared = decl.all
+      .flatMap(_.all)
+      .map(_.source)
+      .collect { case Value.Posted(k, t) => k -> t }
+      .toMap
+    def as(t: ValueType, j: Json): Option[Any] = t match
+      case ValueType.Int      => j.asNumber.flatMap(_.toLong)
+      case ValueType.Real     => j.asNumber.map(_.toDouble)
+      case ValueType.Bool     => j.asBoolean
+      case ValueType.List(of) =>
+        j.asArray.flatMap(_.toList.traverse(as(of, _)))
+      case _ => j.asString
+    posted.keys.find(!declared.contains(_)) match
+      case Some(k) =>
+        Left(s"the press posted '$k', which the call does not read")
+      case None =>
+        declared.toList
+          .sortBy(_._1)
+          .traverse { (k, t) =>
+            posted(k)
+              .toRight(s"the press posted no '$k'")
+              .flatMap(j =>
+                as(t, j)
+                  .toRight(s"the posted '$k' is not ${t.name}: ${j.noSpaces}")
+              )
+              .map(k -> _)
+          }
+          .map(_.toMap)
+  }
+
+  /** Why the press is refused, if the page showed a field other than it is now:
+    * the fields it posts must be exactly the ones the node sees.
+    */
+  def seenRefusal(
+      now: List[(CallField, SlotValue)],
+      seen: JsonObject
+  ): Option[String] = {
+    val shown: Map[String, Json] =
+      seen.toList.flatMap {
+        case ("data", d) =>
+          d.asObject.toList
+            .flatMap(_.toList)
+            .map((k, v) => CallField.Data(k).name -> v)
+        case (k, v) => List(k -> v)
+      }.toMap
+    def spelt(v: SlotValue) = v match
+      case b: Boolean => Json.fromBoolean(b)
+      case d: Double  => Json.fromDoubleOrString(d)
+      case s: String  => Json.fromString(s)
+    val expected = now.map((f, v) => f.name -> v).toMap
+    shown.keys.toList.sorted.find(!expected.contains(_)) match
+      case Some(k) => Some(s"$k: not something this control shows")
+      case None    =>
+        now.collectFirst {
+          case (f, _) if !shown.contains(f.name) =>
+            s"${f.name}: not shown"
+          case (f, v) if shown(f.name) != spelt(v) =>
+            s"${f.name}: ${shown(f.name).noSpaces} shown, ${spelt(v).noSpaces} now"
+        }
+  }
+
+  /** A field's value as HA takes it. */
+  def json(v: Any): Json = v match
+    case s: String       => Json.fromString(s)
+    case b: Boolean      => Json.fromBoolean(b)
+    case n: Long         => Json.fromLong(n)
+    case n: Int          => Json.fromInt(n)
+    case d: Double       => Json.fromDoubleOrString(d)
+    case xs: Iterable[?] => Json.fromValues(xs.map(json))
+    case other           => Json.fromString(Steps.text(other))
 }

@@ -385,9 +385,13 @@ class InputsSuite extends munit.CatsEffectSuite {
 
   private def leaf(signal: String): String = signal.split('.').last
 
+  // The button's own root, wearing `cls` as a cell class.
+  private def buttonWith(cls: String): scala.util.matching.Regex =
+    s"""<button class="fh-cell fh-press large\\s+$cls"""".r
+
   // The bare attribute, as the document form writes it — not `data-attr:disabled`.
   private def staticallyDisabled(html: String): Boolean =
-    """<button class="fh-press[^"]*"[^>]*\sdisabled[\s>]""".r
+    """<button class="fh-cell fh-press[^"]*"[^>]*\sdisabled[\s>]""".r
       .findFirstIn(html)
       .isDefined
 
@@ -401,7 +405,7 @@ class InputsSuite extends munit.CatsEffectSuite {
         disabled = disabledSignal(html)
         sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
       } yield {
-        assert(html.contains("""class="fh-cell fh-active""""), clue = html)
+        assert(buttonWith("fh-active").findFirstIn(html).isDefined, clue = html)
         assert(!staticallyDisabled(html), clue = html)
         assert(sent.contains(s"\"${leaf(active)}\":false"), clue = sent)
         assert(sent.contains(s"\"${leaf(disabled)}\":true"), clue = sent)
@@ -423,8 +427,11 @@ class InputsSuite extends munit.CatsEffectSuite {
     // Nothing to count: `any()` is `false` and `none()` is `true` at build time.
     withServer(floorButton("Tom", over = "List()"))(_.page()).map { html =>
       assertEquals(classSignals(html), Nil, clue = html)
-      assert(!html.contains("""class="fh-cell fh-active""""), clue = html)
-      assert(html.contains("<button class=\"fh-press large \""), clue = html)
+      assert(!buttonWith("fh-active").findFirstIn(html).isDefined, clue = html)
+      assert(
+        html.contains("<button class=\"fh-cell fh-press large \""),
+        clue = html
+      )
       assert(staticallyDisabled(html), clue = html)
     }
   }
@@ -441,7 +448,7 @@ class InputsSuite extends munit.CatsEffectSuite {
         html <- ts.page()
         sent <- ts.sentAfter(ts.change(living.entityId, "on"))
       } yield {
-        assert(html.contains("""class="fh-cell fh-some""""), clue = html)
+        assert(buttonWith("fh-some").findFirstIn(html).isDefined, clue = html)
         assert(html.contains("data-class:fh-some="), clue = html)
         assert(html.contains("data-class:fh-many="), clue = html)
         // Two of two on: `fh-many` turns on, `fh-some` was already.
@@ -558,7 +565,9 @@ class InputsSuite extends munit.CatsEffectSuite {
         sent <- ts.sentAfter(ts.change(living.entityId, "on"))
       } yield {
         assert(
-          html.contains("""<div class="fh-cell" style="--fh-fill:50%""""),
+          html.contains(
+            """<button class="fh-cell fh-press large " style="--fh-fill:50%""""
+          ),
           clue = html
         )
         assert(html.contains("data-style:--fh-fill=\"$"), clue = html)

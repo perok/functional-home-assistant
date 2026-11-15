@@ -77,6 +77,15 @@ class CompareStep extends Simple {
   to: slotMod.Operand
 }
 
+/// The value while the [[steps]] over it come out `true`, and no value
+/// otherwise: a slot's `default` shows, and a call's field refuses the press.
+/// The test sees the value and ends in a bool: Compare, Match or CEL steps. Two
+/// bounds are two checks in a row ([[within]]).
+class CheckStep extends Step {
+  kind: "Check" = "Check"
+  steps: Listing<Step>
+}
+
 class NotStep extends Simple {
   kind: "Not" = "Not"
 }
@@ -153,6 +162,16 @@ const function state(): slotMod.Reading = new slotMod.Reading {}
 /// `attr[?'attribute']`; absent renders `""` and the slot's default applies.
 const function attr(attrName: String): slotMod.Reading =
   new slotMod.Reading { part = new Attr { name = attrName } }
+
+/// A number kept to `[lo, hi]`: two [[CheckStep]]s, to follow a read.
+const function within(lo: Number, hi: Number): List<Step> = List(
+  new CheckStep { steps { new CompareStep { op = "gte"; to = lo } } },
+  new CheckStep { steps { new CompareStep { op = "lte"; to = hi } } }
+)
+
+/// The value kept while the CEL `test` over it holds: a [[CheckStep]].
+const function checkCel(test: String): Step =
+  new CheckStep { steps { new Cel { src = test } } }
 
 /// An attribute of the reading's entity, as a step's operand.
 const function attrOf(attrName: String): slotMod.EntityRead =

@@ -27,14 +27,34 @@ step with a mode, so a type never depends on an option: JSON for a raw hole will
 in a condition alike (`Steps.read`). A typed read of one attribute converts only that one
 until something has built the entity's whole attribute map (`EntityState.attribute`).
 
-**A list source declares its item type** (`itemType`; Pkl's `ListRead` is the and/or of
-conditions, so `bool`), and each item is held to it. The type is the list's own, never read off its items or
+**A list source declares its item type** (`itemType`: `bool` for the and/or of conditions, the
+literals' own type for a call's list value), and each item is held to it. The type is the list's own, never read off its items or
 the step after it, so an empty list is typed as any other. Its size is the runtime's: `AllOf`
 over none holds, `AnyOf` over none does not, `Count` is 0.
 
+**A node variable's value is text** (`Value.Var`, ADR 0033): the viewer's, so a reading of one is
+decided per viewer, where every other source is decided once per state version.
+
+**A posted value is its declared type** (`Value.Posted(key, type)`, ADR 0023): what one press
+posted under `key`, decoded as `type` (`int`, `real`, `bool`, `text`, or a list of one) before
+anything reads it, so a value of another type refuses the press. It is not `Var`: a variable is
+held per viewer across requests and read by any slot, while a posted value lives for one request
+and only its call reads one: the build compiles a call in the one scope that may read it, so a
+posted value anywhere else fails the build.
+
+**A `Check` step keeps a value to a test.** Its steps run over the incoming value and must end in
+a bool (`Compare`, `Match` or CEL; the build refuses any other end). While they come out `true`
+the value passes through unchanged, and otherwise the result is `null`, which is what a posted
+value out of range needs: a slot's `default` fills it, and a call's field with no value refuses
+the press, naming the field. Its type is its input's. Two bounds are two checks in a row. The
+slider checks its drag to the range its track draws, and the wheel its `[h, s]`, so a page
+cannot send HA a value its own control could not. The test reads the value again where the
+step before it is read (a `Run` takes no value in), so a check follows cheap reads.
+
 **`null` comes from two places only.** An entity read: an entity the store lacks, an attribute the
 entity does not report, a JSON `null`. And a step with no result: `First` over an empty list,
-`Percent`, `Fill` and `Duration` over text that is not a number, CEL returning `null`. A `once`
+`Percent`, `Fill` and `Duration` over text that is not a number, a failed `Check`, CEL returning
+`null`. A `once`
 read is of *which entity this is* (a service picked by its domain), which it is whether or not
 the store holds it, so it reads the entity's identity and never gives `null`.
 
@@ -123,8 +143,10 @@ unavailable switch.
 ## The evaluator
 
 - **One compiler, run once, at the build.** `Evaluator.compile` turns a `ValueExpr` into a
-  closure `(subject, states, fetched) => Any` (SICP's `analyze`: the tree is walked once, at
-  compile, never per call). `Dashboard.validated` walks the wire model into a second, compiled
+  closure `(subject, states, lookup) => Any` (SICP's `analyze`: the tree is walked once, at
+  compile, never per call). The `Lookup` holds what is in hand besides state, the fetches'
+  answers and the node's variables, and throws on a read of either that is not: a decision's
+  has no variables, since it has no viewer. `Dashboard.validated` walks the wire model into a second, compiled
   one (`Ready`, `Ready.Compile`), every expression beside its run, from `validate`'s own typing;
   the renderer, `MemberGraph`, `SurfaceGraph`, the order keys and set calls read only that tree,
   so nothing that runs can reach an expression with no run. An expression inside another (a CEL
@@ -146,7 +168,8 @@ unavailable switch.
 - **What wakes a reading is what its reads name** (`ValueExpr.entities`): the source's entities,
   the operands', and those an order term names. No step adds any. A `Present` names its
   candidates, so `Present |> First` follows every candidate; a list of literal ids is text and
-  names none.
+  names none. A `Present` of areas or floors (`of`) names only what its guards name: an area has
+  no state, so its guard runs with no subject and the typing refuses one that reads it.
 - **Closures, not an opcode VM, Truffle nodes or a class per reading:** a reading is a few steps
   whose work lives in shared helpers, so a faster dispatch only shortens the gaps between them,
   2–4% of a render as profiled. The measurement, and what would reopen it, is in

@@ -322,6 +322,7 @@ object Datastar {
         // Unquoted: `'false'` is a truthy string, which sets a `data-attr`.
         paths(i)._2 match
           case b: Boolean => sb.append(b)
+          case d: Double  => sb.append(SlotValue.number(d))
           case s: String  =>
             sb.append('\'')
             escapeJsInto(sb, s)
@@ -358,6 +359,7 @@ object Datastar {
   /** [[jsLiteral]], but a boolean reads back as one: `'false'` is truthy. */
   def jsValue(value: SlotValue): String = value match
     case b: Boolean => b.toString
+    case d: Double  => SlotValue.number(d)
     case s: String  => jsLiteral(s)
 
   /** The non-signal half of `<slot>.jsValue`, through the seed's escaper. */

@@ -50,7 +50,7 @@ class Pending {
 /// A term computed from the candidate. A term rather than a bare lambda, so it
 /// composes: inside `any`/`all`/`not` a lambda has no candidate in scope.
 class CandidateTerm {
-  fn: (hass.Entity) -> Any
+  fn: (Member) -> Any
 }
 
 /// A group with an unresolved operand. [[all]]/[[any]]/[[not]] fold
@@ -142,14 +142,14 @@ const local function livePart(attrName: String): simpleMod.Attr? =
   if (attrName == "state") null else new simpleMod.Attr { name = attrName }
 
 /// See [[CandidateTerm]].
-function candidate(f: (hass.Entity) -> Cond|List<Cond>): CandidateTerm =
+function candidate(f: (Member) -> Cond|List<Cond>): CandidateTerm =
   new { fn = f }
 
 /// A live attribute name, checked against what the candidates can report, so a
 /// typo fails the build instead of never matching. Only candidates with a
 /// non-empty schema are checked: empty means the domain is not modelled yet
 /// (ADR 0013).
-const local function checkLive(items: List<hass.Entity>, name: String): simpleMod.Attr? =
+const local function checkLive(items: List<Member>, name: String): simpleMod.Attr? =
   let (modelled = items.filter((e) -> !e.volatileAttrs.isEmpty))
     if (modelled.isEmpty || modelled.any((e) -> e.volatileAttrs.containsKey(name)))
       livePart(name)
@@ -173,7 +173,7 @@ const local function checkLive(items: List<hass.Entity>, name: String): simpleMo
 /// A registry fact the build can read: a property holding a scalar, or null.
 /// A capability group or a helper (`l.colourTemp`, `l.colourModes`) is the
 /// schema's, and never a fact a query reads.
-const local function carries(e: hass.Entity, name: String): Boolean =
+const local function carries(e: Member, name: String): Boolean =
   e.hasProperty(name) && let (v = e.getPropertyOrNull(name)) (v == null || v is Scalar)
 
 /// A name the schema says a candidate reports live is live, whatever the schema
@@ -181,7 +181,7 @@ const local function carries(e: hass.Entity, name: String): Boolean =
 /// ALL candidates carry it => a registry fact; NONE => a live attribute; SOME
 /// => a build error unless `optional`.
 const local function resolveProp(
-  items: List<hass.Entity>, p: PropName
+  items: List<Member>, p: PropName
 ): (RegFact|simpleMod.Attr)? =
   if (p.name == "state") null
   else if (p is LiveAttr) livePart(p.name)
@@ -199,7 +199,7 @@ const local function resolveProp(
         missing.
         """)
 
-const local function isBuildReadable(items: List<hass.Entity>, p: PropName): Boolean =
+const local function isBuildReadable(items: List<Member>, p: PropName): Boolean =
   resolveProp(items, p) is RegFact
 
 const local function applyOp(cmpOp: String, l: Any, r: Any): Boolean =
@@ -287,7 +287,7 @@ const local function specKey(s: OrderSpec): PropName =
   if (s.by is Pending) (s.by as Pending).key else s.by as PropName
 
 // A value expression is read per member, live; a name may be a registry fact.
-const local function readsNow(items: List<hass.Entity>, s: OrderSpec): Boolean =
+const local function readsNow(items: List<Member>, s: OrderSpec): Boolean =
   !(s.by is slotMod.Expr) && isBuildReadable(items, specKey(s))
 
 const local function specName(s: OrderSpec): String =
@@ -295,7 +295,7 @@ const local function specName(s: OrderSpec): String =
 
 /// What the build sorted, and what the runtime must still compare.
 class Ordering {
-  entities: List<hass.Entity>
+  entities: List<Member>
   terms: List<pred.SortTerm>
 }
 
@@ -303,7 +303,7 @@ class Ordering {
 // follow the live ones — pre-sorting supplies the tiebreak, since the runtime's
 // sort is stable — but not precede them: the runtime has no registry.
 const local function foldOrder(
-  items: List<hass.Entity>, specs: List<OrderSpec>
+  items: List<Member>, specs: List<OrderSpec>
 ): Ordering =
   if (specs.isEmpty || items.isEmpty) new Ordering { entities = items; terms = List() }
   else
@@ -331,8 +331,8 @@ const local function foldOrder(
 // Stable sorts from the least significant key outwards. `desc` compares the
 // other way rather than reversing, which would also reverse the ties.
 const local function sortNow(
-  items: List<hass.Entity>, specs: List<OrderSpec>
-): List<hass.Entity> =
+  items: List<Member>, specs: List<OrderSpec>
+): List<Member> =
   specs.reverse().fold(items, (acc, s) ->
     // Outside `sortWith`, or the key resolves O(n log n) times.
     let (prepared = if (s.by is Pending) ready(items, s.by as Pending) else null)
@@ -344,7 +344,7 @@ const local function sortNow(
 // As the runtime orders: a comparison on its truth, true first under `asc`; a
 // Boolean value as its text, false first. Pkl has no `<` on Booleans.
 const local function orderValue(
-  prepared: Ready?, items: List<hass.Entity>, s: OrderSpec, e: hass.Entity
+  prepared: Ready?, items: List<Member>, s: OrderSpec, e: Member
 ): String|Int|Float =
   if (prepared != null) (if (decide(prepared, items, e) as Boolean) 0 else 1)
   else
@@ -352,7 +352,7 @@ const local function orderValue(
       if (v is Boolean) (if (v) 1 else 0) else v as (String|Int|Float)
 
 const local function liveTerm(
-  items: List<hass.Entity>, s: OrderSpec
+  items: List<Member>, s: OrderSpec
 ): pred.SortTerm =
   new {
     by =
@@ -367,19 +367,24 @@ const local function liveTerm(
 // ---- the set ----------------------------------------------------------------
 
 class Branch {
-  key: (hass.Entity) -> Boolean|slotMod.Expr
-  render: (hass.Entity) -> nodes.Node
+  key: (Member) -> Boolean|slotMod.Expr
+  render: (Member) -> nodes.Node
 }
+
+/// What a set holds: entities, areas or floors ([[from]]).
+typealias Member = pred.Addressed
 
 /// What [[EntitySet.where]] and [[EntitySet.caseOf]] accept: a condition, a
 /// [[candidate]] term, a list of either (conjunction), or a lambda over the
 /// candidate.
-typealias Filter = ((hass.Entity) -> Cond|List<Cond>)|Cond|List<Cond>
+typealias Filter = ((Member) -> Cond|List<Cond>)|Cond|List<Cond>
 
 /// A chainable candidate set. Each method returns an amended copy; nothing is
 /// evaluated until [[build]].
-class EntitySet {
-  hidden items: List<hass.Entity>
+class EntitySet extends pred.TallyOf {
+  hidden items: List<Member>
+  /// What the items are ([[pred.Tally.of]]); [[from]] keeps it to one kind.
+  hidden kind: ("area"|"floor")? = if (items.isEmpty) null else pred.kindOf(items.first)
   hidden filters: List<Filter> = List()
   hidden branches: List<Branch> = List()
   hidden specs: List<OrderSpec> = List()
@@ -387,23 +392,23 @@ class EntitySet {
 
   /// Keep the candidates matching `f`. Static terms drop candidates at build
   /// time; live ones become the member's guard.
-  function where(f: Filter): EntitySet =
+  function where(f: Filter): this =
     let (l = this) (l) { filters = l.filters.add(f) }
 
   /// Lexicographic, most significant first.
   function orderBy(
     ks: List<OrderSpec|PropName|Pending|slotMod.Expr>|OrderSpec|PropName|Pending|slotMod.Expr
-  ): EntitySet =
+  ): this =
     let (l = this)
       let (asList = if (ks is List) ks as List<OrderSpec|PropName|Pending|slotMod.Expr> else List(ks))
         (l) { specs = l.specs + asList.map((k) -> spec(k)) }
 
   /// At most `n` present members, after ordering. Every candidate still ships:
   /// only the runtime knows which are cut.
-  function limit(n: Int(this > 0)): EntitySet = let (l = this) (l) { cap = n }
+  function limit(n: Int(this > 0)): this = let (l = this) (l) { cap = n }
 
   /// One guarded rendering; the guard folds like [[where]]'s.
-  function caseOf(g: Filter, r: (hass.Entity) -> nodes.Node): EntitySet =
+  function caseOf(g: Filter, r: (Member) -> nodes.Node): this =
     let (l = this)
       let (prepared = ready(l.items, g))
         (l) {
@@ -414,7 +419,7 @@ class EntitySet {
         }
 
   /// Several guarded renderings, in match order.
-  function cases(m: Mapping<Filter, (hass.Entity) -> nodes.Node>): EntitySet =
+  function cases(m: Mapping<Filter, (Member) -> nodes.Node>): this =
     let (l = this)
       (l) {
         branches = l.branches + m.toMap().entries.map((p) ->
@@ -424,9 +429,9 @@ class EntitySet {
 
   /// The unconditional last clause. Optional: a candidate matching no clause is
   /// not rendered, which is how "show it only while on" is written.
-  function `else`(r: (hass.Entity) -> nodes.Node): EntitySet = caseOf(true, r)
+  function `else`(r: (Member) -> nodes.Node): this = caseOf(true, r)
 
-  function render(r: (hass.Entity) -> nodes.Node): EntitySet = caseOf(true, r)
+  function render(r: (Member) -> nodes.Node): this = caseOf(true, r)
 
   /// How many candidates are present: `.count().gt(2)`. Reads only `where`, so
   /// a set can be counted without a card.
@@ -437,15 +442,16 @@ class EntitySet {
           let (prepared = l.filters.map((f) -> ready(l.items, f)))
             l.items
               .map((e) ->
-                Pair(e.entity_id, foldAll(prepared.map((r) -> decide(r, l.items, e)))))
+                Pair(pred.idOf(e), foldAll(prepared.map((r) -> decide(r, l.items, e)))))
               .filter((p) -> !(p.second is Boolean && p.second == false))
+        of = l.kind
       }
 
   /// The ids of the candidates present now, as a named input: a `list(string)`
   /// in CEL (`'light.kitchen' in lit`, `size(lit)`). Reads only `where`, as
   /// [[count]] does.
   function present(): pred.PresentList =
-    let (n = count()) new pred.PresentList { candidates = n.candidates; `when` = n.`when` }
+    let (n = count()) new pred.PresentList { candidates = n.candidates; `when` = n.`when`; of = n.of }
 
   function any(): Cond = count().gt(0)
   function none(): Cond = count().eq(0)
@@ -466,8 +472,9 @@ class EntitySet {
         let (prepared = l.filters.map((f) -> ready(l.items, f)))
           new FirstRef {
             residuals = ordering.entities.map((e) ->
-              Pair(e.entity_id, foldAll(prepared.map((r) -> decide(r, l.items, e)))))
+              Pair(pred.idOf(e), foldAll(prepared.map((r) -> decide(r, l.items, e)))))
             terms = ordering.terms
+            of = l.kind
           }
 
   /// The layout node. Pkl has no implicit conversion, so a chain ends here.
@@ -475,15 +482,22 @@ class EntitySet {
     let (l = this)
       let (ordering = foldOrder(l.items, l.specs))
         let (prepared = l.filters.map((f) -> ready(l.items, f)))
-          buildSet(
+          (buildSet(
             ordering,
             l.items,
             l.branches,
             l.cap,
-            (e) -> foldAll(prepared.map((r) -> decide(r, l.items, e))))
+            (e) -> foldAll(prepared.map((r) -> decide(r, l.items, e))))) { of = l.kind }
 }
 
-function from(xs: List<hass.Entity>): EntitySet = new EntitySet { items = xs }
+/// A set of entities, areas or floors, one kind per set. A set of areas or
+/// floors has no state of its own, so its terms name the entity they read
+/// (`(a) -> q.entity(e).stateIs("on")`); HA expands an area a call sends.
+function from(xs: List<Member>): EntitySet =
+  let (kinds = xs.map((x) -> pred.kindOf(x) ?? "entity").distinct)
+    if (kinds.length > 1)
+      throw("q.from(…) mixes \(kinds.join(", ")): a set holds one kind, so write one set per kind")
+    else new EntitySet { items = xs }
 
 /// A count waiting to be compared. Comparing it yields a condition, or a
 /// constant when no candidate's presence depends on live state — so `.any()`
@@ -517,6 +531,7 @@ class CountRef extends pred.Tally {
           `when` = l.`when`
           op = cmpOp
           value = v
+          of = l.of
         }
 }
 
@@ -528,18 +543,20 @@ class FirstRef {
   /// build dropped it, which is not the same as not being a candidate.
   hidden residuals: List<Pair<String, Boolean|slotMod.Expr>>
   hidden terms: List<pred.SortTerm>
+  hidden of: ("area"|"floor")? = null
 
-  function eq(e: hass.Entity): Boolean|slotMod.Expr =
+  function eq(e: Member): Boolean|slotMod.Expr =
     let (l = this)
+      let (id = pred.idOf(e))
       let (present = l.residuals.filter((p) -> p.second != false))
-        if (!l.residuals.any((p) -> p.first == e.entity_id))
+        if (!l.residuals.any((p) -> p.first == id))
           throw("""
-            first().eq: '\(e.entity_id)' is not one of the set's candidates, so
+            first().eq: '\(id)' is not one of the set's candidates, so
             it could never lead. Compare a member of the list given to `from`.
             """)
-        else if (!present.any((p) -> p.first == e.entity_id)) false
+        else if (!present.any((p) -> p.first == id)) false
         else if (l.terms.isEmpty && present.first.second == true)
-          present.first.first == e.entity_id
+          present.first.first == id
         else
           new pred.First {
             candidates = new Listing { for (p in present) { p.first } }
@@ -551,10 +568,11 @@ class FirstRef {
               }
             }
             orderBy = l.terms.toListing()
-            entity = e.entity_id
+            entity = id
+            of = l.of
           }
 
-  function ne(e: hass.Entity): Boolean|slotMod.Expr =
+  function ne(e: Member): Boolean|slotMod.Expr =
     let (r = this.eq(e)) if (r is Boolean) !r else new pred.PNot { item = r as slotMod.Expr }
 }
 
@@ -590,10 +608,10 @@ class ReadyGroup extends Ready {
 
 /// A term the candidate produces, so it can only resolve per candidate — the
 /// reason to prefer the data form when a term does not read the candidate.
-class ReadyFn extends Ready { fn: (hass.Entity) -> Any }
+class ReadyFn extends Ready { fn: (Member) -> Any }
 
-const local function ready(items: List<hass.Entity>, f: Any): Ready =
-  if (f is Function) new ReadyFn { fn = f as ((hass.Entity) -> Any) }
+const local function ready(items: List<Member>, f: Any): Ready =
+  if (f is Function) new ReadyFn { fn = f as ((Member) -> Any) }
   else if (f is CandidateTerm) new ReadyFn { fn = (f as CandidateTerm).fn }
   else if (f is List)
     new ReadyGroup {
@@ -616,7 +634,7 @@ const local function ready(items: List<hass.Entity>, f: Any): Ready =
 
 // `items` travels only to re-enter [[ready]] for a [[ReadyFn]].
 const local function decide(
-  r: Ready, items: List<hass.Entity>, e: hass.Entity
+  r: Ready, items: List<Member>, e: Member
 ): Boolean|slotMod.Expr =
   if (r is ReadyConst) r.value
   else if (r is ReadyReg) applyOp(r.op, e.getPropertyOrNull(r.name), r.value)
@@ -632,7 +650,7 @@ const local function decide(
 // The branches that can still win for one candidate, with their residual
 // guards. An unconditional branch ends the list: nothing after it can win.
 const local function liveBranches(
-  e: hass.Entity, branches: List<Branch>
+  e: Member, branches: List<Branch>
 ): List<Pair<Branch, slotMod.Expr?>> =
   let (evaluated = branches
         .map((b) -> Pair(b, b.key.apply(e)))
@@ -656,10 +674,10 @@ const local function conjoin(
 // dispatch share one field.
 const local function buildSet(
   ordering: Ordering,
-  items: List<hass.Entity>,
+  items: List<Member>,
   branches: List<Branch>,
   cap: Int?,
-  presence: (hass.Entity) -> Boolean|slotMod.Expr
+  presence: (Member) -> Boolean|slotMod.Expr
 ): pred.SetNode =
   let (kept = ordering.entities
         .map((e) -> Pair(e, presence.apply(e)))
@@ -667,18 +685,18 @@ const local function buildSet(
   let (dispatched = kept
         .map((p) -> Pair(p.first, liveBranches(p.first, branches)))
         .filter((p) -> !p.second.isEmpty))
-  let (presenceOf = kept.toMap((p) -> p.first.entity_id, (p) -> p.second))
+  let (presenceOf = kept.toMap((p) -> pred.idOf(p.first), (p) -> p.second))
   let (rendered = dispatched.map((p) ->
         Pair(p.first, p.second.map((b) ->
           Pair(b.first.render.apply(p.first),
-               conjoin(presenceOf[p.first.entity_id], b.second))))))
+               conjoin(presenceOf[pred.idOf(p.first)], b.second))))))
     new pred.SetNode {
-      candidates = new Listing { for (p in dispatched) { p.first.entity_id } }
+      candidates = new Listing { for (p in dispatched) { pred.idOf(p.first) } }
       orderBy = new Listing { for (t in ordering.terms) { t } }
       limit = cap
       members = new Mapping {
         for (p in rendered) {
-          [p.first.entity_id] = new pred.SetMember {
+          [pred.idOf(p.first)] = new pred.SetMember {
             clauses = new Listing {
               for (q in p.second) {
                 new pred.SetClause { `when` = q.second; node = q.first }

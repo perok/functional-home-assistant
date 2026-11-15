@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import fh.view.model.NodeId
 import fh.view.testkit.FixtureEntity
 import io.circe.Json
 import munit.CatsEffectSuite
@@ -57,14 +58,31 @@ class LightSliderSuite extends CatsEffectSuite {
       .use(f)
       .timeout(60.seconds)
 
+  /** The ids of the calls setting HA's `field`, which a page carrying that head
+    * carries.
+    */
+  private def callsSetting(ts: TestServer, field: String): IO[List[String]] =
+    ts.presses.map(_.collect {
+      case (d, url) if d.data.contains(field) =>
+        url.split('/').last.takeWhile(_ != '?')
+    })
+
+  /** A control button's press: the declarer whose ask it writes, and the
+    * control.
+    */
   private val controlRoute =
-    """sse/var/[^/]+/([A-Za-z0-9_]+)/control/([A-Za-z]+)""".r
+    """\$_var_([A-Za-z0-9_]+)__control__pending = '([A-Za-z]+)'""".r
 
   test(
     "first paint is the brightness slider, its button stepping to the next"
   ) {
     served(lamp) { ts =>
-      ts.page().map { html =>
+      for {
+        html <- ts.page()
+        brightness <- callsSetting(ts, "brightness")
+        hue <- callsSetting(ts, "hs_color")
+        kelvin <- callsSetting(ts, "color_temp_kelvin")
+      } yield {
         // Only the shown control's button is in the page: no script picks it.
         assert(html.contains("""aria-label="Brightness""""), clue = html)
         List("Colour temperature", "Colour").foreach { l =>
@@ -74,10 +92,11 @@ class LightSliderSuite extends CatsEffectSuite {
           controlRoute.findAllMatchIn(html).map(_.group(2)).toList,
           List("colourTemp")
         )
-        assert(html.contains("{'brightness': Number("), clue = html)
+        assert(brightness.exists(html.contains), clue = html)
+        assert(html.contains("{'slide': $_"), clue = html)
         // A panel not shown is not rendered.
-        assert(!html.contains("{'hs_color': "), clue = html)
-        assert(!html.contains("{'color_temp_kelvin': "), clue = html)
+        assert(hue.nonEmpty && kelvin.nonEmpty, clue = (hue, kelvin))
+        assert(!(hue ++ kelvin).exists(html.contains), clue = html)
       }
     }
   }
@@ -92,17 +111,18 @@ class LightSliderSuite extends CatsEffectSuite {
           .findFirstMatchIn(doc.html)
           .fold(fail(s"no control button on the page: ${doc.html}"))(_.group(1))
         session <- ts.sessions.get(doc.conn)
-        result <- ts.postResult(
-          s"sse/var/${ts.slug}/$declarer/control/colour",
-          body = s"""{"${Server.ConnSignal}":"${doc.conn}"}"""
+        result <- ts.choose(
+          doc.conn,
+          VarKey(NodeId.derived(declarer), "control"),
+          Some("colour")
         )
         sent <- session
           .fold(IO.pure(List.empty[SseFrame]))(_.takeBacklog)
           .map(_.flatMap(_.data).mkString("\n"))
       } yield {
         assertEquals(result._1, Status.NoContent, clue = result._2)
-        assert(sent.contains("{'hs_color': [Number($"), clue = sent)
-        assert(sent.contains(",100] } } }"), clue = sent)
+        assert(sent.contains("{'slide': [$_"), clue = sent)
+        assert(sent.contains(", 100]}, seen: "), clue = sent)
         // `hs_color[0]`, rounded: the handle starts where the light is.
         assert(sent.contains("""value="31""""), clue = sent)
         assert(
@@ -118,10 +138,8 @@ class LightSliderSuite extends CatsEffectSuite {
     // are the dashboard's whether or not this viewer has it showing.
     served(lamp) { ts =>
       for {
-        status <- ts.post(
-          s"sse/call/${ts.slug}/light/turn_on/entity/light.lamp",
-          body = """{"data":{"hs_color":[120,100]}}"""
-        )
+        at <- ts.pressWhere(_.data.contains("hs_color"))
+        status <- ts.post(at, body = """{"posted":{"slide":[120,100]}}""")
         calls <- ts.fake.recordedCalls
       } yield {
         assertEquals(status, Status.NoContent)
@@ -129,6 +147,89 @@ class LightSliderSuite extends CatsEffectSuite {
           calls.map(_.serviceData.hcursor.downField("hs_color").focus),
           Vector(Some(Json.arr(n(120), n(100))))
         )
+      }
+    }
+  }
+
+  test("a drag outside the track's range is refused, and HA never hears it") {
+    served(dimmer) { ts =>
+      for {
+        at <- ts.pressWhere(_.data.contains("brightness"))
+        within <- ts.post(at, body = """{"posted":{"slide":60}}""")
+        past <- ts.postResult(at, body = """{"posted":{"slide":256}}""")
+        below <- ts.postResult(at, body = """{"posted":{"slide":0}}""")
+        calls <- ts.fake.recordedCalls
+      } yield {
+        assertEquals(within, Status.NoContent)
+        List(past, below).foreach { (status, body) =>
+          assertEquals(status, Status.Ok)
+          assert(body.contains("gives no value"), clue = body)
+        }
+        assertEquals(calls.size, 1)
+      }
+    }
+  }
+
+  // A light that is on without its level (just turned on, back from
+  // unavailable): the drag signal adopts what the page seeds, so a seed the
+  // range check refuses makes every press without a drag fail.
+  test("a slider without its level seeds a value its own range check takes") {
+    val levels = Set("brightness", "color_temp_kelvin", "hs_color")
+    def levelless(e: FixtureEntity) =
+      e.copy(attributes = e.attributes.removedAll(levels))
+    val range = """<input[^>]*type="range"[^>]*>""".r
+    def attr(tag: String, name: String) =
+      s"""\\s$name="([^"]*)"""".r.findFirstMatchIn(tag).map(_.group(1).toDouble)
+    def seeds(html: String) =
+      range
+        .findAllIn(html)
+        .toList
+        .map(t => (attr(t, "min"), attr(t, "value"), attr(t, "max")))
+    for {
+      lampSeeds <- served(levelless(lamp))(_.load().map(d => seeds(d.html)))
+      dimmed <- served(levelless(dimmer)) { ts =>
+        for {
+          doc <- ts.load()
+          at <- ts.pressWhere(_.data.contains("brightness"))
+          seeded = seeds(doc.html).collectFirst { case (_, Some(v), _) =>
+            v.toInt
+          }
+          status <- ts.post(
+            at,
+            body = s"""{"posted":{"slide":${seeded.getOrElse(-1)}}}"""
+          )
+          calls <- ts.fake.recordedCalls
+        } yield (seeds(doc.html), status, calls.size)
+      }
+    } yield {
+      val (dimmerSeeds, status, calls) = dimmed
+      val all = lampSeeds ++ dimmerSeeds
+      assert(all.nonEmpty, clue = "no range input on either page")
+      all.foreach {
+        case (Some(lo), Some(v), Some(hi)) =>
+          assert(lo <= v && v <= hi, clue = (lo, v, hi))
+        case other => fail(s"a range input without min, value and max: $other")
+      }
+      assertEquals((status, calls), (Status.NoContent, 1))
+    }
+  }
+
+  test("a hue list whose first element leaves the range is refused") {
+    served(lamp) { ts =>
+      for {
+        at <- ts.pressWhere(_.data.contains("hs_color"))
+        refused <- ts.postResult(
+          at,
+          body = """{"posted":{"slide":[361,100]}}"""
+        )
+        empty <- ts.postResult(at, body = """{"posted":{"slide":[]}}""")
+        calls <- ts.fake.recordedCalls
+      } yield {
+        List(refused, empty).foreach { (status, body) =>
+          assertEquals(status, Status.Ok)
+          assert(body.contains("gives no value"), clue = body)
+        }
+        assertEquals(calls, Vector.empty)
       }
     }
   }
@@ -159,9 +260,10 @@ class LightSliderSuite extends CatsEffectSuite {
             .map(_.group(1))
             .toSet
           session <- ts.sessions.get(doc.conn)
-          result <- ts.postResult(
-            s"sse/var/${ts.slug}/${declarers.head}/control/colour",
-            body = s"""{"${Server.ConnSignal}":"${doc.conn}"}"""
+          result <- ts.choose(
+            doc.conn,
+            VarKey(NodeId.derived(declarers.head), "control"),
+            Some("colour")
           )
           sent <- session
             .fold(IO.pure(List.empty[SseFrame]))(_.takeBacklog)
@@ -173,7 +275,7 @@ class LightSliderSuite extends CatsEffectSuite {
           assertEquals(result._1, Status.NoContent, clue = result._2)
           // The head and the colour row both slide the hue now.
           assertEquals(
-            "\\{'hs_color': \\[Number\\(\\$".r.findAllMatchIn(sent).size,
+            "\\{'slide': \\[\\$_".r.findAllMatchIn(sent).size,
             2,
             clue = sent
           )
@@ -186,8 +288,12 @@ class LightSliderSuite extends CatsEffectSuite {
 
   test("a light that only dims is one slider and no buttons") {
     served(dimmer) { ts =>
-      ts.page().map { html =>
-        assert(html.contains("{'brightness': Number("), clue = html)
+      for {
+        html <- ts.page()
+        brightness <- callsSetting(ts, "brightness")
+      } yield {
+        assert(brightness.exists(html.contains), clue = html)
+        assert(html.contains("{'slide': $_"), clue = html)
         assertEquals(controlRoute.findAllMatchIn(html).size, 0, clue = html)
       }
     }

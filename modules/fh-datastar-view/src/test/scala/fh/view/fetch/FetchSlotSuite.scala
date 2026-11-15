@@ -1,5 +1,6 @@
 package fh.view.fetch
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import fh.view.fetch.{FetchRequest, FetchSnapshot}
@@ -31,26 +32,18 @@ import fh.view.model.{
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import fh.view.history.{ChartStyle, History, SeriesSource, Window, Windows}
-import fh.view.runtime.{
-  EntityState,
-  Evaluator,
-  RenderInputs,
-  Renderer,
-  Selections,
-  sharedOf
-}
+import fh.view.runtime.{EntityState, Evaluator, Renderer, Selections, sharedOf}
 import io.circe.Json
 import io.github.iltotore.iron.*
-import fh.view.testkit.TestIds.given
 import fh.view.FHError
 import fh.view.testkit.DashboardBuilders.declared
 
 import java.time.Instant
 
-/** A node reading a fetch contributes nothing to candidacy and everything to
-  * the render key.
+/** A node reading a fetch contributes nothing to candidacy, and its answer
+  * reaches the bytes through the slot.
   */
-class FetchRenderInputsSuite extends munit.CatsEffectSuite {
+class FetchSlotSuite extends munit.CatsEffectSuite {
 
   private object compile:
     private val walk = Ready.Compile(Evaluator.Scope(""))
@@ -166,10 +159,10 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     // unresolved fetch is loud, not an empty hole.
     val q = read()
     val f = FetchSnapshot.of(Map(q -> Staged(100L, "<svg/>")))
-    assertEquals(f.versions("c_0", List(ask())), Map(q -> 100L))
-    assertEquals(f.value("c_0", ask()), "<svg/>")
+    assertEquals(f.staged(ask().fixed).version, 100L)
+    assertEquals(f.staged(ask().fixed).value, "<svg/>")
 
-    val miss = intercept[FHError](FetchSnapshot.empty.value("c_0", ask()))
+    val miss = intercept[FHError](FetchSnapshot.empty.staged(ask().fixed).value)
     assertEquals(miss.status, 500)
     assert(miss.getMessage.contains("not resolved for this render"))
   }
@@ -227,8 +220,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       counts <- (fetches.get, draws.get).tupled
     } yield {
       assertEquals(counts, (1, 2))
-      assertEquals(f.value("n", ask(width = 600)), "<svg>600</svg>")
-      assertEquals(f.value("n", ask(width = 320)), "<svg>320</svg>")
+      assertEquals(f.staged(ask(width = 600).fixed).value, "<svg>600</svg>")
+      assertEquals(f.staged(ask(width = 320).fixed).value, "<svg>320</svg>")
     }
   }
 
@@ -242,7 +235,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       )
     val a = sensor("sensor.a")
     val b = sensor("sensor.b")
-    val reads = List(a, b).map(_.resolve(Map.empty))
+    val reads = List(a, b).map(_.fixed)
     for {
       history <- History.create(
         source { (entityId, end) =>
@@ -262,8 +255,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
         FetchIdentity.Instance
       )
     } yield {
-      assertEquals(f.value("n", a), "<svg>1.0</svg>")
-      assertEquals(f.value("n", b), "<svg>2.0</svg>")
+      assertEquals(f.staged(a.fixed).value, "<svg>1.0</svg>")
+      assertEquals(f.staged(b.fixed).value, "<svg>2.0</svg>")
     }
   }
 
@@ -286,8 +279,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       assertEquals(d, 0)
       val rawAsk = SlotAsk(chart(), Step.Json)
       assert(
-        f.value("n", rawAsk).contains("\"points\""),
-        clue = f.value("n", rawAsk)
+        f.staged(rawAsk.fixed).value.contains("\"points\""),
+        clue = f.staged(rawAsk.fixed).value
       )
     }
   }
@@ -308,39 +301,16 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
         FetchIdentity.Instance
       )
     } yield {
-      assertEquals(f.value("n", ask(width = 600)), "<svg>600</svg>")
-      assertEquals(f.value("n", ask(width = 1)), Staged.failed(drawn()).value)
-      // Below any real version, so the next good answer moves the key.
+      assertEquals(f.staged(ask(width = 600).fixed).value, "<svg>600</svg>")
       assertEquals(
-        f.versions("n", List(ask(width = 1))),
-        Map(bad -> Staged.FailedVersion)
+        f.staged(ask(width = 1).fixed).value,
+        Staged.failed(drawn()).value
+      )
+      assertEquals(
+        f.staged(ask(width = 1).fixed).version,
+        Staged.FailedVersion
       )
     }
-  }
-
-  private def key(fetches: (SlotRead, Long)*) =
-    RenderInputs(Map("sensor.t" -> 1L), fetches.toMap)
-
-  test("a later version is ahead of an earlier one") {
-    assert(key(read() -> 200L).isAtLeast(key(read() -> 100L)))
-    assert(!key(read() -> 100L).isAtLeast(key(read() -> 200L)))
-    assert(key(read() -> 100L).isAtLeast(key(read() -> 100L)))
-  }
-
-  test("different fetches are not ordered, so neither overwrites the other") {
-    // Unordered means separate generations; otherwise one viewer is served a
-    // chart of the wrong span, silently.
-    assert(!key(read("24h") -> 100L).isAtLeast(key(read("1h") -> 100L)))
-    assert(!key(read("1h") -> 100L).isAtLeast(key(read("24h") -> 100L)))
-  }
-
-  test("gaining a fetch is not being ahead") {
-    assert(!key(read() -> 100L).isAtLeast(key()))
-    assert(!key().isAtLeast(key(read() -> 100L)))
-  }
-
-  test("a moved fetch alone moves the key, with state standing still") {
-    assertNotEquals(key(read() -> 100L), key(read() -> 200L))
   }
 
   test("a surface's fetches are found before it is rendered") {
@@ -349,8 +319,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     // `IO`.
     val d = Dashboard(
       cards = Map(
-        "chart" -> CardDef("""<div>{{{chart}}}</div>"""),
-        "col" -> CardDef(
+        "chart" -> TestCard("""<div>{{{chart}}}</div>"""),
+        "col" -> TestCard(
           """<div>{{{children}}}</div>""",
           regions = Map("children" -> Region())
         )
@@ -422,20 +392,19 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
       Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
     val r = Renderer.create(
       Dashboard(
-        cards =
-          Map(
-            "chart" -> CardDef(
-              """<div>{{{chart}}}</div>"""
-            ),
-            "col" -> CardDef(
-              """<div>{{{children}}}</div>""",
-              regions = Map("children" -> Region())
-            ),
-            "host" -> CardDef(
-              """<div id="{{hostId}}">{{{panel}}}</div>""",
-              regions = Map("panel" -> Region(Region.Baked))
-            )
+        cards = Map(
+          "chart" -> TestCard(
+            """<div>{{{chart}}}</div>"""
           ),
+          "col" -> TestCard(
+            """<div>{{{children}}}</div>""",
+            regions = Map("children" -> Region())
+          ),
+          "host" -> TestCard(
+            """<div id="{{hostId}}">{{{panel}}}</div>""",
+            regions = Map("panel" -> Region(Region.Baked))
+          )
+        ),
         card = LayoutNode.Component(
           card = "col",
           regions = LayoutNode.kids(
@@ -474,7 +443,8 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
 
   private def dashboard(src: TemplateSlot) =
     Dashboard(
-      cards = Map("chart" -> CardDef("""<div id="{{id}}">{{{chart}}}</div>""")),
+      cards =
+        Map("chart" -> TestCard("""<div id="{{id}}">{{{chart}}}</div>""")),
       card = LayoutNode.Component(
         card = "chart",
         templateSlots = Map("chart" -> src)
@@ -495,7 +465,7 @@ class FetchRenderInputsSuite extends munit.CatsEffectSuite {
     // Otherwise `{{chart}}` renders `&lt;svg …` as text.
     def errsFor(hole: String) =
       Dashboard(
-        cards = Map("chart" -> CardDef(s"""<div id="{{id}}">$hole</div>""")),
+        cards = Map("chart" -> TestCard(s"""<div id="{{id}}">$hole</div>""")),
         card = LayoutNode.Component(
           card = "chart",
           templateSlots = Map(

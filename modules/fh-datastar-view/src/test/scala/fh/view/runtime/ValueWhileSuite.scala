@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import fh.view.history.Windows
@@ -41,7 +42,7 @@ class ValueWhileSuite extends munit.FunSuite {
     signal = Some(SignalBind.Text)
   )
 
-  private val bar = CardDef(
+  private val bar = TestCard(
     """<b {{{of.bind}}}>{{of}}</b>"""
   )
 
@@ -56,7 +57,7 @@ class ValueWhileSuite extends munit.FunSuite {
   private def dashboard(nodes: LayoutNode.Component*) = Dashboard(
     cards = Map(
       "bar" -> bar,
-      "col" -> CardDef(
+      "col" -> TestCard(
         """<div>{{{children}}}</div>""",
         regions = Map(LayoutNode.DefaultRegion -> Region())
       )
@@ -132,7 +133,7 @@ class ValueWhileSuite extends munit.FunSuite {
     val on = Some(Conds.cmp("state", Op.Eq, Json.fromString("on")))
     def clauses(cs: LayoutNode.SetClause*) = LayoutNode.SetMember(cs.toList)
     val d = Dashboard(
-      cards = Map("chart" -> CardDef("<div>{{chart}}</div>")),
+      cards = Map("chart" -> TestCard("<div>{{chart}}</div>")),
       card = LayoutNode.SetNode(
         candidates = List("light.a", "light.b"),
         members =

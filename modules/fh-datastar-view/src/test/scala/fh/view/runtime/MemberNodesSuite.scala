@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import fh.view.runtime.RendererTestOps.*
@@ -18,6 +19,7 @@ import fh.view.model.{
   Surface
 }
 import fh.view.fetch.FetchSnapshot
+import fh.view.testkit.DashboardBuilders
 import fh.view.testkit.DashboardBuilders.{declared, st}
 import fh.view.testkit.TestIds.given
 import io.circe.Json
@@ -29,16 +31,17 @@ import org.http4s.Status
 class MemberNodesSuite extends ServerHarness {
 
   private val cards = Map(
-    "tile" -> CardDef("<b>{{state}}</b>"),
-    "col" -> CardDef(
+    DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard,
+    "tile" -> TestCard("<b>{{state}}</b>"),
+    "col" -> TestCard(
       """<div>{{{children}}}</div>""",
       regions = Map("children" -> Region())
     ),
-    "host" -> CardDef(
+    "host" -> TestCard(
       """<div id="{{hostId}}">{{{panel}}}</div>""",
       regions = Map("panel" -> Region(Region.Baked))
     ),
-    "text" -> CardDef("<p>{{text}}</p>")
+    "text" -> TestCard("<p>{{text}}</p>")
   )
 
   private def tile(id: String) = LayoutNode.Component(
@@ -220,7 +223,7 @@ class MemberNodesSuite extends ServerHarness {
                 )
               )
             }.toMap
-          )
+          ) :: DashboardBuilders.choices("tab", "1")*
         )
       ),
       surfaces = Map(
@@ -248,9 +251,10 @@ class MemberNodesSuite extends ServerHarness {
     live(panels, twoOn) { ts =>
       for {
         v <- ts.viewer()
-        wrote <- ts.postResult(
-          s"sse/var/${ts.slug}/c/tab/1?group=var_c__tab",
-          body = s"""{"${Server.ConnSignal}":"${v.document.conn}"}"""
+        wrote <- ts.choose(
+          v.document.conn,
+          VarKey(NodeId.derived("c"), "tab"),
+          Some("1")
         )
         frames <- v.session.takeBacklog
       } yield {

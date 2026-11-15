@@ -1,5 +1,6 @@
 package fh.view.runtime
 
+import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
 import fh.view.fetch.FetchSnapshot
@@ -29,7 +30,7 @@ class ResumePatchesSuite extends munit.FunSuite {
   // One set at the root, so members are `c_<sanitized entity>`.
   private val renderer = Renderer.create(
     Dashboard(
-      cards = Map("dot" -> CardDef("<span>{{state}}</span>")),
+      cards = Map("dot" -> TestCard("<span>{{state}}</span>")),
       card = LayoutNode.SetNode(
         candidates = List("light.a", "light.b", "light.c", "light.d"),
         members = List("light.a", "light.b", "light.c", "light.d").map { id =>
@@ -183,7 +184,11 @@ class ResumePatchesSuite extends munit.FunSuite {
     assert(out(1).contains("mode before"), clue = out)
   }
 
-  /** The dangerous direction is claiming a digest the client lacks. A fill
+  private def held(bytes: String): Held = Held(
+    Some(ByteValues(Map("v" -> bytes), None))
+  )
+
+  /** The dangerous direction is claiming values the client lacks. A fill
     * overwrites a host's subtree with no per-node trace, so an old member claim
     * would outlive its bytes and suppress that value coming round again.
     */
@@ -194,19 +199,19 @@ class ResumePatchesSuite extends munit.FunSuite {
       "c_10" -> "<ten/>",
       "c_1_0" -> "<nested/>",
       "d_1" -> "<other/>"
-    ).map { case (id, html) => (id: NodeId) -> Held.of(html) }.toMap
+    ).map { case (id, html) => (id: NodeId) -> held(html) }.toMap
     val after = Patches.applied(
       TestAncestry.of(holds.keySet),
       holds,
       Addressed(
         Patch.Morph("<ignored/>"),
-        establishes = Map(("c_1": NodeId) -> Held.of("<fresh/>")),
+        establishes = Map(("c_1": NodeId) -> held("<fresh/>")),
         invalidates = Set[NodeId]("c_1")
       )
     )
     assertEquals(after.get("c_1_0"), None, clue = after)
     // The same patch's placement survives the prune it triggered.
-    assertEquals(after.get("c_1"), Some(Held.of("<fresh/>")), clue = after)
+    assertEquals(after.get("c_1"), Some(held("<fresh/>")), clue = after)
     // `c_1` must not swallow `c_10`.
     assertEquals(after.get("c_10"), holds.get("c_10"), clue = after)
     assertEquals(after.get("c"), holds.get("c"), clue = after)
