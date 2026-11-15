@@ -155,11 +155,11 @@ Deciding is evaluate `by`, take the case whose `is` equals it, else `otherwise`,
   in a guard reading the candidate, and an unguarded member is `Fixed`. No case holding and no
   `otherwise` is today's "not rendered". The presence fold stays in Pkl (`query.pkl` `buildSet`
   folds presence into each clause), so each member's `by` is what is left for that candidate.
-  The wire keeps one `by` per candidate. The compile shares what is equal, by key (done ahead as
-  #708, on today's sets), as it shares
-  signals and CEL programs: equal guards are compiled once, and one that reads no member (a
-  `q.entity(x)` term, a variable) is evaluated once per decision for every member. A guard that
-  reads the member shares its compiled form, never its answer.
+  The wire keeps one `by` per candidate, and each member's `by` is compiled and run on its own.
+  Sharing equal guards' compile and running a member-free guard once per decision were both
+  measured on today's sets (#708) and saved nothing: a guard's CEL program is already shared per
+  scope, and what costs is re-deciding every member when an entity a guard names changes
+  (`docs/experiments.md`; Later, "One guard for many members").
 - **A fetch window** stays `Choice[Window]`, as built.
 
 The author's side:
@@ -339,8 +339,10 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    including the member leaving while its popup is open. The findings go into this plan, or into
    `docs/experiments.md` if the answer is no.
 1. **Done ahead, as their own stacked PRs off main:** P, a call can set a variable (§9; #707,
-   `docs/plan-call-sets-variable.md`), then equal set guards shared in the compile (§3; #708,
-   `docs/plan-set-guard-sharing.md`). Popups stay as they are until R4; `Variable.below` stays
+   `docs/plan-call-sets-variable.md`), then sharing equal set guards (§3; #708,
+   `docs/plan-set-guard-sharing.md`), measured and dropped, which left the benches
+   `publishSetGuarded` and `publishSetNamedGuard` and tests that each member is decided by its
+   own state. Popups stay as they are until R4; `Variable.below` stays
    only for `TabButton.active` until R1. The R steps stack on #708.
 2. **R1, slot classes.**
    - `ValueSlot`/`NodesSlot`/`VarSlot`; `CardDef.regions` and `nodes.Region` go; the
@@ -360,9 +362,9 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    - `Fill.Set` with members as `Choice[LayoutNode]` and its `of`, `IndexOfTrue`, `.of(set)`, the
      `group` card; `SetNode` goes from Pkl, the wire, `Ready`, `Validate` and `Renderer`, and
      `groupOpen` goes.
-   - The members' guards keep #708's sharing by key (§3).
    - Goldens byte-identical, area sets (`UseCaseSuite`'s rendered rooms) included. Bench
-     `publishSetOrdered`, `leaderRow`, `tickRender`, and `validated` timing. Pkl fact: a set beside
+     `publishSetOrdered`, `publishSetGuarded`, `publishSetNamedGuard`, `leaderRow`, `tickRender`,
+     and `validated` timing. Pkl fact: a set beside
      other content is an error.
 4. **R3, choices.**
    - `Fill.Nodes(Chosen)`, `nodes.iff`/`elif`/`else`, `nodes.match`, `c.iff(…).elif`; Tabs, If,
@@ -418,7 +420,10 @@ variables and the tap routes. This plan is deleted when the work lands.
   member no longer being a `Choice`. The query API could make the choice explicit instead: today
   `where((e) -> q.entity(x).stateIs("on"))` reads no member yet lands in every member's guard; a
   condition on the set itself ("show the whole set while …", named other than the keyword
-  `when`) would be one guard on the set, and `where` would stay per member.
+  `when`) would be one guard on the set, and `where` would stay per member. That is also the
+  run-time half: decided once at set level, an unchanged answer touches no member, where today a
+  change to the entity it names re-decides every one (`publishSetNamedGuard`, about 0.9 µs a
+  member). Raise after R4, with a real dashboard's numbers.
 
 ## Open questions
 
