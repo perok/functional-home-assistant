@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import fh.view.model.{
   Fetching,
+  IdKind,
   LayoutNode,
   MemberId,
   NodeId,
@@ -150,7 +151,9 @@ private[runtime] final class MemberGraph(
             .flatMap(_.clauses)
             .flatMap(_.when.toList)
             .flatMap(_.entities)
-          (cid :: named).distinct.map(_ -> cid)
+          // An area or a floor has no state, so only its guard moves it.
+          val own = if (s.of == IdKind.Entity) List(cid) else Nil
+          (own ++ named).distinct.map(_ -> cid)
         }
         .groupMap(_._1)(_._2)
 

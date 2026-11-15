@@ -769,11 +769,16 @@ object LayoutNode:
       members: Map[String, SetMember] = Map.empty,
       orderBy: List[SortTerm] = Nil,
       limit: Option[Int] = None,
-      cell: Option[Cell] = None
+      cell: Option[Cell] = None,
+      of: IdKind = IdKind.Entity
   ) extends LayoutNode:
+    /** The candidates that are entities: an area or a floor has no state. */
+    def candidateEntities: List[String] =
+      if (of == IdKind.Entity) candidates else Nil
+
     /** Candidates plus any entity a guard names. */
     def liveEntities: List[String] =
-      (candidates ++ members.values
+      (candidateEntities ++ members.values
         .flatMap(_.clauses)
         .flatMap(_.when.toList.flatMap(_.entities))).distinct
 
@@ -1067,7 +1072,7 @@ case class Dashboard(
       case c: LayoutNode.Component =>
         fromSlots(c.bound, c.subjectEntity) ++ c.allChildren.flatMap(walk)
       case set: LayoutNode.SetNode =>
-        set.candidates ++ set.members.values.toList
+        set.candidateEntities ++ set.members.values.toList
           .flatMap(_.clauses)
           .flatMap(cl => walk(cl.node))
     }

@@ -861,6 +861,20 @@ private[model] object Validate:
               s"$setId: candidate '$c' has no member entry — it could never " +
                 "render, so the build dropped it inconsistently"
             } ++
+            Option
+              .when(
+                s.of != IdKind.Entity && (
+                  s.members.values
+                    .flatMap(_.clauses)
+                    .flatMap(_.when)
+                    .exists(_.readsMissingSubject) ||
+                    s.orderBy.exists(_.by.readsMissingSubject)
+                )
+              )(
+                s"$setId: a set of ${s.of.word}s reads its member, which has " +
+                  "no state — name the entity a guard or an order term reads"
+              )
+              .toList ++
             s.members.toList.sortBy(_._1).flatMap { case (_, m) =>
               m.clauses.zipWithIndex.flatMap { case (clause, i) =>
                 walk(

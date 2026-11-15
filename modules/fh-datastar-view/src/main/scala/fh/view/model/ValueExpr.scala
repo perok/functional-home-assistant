@@ -674,20 +674,7 @@ object Value:
           Strict.only(c, Set("kind", "candidates", "when", "of")) *> (
             c.getOrElse[scala.List[String]]("candidates")(Nil),
             c.getOrElse[Map[String, ValueExpr]]("when")(Map.empty),
-            c.get[Option[String]]("of")
-              .flatMap(
-                _.fold(Right(IdKind.Entity))(w =>
-                  IdKind
-                    .ofWord(w)
-                    .toRight(
-                      DecodingFailure(
-                        s"a set of '$w' — one of " +
-                          IdKind.values.map(_.word).mkString(", "),
-                        c.history
-                      )
-                    )
-                )
-              )
+            c.getOrElse[IdKind]("of")(IdKind.Entity)
           ).mapN(Present.apply)
         case "List" =>
           Strict.only(c, Set("kind", "itemType", "items")) *> (

@@ -9,6 +9,7 @@ import fh.view.model.{
   CardDef,
   Cell,
   Dashboard,
+  IdKind,
   LayoutNode,
   Lit,
   Op,
@@ -979,6 +980,29 @@ class BuildPhaseSuite extends munit.FunSuite {
       )
     )
       assertEquals(dash(c).validate(), Nil, clue = c)
+  }
+
+  test("validate refuses a set of areas whose guard reads the area itself") {
+    val card = Map("t" -> TestCard("<i>t</i>"))
+    def rooms(guard: ValueExpr) = Dashboard(
+      cards = card,
+      card = LayoutNode.SetNode(
+        candidates = List("soverom"),
+        members = Map(
+          "soverom" -> LayoutNode.SetMember(
+            List(LayoutNode.SetClause(Some(guard), LayoutNode.Component("t")))
+          )
+        ),
+        of = IdKind.Area
+      )
+    )
+    def on(of: Option[String]) = ValueExpr(
+      Value.Entity(of),
+      List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("on"))))
+    )
+    assertEquals(rooms(on(Some("light.disco"))).validate(), Nil)
+    val itself = rooms(on(None)).validate()
+    assert(itself.exists(_.contains("reads its member")), clue = itself)
   }
 
   test("validate refuses a clause or a state surface that does not decide") {

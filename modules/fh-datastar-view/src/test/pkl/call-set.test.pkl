@@ -91,4 +91,29 @@ facts {
     module.catch(() -> c.tap.call("light/turn_off", q.from(List(taklys)).where(false)))
       .contains("no candidates")
   }
+  ["an excluded set of areas is its tally, under area_id"] {
+    let (d = c.button("Av", c.tap.lights.off(etasje).exclude(soveromWhileNight)).declared["tap"])
+      d.exclude.keys == Set("area_id")
+      && ((d.exclude["area_id"].toList().single as slotMod.Expr).source as pred.Tally).of == "area"
+      && ((d.exclude["area_id"].toList().single as slotMod.Expr).source as pred.Tally).candidates.toList()
+        == List("soverom")
+  }
+  ["a set of floors targets floor_id, whatever the service's domain"] {
+    let (d = c.button("Av", c.tap.call("light/turn_off", q.from(List(etasje)).where(night))).declared["tap"])
+      d.target.keys == Set("floor_id")
+  }
+  ["an entity set carries no kind"] {
+    let (d = c.button("Av", c.tap.lights.off(lampe).exclude(litByDay)).declared["tap"])
+      ((d.exclude["entity_id"].toList().single as slotMod.Expr).source as pred.Tally).of == null
+  }
+  ["a set mixing kinds is a build error"] {
+    module.catch(() -> q.from(List(soverom, etasje))).contains("mixes area, floor")
+  }
 }
+
+local class Room extends hass.Area
+local class Level extends hass.Floor
+local soverom: Room = new { area_id = "soverom"; area_name = "Soverom" }
+local etasje: Level = new { floor_id = "loft"; floor_name = "Loft" }
+local night = (a) -> q.entity(sun).stateIs("below_horizon")
+local soveromWhileNight = q.from(List(soverom)).where(night)

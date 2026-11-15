@@ -71,7 +71,8 @@ object Ready:
       val members: Map[String, SetMember],
       val order: Option[Evaluator.Keys],
       val limit: Option[Int],
-      val cell: Option[Cell]
+      val cell: Option[Cell],
+      val of: IdKind = IdKind.Entity
   ) extends Node:
     def authoredId: Option[String] = None
 
@@ -289,7 +290,8 @@ object Ready:
           members.toMap,
           order,
           s.limit,
-          s.cell.map(_.ready)
+          s.cell.map(_.ready),
+          s.of
         )
       )
 
