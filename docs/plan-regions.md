@@ -255,18 +255,36 @@ enum Slot:                         // decoded by `kind`
 
 A host is filled by one mechanism, a **pick**: keys, each with its `Choice`, an order and a limit.
 A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
-- **Deciding** happens on every send, as a selection is resolved per send today, with nothing
-  stored between sends: each key's `by` is evaluated where its sources live, by the evaluator
-  slots use, and its case looked up. A `by` that is a `Var` is a read and a lookup, however many
-  cases it has. A state-only `by` is decided once per version, in the renderer's `Shared`
-  (the pipeline doc, §1).
+- **Deciding** happens on every send, as a selection is resolved per send today: each key's `by`
+  is evaluated where its sources live, by the evaluator slots use, and its case looked up. A `by`
+  that is a `Var` is a read and a lookup, however many cases it has. A state-only `by` is decided
+  once per version, in the renderer's `Shared` (the pipeline doc, §1); one that reads a variable,
+  per session.
 - **A case no viewer shows costs nothing:** it is not rendered, fetched or logged, today's rule for
   a surface nobody has open, which matters once every popup is a case of one match. Its fetches are
   read only once it is chosen, the rule a reading's `valueWhile` already has (`Fetching.Gate`); the
   pick reuses it.
-- **Patching:** one planner for arrive, leave, switch and move: `Before`/`Append`/`Remove` per
-  key, and a switch replaces what the key shows. A set's key is its member's root,
-  `<host>_<key>`; nodes inside get ids per case.
+- **Patching: the log says which hosts to look at, `holds` says what the page has.** A decision
+  per viewer cannot be logged once per version, so the record of what a page shows moves to the
+  session:
+  - The log keeps only `fragments`, which node or host changed at which version; `mutations`,
+    `horizon` and the set refill go (ADR 0011). `completeFrom`, for a gap nobody watched, stays.
+  - A session's `holds` keeps, beside each node's inputs and signals, each host's keys in the
+    order sent. That is one reference per member per session, bounded by the static ids, where
+    the log's `mutations` grew until pruned.
+  - On a pull or a variable write, each touched host's decided keys are compared with its held
+    ones, skipped when equal. One planner turns the difference into `Remove`/`Before`/`Append`
+    per key, a switch replacing what a key shows, sent back to front so each anchor is on the
+    page. The moves are everything outside a longest increasing run of held positions
+    (`Patches.reordered`, today's search, run per session rather than once).
+  - A key that leaves takes its nodes' entries and its inner hosts' key lists with it, so an
+    absent entry always means "not on the page, send it whole". `holds` is trusted only when the
+    cursor is at or above `told`, as today.
+  - A set's key is its member's root, `<host>_<key>`; nodes inside get ids per case.
+  - Not chosen: the log recording which members' order inputs changed, so only those are placed
+    again, with no search. Cheaper, but right only if the log never misses one, and a write to a
+    variable an order reads moves members it cannot name. Worth it only if the bench shows the
+    search costs.
 - **Popups** are one `nodes.match(popups, …)` on the root, in the chrome's `#popups` (the one host
   that is not a card's root; `validate` already checks the chrome writes it): one case per popup
   on the dashboard, nothing otherwise. What the spike (step 0) settled:
@@ -277,9 +295,15 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
     The name is reserved: `validate` refuses an author's declaration of `popups`, which would hide
     the root's from every opener below it (ADR 0033 records a `root.` reference as the
     alternative, should an author ever need to reach past a nearer declaration).
-  - **No value is `""` on the wire**, which the signals, the URL mirror and the env already read
-    as nothing, so the Scala needs no `Option`; Pkl's `Declaration.default` becomes
-    `varMod.Value?`, null lowering to `""`. A clear reads it again.
+  - **No value is `null`**, the value language's own (ADR 0035): `Match` takes `otherwise`,
+    `valueIs` does not hold, and every step passes it on, whatever the variable's type. Scala
+    holds it as no value (`Option`). The wire drops a `null` (ADR 0006), so a declaration's
+    `default` is a value or an object, `Value | NoValue` (`varMod.noValue`, `v.startingEmpty()`),
+    an object decoding as none and an absent `default` still an error; a typed variable's number
+    or bool cannot collide with an object. In the browser it is `''` in the committed signal and
+    an absent URL parameter, which no chosen value can be. The build declares `popups` with `{}`,
+    and a clear reads the default again. ADR 0033's future-work entry on "no value" takes this
+    answer, and its pointer to `core/stage.pkl`, which does not exist, goes.
   - **An open** is a `SetVar` call choosing the popup's id, a lookup and one patch. Inline ids are
     tokens already (`<set>_<entity>_self`, `s_<panel>__c_0_self`, spliced before decode); a
     registered `surfaces` key is typed `varMod.Value`. A close chooses nothing, the pick's
@@ -370,13 +394,22 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      variable refusals (§4) go. Popups stay on today's swap.
    - A test that a case no viewer shows costs nothing: a state change that only an unchosen tab
      panel or If branch reads renders and sends nothing.
+   - The planner as §7 has it, the log down to `fragments`. Tests:
+     - a model-based one: random state changes and variable writes over two sessions, each
+       session's patches applied to a fake page and compared with a fresh full render;
+     - a page returning within the linger, its position ahead of its cursor included, gets only
+       the members that changed and no set repaint (`FragmentLogSuite`'s refill assertions are
+       rewritten to this);
+     - A → B → A sends A whole.
    - Ids move again; the same normalised comparison, then the goldens are regenerated.
-   - Bench everything R2 measured.
+   - Bench everything R2 measured, `publishSetOrdered` also with many sessions, and the size of
+     one session's `holds`.
 5. **R5, popups on the pick.**
    - Popups as §7 has them, their taps `SetVar` calls on `popups`: the root's `popups`, its name
      reserved, a popup
      starting with the root's scope (`NodeVariablesSuite`'s "a SURFACE is its own scope root"
-     becomes "a popup starts with the root's scope", agreed 2026-11-15), an empty default,
+     becomes "a popup starts with the root's scope", agreed 2026-11-15), a default of no value
+     (`varMod.noValue`, `{}` on the wire),
      `.inHistory()`, the popstate re-read of the URL and the mirror's own-entry marking, and the
      `v.<root>.popups` parameter. Also check why two of the spike's pulls sent nothing (a member
      leaving, a tab switch, both on a session with no stream).
@@ -390,7 +423,8 @@ Docs go in each step's commit: ADRs 0002 (popups), 0003 (sets), 0005/0025/0033 (
 variable, a popup's scope, the reserved name, the history mirror), 0007
 (choices), 0008 (the set's root is a card), 0016/0024 (a popup's open and close are `SetVar`
 calls, and what a press's body carries),
-0012 (structure, `bakeIndex`, deciding per send), 0017, 0020 (theme classes on the root), 0022
+0011 (the log keeps `fragments`, `holds` each host's keys), 0012 (structure, `bakeIndex`,
+deciding per send), 0017, 0020 (theme classes on the root), 0022
 (ids), 0034/0035 (`Choice` for nodes, `IndexOfTrue`); the pipeline doc §1a and §3–§4b;
 terminology (region, host, member, clause, plus **nodes slot**, **fill**, **pick** and
 **group**; bake, bake group, `bakeInto`, `bakeAs` and `bakeIndex` go in R4);
