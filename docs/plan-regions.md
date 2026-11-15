@@ -53,7 +53,7 @@ All on main:
   session, and a `conn` the process does not hold is refused, not re-minted (ADR 0024 §2: only
   the stream makes a session). The click starts with `{{{tap.pending}}}`, the declarer's pending
   signal at that node, and a refusal clears it. Not built: `v.choosing(…)`, a value the press
-  posts, which R4 builds for the history mirror (§7).
+  posts, which R5 builds for the history mirror (§7).
 - **Set guards, measured** (#708): sharing equal guards' compile, and running a member-free guard
   once per decision, saved nothing (`docs/experiments.md`). Left: the benches `publishSetGuarded`
   and `publishSetNamedGuard`, and tests that each member is decided by its own state.
@@ -70,7 +70,7 @@ All on main:
 A region is a slot whose value is nodes, and a variable a card's markup refers to is a slot too.
 The differences between the three kinds are the kind's own rules:
 
-| | `ValueSlot` (today's `Slot`) | `NodesSlot` | `VarSlot` |
+| | `Slot` (as today) | `NodesSlot` | `VarSlot` |
 |---|---|---|---|
 | Declared | `slotMod.slot("label")` | `slotMod.nodes("features")` | `slotMod.variable("chooses")` |
 | Placed | `\(label)`, `label.raw`, `label.bind`, sections | `\(features)`, a raw hole; once, outside every section | `\(chooses.chosen)`, `.committed`, `.pending`, `.urlParam` |
@@ -85,11 +85,10 @@ patch.
 
 ### 1. Three slot classes
 
-`core/slot.pkl` gets an abstract `Slot` holding the name. `ValueSlot` is today's `Slot` with all its
-members (`bind`, `raw`, `jsValue`, `ifSet`, …); `NodesSlot` and `VarSlot` have only what their kind
-needs, so `panel.bind` is a Pkl error at the line, not a build check. `Listing<slotMod.Slot>` takes
-all three. `slotMod.slot(…)`, `bool(…)`, `textRaw(…)`, `number(…)` keep their names and return a
-`ValueSlot`.
+`Slot` keeps its name and all its members (`bind`, `raw`, `jsValue`, `ifSet`, …), so no component
+that types a handle `slotMod.Slot` changes. `NodesSlot` and `VarSlot` have only what their kind
+needs, so `panel.bind` is a Pkl error at the line, not a build check. The three share an abstract
+base holding the name (`AnySlot`, name open), which a listing of every kind is typed with.
 
 `CardDef.regions` and `nodes.Region` go: a card's nodes slots are its handles, as its value slots
 are. `children { … }` stays the sugar for the default nodes slot, `children`.
@@ -160,9 +159,9 @@ Deciding is evaluate `by`, take the case whose `is` equals it, else `otherwise`,
   `Bool` or `Whole`), moved off the window so nodes share it, its messages no longer saying
   "window".
 - **A chain of conditions** uses one new step, `IndexOfTrue`, a sibling of `AnyOf`: over a list of
-  bools, the index of the first that holds, or no value. `c.iff(p).then(a).elif(q).then(b).else(x)`
-  is `by = List(Bool, [p, q]) |> IndexOfTrue`, `cases = [0 → a, 1 → b]`, `otherwise = x`; a plain
-  `iff(p)` is `by = p`, `cases = [true → a]`.
+  bools, the index of the first that holds, or no value.
+  `nodes.iff(p).then(a).elif(q).then(b).else(x)` is `by = List(Bool, [p, q]) |> IndexOfTrue`,
+  `cases = [0 → a, 1 → b]`, `otherwise = x`; a plain `iff(p)` is `by = p`, `cases = [true → a]`.
 - **A set's member is the same shape**, once per candidate: today's `SetMember(clauses: [when → node])`
   is `by = List(Bool, [when₁, …]) |> IndexOfTrue` (a single guard is `by = when`), an unnamed read
   in a guard reading the candidate, and an unguarded member is `Fixed`. No case holding and no
@@ -180,14 +179,15 @@ The author's side:
 ```pkl
 slots {
   features.of(new Listing { a; b })                                             // fixed nodes
-  branch.of(nodes.iff(c.isOn(lamp), a).elif(c.isOn(fan), b).`else`(x))           // conditions
+  branch.of(nodes.iff(c.isOn(lamp)).then(a).elif(c.isOn(fan)).then(b).`else`(x)) // conditions
   panel.of(nodes.match(mode.state, new Mapping { ["heat"] = h; ["cool"] = k }, off)) // one value
   members.of(q.from(lights).where(…).orderBy(…).render(c.light))                // a set
 }
 ```
 
-- `c.iff(p).then(…).`else`(…)` stays the author's card and gains `.elif`, each returning `this`
-  (#694); else-if no longer nests a host per level. Tabs, `c.select` and the slider's controls
+- One chain, today's: `nodes.iff(p).then(a)` gains `.elif(q).then(b)`, each step returning `this`
+  (#694), and `c.iff` is a `group` holding one, with the same methods; else-if no longer nests a
+  host per level. Tabs, `c.select` and the slider's controls
   build `nodes.match` over their variable; popups are a `nodes.match` over `popups` (§7).
 - **A set** is the slot's whole fill: members are placed relative to each other, so a fixed
   sibling in the same host would need anchors.
@@ -267,8 +267,10 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
   slots use, and its case looked up. A `by` that is a `Var` is a read and a lookup, however many
   cases it has. A state-only `by` is decided once per version, in the renderer's `Shared`
   (the pipeline doc, §1).
-- **Fetch laziness:** a case's fetches are read only once it is chosen, the rule a reading's
-  `valueWhile` already has (`Fetching.Gate`); the pick reuses it.
+- **A case no viewer shows costs nothing:** it is not rendered, fetched or logged, today's rule for
+  a surface nobody has open, which matters once every popup is a case of one match. Its fetches are
+  read only once it is chosen, the rule a reading's `valueWhile` already has (`Fetching.Gate`); the
+  pick reuses it.
 - **Patching:** one planner for arrive, leave, switch and move: `Before`/`Append`/`Remove` per
   key, and a switch replaces what the key shows. A set's key is its member's root,
   `<host>_<key>`; nodes inside get ids per case.
@@ -303,8 +305,9 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
   shell's `popupFromUrl` and the `/sse/surface/…/open` and `/sse/popup/…/close` routes go; the
   build collects every popup in the tree into the match, as the inline-surface hoist collects
   them today.
-- `SurfaceGraph`'s bake groups, `MemberGraph`'s special nesting (`WalkAt.InMember`, `innerSetId`,
-  `groupAt`) and the inline-surface hoist go into the one path.
+- `SurfaceGraph`'s bake groups and `MemberGraph`'s special nesting (`WalkAt.InMember`,
+  `innerSetId`, `groupAt`) go into the one path in R4; `SurfaceGraph`'s popup half and the
+  inline-surface hoist in R5.
 
 ### 8. Markup Scala stops writing
 
@@ -324,12 +327,12 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    registered popup, a set member's and a tab panel's, with a refusal on a forgotten `conn`.
    What it settled is in §7.
 1. **R1, slot classes.**
-   - `ValueSlot`/`NodesSlot`/`VarSlot`; `CardDef.regions` and `nodes.Region` go; the
-     `slotMod.Slot` type references in the library become `ValueSlot` where they use a value
-     member (one bulk edit), and the library's `nodes` import alias is renamed so it no longer reads
-     like `slotMod.nodes` (one bulk edit).
-   - The one `slots` wire map (§6), `templateSlots` gone into it, with `Fill.Nodes(Fixed)`; wire
-     snapshots change once. Every card that declares a region moves: `layout.pkl` (Grid, Row,
+   - `NodesSlot`, `VarSlot` and their base beside `Slot`; `CardDef.regions` and `nodes.Region`
+     go; the library's `nodes` import alias is renamed so it no longer reads like
+     `slotMod.nodes` (one bulk edit).
+   - The one `slots` wire map (§6), `templateSlots` gone into it, with `Fill.Nodes(Fixed)`; a nodes
+     slot a bake fills keeps today's baked marker (`Region.fill`) until R4; wire snapshots change
+     once. Every card that declares a region moves: `layout.pkl` (Grid, Row,
      Column), `core/surface.pkl` (Popup), `components/base/surface.pkl` (Tabs, If),
      `components/select.pkl`, `components/base/slider.pkl`, `components/base/tile.pkl`.
      `TabButton` spells its highlight with a `VarSlot`, and `active` goes; with it
@@ -349,33 +352,39 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      `publishSetOrdered`, `publishSetGuarded`, `publishSetNamedGuard`, `leaderRow`, `tickRender`,
      and `validated` timing. Pkl fact: a set beside
      other content is an error.
-3. **R3, choices.**
-   - `Fill.Nodes(Chosen)`, `nodes.iff`/`elif`/`else`, `nodes.match`, `c.iff(…).elif`; Tabs, If,
-     select and the slider's controls on it, the three that host beside other content through a
-     `group`. `inlineSurfaces` stays only for popups; `Region.fill` and the bake fields,
-     `bakeIndex` included, go.
-   - The four suites building on `{{bakeIndex}}` (`LiveStreamSuite`, `RenderInputsSuite`,
-     `RendererSuite`, `ServerHarness`) are rewritten; `LiveStreamSuite`'s server-rendered active
-     tab moves to `cellClassAtRender` (agreed 2026-11-10).
-   - The runtime still bakes: a choice lowers to today's bake groups inside the build, each baked
-     into its card's root, a choice over a variable through today's `Activation.Var`.
+3. **R3, choices in Pkl.**
+   - `nodes.iff`/`elif`/`else`, `nodes.match` over a variable, `c.iff(…).elif`; Tabs, If, select
+     and the slider's controls on it, the three that host beside other content through a `group`.
+   - The builders write today's bake fields (`inlineSurfaces`, `bakeInto`/`bakeAs`/`bakeIndex`,
+     the baked marker), each choice baked into its card's root, so the runtime is untouched and no
+     Scala is written for R4 to delete.
    - Ids move: the If loses a `div`, and everything in a panel sits one path step deeper, under its
      `group`. The view tests are the check, and `dashboardGoldensVs` shows nothing but ids moved. A
      URL naming a variable declared inside a panel (`v.<id>.x`) stops matching.
 4. **R4, one runtime path.**
+   - `Fill.Nodes(Chosen)` replaces the bake fields on the wire, `inlineSurfaces` staying only for
+     popups; `nodes.match` over a state reading. The four suites building on `{{bakeIndex}}`
+     (`LiveStreamSuite`, `RenderInputsSuite`, `RendererSuite`, `ServerHarness`) are rewritten;
+     `LiveStreamSuite`'s server-rendered active tab moves to `cellClassAtRender` (agreed
+     2026-11-10).
    - A test of one guard reading a variable and a state, with two viewers on different values.
-   - The pick, its planner and its ids (§7), popups included (their taps `SetVar` calls on
-     `popups`); deciding per send; `Activation.Var`,
-     `VarAt`, `SurfaceGraph`'s bake groups and `MemberGraph`'s nesting cases go; the shared
-     decisions' variable refusals (§4) go.
-   - Popups as §7 has them: the root's `popups`, a popup starting with the root's scope
-     (`NodeVariablesSuite`'s "a SURFACE is its own scope root" becomes "a popup starts with the
-     root's scope", agreed 2026-11-15), an empty default, `.inHistory()` with `v.choosing`, and
-     the `v.<root>.popups` parameter. Also check why two of the spike's pulls sent nothing (a
-     member leaving, a tab switch, both on a session with no stream).
+   - The pick, its planner and its ids (§7); deciding per send; `Activation.Var`, `VarAt`,
+     `SurfaceGraph`'s bake groups and `MemberGraph`'s nesting cases go; the shared decisions'
+     variable refusals (§4) go. Popups stay on today's swap.
+   - A test that a case no viewer shows costs nothing: a state change that only an unchosen tab
+     panel or If branch reads renders and sends nothing.
    - Ids move again; the same normalised comparison, then the goldens are regenerated.
-   - Bench everything R2 measured, plus a popup open and close on the largest test dashboard.
-5. **R5, markup.** A test that no Scala source writes markup outside the contract in §8.
+   - Bench everything R2 measured.
+5. **R5, popups on the pick.**
+   - Popups as §7 has them, their taps `SetVar` calls on `popups`: the root's `popups`, a popup
+     starting with the root's scope (`NodeVariablesSuite`'s "a SURFACE is its own scope root"
+     becomes "a popup starts with the root's scope", agreed 2026-11-15), an empty default,
+     `.inHistory()` with `v.choosing`, and the `v.<root>.popups` parameter. Also check why two of
+     the spike's pulls sent nothing (a member leaving, a tab switch, both on a session with no
+     stream).
+   - R4's costs-nothing test for a popup. Bench a popup open and close, and state changes with
+     many popups unopened, on the largest test dashboard.
+6. **R6, markup.** A test that no Scala source writes markup outside the contract in §8.
 
 Docs go in each step's commit: ADRs 0002 (popups), 0003 (sets), 0005/0025/0033 (the popup
 variable, a popup's scope, the history mirror, the variable slot, `below`/`own` gone), 0007
@@ -416,7 +425,8 @@ variables and the tap routes. This plan is deleted when the work lands.
 ## Open questions
 
 1. **Names**, free to change while v0: the `core/node.pkl` alias, `group` (it shares a word with
-   the bake group until R4), `pick`, `IndexOfTrue`, `Slot`'s kinds, `.inHistory()`.
+   the bake group until R4), `pick`, `IndexOfTrue`, the slot kinds and their base (`AnySlot`),
+   `.inHistory()`.
 2. **The select's dropdown label over a variable** is a bake group only so the first HTML shows the
    chosen option (`select.pkl:15`). A value slot reading the variable could show it, but it sits
    on a structure card, which refuses a live slot written as bytes; settle it in R3.
