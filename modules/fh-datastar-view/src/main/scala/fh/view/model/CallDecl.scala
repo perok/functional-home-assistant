@@ -1,7 +1,7 @@
 package fh.view.model
 
-import cats.syntax.all.*
-import io.circe.{ACursor, Decoder, DecodingFailure, JsonObject}
+import io.circe.Decoder
+import io.circe.derivation.ConfiguredDecoder
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
@@ -58,53 +58,10 @@ enum CallField derives CanEqual:
     case Data(key) => s"data.$key"
 
 object CallDecl:
+  import Strict.listMap
 
-  private def ordered[A: Decoder](
-      c: ACursor
-  ): Decoder.Result[ListMap[String, A]] =
-    c.as[JsonObject]
-      .flatMap(_.toList.traverse((k, v) => v.as[A].map(k -> _)))
-      .map(ListMap.from)
-
-  private def keyed(c: ACursor, field: String) =
-    ordered[List[ValueExpr]](c.downField(field)).flatMap(
-      _.toList
-        .traverse((k, es) =>
-          IdKind
-            .ofKey(k)
-            .toRight(
-              DecodingFailure(
-                s"unknown $field key '$k' — one of " +
-                  IdKind.values.map(_.key).mkString(", "),
-                c.history
-              )
-            )
-            .map(_ -> es)
-        )
-        .map(ListMap.from)
-    )
-
-  given Decoder[CallDecl] = Decoder.instance { c =>
-    c.get[String]("kind").flatMap {
-      case "Service" =>
-        Strict.only(c, Set("kind", "service", "target", "data", "exclude")) *> (
-          c.get[ValueExpr]("service"),
-          keyed(c, "target"),
-          if (c.downField("data").succeeded)
-            ordered[ValueExpr](c.downField("data"))
-          else Right(ListMap.empty),
-          if (c.downField("exclude").succeeded) keyed(c, "exclude")
-          else Right(ListMap.empty)
-        ).mapN(Service.apply)
-      case "SetVar" =>
-        Strict.only(c, Set("kind", "variable", "value")) *> (
-          c.get[String]("variable"),
-          c.get[Option[String]]("value")
-        ).mapN(SetVar.apply)
-      case other =>
-        Left(DecodingFailure(s"unknown call kind '$other'", c.history))
-    }
-  }
+  given Decoder[CallDecl] =
+    ConfiguredDecoder.derived(using Strict.configuration)
 
 /** A declared call's id: equal declarations share one, and a declaration's key
   * order does not move it.
