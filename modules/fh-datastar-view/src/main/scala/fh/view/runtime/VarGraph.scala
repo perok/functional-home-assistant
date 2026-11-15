@@ -50,11 +50,6 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
 object VarKey:
 
   val ParamPrefix: String = "v."
-
-  /** `core/variable.pkl`'s `Value`: what a viewer can choose, and so the most a
-    * start may be.
-    */
-  val ValueToken: scala.util.matching.Regex = "[A-Za-z0-9_.:-]+".r
   val SignalPrefix: String = "_var_"
 
   /** `v.<declarer>.<name>`. Untrusted: the caller narrows it to declarations.

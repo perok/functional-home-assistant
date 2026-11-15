@@ -5,11 +5,12 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import cats.effect.std.{Queue, Supervisor}
 import cats.effect.{IO, Ref, Resource}
+import io.github.iltotore.iron.refineUnsafe
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
 import fh.view.auth.{AuthSessions, HaOAuth}
 import fh.view.build.{Minifier, PklDump, Site}
-import fh.view.model.{Access, CallDecl, Dashboard}
+import fh.view.model.{Access, CallDecl, Dashboard, VarValue}
 import fh.view.telemetry.{Logging, Meters, Telemetry}
 import fh.view.testkit.{
   FakeConfig,
@@ -185,7 +186,14 @@ final class TestServer(
     (server.liveSlug(slug).flatMap(_.renderer.get), store.current).mapN {
       (state, now) =>
         state.rendererOf
-          .flatMap(r => r.choicePress(slug, key, value, r.shared(now)))
+          .flatMap(r =>
+            r.choicePress(
+              slug,
+              key,
+              value.map(_.refineUnsafe[VarValue.Token]),
+              r.shared(now)
+            )
+          )
           .getOrElse(sys.error(s"no node places the choice $value of $key"))
     }
 

@@ -106,6 +106,8 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
       s"""{$service,"date":{}}""",
       """{"kind":"Service","service":"x","target":{"entity":["light.b"]}}""",
       """{"kind":"SetVar","variable":"tab","valeu":"1"}""",
+      // A `'` would close the JS string its pending ask is spelled in.
+      """{"kind":"SetVar","variable":"tab","value":"it's"}""",
       """{"kind":"Toggle"}"""
     ).foreach(bad => assert(call(bad).isLeft, clue = bad))
   }

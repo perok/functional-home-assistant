@@ -382,9 +382,8 @@ class VarTapSuite extends ServerHarness {
     }
   }
 
-  test(
-    "a choice of an undeclared variable, or of no plain token, fails the build"
-  ) {
+  // A value that is not a plain token is refused at decode (CallDeclPropertySuite).
+  test("a choice of an undeclared variable fails the build") {
     val stray = dash.card match
       case root: LayoutNode.Component =>
         dash.copy(
@@ -392,11 +391,7 @@ class VarTapSuite extends ServerHarness {
             dash.cards + (DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard),
           card = root.copy(regions =
             root.regions.updatedWith(LayoutNode.DefaultRegion)(
-              _.map(
-                _ ++ DashboardBuilders.choices("nosuch", "7d") ++
-                  // A `'` would close the JS string its ask is spelled in.
-                  DashboardBuilders.choices("window", "it's")
-              )
+              _.map(_ ++ DashboardBuilders.choices("nosuch", "7d"))
             )
           )
         )
@@ -404,10 +399,6 @@ class VarTapSuite extends ServerHarness {
     val errors = stray.validate()
     assert(
       errors.exists(_.contains("chooses the variable 'nosuch', which no node")),
-      clue = errors
-    )
-    assert(
-      errors.exists(_.contains("chooses 'it's', which is not a plain token")),
       clue = errors
     )
   }

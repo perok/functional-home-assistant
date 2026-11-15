@@ -11,10 +11,12 @@ import fh.view.model.{
   Lit,
   TemplateSlot,
   Value,
-  ValueExpr
+  ValueExpr,
+  VarValue
 }
 
 import scala.collection.immutable.ListMap
+import io.github.iltotore.iron.refineUnsafe
 import fh.view.runtime.EntityState
 import io.circe.Json
 
@@ -78,7 +80,12 @@ object DashboardBuilders {
   def choosing(name: String, value: Option[String]): LayoutNode =
     LayoutNode.Component(
       ChoiceCard,
-      calls = Map("tap" -> CallDecl.SetVar(name, value))
+      calls = Map(
+        "tap" -> CallDecl.SetVar(
+          name,
+          value.map(_.refineUnsafe[VarValue.Token])
+        )
+      )
     )
 
   /** A constant literal slot (a bare value, no entity/transform). */

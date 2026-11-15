@@ -905,7 +905,9 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
             html.contains(
               s"$$_var_${id}__window__pending = '7d'; " +
                 "@post('sse/call/fixture-windows/" +
-                fh.view.model.CallDecl.SetVar("window", Some("7d")).id +
+                fh.view.model.CallDecl
+                  .SetVar("window", fh.view.model.VarValue.of("7d"))
+                  .id +
                 "?node="
             ),
             clue = html

@@ -613,28 +613,16 @@ private[model] object Validate:
         .sorted
         .map(n => s"$nodeId: '$n' is both a slot and a call — rename one")
 
-    /** A choice is of the variable as this node reads it, and its value is
-      * spelled into the page's JS as a plain token.
-      */
+    /** A choice is of the variable as this node reads it. */
     def choiceErrors(
         nodeId: String,
         c: LayoutNode.Component,
         scope: Map[String, String]
     ): List[String] =
-      c.calls.toList.sortBy(_._1).flatMap {
-        case (n, CallDecl.SetVar(v, value)) =>
-          Option
-            .when(!scope.contains(v))(
-              s"$nodeId: '$n' chooses the variable '$v', which no node at " +
-                "or above it declares"
-            )
-            .toList ++ value
-            .filterNot(fh.view.runtime.VarKey.ValueToken.matches)
-            .map(x =>
-              s"$nodeId: '$n' chooses '$x', which is not a plain token " +
-                "([A-Za-z0-9_.:-]+)"
-            )
-        case _ => Nil
+      c.calls.toList.sortBy(_._1).collect {
+        case (n, CallDecl.SetVar(v, _)) if !scope.contains(v) =>
+          s"$nodeId: '$n' chooses the variable '$v', which no node at or " +
+            "above it declares"
       }
 
     /** `<slot>.jsValue` has no answer for a live non-signal slot (ADR 0017);
