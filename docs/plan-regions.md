@@ -51,8 +51,8 @@ All on main:
   above. Every call's body is `{conn, ui_popups, posted, seen}`; a `SetVar` runs in the viewer's
   session, and a `conn` the process does not hold is refused, not re-minted (ADR 0024 §2: only
   the stream makes a session). The click starts with `{{{tap.pending}}}`, the declarer's pending
-  signal at that node, and a refusal clears it. Not built: `v.choosing(…)`, a value the press
-  posts, which R5 builds for the history mirror (§7).
+  signal at that node, and a refusal clears it. Not built, and not needed (§7): `v.choosing(…)`,
+  a value the press posts.
 - **Set guards, measured** (#708): sharing equal guards' compile, and running a member-free guard
   once per decision, saved nothing (`docs/experiments.md`). Left: the benches `publishSetGuarded`
   and `publishSetNamedGuard`, and tests that each member is decided by its own state.
@@ -284,12 +284,18 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
     tokens already (`<set>_<entity>_self`, `s_<panel>__c_0_self`, spliced before decode); a
     registered `surfaces` key is typed `varMod.Value`. A close chooses nothing, the pick's
     ordinary leave, the `remove` on `#popups > *` a close already sends (#684).
-  - **Back and Forward:** a declaration opts in to history (`.inHistory()`, name open). Its URL
+  - **Back and Forward:** a declaration opts in to history (`.inHistory()`, name open): its URL
     mirror pushes an entry per choice (`data-fh-url__history`, which only `ui.popups` uses
-    today), and its declarer places one `v.choosing(…)`, a choice whose value the press posts,
-    which a popstate presses with the value the URL now names; the server checks it as any
-    choice, here that it names a popup on the dashboard. A close stays `history.back()`, so the
-    popup's ✕, backdrop and Escape are unchanged.
+    today). On a popstate the shell posts the page's query string once, and the server re-reads
+    every `v.` parameter as a page load does, checks each value as a load does, and re-renders
+    what moved. A variable kept out of the URL (`notInUrl()`) is left alone, since its absent
+    parameter would read as its default. So Back returns the whole previous URL: a change made
+    since then to a variable not in history (a window chooser) goes back too. A close stays
+    `history.back()`, so the popup's ✕, backdrop and Escape are unchanged.
+  - **Two history variables** need the mirror to mark the entries it made as its own, not by key,
+    and to strip every history parameter from an entry it did not make before its first push.
+    Today `history.state.fhPushed` names one key, so a link naming two builds entries where Back
+    reopens one, and changing one while on the other's entry erases it there.
   - **The URL parameter is the variable's own**, `v.<root>.popups`, so a load seeds the variable
     as it does every other; the spike kept `ui.popups`, and a refresh left the variable empty with
     the popup shown. `?ui.popups=` links stop working (agreed). The call body's `ui_popups` goes,
@@ -310,8 +316,8 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
 The rule: Scala renders markup Pkl wrote and fills only values it owns. What is left is the set's
 root (§5, `Renderer.groupOpen`). What stays in Scala, as the contract: the page shell, the root
 `<div data-signals…>` with its seeds, the toast and reload handlers, the error page, and the
-default `<main id="dashboard">` chrome. The back-button handler becomes a history variable's
-popstate, on its declarer beside its URL mirror (§7).
+default `<main id="dashboard">` chrome. The back-button handler becomes the shell's one popstate
+post of the query string (§7).
 
 ## Steps
 
@@ -371,9 +377,11 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      reserved, a popup
      starting with the root's scope (`NodeVariablesSuite`'s "a SURFACE is its own scope root"
      becomes "a popup starts with the root's scope", agreed 2026-11-15), an empty default,
-     `.inHistory()` with `v.choosing`, and the `v.<root>.popups` parameter. Also check why two of
-     the spike's pulls sent nothing (a member leaving, a tab switch, both on a session with no
-     stream).
+     `.inHistory()`, the popstate re-read of the URL and the mirror's own-entry marking, and the
+     `v.<root>.popups` parameter. Also check why two of the spike's pulls sent nothing (a member
+     leaving, a tab switch, both on a session with no stream).
+   - Smoke tests (CI) for Back and Forward over a popup, over two history variables, and from a
+     link naming both.
    - R4's costs-nothing test for a popup. Bench a popup open and close, and state changes with
      many popups unopened, on the largest test dashboard.
 6. **R6, markup.** A test that no Scala source writes markup outside the contract in §8.
