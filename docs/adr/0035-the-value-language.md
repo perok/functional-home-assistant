@@ -39,7 +39,8 @@ decided per viewer, where every other source is decided once per state version.
 posted under `key`, decoded as `type` (`int`, `real`, `bool`, `text`, or a list of one) before
 anything reads it, so a value of another type refuses the press. It is not `Var`: a variable is
 held per viewer across requests and read by any slot, while a posted value lives for one request
-and only its call reads one, which `validate` holds every slot to.
+and only its call reads one: the build compiles a call in the one scope that may read it, so a
+posted value anywhere else fails the build.
 
 **A `Check` step keeps a value to a test.** Its steps run over the incoming value and must end in
 a bool (`Compare`, `Match` or CEL; the build refuses any other end). While they come out `true`

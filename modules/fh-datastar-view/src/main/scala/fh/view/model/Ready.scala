@@ -321,7 +321,7 @@ object Ready:
           c.traverse(condition).map(Activation.State(_))
 
     private def call(d: CallDecl): Built[Call] =
-      def run(e: ValueExpr) = Evaluator.compile(e, scope).map(_.run)
+      def run(e: ValueExpr) = Evaluator.compile(e, scope.call).map(_.run)
       def keys(m: ListMap[String, List[ValueExpr]]) =
         m.toList
           .traverse((k, es) => es.traverse(run).map(k -> _))

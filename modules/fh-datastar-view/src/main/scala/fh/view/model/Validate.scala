@@ -603,16 +603,6 @@ private[model] object Validate:
         )
       }
 
-    // Only its call reads a posted value: a slot has no press.
-    def postedErrors(where: String, e: ValueExpr): List[String] =
-      Option
-        .when(e.all.exists(_.source match
-          case _: Value.Posted => true
-          case _               => false))(
-          s"$where reads a posted value, which only a call can"
-        )
-        .toList
-
     def placedCallErrors(
         nodeId: String,
         c: LayoutNode.Component
@@ -621,12 +611,7 @@ private[model] object Validate:
         .intersect(c.templateSlots.keySet)
         .toList
         .sorted
-        .map(n => s"$nodeId: '$n' is both a slot and a call — rename one") ++
-        c.bound.toList.flatMap((k, b) =>
-          (b.expr :: b.inputs.values.toList).flatMap(
-            postedErrors(s"$nodeId: slot '${SlotKey.label(k)}'", _)
-          )
-        )
+        .map(n => s"$nodeId: '$n' is both a slot and a call — rename one")
 
     /** `<slot>.jsValue` has no answer for a live non-signal slot (ADR 0017);
       * without this the var renders empty and the handler is silently

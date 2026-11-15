@@ -88,15 +88,26 @@ private[view] object Evaluator {
     * CEL reads as `dashboard_slug`, and its CEL programs, each built the first
     * time it is asked for.
     */
-  final class Scope(val slug: String):
-    private val built =
-      new java.util.concurrent.ConcurrentHashMap[Cel.Key, Built[Cel.Program]]()
+  final class Scope private (
+      val slug: String,
+      val posts: Boolean,
+      built: java.util.concurrent.ConcurrentHashMap[Cel.Key, Built[Cel.Program]]
+  ):
+
+    /** What a call compiles in, the one place a posted value can be read: a
+      * press is the only run that has one.
+      */
+    def call: Scope = new Scope(slug, true, built)
 
     def program(k: Cel.Key): Built[Cel.Program] =
       built.computeIfAbsent(
         k,
         k => Cel.parse(k).left.map(ValueExpr.Mistyped(_))
       )
+
+  object Scope:
+    def apply(slug: String): Scope =
+      new Scope(slug, false, java.util.concurrent.ConcurrentHashMap())
 
   /** An expression made ready to run, and the type it answers. */
   final case class Compiled(run: Run, out: ValueType)
@@ -377,7 +388,15 @@ private[view] object Evaluator {
     // Its answer is drawn by its stage, never read here.
     case _: Value.Fetch       => Right((_, _, _) => "")
     case Value.Var(name)      => Right((_, _, in) => in.variable(name))
-    case Value.Posted(key, _) => Right((_, _, in) => in.posted(key))
+    case Value.Posted(key, _) =>
+      Either.cond(
+        scope.posts,
+        (_, _, in) => in.posted(key),
+        ValueExpr.Mistyped(
+          s"the posted '$key' is read outside a call — only a call reads " +
+            "what a press posts"
+        )
+      )
 
   private def step(
       s: Step,

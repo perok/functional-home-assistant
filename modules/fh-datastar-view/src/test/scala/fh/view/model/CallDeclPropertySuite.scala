@@ -111,12 +111,51 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
 
   test("a posted value is read only by a call") {
     val posted = ValueExpr(Value.Posted("v", ValueType.Int))
-    val errors = refusals(
-      on(ValueExpr.literal("light/turn_on"), "brightness" -> posted),
-      Map("shown" -> TemplateSlot(posted))
+    val asked = ValueExpr(Value.Posted("v", ValueType.Bool))
+    val call = on(ValueExpr.literal("light/turn_on"), "brightness" -> posted)
+    def tapped(slots: Map[String, TemplateSlot]) = LayoutNode.Component(
+      "t",
+      templateSlots = slots,
+      calls = Map("tap" -> call)
     )
-    if (!errors.exists(_.contains("slot 'shown' reads a posted value")))
-      fail(errors.mkString("\n"))
+    def built(card: LayoutNode, slots: Map[String, TemplateSlot] = Map.empty) =
+      Dashboard(
+        cards = Map(
+          "t" -> TestCard(
+            slots.keys.map(s => s"{{$s}}").mkString +
+              """<b data-call="{{{tap.callId}}}"></b>"""
+          )
+        ),
+        card = card
+      ).validated().left.getOrElse(Nil)
+    val refused = "the posted 'v' is read outside a call"
+    assertEquals(built(tapped(Map.empty)), Nil)
+    val inSlots = List(
+      "a slot" -> TemplateSlot(posted),
+      "a slot's valueWhile" ->
+        TemplateSlot(ValueExpr.literal("x"), valueWhile = Some(asked)),
+      "a set guard" -> TemplateSlot(
+        ValueExpr(
+          Value.Present(List("light.a"), Map("light.a" -> asked)),
+          List(Step.Count)
+        )
+      )
+    )
+    inSlots.foreach { (where, slot) =>
+      val slots = Map("shown" -> slot)
+      val errors = built(tapped(slots), slots)
+      assert(errors.exists(_.contains(refused)), clue = (where, errors))
+    }
+    val clause = LayoutNode.SetNode(
+      candidates = List("light.a"),
+      members = Map(
+        "light.a" -> LayoutNode.SetMember(
+          List(LayoutNode.SetClause(Some(asked), tapped(Map.empty)))
+        )
+      )
+    )
+    val errors = built(clause)
+    assert(errors.exists(_.contains(refused)), clue = ("a clause", errors))
   }
 }
 
