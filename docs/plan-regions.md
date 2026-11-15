@@ -155,7 +155,8 @@ Deciding is evaluate `by`, take the case whose `is` equals it, else `otherwise`,
   in a guard reading the candidate, and an unguarded member is `Fixed`. No case holding and no
   `otherwise` is today's "not rendered". The presence fold stays in Pkl (`query.pkl` `buildSet`
   folds presence into each clause), so each member's `by` is what is left for that candidate.
-  The wire keeps one `by` per candidate. The compile shares what is equal, by key, as it shares
+  The wire keeps one `by` per candidate. The compile shares what is equal, by key (done ahead as
+  #708, on today's sets), as it shares
   signals and CEL programs: equal guards are compiled once, and one that reads no member (a
   `q.entity(x)` term, a variable) is evaluated once per decision for every member. A guard that
   reads the member shares its compiled form, never its answer.
@@ -281,6 +282,8 @@ the default `<main id="dashboard">` chrome.
 
 ### 9. A call can set a variable (step P)
 
+Done ahead as #707 (`docs/plan-call-sets-variable.md`); what the region steps rely on:
+
 From the page's side a press is one thing, whatever it reaches: a declared call named by id, the
 values it posts, and a pending ask the server commits or refuses. Only the routing differs: HA,
 or this viewer's variables. On the wire a call is one or the other, a union decoded by `kind`, so
@@ -335,16 +338,10 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    reproducing today's behaviour for popups declared inside a set's member or a choice's case,
    including the member leaving while its popup is open. The findings go into this plan, or into
    `docs/experiments.md` if the answer is no.
-1. **P, a call can set a variable** (§9).
-   - The `CallDecl` union by `kind`; `tapMod.SetVar` a call; `v.choose(Value?)` and
-     `v.choosing(p)`; `tapMod.post` sending `conn`; `{{{tap.pending}}}`; the call route
-     dispatching by kind, a `SetVar` running today's `setVar`. Spike the Pkl names first.
-   - `sse/var/…` and `?group=` go; `Variable.below` stays only for `TabButton.active` (R1).
-     Popups stay as they are until R4.
-   - Wire snapshots and goldens change: the click bytes of every tab, select option and window
-     chooser. `dashboardGoldensVs` normalises ids only, so that diff is read by hand. Tests of
-     `sse/var` move to the call route; `WireShapeSuite` pairs both kinds; RenderBench before and
-     after.
+1. **Done ahead, as their own stacked PRs off main:** P, a call can set a variable (§9; #707,
+   `docs/plan-call-sets-variable.md`), then equal set guards shared in the compile (§3; #708,
+   `docs/plan-set-guard-sharing.md`). Popups stay as they are until R4; `Variable.below` stays
+   only for `TabButton.active` until R1. The R steps stack on #708.
 2. **R1, slot classes.**
    - `ValueSlot`/`NodesSlot`/`VarSlot`; `CardDef.regions` and `nodes.Region` go; the
      `slotMod.Slot` type references in the library become `ValueSlot` where they use a value
@@ -363,8 +360,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    - `Fill.Set` with members as `Choice[LayoutNode]` and its `of`, `IndexOfTrue`, `.of(set)`, the
      `group` card; `SetNode` goes from Pkl, the wire, `Ready`, `Validate` and `Renderer`, and
      `groupOpen` goes.
-   - Equal guards shared by key (§3), with a test that two members with equal guards and
-     different states are decided apart.
+   - The members' guards keep #708's sharing by key (§3).
    - Goldens byte-identical, area sets (`UseCaseSuite`'s rendered rooms) included. Bench
      `publishSetOrdered`, `leaderRow`, `tickRender`, and `validated` timing. Pkl fact: a set beside
      other content is an error.
