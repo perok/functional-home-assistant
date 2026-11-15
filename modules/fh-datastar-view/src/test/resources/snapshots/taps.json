@@ -7,6 +7,7 @@
         {
           "calls" : {
             "tap" : {
+              "kind" : "Service",
               "service" : "homeassistant/toggle",
               "target" : {
                 "entity_id" : [
@@ -144,6 +145,7 @@
                           {
                             "calls" : {
                               "tap" : {
+                                "kind" : "Service",
                                 "service" : "light/toggle",
                                 "target" : {
                                   "entity_id" : [
@@ -252,6 +254,7 @@
                                 {
                                   "calls" : {
                                     "tap" : {
+                                      "kind" : "Service",
                                       "service" : "homeassistant/toggle",
                                       "target" : {
                                         "entity_id" : [
@@ -520,6 +523,7 @@
                           {
                             "calls" : {
                               "tap" : {
+                                "kind" : "Service",
                                 "service" : "light/toggle",
                                 "target" : {
                                   "entity_id" : [
@@ -628,6 +632,7 @@
                                 {
                                   "calls" : {
                                     "tap" : {
+                                      "kind" : "Service",
                                       "service" : "homeassistant/toggle",
                                       "target" : {
                                         "entity_id" : [
@@ -944,6 +949,7 @@
         {
           "calls" : {
             "tap" : {
+              "kind" : "Service",
               "service" : "light/turn_off",
               "target" : {
                 "entity_id" : [
@@ -1171,6 +1177,7 @@
                                       {
                                         "calls" : {
                                           "tap" : {
+                                            "kind" : "Service",
                                             "service" : "lock/lock",
                                             "target" : {
                                               "entity_id" : [
@@ -1237,6 +1244,7 @@
                                       {
                                         "calls" : {
                                           "tap" : {
+                                            "kind" : "Service",
                                             "service" : "lock/unlock",
                                             "target" : {
                                               "entity_id" : [
@@ -1334,6 +1342,7 @@
                                                   {
                                                     "calls" : {
                                                       "tap" : {
+                                                        "kind" : "Service",
                                                         "service" : {
                                                           "source" : {
                                                             "kind" : "Entity",
@@ -1474,6 +1483,7 @@
                                                   {
                                                     "calls" : {
                                                       "tap" : {
+                                                        "kind" : "Service",
                                                         "service" : "lock/open",
                                                         "target" : {
                                                           "entity_id" : [
@@ -1763,6 +1773,7 @@
                     {
                       "calls" : {
                         "tap" : {
+                          "kind" : "Service",
                           "service" : "lock/lock",
                           "target" : {
                             "entity_id" : [
@@ -1829,6 +1840,7 @@
                     {
                       "calls" : {
                         "tap" : {
+                          "kind" : "Service",
                           "service" : "lock/unlock",
                           "target" : {
                             "entity_id" : [
@@ -1926,6 +1938,7 @@
                                 {
                                   "calls" : {
                                     "tap" : {
+                                      "kind" : "Service",
                                       "service" : {
                                         "source" : {
                                           "kind" : "Entity",
@@ -2066,6 +2079,7 @@
                                 {
                                   "calls" : {
                                     "tap" : {
+                                      "kind" : "Service",
                                       "service" : "lock/open",
                                       "target" : {
                                         "entity_id" : [
@@ -2345,6 +2359,7 @@
                   ]
                 }
               },
+              "kind" : "Service",
               "service" : "input_number/set_value",
               "target" : {
                 "entity_id" : [
@@ -2419,6 +2434,7 @@
         {
           "calls" : {
             "tap" : {
+              "kind" : "Service",
               "service" : {
                 "source" : {
                   "kind" : "Entity",

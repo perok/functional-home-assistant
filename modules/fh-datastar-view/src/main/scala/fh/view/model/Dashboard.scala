@@ -1210,9 +1210,7 @@ case class Dashboard(
       ) ++ walk(s.content)
     } ++ calls.toList
       .sortBy(_._1)
-      .flatMap((id, d) =>
-        d.all.map(s"the call ${d.service.literal.getOrElse(id)}" -> _)
-      )
+      .flatMap((_, d) => d.all.map(d.named -> _))
   }
 
   /** Every fetch a decision reads ([[decisionExprs]]), beside where. */

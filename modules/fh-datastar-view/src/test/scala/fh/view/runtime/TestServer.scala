@@ -163,18 +163,20 @@ final class TestServer(
   /** The press of a call the page may not have opened (a popup's, a panel's):
     * the first whose declaration `p` holds for.
     */
-  def pressWhere(p: CallDecl => Boolean): IO[String] =
+  def pressWhere(p: CallDecl.Service => Boolean): IO[String] =
     presses.map(
       _.collectFirst { case (d, url) if p(d) => url }
         .getOrElse(sys.error("no such call on the dashboard"))
     )
 
-  /** Every call a node outside a set places, beside its press. */
-  def presses: IO[List[(CallDecl, String)]] =
+  /** Every service call a node outside a set places, beside its press. */
+  def presses: IO[List[(CallDecl.Service, String)]] =
     server
       .liveSlug(slug)
       .flatMap(_.renderer.get)
-      .map(_.rendererOf.toList.flatMap(_.presses(slug)))
+      .map(_.rendererOf.toList.flatMap(_.presses(slug)).collect {
+        case (d: CallDecl.Service, url) => d -> url
+      })
 
   /** An action that works answers 204 and nothing else; the effect is the
     * recorded [[ServiceCall]].

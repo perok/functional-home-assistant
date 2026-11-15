@@ -342,7 +342,7 @@ object SelectSuite {
   /** How many presses `html` renders of calls to `service` on `entity`. */
   def callsIn(
       html: String,
-      presses: List[(CallDecl, String)],
+      presses: List[(CallDecl.Service, String)],
       service: String,
       entity: String
   ): Int =

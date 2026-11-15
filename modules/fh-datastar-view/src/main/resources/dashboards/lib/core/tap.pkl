@@ -317,7 +317,7 @@ const function tapDisabledSlot(states: List<String>): slotMod.Reading =
 /// (`Dashboard.calls`, ADR 0023). Every read names its entity: a declaration
 /// has no subject. A set is its tally, which the press narrows to the
 /// candidates present then.
-const function declOf(c: Call): slotMod.CallDecl = new {
+const function declOf(c: Call): slotMod.ServiceCall = new {
   service =
     if (c.service is slotMod.Reading && c.target is hass.Entity)
       (c.service as slotMod.Reading) { entityId = (c.target as hass.Entity).entity_id }

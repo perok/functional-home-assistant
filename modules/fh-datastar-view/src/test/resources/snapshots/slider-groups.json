@@ -65,6 +65,7 @@
                                     ]
                                   }
                                 },
+                                "kind" : "Service",
                                 "service" : "light/turn_on",
                                 "target" : {
                                   "entity_id" : [
@@ -278,6 +279,7 @@
                                     ]
                                   }
                                 },
+                                "kind" : "Service",
                                 "service" : "light/turn_on",
                                 "target" : {
                                   "entity_id" : [
@@ -484,6 +486,7 @@
                                     ]
                                   }
                                 },
+                                "kind" : "Service",
                                 "service" : "light/turn_on",
                                 "target" : {
                                   "entity_id" : [
@@ -732,6 +735,7 @@
                                     ]
                                   }
                                 },
+                                "kind" : "Service",
                                 "service" : "light/turn_on",
                                 "target" : {
                                   "entity_id" : [
@@ -927,6 +931,7 @@
                                     ]
                                   }
                                 },
+                                "kind" : "Service",
                                 "service" : "light/turn_on",
                                 "target" : {
                                   "entity_id" : [
@@ -1130,6 +1135,7 @@
                                     ]
                                   }
                                 },
+                                "kind" : "Service",
                                 "service" : "light/turn_on",
                                 "target" : {
                                   "entity_id" : [
@@ -1354,6 +1360,7 @@
                               ]
                             }
                           },
+                          "kind" : "Service",
                           "service" : "light/turn_on",
                           "target" : {
                             "entity_id" : [
@@ -1551,6 +1558,7 @@
                               ]
                             }
                           },
+                          "kind" : "Service",
                           "service" : "light/turn_on",
                           "target" : {
                             "entity_id" : [
@@ -1741,6 +1749,7 @@
                               ]
                             }
                           },
+                          "kind" : "Service",
                           "service" : "light/turn_on",
                           "target" : {
                             "entity_id" : [
@@ -1915,6 +1924,7 @@
                           {
                             "calls" : {
                               "tap" : {
+                                "kind" : "Service",
                                 "service" : "light/toggle",
                                 "target" : {
                                   "entity_id" : [
@@ -2252,6 +2262,7 @@
                                     ]
                                   }
                                 },
+                                "kind" : "Service",
                                 "service" : "light/turn_on",
                                 "target" : {
                                   "entity_id" : [
@@ -2465,6 +2476,7 @@
                                     ]
                                   }
                                 },
+                                "kind" : "Service",
                                 "service" : "light/turn_on",
                                 "target" : {
                                   "entity_id" : [
@@ -2671,6 +2683,7 @@
                                     ]
                                   }
                                 },
+                                "kind" : "Service",
                                 "service" : "light/turn_on",
                                 "target" : {
                                   "entity_id" : [
@@ -3105,6 +3118,7 @@
                                     ]
                                   }
                                 },
+                                "kind" : "Service",
                                 "service" : "light/turn_on",
                                 "target" : {
                                   "entity_id" : [
@@ -3318,6 +3332,7 @@
                                     ]
                                   }
                                 },
+                                "kind" : "Service",
                                 "service" : "light/turn_on",
                                 "target" : {
                                   "entity_id" : [
@@ -3524,6 +3539,7 @@
                                     ]
                                   }
                                 },
+                                "kind" : "Service",
                                 "service" : "light/turn_on",
                                 "target" : {
                                   "entity_id" : [
@@ -3938,6 +3954,7 @@
                         ]
                       }
                     },
+                    "kind" : "Service",
                     "service" : "light/turn_on",
                     "target" : {
                       "entity_id" : [
@@ -3973,6 +3990,7 @@
                     {
                       "calls" : {
                         "tap" : {
+                          "kind" : "Service",
                           "service" : "light/toggle",
                           "target" : {
                             "entity_id" : [
@@ -4173,6 +4191,7 @@
               {
                 "calls" : {
                   "tap" : {
+                    "kind" : "Service",
                     "service" : "light/toggle",
                     "target" : {
                       "entity_id" : [
@@ -4309,6 +4328,7 @@
                         ]
                       }
                     },
+                    "kind" : "Service",
                     "service" : "light/turn_on",
                     "target" : {
                       "entity_id" : [

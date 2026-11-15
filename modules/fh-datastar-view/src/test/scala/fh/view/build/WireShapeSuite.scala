@@ -259,8 +259,12 @@ class WireShapeSuite extends munit.FunSuite {
     check("VarRead", Value.Var("x"))
     check("PostedRead", Value.Posted("x", ValueType.Int))
     check(
-      "CallDecl",
-      CallDecl(ValueExpr.literal("a/b"), scala.collection.immutable.ListMap())
+      "ServiceCall",
+      CallDecl.Service(
+        ValueExpr.literal("a/b"),
+        scala.collection.immutable.ListMap()
+      ),
+      pklOnly = Set("kind")
     )
     check("Attr", Part.Attr("x"))
     check("Whole", Part.Whole)
@@ -361,7 +365,8 @@ class WireShapeSuite extends munit.FunSuite {
         "BindClass"
       ),
       caseNames[Window] -> Set("Raw", "Statistics"),
-      caseNames[Choice[Window]] - "Fixed" -> Set("Chosen")
+      caseNames[Choice[Window]] - "Fixed" -> Set("Chosen"),
+      caseNames[CallDecl] -> Set("ServiceCall")
     )
     families.foreach { (scalaNames, pklClasses) =>
       pklClasses.foreach { cls =>

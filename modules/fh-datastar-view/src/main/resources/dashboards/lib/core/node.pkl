@@ -443,8 +443,10 @@ const local function wireReading(r: slotMod.Reading, subject: String?, themed: B
 const local themeStage: simpleMod.ThemeClassesStage = new {}
 
 // Every read named: a call has no subject, and its id is a hash of this.
-const local function wireCall(d: slotMod.CallDecl): Map<String, Any> =
+const local function wireCall(c: slotMod.CallDecl): Map<String, Any> =
+  let (d = c as slotMod.ServiceCall)
   Map(
+    "kind", d.kind,
     "service", wireValue(d.service),
     "target", d.target.toMap().mapValues((_, es) -> es.toList().map((e) -> wireValue(e)))
   ) + (if (d.exclude.isEmpty) Map() else Map("exclude", d.exclude.toMap().mapValues((_, es) -> es.toList().map((e) -> wireValue(e)))))

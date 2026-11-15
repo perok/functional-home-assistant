@@ -135,10 +135,15 @@ class PostedRead extends Value {
   hidden js: String
 }
 
-/// A call a tap declares (`fh.view.model.CallDecl`), each part a value: an
-/// [[Expr]] or a literal. A target key's entries are ids or lists of them,
-/// keyed by HA's names.
-class CallDecl {
+/// A call a tap declares (`fh.view.model.CallDecl`), one kind per call.
+abstract class CallDecl {
+  kind: String
+}
+
+/// What HA is asked, each part a value: an [[Expr]] or a literal. A target
+/// key's entries are ids or lists of them, keyed by HA's names.
+class ServiceCall extends CallDecl {
+  kind: "Service" = "Service"
   service: Expr|String
   target: Mapping<"entity_id"|"area_id"|"floor_id", Listing<Expr|String>>
   data: Mapping<String, Expr|String|Number|Boolean|List<String|Number|Boolean>> = new {}

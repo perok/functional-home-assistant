@@ -31,6 +31,7 @@
                     {
                       "calls" : {
                         "tap" : {
+                          "kind" : "Service",
                           "service" : "light/toggle",
                           "target" : {
                             "entity_id" : [
@@ -357,6 +358,7 @@
                     {
                       "calls" : {
                         "tap" : {
+                          "kind" : "Service",
                           "service" : "light/toggle",
                           "target" : {
                             "entity_id" : [

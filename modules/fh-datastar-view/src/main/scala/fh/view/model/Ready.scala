@@ -255,7 +255,7 @@ object Ready:
     ): Map[String, List[(CallField, BoundSlot)]] =
       if (c.calls.isEmpty) Map.empty
       else
-        c.calls.map((name, decl) =>
+        c.calls.map { case (name, decl: CallDecl.Service) =>
           name -> decl.doing.collect {
             case (field, e)
                 if e.entityReads.nonEmpty && e.fetches.isEmpty &&
@@ -270,7 +270,7 @@ object Ready:
                   case _                                     => SlotType.Text
               )
           }
-        )
+        }
 
     def set(s: LayoutNode.SetNode): Built[SetNode] =
       (
@@ -307,7 +307,10 @@ object Ready:
         case fh.view.model.Activation.State(c)   =>
           c.traverse(condition).map(Activation.State(_))
 
-    private def call(d: CallDecl): Built[Call] =
+    private def call(decl: CallDecl): Built[Call] = decl match
+      case d: CallDecl.Service => service(d)
+
+    private def service(d: CallDecl.Service): Built[Call] =
       def run(e: ValueExpr) = Evaluator.compile(e, scope.call).map(_.run)
       def keys(m: ListMap[IdKind, List[ValueExpr]]) =
         m.toList

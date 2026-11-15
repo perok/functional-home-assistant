@@ -254,7 +254,7 @@ class DecisionFetchSuite extends munit.FunSuite {
       LayoutNode.Component(
         "call",
         calls = Map(
-          "tap" -> CallDecl(
+          "tap" -> CallDecl.Service(
             ValueExpr.literal("light/turn_off"),
             ListMap(
               IdKind.Entity -> List(
