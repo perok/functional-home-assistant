@@ -5,11 +5,12 @@ package fh.view.runtime
 import api.homeassistant.HomeAssistantApi
 import cats.effect.std.{Queue, Supervisor}
 import cats.effect.{IO, Ref, Resource}
+import io.github.iltotore.iron.refineUnsafe
 import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
 import fh.view.auth.{AuthSessions, HaOAuth}
 import fh.view.build.{Minifier, PklDump, Site}
-import fh.view.model.{Access, CallDecl, Dashboard}
+import fh.view.model.{Access, CallDecl, Dashboard, VarValue}
 import fh.view.telemetry.{Logging, Meters, Telemetry}
 import fh.view.testkit.{
   FakeConfig,
@@ -163,18 +164,48 @@ final class TestServer(
   /** The press of a call the page may not have opened (a popup's, a panel's):
     * the first whose declaration `p` holds for.
     */
-  def pressWhere(p: CallDecl => Boolean): IO[String] =
+  def pressWhere(p: CallDecl.Service => Boolean): IO[String] =
     presses.map(
       _.collectFirst { case (d, url) if p(d) => url }
         .getOrElse(sys.error("no such call on the dashboard"))
     )
 
-  /** Every call a node outside a set places, beside its press. */
-  def presses: IO[List[(CallDecl, String)]] =
+  /** Every service call a node outside a set places, beside its press. */
+  def presses: IO[List[(CallDecl.Service, String)]] =
     server
       .liveSlug(slug)
       .flatMap(_.renderer.get)
-      .map(_.rendererOf.toList.flatMap(_.presses(slug)))
+      .map(_.rendererOf.toList.flatMap(_.presses(slug)).collect {
+        case (d: CallDecl.Service, url) => d -> url
+      })
+
+  /** The press choosing `value` for `key` (`None` clears it), as a node placing
+    * that choice posts it.
+    */
+  def choice(key: VarKey, value: Option[String]): IO[String] =
+    (server.liveSlug(slug).flatMap(_.renderer.get), store.current).mapN {
+      (state, now) =>
+        state.rendererOf
+          .flatMap(r =>
+            r.choicePress(
+              slug,
+              key,
+              value.map(_.refineUnsafe[VarValue.Token]),
+              r.shared(now)
+            )
+          )
+          .getOrElse(sys.error(s"no node places the choice $value of $key"))
+    }
+
+  /** [[choice]] of `value`, posted under `conn`: the status and the body. */
+  def choose(
+      conn: String,
+      key: VarKey,
+      value: Option[String]
+  ): IO[(Status, String)] =
+    choice(key, value).flatMap(
+      postResult(_, body = s"""{"${Server.ConnSignal}":"$conn"}""")
+    )
 
   /** An action that works answers 204 and nothing else; the effect is the
     * recorded [[ServiceCall]].

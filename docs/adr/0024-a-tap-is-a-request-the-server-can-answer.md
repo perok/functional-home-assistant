@@ -43,46 +43,40 @@ POST /sse/surface/<slug>/open/<id>
 POST /sse/popup/<slug>/close
 ```
 
-It earns its place twice: the gate can check the rule the way every other route
-does (before, the requirement had to be derived from the session, so a request
-with no session was necessarily un-gated), and — the reason this ADR exists —
-a connection the server has forgotten can be re-established, because somebody
-names the dashboard it belongs to.
+A choice of a node variable is a declared call (`POST /sse/call/<slug>/<callId>`,
+ADR 0023), and every call's body is a `payload` that the bundle sends in place
+of the signals, so `tapMod.post` puts the page's `conn` and popup in it:
+`{conn, ui_popups, posted, seen}`. A service call ignores both.
 
-**2. An unknown `conn` MINTS a session instead of dropping the tap.** This is
-what the stream route already does (`adoptOrMint`); the action path was the one
-place that dropped instead — one mechanism, not two. The patch waits in the
-fresh session's backlog and is delivered the moment the reconnecting stream
-adopts it, so the first tap lands. An abandoned mint is reaped on the same
-adoption window a document's is: this is either a page whose stream is on its
-way back, or a page that is gone.
+It lets the gate check the rule the way every other route does: before, the
+requirement had to be derived from the session, so a request with no session
+was necessarily un-gated.
 
-A `conn` held by a session viewing a *different* dashboard is refused (409), not
+**2. Only the stream makes a session; a tap on an unknown `conn` is refused.**
+A session is forgotten when its stream has been gone for `LingerWindow` (a phone
+asleep, a laptop shut) or the process restarted. The page keeps retrying its
+stream, and the stream route rebuilds the session from what its request carries
+(`adoptOrMint`): the same `conn`, the viewer's committed choices (ADR 0033), and
+the cursor it resumes or repaints from. A tap carries only its `conn` and the
+open popup, never the viewer's other choices or the tab panels the DOM shows,
+so a session minted from a tap rendered its write against declared values, and
+after a reap the reconnect resumed rather than repainted, leaving those renders
+standing. So a tap whose `conn` this process does not hold answers the refusal
+below (`Server.NotConnectedMessage`, its pending ask cleared), and the press
+after the reconnect lands. A tap racing a wake or a restart has to be repeated,
+but it is told so, and silence was the bug.
+
+A `conn` held by a session viewing a *different* dashboard is refused too, not
 resolved: re-registering would unroute that live page, and no honest client can
 produce it, since a `conn` is minted per document and a document is one slug.
-
-**This is not a new resource vector, and the comparison is worth writing down**
-because "an unauthenticated POST now allocates server state" is the first thing
-to ask. `Access.Public` does permit an anonymous caller, so on a public
-dashboard anyone can mint by tapping with a fresh `conn`. But that same caller
-can already `GET /d/<slug>` in a loop, and a document render creates and
-registers a session too — after doing a full page render, so it is strictly the
-more expensive of the two. Both are bounded by the same `AdoptionWindow`, which
-is what `reapAfter` is for. The tap adds no capability, only a cheaper way to
-use one that was always there.
-
-**What it costs when the stream does not come back.** The mint is reaped after
-the adoption window and the queued patch dies with it, so a page whose stream
-is gone for good lands back on "tap again" — the behaviour before this change,
-reached after 10 seconds instead of immediately. The fix therefore has no worse
-case than the bug it replaces, which is why it needs no retry of its own.
 
 **3. A tap that cannot be served says so — as page state, not as a status.**
 204 was indistinguishable from success. Every refusal now answers **200 carrying
 `datastar-patch-signals`**: HA rejecting the service call, a call this dashboard
 does not declare or the pressed node does not place, a press whose node showed
 the call otherwise (ADR 0023's `seen`), a posted value of the wrong type, a
-surface id this build no longer has, a `conn` held by another slug. One function answers all of them (`Server.actionRefused`), so
+surface id this build no longer has, a `conn` this process does not hold or
+another slug holds. One function answers all of them (`Server.actionRefused`), so
 "an action reports its refusal" is a rule rather than a habit each route
 follows.
 
@@ -97,11 +91,12 @@ is everything a client can learn from one. A 4xx could therefore never carry the
 message HA gave; the toast could only repeat a number back at the user.
 
 Three signals, each the state of one thing the refusal touched — the control
-that was pressed (`_<node>__error`), the selection waiting on it
-(`_<group>__pending`, cleared), and the shell's toast (`_toast`, now HA's own
-words). Both ids are the client's claim about itself, in the query string, and
-nothing is authorized off them: they say which control to paint, and a wrong one
-paints the wrong control on the caller's own page.
+that was pressed (`_<node>__error`), a choice's pending ask (cleared), and the
+shell's toast (`_toast`, now HA's own words). The node is the client's claim
+about itself, in the query string, and nothing is authorized off it: it says
+which control to paint, and a wrong one paints the wrong control on the caller's
+own page. The ask is the server's own: the declaration the choice resolves to at
+that node (ADR 0033).
 
 A status still exists for what is genuinely not an answer — an auth redirect, a
 route that is gone, a proxy in the way. Those reach the client as Datastar's
@@ -188,12 +183,10 @@ which also resolves the race two taps in flight had.
   id), a tap on a surface this build no longer has says so, and a tap naming
   another dashboard's connection is refused without disturbing the page that
   owns it.
-- A `Session` now has three creators rather than one. `Sessions.scala`'s own doc
-  used to say the document is the only one; it already had two (a stream mints
-  on a bookmarked SSE URL), and this adds the third. What the doc was really
-  protecting — that `holds` only ever records bytes THIS client was sent — is
-  untouched: a minted session starts empty, so the resume that follows re-sends
-  rather than under-sends.
+- A `Session` has two creators: the document, and a stream naming a `conn`
+  this process does not hold. A tap creates none. `holds` only ever records
+  bytes THIS client was sent: a stream-minted session starts empty, so the
+  resume that follows re-sends rather than under-sends.
 - A dashboard renamed by `fh push --slug` keeps working, because the slug is
   bound at render time rather than baked at build time — the same reason ADR
   0023 gives.

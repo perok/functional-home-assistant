@@ -87,8 +87,10 @@ count stops growing.
 when it is *refused*, or when *nothing can answer it*:
 
 - **Refused** — the server answered, and the answer was no. It says so in
-  signals on a 200 (ADR 0024), clearing the pending value itself: the group id
-  rides in the action's query string precisely so it can. This is the only one
+  signals on a 200 (ADR 0024), clearing the pending value itself: a choice is
+  a declared call naming its variable, and the server resolves the same
+  declaration at the pressed node that the press wrote the ask for, so it names
+  the ask without the client claiming it. This is the only one
   of the three that ends ONE ask, because it is the only one that knows which.
 - **Unanswerable** — the commit rides the SSE stream, so a stream that is DOWN
   is the exact statement that no commit is coming. The shell's `_sse` counter,

@@ -46,7 +46,7 @@ class Variable {
   fixed declarer: String = "@@VAR:\(name)@@"
 
   /// Its signals and URL param, written from a node below the declarer: a
-  /// button, a highlight.
+  /// highlight. A [[choose]] needs none: it names only the variable.
   fixed below: Spelling =
     let (n = name) let (d = declarer) new Spelling { variable = n; declarerId = d }
 
@@ -85,17 +85,11 @@ class Variable {
   function defaultingTo(value: Value): Declaration =
     let (self = this) let (v = value) new Declaration { variable = self; default = v }
 
-  /// Choose `value`, from a node below the declarer. It sets only the pending
-  /// ask; the server commits once the readers have re-rendered (ADR 0025).
-  function choose(value: Value): tapMod.SetVar =
-    let (n = name) let (d = declarer) let (s = below)
-      new tapMod.SetVar {
-        onclick = tapMod.clickSlot(
-          "\"$" + s.pending + " = '" + value + "'; " +
-            #"@post('sse/var/" + dashboard_slug + "/"# + d + "/" + n + "/" + value +
-            "?group=\(s.group)'" + #")""#
-        )
-      }
+  /// Choose `at`, from the declarer or a node below it; null clears the
+  /// choice, back to the declared value. It sets only the pending ask; the
+  /// server commits once the readers have re-rendered (ADR 0025).
+  function choose(at: Value?): tapMod.SetVar =
+    let (n = name) new tapMod.SetVar { variable = n; value = at }
 }
 
 /// One node's declaration of a [[Variable]]. Its value, highest first: the

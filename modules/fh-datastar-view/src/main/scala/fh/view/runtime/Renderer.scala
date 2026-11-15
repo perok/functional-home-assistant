@@ -37,7 +37,8 @@ import fh.view.model.{
   CallDecl,
   CallField,
   CallId,
-  ThemeClasses
+  ThemeClasses,
+  VarValue
 }
 import scala.collection.immutable.ListMap
 import scala.jdk.CollectionConverters.*
@@ -322,7 +323,7 @@ class Renderer(validated: Dashboard.Validated) {
         .get(entityId)
         .map(Cel.run(program, _, dashboard.slug))
         .filter(v =>
-          VarKey.ValueToken.matches(v) && refusals(Map(key -> v)).isEmpty
+          VarValue.of(v).isDefined && refusals(Map(key -> v)).isEmpty
         )
         .map(key -> _)
     }.toMap
@@ -435,7 +436,7 @@ class Renderer(validated: Dashboard.Validated) {
     * gives no value.
     */
   def press(
-      call: Ready.Call,
+      call: Ready.ServiceCall,
       seen: List[(CallField, String)],
       node: Ready.Component,
       shared: Shared,
@@ -578,6 +579,26 @@ class Renderer(validated: Dashboard.Validated) {
         )
       case _ => Nil
     }
+
+  /** Test seam: the press of the choice of `value` for `key` (`None` clears
+    * it), as the first node placing it over `shared` posts it, a set member's
+    * current clause included.
+    */
+  private[runtime] def choicePress(
+      slug: String,
+      key: VarKey,
+      value: Option[VarValue],
+      shared: Shared
+  ): Option[String] = {
+    val id = CallDecl.SetVar(key.name, value).id
+    vars.nodes
+      .sortBy(n => n: String)
+      .find(n =>
+        vars.keyAt(n, key.name).contains(key) &&
+          componentAt(n, shared).exists(_.calls.values.exists(_.id == id))
+      )
+      .map(n => s"sse/call/$slug/$id?node=$n")
+  }
 
   /** Every read a node can make, whatever its `valueWhile`s decide, over no
     * state.
@@ -1681,9 +1702,11 @@ class Renderer(validated: Dashboard.Validated) {
             resolved.slots.contains(slot) || resolved.plan.calls.contains(slot)
           )
         case Templates.View.CallId =>
-          resolved.plan.calls.get(slot).map(_._1).orNull
+          resolved.plan.calls.get(slot).map(_.id).orNull
         case Templates.View.Seen =>
-          resolved.plan.calls.get(slot).map(_._2).orNull
+          resolved.plan.calls.get(slot).map(_.seen).orNull
+        case Templates.View.Pending =>
+          resolved.plan.calls.get(slot).map(_.pending).orNull
         case Templates.View.Bind =>
           val s: Signalled | Null = resolved.signalled.getOrElse(slot, null)
           if (s == null) null else s.bind
@@ -1723,8 +1746,7 @@ class Renderer(validated: Dashboard.Validated) {
       signalSeed: Datastar.SignalSeed,
       ownRendering: Boolean,
       nodeCount: Int,
-      // Per call the node places: its id and its `seen` object, as JS.
-      calls: Map[String, (String, String)]
+      calls: Map[String, Renderer.PlacedCall]
   ) {
     // Not `keySet`: that view filters through a builder, per cell, per paint.
     val signalSlots: Set[SlotKey] = signalNameBySlot.keysIterator.toSet
@@ -1860,9 +1882,25 @@ class Renderer(validated: Dashboard.Validated) {
       ownRendering = ownRenderingOf(c),
       // Once, not per paint: it walks the subtree.
       nodeCount = 1 + c.regions.values.view.map(_.map(nodeCount).sum).sum,
-      calls = c.calls.map((name, p) => name -> (p.id, seenOf(p, signalled)))
+      calls = c.calls.map((name, p) =>
+        name -> Renderer.PlacedCall(
+          p.id,
+          seenOf(p, signalled),
+          pendingOf(p, id)
+        )
+      )
     )
   }
+
+  /** The ask a choice writes as its press starts, on the pending signal of the
+    * declaration the node reads: the assignment `tap.pending` fills. A clear
+    * asks nothing, since `pending || committed` cannot hold "nothing".
+    */
+  private def pendingOf(p: Ready.Placed, id: NodeId): String =
+    dashboard.calls.get(p.id).map(_.decl) match
+      case Some(CallDecl.SetVar(name, Some(value))) =>
+        vars.keyAt(id, name).fold("")(k => s"$$${k.pendingSignal} = '$value'; ")
+      case _ => ""
 
   /** What the press confirms, `{service: $…, data: {'k': $…}}`: each seen
     * field's signal, read as the page holds it.
@@ -2104,6 +2142,11 @@ object Renderer {
       data: ListMap[String, Any],
       seen: List[(CallField, SlotValue)]
   )
+
+  /** A call as a node's plan fills `tapMod.post`: its id, and its `seen` object
+    * and pending ask as JS.
+    */
+  final case class PlacedCall(id: String, seen: String, pending: String)
 
   /** A number slot's value: a number, or text that is one. */
   def number(v: Any): Option[Double] = v match

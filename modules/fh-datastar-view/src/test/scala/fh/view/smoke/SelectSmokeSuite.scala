@@ -43,12 +43,10 @@ class SelectSmokeSuite extends SmokeSuite {
   private def visibleCycle(page: Page) =
     page.locator(".fh-select-cycles button:visible")
 
-  private def choosing[A](page: Page, value: String)(act: => A): Unit = {
-    val _ = page.waitForResponse(
-      (r: com.microsoft.playwright.Response) =>
-        r.url().contains(s"/shade/$value"),
-      () => { val _ = act }
-    )
+  // A choice is a declared call: its value is in the call, not the URL, and the
+  // choices are the only taps on this page.
+  private def choosing[A](page: Page)(act: => A): Unit = {
+    val _ = page.waitForResponse("**/sse/call/**", () => { val _ = act })
   }
 
   /** The highlight follows the ask at once, the URL only the commit, so this
@@ -68,7 +66,7 @@ class SelectSmokeSuite extends SmokeSuite {
         assertThat(visibleCycle(page)).hasText("24h")
         summary(page).click()
         assertThat(page.locator(".fh-select-menu")).hasAttribute("open", "")
-        choosing(page, "7d")(
+        choosing(page)(
           page
             .locator(
               ".fh-select-list a",
@@ -92,12 +90,12 @@ class SelectSmokeSuite extends SmokeSuite {
   test("a cycle steps round, and the declared value leaves no param") {
     withPageOn(served) { (page, _) =>
       IO.blocking {
-        choosing(page, "7d")(visibleCycle(page).click())
+        choosing(page)(visibleCycle(page).click())
         assertThat(visibleCycle(page)).hasText("7d")
-        choosing(page, "30d")(visibleCycle(page).click())
+        choosing(page)(visibleCycle(page).click())
         assertThat(visibleCycle(page)).hasText("30d")
         awaitParam(page, "30d")
-        choosing(page, "24h")(visibleCycle(page).click())
+        choosing(page)(visibleCycle(page).click())
         assertThat(visibleCycle(page)).hasText("24h")
         awaitParam(page, "")
       }
