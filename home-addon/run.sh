@@ -98,6 +98,12 @@ JAVA_MIN_HEAP="${JAVA_MIN_HEAP:-64M}"
 # follow the workload.
 JAVA_GC=-XX:+UseSerialGC
 
+# glibc keeps what native code frees in its malloc arenas and hands little of
+# it back: measured on the Pi's workspace, ~160 MB RSS in arenas against 42 MB
+# the JVM still had allocated, and one `jcmd System.trim_native_heap` took
+# RSS from 650 to 526 MB. This runs that trim every 30 s (docs/plan-memory-hunt.md).
+JAVA_TRIM=-XX:TrimNativeHeapInterval=30000
+
 # Native Memory Tracking is the only thing that separates heap from
 # metaspace from GC native from code cache, and it cannot be turned on
 # without a restart — hence an option rather than a runtime toggle. It costs
@@ -177,7 +183,7 @@ fi
 # hard failure, and this is the grant that keeps it working either way.
 # ALL-UNNAMED because everything is on the classpath, in the unnamed module.
 # shellcheck disable=SC2086
-exec java "-Xms$JAVA_MIN_HEAP" "-Xmx$JAVA_MAX_HEAP" "$JAVA_GC" \
+exec java "-Xms$JAVA_MIN_HEAP" "-Xmx$JAVA_MAX_HEAP" "$JAVA_GC" "$JAVA_TRIM" \
   -XX:+ExitOnOutOfMemoryError --enable-native-access=ALL-UNNAMED \
   "-Dpolyglot.engine.userResourceCache=$FH_GRAAL_CACHE" \
   $JAVA_NMT -cp "$FH_APP_CLASSPATH" \
