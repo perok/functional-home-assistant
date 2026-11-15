@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import api.homeassistant.{HomeAssistantApi, ServiceTarget, TargetIds}
+import api.homeassistant.{HomeAssistantApi, ServiceTarget}
 import scala.util.chaining.*
 import cats.data.{NonEmptyList, OptionT}
 import cats.effect.{IO, Resource}
@@ -324,10 +324,7 @@ class Server(
   private def send(req: Request[IO], p: Renderer.Pressed): IO[Response[IO]] =
     p.service.split('/') match {
       case Array(domain, service) =>
-        def idsOf(m: Map[String, List[String]]) =
-          val ids = m.withDefaultValue(Nil)
-          TargetIds(ids("entity_id"), ids("area_id"), ids("floor_id"))
-        ServiceTarget.of(idsOf(p.target), idsOf(p.exclude)) match {
+        ServiceTarget.of(p.target, p.exclude) match {
           case Some(target) =>
             callService(
               domain,

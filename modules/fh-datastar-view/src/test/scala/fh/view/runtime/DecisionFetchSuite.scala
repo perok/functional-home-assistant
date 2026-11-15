@@ -285,7 +285,7 @@ class DecisionFetchSuite extends munit.FunSuite {
       r.decide(answering(json))(run =>
         r.press(call, Nil, node, Shared.of(states()).asking(run), Map.empty)
           .toOption
-          .map(_.target("entity_id"))
+          .map(_.target.entityIds)
       ).unsafeRunSync()
     assertEquals(pressed(some), Some(List("sensor.a", "sensor.b")))
     assertEquals(pressed(empty), Some(List("sensor.a")))
