@@ -8,8 +8,8 @@ import hedgehog.munit.HedgehogSuite
 import scala.collection.immutable.ListMap
 
 /** A declared call's id, and which of its fields a node sees: exactly those of
-  * what it does that share a read with a slot it, or a node inside it, paints,
-  * never one that reads a fetch. Run through `validated`, so the node's
+  * what it does that read live state, whatever the node paints, never one that
+  * reads a fetch or a posted value. Run through `validated`, so the node's
   * subject, its child and the build's own slots are all on the path.
   */
 class CallDeclPropertySuite extends HedgehogSuite {
@@ -36,18 +36,12 @@ class CallDeclPropertySuite extends HedgehogSuite {
   }
 
   property(
-    "a node sees the fields sharing a read with what it paints, never a fetch's"
+    "a node sees every field reading live state, never a fetch's or a press's"
   ) {
     for n <- genNode.forAll
     yield {
-      val painted = (n.own ++ n.child)
-        .collect {
-          case (r, kind) if kind != Kind.Handler => r.reads
-        }
-        .flatten
-        .toSet
       val expected = n.doing.collect {
-        case (field, r) if !r.fetchy && r.reads.exists(painted) => field
+        case (field, r) if !r.fetchy && !r.posted && r.reads.nonEmpty => field
       }.toSet
       n.dashboard.validated() match
         case Left(errors) => Result.failure.log(errors.mkString("\n"))
@@ -165,7 +159,8 @@ object CallDeclPropertySuite {
   final case class Read(
       expr: ValueExpr,
       reads: Set[(String, Part)],
-      fetchy: Boolean = false
+      fetchy: Boolean = false,
+      posted: Boolean = false
   )
 
   private def state(e: String) =
@@ -211,8 +206,23 @@ object CallDeclPropertySuite {
     fetchy = true
   )
 
+  // Kept under a live attribute, which it reads and still cannot be seen by.
+  private val posted = Read(
+    ValueExpr(
+      Value.Posted("p", ValueType.Int),
+      List(
+        Step.Check(
+          List(Step.Compare(Op.Lte, Value.Entity(Some("light.a"), brightness)))
+        )
+      )
+    ),
+    Set("light.a" -> brightness),
+    posted = true
+  )
+
   private val calling: List[Read] =
-    Read(ValueExpr.literal("light/toggle"), Set.empty) :: fetchy :: painting
+    Read(ValueExpr.literal("light/toggle"), Set.empty) :: fetchy :: posted ::
+      painting
 
   enum Kind derives CanEqual:
     case Bytes, Text, Handler

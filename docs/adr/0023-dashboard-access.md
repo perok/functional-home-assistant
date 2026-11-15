@@ -254,23 +254,31 @@ it got. The page sends two things beside the id:
   `Posted(key, type)` source reads each, decoded as its type, and the press
   must post exactly the keys the call reads. These are the one client input
   that reaches HA, which is why they are typed.
-- `seen`, what the node showed of what the call does. Per node, at build, a
-  `service` or `data` field that shares a read (an entity and the part read)
-  with a slot the node, or a node inside it, paints is *seen*: the build adds a
+- `seen`, what the page last knew of what the call does. Per node, at build, a
+  `service` or `data` field that reads live state is *seen*: the build adds a
   `Handler` slot holding that field's output (ADR 0017), and the press must post
   exactly the fields the node sees, each equal to what the server computes now.
-  A refusal names the field and both values. A literal field, a posted value, a
-  field reading a fetch (its window moves between the render and the press), a
-  field reading nothing the node paints, and the target are decided at the
-  press. `seen` can only refuse.
+  A refusal names the field and both values. A literal field, a field reading a
+  posted value (it exists only at the press) or a fetch (its window moves
+  between the render and the press), and the target are decided at the press.
+  `seen` can only refuse.
+
+  Whether anything paints the field does not matter. The slot is a live
+  signal, so on a page that is up to date it always agrees and nothing is
+  refused; it refuses only while the page is behind (a patch in flight, a dead
+  stream), and then everything on the page is behind, painted or not. Tying it
+  to what the node paints missed a button beside the card that shows the state
+  (a sibling's paint, not the node's), and widening that to ancestors ends at
+  the whole page. The slot holds the field's output, not the raw state, so it
+  moves only when the output does.
 
 No call field reads a node variable, and `validate` refuses one: the press is
 answered as a decision, which reads no viewer's variable. Allowing it would mean
 the press carrying its viewer.
 
-A service the target's state picks is such a field: a lock tile paints the
-lock's state, so the tile sees its service, and a press that races a lock
-change it showed is refused rather than acting on what the screen did not show
+A service the target's state picks is such a field: a lock's tile or a button
+beside it sees its service, and a press that races a lock change the page has
+not shown yet is refused rather than acting on what the screen did not show
 (ADR 0016).
 
 It is decidable statically because a candidate set's membership is live but its

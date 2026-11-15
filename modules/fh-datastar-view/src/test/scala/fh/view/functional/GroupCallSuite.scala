@@ -7,6 +7,7 @@ import fh.view.model.{
   CallDecl,
   LayoutNode,
   Lit,
+  Part,
   Step,
   Value,
   ValueExpr,
@@ -110,7 +111,7 @@ class GroupCallSuite extends FunctionalSuite {
   private val door = HouseFixture.frontLock.entityId
 
   /** What a lock's tap leaves on a card that shows the lock: the service its
-    * state picks, which the card sees, since it paints that state.
+    * state picks, which the card sees.
     */
   private val lockTap: LayoutNode.Component =
     LayoutNode.Component(
@@ -156,6 +157,88 @@ class GroupCallSuite extends FunctionalSuite {
         assert(unseen._2.contains("service: not shown"), clue = unseen)
         assertEquals((unlock, lock), (Status.NoContent, Status.NoContent))
         assertEquals(calls.map(_.service), Vector("unlock", "lock"))
+      }
+    }
+  }
+
+  /** A lock's state-picked service on a node that paints nothing of the lock: a
+    * button beside the card that shows it.
+    */
+  private val lockButton: LayoutNode.Component =
+    lockTap.copy(card = "call", templateSlots = Map.empty)
+
+  test("a service the state picks is seen though the node paints nothing") {
+    // The scene seeds only what slots paint; the server watches a call's too.
+    withServer(
+      scene.card(lockButton).entity(HouseFixture.frontLock),
+      Access.Public
+    ) { ts =>
+      val at = FixtureDashboard.pressOf(ts.slug, lockButton, "c_0")
+      for {
+        stale <- ts.postResult(at, None, """{"seen":{"service":"lock/lock"}}""")
+        unlock <- ts.post(at, None, """{"seen":{"service":"lock/unlock"}}""")
+        calls <- ts.fake.recordedCalls
+      } yield {
+        assert(
+          stale._2.contains(
+            """service: \"lock/lock\" shown, \"lock/unlock\" now"""
+          ),
+          clue = stale
+        )
+        assertEquals(unlock, Status.NoContent)
+        assertEquals(calls.map(_.service), Vector("unlock"))
+      }
+    }
+  }
+
+  private val temp = HouseFixture.outsideTemp
+
+  /** A call sending a live number: what `c.exprOf(temp, "double(value.state)")`
+    * leaves as a data value.
+    */
+  private val matchTemp: LayoutNode.Component =
+    LayoutNode.Component(
+      "call",
+      calls =
+        Map(
+          "tap" -> CallDecl(
+            ValueExpr.literal("input_number/set_value"),
+            ListMap("entity_id" -> List(ValueExpr.literal(temp.entityId))),
+            ListMap(
+              "value" -> ValueExpr(
+                Value.Entity(Some(temp.entityId), Part.Whole),
+                List(Step.Cel("double(value.state)"))
+              )
+            )
+          )
+        )
+    )
+
+  test("a live data value is sent only as the page saw it, number as number") {
+    withServer(scene.card(matchTemp).entity(temp), Access.Public) { ts =>
+      val at = FixtureDashboard.pressOf(ts.slug, matchTemp, "c_0")
+      def seen(json: String) = s"""{"seen":{"data":$json}}"""
+      for {
+        fractional <- ts.post(at, None, seen("""{"value":12.4}"""))
+        _ <- ts.record(temp.copy(state = "21"))
+        stale <- ts.postResult(at, None, seen("""{"value":12.4}"""))
+        whole <- ts.post(at, None, seen("""{"value":21}"""))
+        unknown <- ts.postResult(at, None, seen("""{"value":21,"x":1}"""))
+        calls <- ts.fake.recordedCalls
+      } yield {
+        assertEquals((fractional, whole), (Status.NoContent, Status.NoContent))
+        assert(
+          stale._2.contains("data.value: 12.4 shown, 21.0 now"),
+          clue = stale
+        )
+        assert(
+          unknown._2.contains("data.x: not something this control shows"),
+          clue = unknown
+        )
+        assertEquals(
+          calls.map(_.serviceData.hcursor.get[Double]("value").toOption),
+          Vector(Some(12.4), Some(21.0))
+        )
       }
     }
   }

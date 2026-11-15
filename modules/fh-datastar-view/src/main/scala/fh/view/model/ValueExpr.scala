@@ -66,8 +66,8 @@ final case class ValueExpr(
     case ValueExpr.Inner.Input(e)     => e.entities
   } ++ dependsOn
 
-  /** Every named entity read at any depth, with the part it takes: what a
-    * call's field and a painted slot share when the node sees the field.
+  /** Every named entity read at any depth, with the part it takes: a call's
+    * field reading any is seen ([[Ready.Compile]]).
     */
   def entityReads: Set[(String, Part)] =
     all.flatMap { e =>
@@ -308,6 +308,11 @@ final case class ValueExpr(
   /** Every node variable it reads, at any depth: what makes it per viewer. */
   def variables: List[String] =
     all.map(_.source).collect { case Value.Var(n) => n }.distinct
+
+  /** Whether it reads what a press posts, at any depth. */
+  def readsPosted: Boolean = all.exists(_.source match
+    case _: Value.Posted => true
+    case _               => false)
 
 object ValueExpr:
 

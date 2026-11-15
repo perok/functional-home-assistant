@@ -199,8 +199,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   admission to the whole house. The server runs its OWN evaluation of the call at the press: HA
   expands an area or a floor, the server a set to the candidates present then. The body, which
   `tapMod.post` spells, is `{posted, seen}`: `posted` the card's values (a drag), each read by a
-  `Posted(key, type)` source and decoded as its type, and `seen` what the node showed of the
-  call's `service`/`data`, each such field a `Handler` slot the build adds (`Ready.seenSlot`); a
+  `Posted(key, type)` source and decoded as its type, and `seen` what the page last knew of the
+  call's `service`/`data` fields that read live state (no fetch, no posted value), painted or
+  not, each such field a `Handler` slot the build adds (`Ready.seenSlot`); a
   `seen` that differs from the server's own answer refuses the press, naming the field. A tap
   names its own target (`tap.Call.target`), never the card's. The resulting state change flows
   back over the persistent SSE stream. A module does not know its own slug, so the renderer

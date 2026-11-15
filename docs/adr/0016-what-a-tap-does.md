@@ -123,9 +123,10 @@ conditional — that is the trigger to watch, not the row count.
 **You act on what you saw, or not at all.** A tap declares its call (ADR 0023),
 and the service is a field of the declaration: a literal, or the `Match` over
 the target's state that a `CallByState` row writes. The server runs the
-declaration again at the press. Where the card paints what the service reads (a
-lock tile shows the lock's state), the build adds a handler signal holding the
-service as the card shows it (ADR 0017), the press posts it as `seen`, and the
+declaration again at the press. Where the service reads live state (a lock's),
+the build adds a handler signal holding the service as the page last knew it
+(ADR 0017), whether or not the card paints that state, the press posts it as
+`seen`, and the
 server refuses the press when its own answer differs. The markup is the same in
 either state:
 

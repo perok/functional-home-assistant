@@ -242,21 +242,23 @@ object Ready:
         )
       )
 
-    /** Per call the node places, each field of what it does that reads
-      * something the node paints, as the slot that holds it. A fetch's answer
-      * moves between the render and the press, so a field reading one is
-      * decided at the press.
+    /** Per call the node places, each field of what it does that reads live
+      * state, as the slot that holds it: the press is held to what the page
+      * last knew, whether or not anything paints it, since a page that is
+      * behind is behind everywhere. A fetch's answer moves between the render
+      * and the press, and a posted value exists only at the press, so a field
+      * reading either is decided there.
       */
     private def placedCalls(
         c: LayoutNode.Component
     ): Map[String, List[(CallField, BoundSlot)]] =
       if (c.calls.isEmpty) Map.empty
       else
-        val shown = painted(c)
         c.calls.map((name, decl) =>
           name -> decl.doing.collect {
             case (field, e)
-                if e.fetches.isEmpty && e.entityReads.exists(shown) =>
+                if e.entityReads.nonEmpty && e.fetches.isEmpty &&
+                  !e.readsPosted =>
               field -> BoundSlot(
                 e,
                 Map.empty,
@@ -268,23 +270,6 @@ object Ready:
               )
           }
         )
-
-    /** What the node and every node inside it paint: their template slots'
-      * reads, a `Handler`'s aside, which paints nothing.
-      */
-    private def painted(n: LayoutNode): Set[(String, Part)] = n match
-      case c: LayoutNode.Component =>
-        c.bound.toList.flatMap {
-          case (_: String, b) if !b.signal.contains(SignalBind.Handler) =>
-            (b.expr :: b.inputs.values.toList ++ b.valueWhile.map(_.expr))
-              .flatMap(_.entityReads)
-          case _ => Nil
-        }.toSet ++ c.allChildren.flatMap(painted)
-      case s: LayoutNode.SetNode =>
-        s.members.values.toList
-          .flatMap(_.clauses)
-          .flatMap(cl => painted(cl.node))
-          .toSet
 
     def set(s: LayoutNode.SetNode): Built[SetNode] =
       (

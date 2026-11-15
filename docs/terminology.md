@@ -39,10 +39,6 @@ slot's binding), `has` (whether the node sets it), `jsValue` (the value as JavaS
 (the signal's name, placed only inside `x.ifSignal(…)`, a section on it). A placed call has two of
 its own, `callId` and `seen`. ADR 0017.
 
-**Painted slot** — a template slot that shows something: every one but a `Handler`, which only a
-handler reads. What a node paints decides which of a call's fields it sees. A cell slot does not
-count. ADR 0023.
-
 **Display signal** vs **interaction signal** — which of the two a signal is decides how it is NAMED,
 so the distinction is load-bearing rather than descriptive. A *display* signal carries an entity's
 value and is named by what it READS (`_e.<domain>.<object_id>.<transform>`), so every card showing
@@ -247,9 +243,10 @@ one, and an edited call gets a new one. The route admits only an id its dashboar
 **Posted** — a value the press supplies (a drag's position), read by a `Posted(key, type)` source
 in the call and decoded as its type: the one client input that reaches HA.
 
-**Seen** — what a node showed of the call it places: each `service` or `data` field that shares a
-read with a slot the node, or a node inside it, paints. The build adds a `Handler` slot for each;
-the press posts their values and the server refuses one that differs from its own. ADR 0016, 0023.
+**Seen** — what the page last knew of the call a node places: each `service` or `data` field that
+reads live state, and reads no fetch and no posted value. The build adds a `Handler` slot for
+each; the press posts their values and the server refuses one that differs from its own.
+ADR 0016, 0023.
 
 **Guard** — the attribute on a tappable element that refuses a second click while the first is still
 in flight. The point of the busy machinery; the spinner is decoration. ADR 0019.

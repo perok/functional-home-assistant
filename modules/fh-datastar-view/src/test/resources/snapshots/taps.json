@@ -2324,6 +2324,168 @@
           },
           "vars" : [
           ]
+        },
+        {
+          "calls" : {
+            "tap" : {
+              "data" : {
+                "value" : {
+                  "source" : {
+                    "kind" : "Entity",
+                    "of" : "sensor.outside_temp",
+                    "part" : {
+                      "kind" : "Whole"
+                    }
+                  },
+                  "steps" : [
+                    {
+                      "kind" : "Cel",
+                      "src" : "double(value.state)"
+                    }
+                  ]
+                }
+              },
+              "service" : "input_number/set_value",
+              "target" : {
+                "entity_id" : [
+                  "sensor.outside_temp"
+                ]
+              }
+            }
+          },
+          "card" : "button",
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "label" : "Match outside",
+            "secondary" : {
+              "default" : "",
+              "signal" : {
+                "kind" : "Text"
+              },
+              "source" : {
+                "bypassUnavailable" : true,
+                "kind" : "Entity",
+                "of" : "sensor.outside_temp",
+                "part" : {
+                  "kind" : "Whole"
+                }
+              },
+              "steps" : [
+                {
+                  "kind" : "Cel",
+                  "src" : "value.state"
+                }
+              ]
+            },
+            "size" : {
+              "source" : "fh-size-large",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "tapDisabled" : {
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "kind" : "Entity",
+                "of" : "sensor.outside_temp"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "unavailable" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ],
+              "type" : "bool"
+            }
+          },
+          "vars" : [
+          ]
+        },
+        {
+          "calls" : {
+            "tap" : {
+              "service" : {
+                "source" : {
+                  "kind" : "Entity",
+                  "of" : "lock.front_door"
+                },
+                "steps" : [
+                  {
+                    "cases" : {
+                      "locked" : "lock/unlock"
+                    },
+                    "kind" : "Match",
+                    "otherwise" : "lock/lock"
+                  }
+                ]
+              },
+              "target" : {
+                "entity_id" : [
+                  "lock.front_door"
+                ]
+              }
+            }
+          },
+          "card" : "button",
+          "kind" : "Component",
+          "templateSlots" : {
+            "busy" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "busyVisual" : {
+              "source" : true,
+              "type" : "bool"
+            },
+            "label" : "Front door",
+            "size" : {
+              "source" : "fh-size-large",
+              "steps" : [
+                {
+                  "kind" : "ThemeClasses"
+                }
+              ]
+            },
+            "tapDisabled" : {
+              "signal" : {
+                "kind" : "Handler"
+              },
+              "source" : {
+                "kind" : "Entity",
+                "of" : "lock.front_door"
+              },
+              "steps" : [
+                {
+                  "cases" : {
+                    "locking" : true,
+                    "opening" : true,
+                    "unavailable" : true,
+                    "unlocking" : true
+                  },
+                  "kind" : "Match",
+                  "otherwise" : false
+                }
+              ],
+              "type" : "bool"
+            }
+          },
+          "vars" : [
+          ]
         }
       ]
     },
