@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import api.homeassistant.{HomeAssistantApi, ServiceTarget}
 import scala.util.chaining.*
-import cats.data.{NonEmptyList, OptionT}
+import cats.data.{EitherT, NonEmptyList, OptionT}
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
 import cats.effect.std.Supervisor
@@ -270,28 +270,25 @@ class Server(
     gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
       (site.permissionFor(Some(slug)), gate.of(req)).flatMapN {
         (permission, user) =>
-          permission.callOf(user, id) match {
-            case None =>
-              actionRefused(req, s"no tap on this dashboard makes the call $id")
-            case Some(call) =>
-              Server.postedValues(call.decl, body.posted) match {
-                case Left(why)     => actionRefused(req, why)
-                case Right(posted) =>
-                  pressed(req, slug, id, call, posted).flatMap {
-                    case Left(why) => actionRefused(req, why)
-                    case Right(p)  =>
-                      Server.seenRefusal(p.seen, body.seen) match {
-                        case Some(why) => actionRefused(req, why)
-                        case None      => send(req, p)
-                      }
-                  }
-              }
-          }
+          (for
+            call <- EitherT.fromOption[IO](
+              permission.callOf(user, id),
+              s"no tap on this dashboard makes the call $id"
+            )
+            posted <- EitherT.fromEither[IO](
+              Server.postedValues(call.decl, body.posted)
+            )
+            p <- EitherT(pressed(req, slug, id, call, posted))
+            _ <- EitherT.fromEither[IO](
+              Server.seenRefusal(p.seen, body.seen).toLeft(())
+            )
+          yield p).foldF(actionRefused(req, _), send(req, _))
       }
     )
 
   /** The call run now, as the pressed node places it: a set member is its
-    * current clause, so a page drawn from another one is refused by `seen`.
+    * current clause, so a page drawn from another one is refused here when that
+    * clause's call differs, and by `seen` when both declare the same call.
     */
   private def pressed(
       req: Request[IO],
