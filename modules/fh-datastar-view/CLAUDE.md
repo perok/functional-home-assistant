@@ -376,8 +376,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   in, tried in that order, a start read once as the page opens (ADR 0033) and never followed. Each control is a `hass.Axis` (`l.brightness`, `l.colourTemp`, `l.colour`;
   `l.axes`), which carries what the slider drives, so the card holds no light branches (ADR 0013). `c.its.mainControl.options(List(…))` narrows it — a filter over what the light has, ADR 0013 — and buttons with no switch are the plain row),
   **node variables** (issue #209 — a node DECLARES a named value (`vars { v.defaultingTo(x) }`, a `varMod.Declaration` holding the `Variable`) and a descendant reads it
-  to choose a fetch's window by key (`p.history.chosen(v, table)`, whose `by` is `varMod.Variable`'s `value`), or shows it in a leaf's value slot (`v.value`, `v.valueIs(x)`); a component holds each variable as
-  one typed `Variable`, which also spells its signals, URL param and `choose` tap), resolving
+  to choose a fetch's window by key (`p.history.chosen(v, table)`, whose `by` is `varMod.Variable`'s `value`), or shows it in a leaf's value slot (`v.value`, `v.valueIs(x)`) or a class (`cellClassWhen(cls, v.valueIs(x))`); a component holds each variable as
+  one typed `Variable`, which spells its reads and its `choose` tap, the renderer its signals and URL param), resolving
   up the ancestor chain so a nested declaration shadows; a viewer's choice is per SESSION, keyed by declaring node, and the write
   boundary refuses a value no declared reader takes, which is why a declaration carries no list
   of allowed values. `c.chooser(c.select(v))` (`components/select.pkl`) declares `v` over the cards
@@ -394,9 +394,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   the button/tile/slider, `cellClassWhen`: a Boolean, or any `slotMod.Expr` of a bool — a reading,
   `c.expr`, or a condition directly, `.disabled(lit.none())` — which is the bool slot's source; a `slotMod.bool` handle
   makes the build refuse a non-bool reading, since `"false"` is truthy; `disabled` ORs with the
-  tap's refusal in `core/tap.pkl`'s `refused`), **a class decided at render** (`.cellClassAtRender(cls,
-  v.valueIs(x))`, `cell.atRender`: written for the viewer in the document form only, no binding,
-  how a tab button lights the open tab in the first HTML; ADR 0033), **live cell properties** (`.cellStyle("--x",
+  tap's refusal in `core/tap.pkl`'s `refused`), **a class lit by a node variable** (`.cellClassWhen(cls,
+  v.valueIs(x))`, on any card: written for the viewer in the document form, and bound to the
+  variable's own pending-or-committed signals, with no signal of its own — how a tab button lights
+  the open tab; ADR 0033), **live cell properties** (`.cellStyle("--x",
   reading)`, `cellClassWhen`'s value twin, any tier; it cannot drive the slider fill, which the
   track's `<span>` sets on itself) — ADR 0034,
   tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.view.moreInfo(e)` tap:

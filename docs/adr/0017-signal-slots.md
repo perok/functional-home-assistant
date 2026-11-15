@@ -25,6 +25,12 @@ two transforms would collide. A `cssClass` slot's reading keys apart (`BoundSlot
 hashed segment): its value is the theme's swap of what it reads (ADR 0020), so it must not share a
 signal with a text slot reading the same thing.
 
+**A node variable's highlight has no signal of its own.** A bool slot holding `v.valueIs(x)` is
+bound to the variable's pending and committed signals at its declarer, which every page already
+has, as `String(($<pending> || $<committed>)) === 'x'` (ADR 0033): a viewer's value never reaches
+a signal every viewer shares, so no frame or seed carries it. Any other variable read in a signal
+is refused.
+
 Dots are path separators, not characters: the bundle rewrites `$_e.light.taklys.state` to
 `$['_e']['light']['taklys']['state']`, and `datastar-patch-signals` applies `mergePatch`, which
 recurses only where a value is an object. So a frame carries a nested structure and never a flat

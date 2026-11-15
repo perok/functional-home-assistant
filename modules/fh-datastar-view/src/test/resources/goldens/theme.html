@@ -108,6 +108,8 @@
   data-class:fh-error="$_c_5__error"><span class="fh-text"><span class="fh-text-run">Toggle</span></span></button>
 <div class="fh-cell fh-col fh-cols-full" id="c_6"
   data-fh-url:tab="['v.c_6.tab', $_var_c_6__tab, '0']"><div class="fh-tabs tabs"><a class=" fh-chosen active" id="c_6_0"
+  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
+  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
   data-on:click="$_c_6_0__busy ? '' : $_var_c_6__tab__pending = '0'; @post('sse/call/theme/call_3?node=c_6_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_6_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_0__error = ''))"
@@ -118,9 +120,9 @@
   data-signals__ifmissing="{_c_6_0__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_6_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_6_0__busy_slow = $_c_6_0__busy"
-  data-class:fh-busy-after="$_c_6_0__busy_slow"
-  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
-  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'">One</a><a class="" id="c_6_1"
+  data-class:fh-busy-after="$_c_6_0__busy_slow">One</a><a class="" id="c_6_1"
+  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
+  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
   data-on:click="$_c_6_1__busy ? '' : $_var_c_6__tab__pending = '1'; @post('sse/call/theme/call_4?node=c_6_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_6_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_1__error = ''))"
@@ -131,9 +133,7 @@
   data-signals__ifmissing="{_c_6_1__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_6_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_6_1__busy_slow = $_c_6_1__busy"
-  data-class:fh-busy-after="$_c_6_1__busy_slow"
-  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
-  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'">Two</a></div><div id="c_6_panel" class="fh-tab-panel">
+  data-class:fh-busy-after="$_c_6_1__busy_slow">Two</a></div><div id="c_6_panel" class="fh-tab-panel">
 <div class="fh-cell fh-row" id="s_c_6_t0__c"><h2 class="fh-cell fh-section fh-text" id="s_c_6_t0__c_0"><span class="fh-text-run">One</span></h2></div></div></div></div>
 <!-- ==== as fixtured · surface c_6_t0 ==== -->
 <div class="fh-cell fh-row" id="s_c_6_t0__c"><h2 class="fh-cell fh-section fh-text" id="s_c_6_t0__c_0"><span class="fh-text-run">One</span></h2></div>
@@ -196,6 +196,8 @@
   data-class:fh-error="$_c_5__error"><span class="fh-text"><span class="fh-text-run">Toggle</span></span></button>
 <!-- ==== as fixtured · patch c_6_0 ==== -->
 <a class="" id="c_6_0"
+  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
+  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
   data-on:click="$_c_6_0__busy ? '' : $_var_c_6__tab__pending = '0'; @post('sse/call/theme/call_3?node=c_6_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_6_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_0__error = ''))"
@@ -206,11 +208,11 @@
   data-signals__ifmissing="{_c_6_0__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_6_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_6_0__busy_slow = $_c_6_0__busy"
-  data-class:fh-busy-after="$_c_6_0__busy_slow"
-  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
-  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'">One</a>
+  data-class:fh-busy-after="$_c_6_0__busy_slow">One</a>
 <!-- ==== as fixtured · patch c_6_1 ==== -->
 <a class="" id="c_6_1"
+  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
+  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
   data-on:click="$_c_6_1__busy ? '' : $_var_c_6__tab__pending = '1'; @post('sse/call/theme/call_4?node=c_6_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_6_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_1__error = ''))"
@@ -221,9 +223,7 @@
   data-signals__ifmissing="{_c_6_1__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_6_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_6_1__busy_slow = $_c_6_1__busy"
-  data-class:fh-busy-after="$_c_6_1__busy_slow"
-  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
-  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'">Two</a>
+  data-class:fh-busy-after="$_c_6_1__busy_slow">Two</a>
 <!-- ==== as fixtured · patch s_c_6_t0__c_0 ==== -->
 <h2 class="fh-cell fh-section fh-text" id="s_c_6_t0__c_0"><span class="fh-text-run">One</span></h2>
 <!-- ==== as fixtured · patch s_c_6_t1__c_0 ==== -->
@@ -338,6 +338,8 @@
   data-class:fh-error="$_c_5__error"><span class="fh-text"><span class="fh-text-run">Toggle</span></span></button>
 <div class="fh-cell fh-col fh-cols-full" id="c_6"
   data-fh-url:tab="['v.c_6.tab', $_var_c_6__tab, '0']"><div class="fh-tabs tabs"><a class=" fh-chosen active" id="c_6_0"
+  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
+  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
   data-on:click="$_c_6_0__busy ? '' : $_var_c_6__tab__pending = '0'; @post('sse/call/theme/call_3?node=c_6_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_6_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_0__error = ''))"
@@ -348,9 +350,9 @@
   data-signals__ifmissing="{_c_6_0__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_6_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_6_0__busy_slow = $_c_6_0__busy"
-  data-class:fh-busy-after="$_c_6_0__busy_slow"
-  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
-  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'">One</a><a class="" id="c_6_1"
+  data-class:fh-busy-after="$_c_6_0__busy_slow">One</a><a class="" id="c_6_1"
+  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
+  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
   data-on:click="$_c_6_1__busy ? '' : $_var_c_6__tab__pending = '1'; @post('sse/call/theme/call_4?node=c_6_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_6_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_1__error = ''))"
@@ -361,9 +363,7 @@
   data-signals__ifmissing="{_c_6_1__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_6_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_6_1__busy_slow = $_c_6_1__busy"
-  data-class:fh-busy-after="$_c_6_1__busy_slow"
-  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
-  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'">Two</a></div><div id="c_6_panel" class="fh-tab-panel">
+  data-class:fh-busy-after="$_c_6_1__busy_slow">Two</a></div><div id="c_6_panel" class="fh-tab-panel">
 <div class="fh-cell fh-row" id="s_c_6_t0__c"><h2 class="fh-cell fh-section fh-text" id="s_c_6_t0__c_0"><span class="fh-text-run">One</span></h2></div></div></div></div>
 <!-- ==== flipped · surface c_6_t0: as fixtured ==== -->
 <!-- ==== flipped · surface c_6_t1: as fixtured ==== -->
@@ -482,6 +482,8 @@
   data-class:fh-error="$_c_5__error"><span class="fh-text"><span class="fh-text-run">Toggle</span></span></button>
 <div class="fh-cell fh-col fh-cols-full" id="c_6"
   data-fh-url:tab="['v.c_6.tab', $_var_c_6__tab, '0']"><div class="fh-tabs tabs"><a class=" fh-chosen active" id="c_6_0"
+  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
+  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
   data-on:click="$_c_6_0__busy ? '' : $_var_c_6__tab__pending = '0'; @post('sse/call/theme/call_3?node=c_6_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_6_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_0__error = ''))"
@@ -492,9 +494,9 @@
   data-signals__ifmissing="{_c_6_0__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_6_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_6_0__busy_slow = $_c_6_0__busy"
-  data-class:fh-busy-after="$_c_6_0__busy_slow"
-  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'"
-  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '0'">One</a><a class="" id="c_6_1"
+  data-class:fh-busy-after="$_c_6_0__busy_slow">One</a><a class="" id="c_6_1"
+  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
+  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
   data-on:click="$_c_6_1__busy ? '' : $_var_c_6__tab__pending = '1'; @post('sse/call/theme/call_4?node=c_6_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_6_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_6_1__error = ''))"
@@ -505,9 +507,7 @@
   data-signals__ifmissing="{_c_6_1__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_6_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_6_1__busy_slow = $_c_6_1__busy"
-  data-class:fh-busy-after="$_c_6_1__busy_slow"
-  data-class:fh-chosen="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'"
-  data-class:active="String(($_var_c_6__tab__pending || $_var_c_6__tab)) === '1'">Two</a></div><div id="c_6_panel" class="fh-tab-panel">
+  data-class:fh-busy-after="$_c_6_1__busy_slow">Two</a></div><div id="c_6_panel" class="fh-tab-panel">
 <div class="fh-cell fh-row" id="s_c_6_t0__c"><h2 class="fh-cell fh-section fh-text" id="s_c_6_t0__c_0"><span class="fh-text-run">One</span></h2></div></div></div></div>
 <!-- ==== unavailable · surface c_6_t0: as fixtured ==== -->
 <!-- ==== unavailable · surface c_6_t1: as fixtured ==== -->
