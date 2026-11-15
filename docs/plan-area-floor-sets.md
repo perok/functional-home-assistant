@@ -79,10 +79,11 @@ ADR 0003 (a call's set may be of areas or floors), ADR 0023 (`exclude`), ADR 003
 `terminology.md`, `writing-dashboards.md` (excluding a room while something holds), and the module
 `CLAUDE.md`'s `query.pkl` line. Then the local workspace's popup switches to the area set.
 
-## Open questions
+## Decided
 
-1. An area or floor set outside a call (`.count()`, `.any()`, `.present()`): allow it or refuse
-   it? Counting is not entity-specific, so I lean to allowing it.
-2. A list mixing areas and floors in one set: refuse it, one kind per set (write two sets).
-3. An area set as the target (`c.tap.lights.off(areaSet)`) falls out for free. Keep it, or limit
-   area sets to `exclude` for now?
+1. An area or floor set works outside a call too: `.count()`, `.any()`, `.none()`, `.all()` and
+   `.present()`. Counting is not entity-specific.
+2. One kind per set: a list mixing areas and floors (or either with entities) is refused at build.
+   Write two sets.
+3. An area or floor set is a valid target as well as an `exclude` (`c.tap.lights.off(areaSet)`):
+   HA expands what the press sends.
