@@ -6,6 +6,7 @@ import cats.syntax.all.*
 import fh.view.FHError
 import fh.view.model.{
   FetchTemplate,
+  IdKind,
   Lit,
   Op,
   Reads,
@@ -508,11 +509,15 @@ private[view] object Evaluator {
       .traverse((id, g) => inner(g, scope).map(id -> _.run))
       .map { list =>
         val guards = list.toMap
+        val ofEntities = p.of == IdKind.Entity
         (id, states, fetched) =>
           val g = guards.getOrElse(id, null)
           g == null || {
-            val st = states.getOrElse(id, null)
-            st != null && holds(g(st, states, fetched))
+            // An area or a floor has no state; its guard names what it reads.
+            if (ofEntities) {
+              val st = states.getOrElse(id, null)
+              st != null && holds(g(st, states, fetched))
+            } else holds(g(null, states, fetched))
           }
       }
 

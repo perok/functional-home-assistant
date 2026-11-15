@@ -29,7 +29,9 @@ runtime query, and that turned out to be the wrong half to make dynamic.
 **The candidates are decided at BUILD time; the runtime decides only presence
 and order.** A set carries:
 
-- `candidates` — entity ids, in render order;
+- `candidates` — entity ids, in render order, or area or floor ids (`of`, one kind
+  per set). An area or a floor has no state, so its guards and order terms name
+  every entity they read, and only those wake it;
 - `members` — per candidate, a list of guarded renderings (`SetClause`);
 - `orderBy` / `limit` — present only when they need live state.
 

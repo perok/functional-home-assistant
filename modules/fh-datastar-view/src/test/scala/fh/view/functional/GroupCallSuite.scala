@@ -5,6 +5,7 @@ import cats.syntax.all.*
 import fh.view.model.{
   Access,
   CallDecl,
+  IdKind,
   LayoutNode,
   Lit,
   Part,
@@ -27,7 +28,7 @@ import scala.collection.immutable.ListMap
   */
 class GroupCallSuite extends FunctionalSuite {
 
-  private def decl(service: ValueExpr, key: String, id: String) =
+  private def decl(service: ValueExpr, key: IdKind, id: String) =
     CallDecl(service, ListMap(key -> List(ValueExpr.literal(id))))
 
   /** What `c.tap.lights.off(dump.areas.stue)` leaves on its node. */
@@ -35,7 +36,7 @@ class GroupCallSuite extends FunctionalSuite {
     LayoutNode.Component(
       "call",
       calls = Map(
-        "tap" -> decl(ValueExpr.literal("light/turn_off"), "area_id", "stue")
+        "tap" -> decl(ValueExpr.literal("light/turn_off"), IdKind.Area, "stue")
       )
     )
 
@@ -130,7 +131,7 @@ class GroupCallSuite extends FunctionalSuite {
               )
             )
           ),
-          "entity_id",
+          IdKind.Entity,
           door
         )
       )
@@ -203,7 +204,7 @@ class GroupCallSuite extends FunctionalSuite {
         Map(
           "tap" -> CallDecl(
             ValueExpr.literal("input_number/set_value"),
-            ListMap("entity_id" -> List(ValueExpr.literal(temp.entityId))),
+            ListMap(IdKind.Entity -> List(ValueExpr.literal(temp.entityId))),
             ListMap(
               "value" -> ValueExpr(
                 Value.Entity(Some(temp.entityId), Part.Whole),

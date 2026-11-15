@@ -6,6 +6,7 @@ import fh.view.model.{
   CallDecl,
   CardDef,
   Dashboard,
+  IdKind,
   LayoutNode,
   Op,
   Region,
@@ -67,7 +68,7 @@ object FixtureDashboard {
       calls = Map(
         "tap" -> CallDecl(
           ValueExpr.literal(service),
-          ListMap("entity_id" -> List(ValueExpr.literal(e.entityId))),
+          ListMap(IdKind.Entity -> List(ValueExpr.literal(e.entityId))),
           ListMap.from(posted.map((k, t) => k -> ValueExpr(Value.Posted(k, t))))
         )
       )

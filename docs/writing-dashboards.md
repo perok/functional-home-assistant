@@ -228,6 +228,21 @@ c.tap.lights.off(dump.floors.loft)
   .exclude(q.from(List(dump.lights.kjokken)).where((e) -> q.entity(dump.entities.sun_sun).stateIs("below_horizon")))
 ```
 
+A set can hold areas or floors as well, one kind per set, so a room is left out
+only while a condition holds, and Home Assistant still works out which lights
+are in it at the press. A room has no state of its own, so the condition names
+the entity it reads:
+
+```pkl
+local bedroomAtNight = q.from(List(dump.areas.soverom))
+  .where((a) -> q.entity(dump.entities.sun_sun).stateIs("below_horizon"))
+
+c.tap.lights.off(dump.floors.loft).exclude(bedroomAtNight)
+```
+
+The same set can be a call's target (`c.tap.lights.off(bedroomAtNight)`), be
+counted, or render a card per room while its condition holds.
+
 Exclusions need Home Assistant 2026.11 or later; on an older one the press is
 refused, with Home Assistant's message. Something to leave out needs something
 to leave it out of: an `exclude` alone is not a target.

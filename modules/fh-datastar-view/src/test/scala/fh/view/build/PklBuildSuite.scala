@@ -5,6 +5,7 @@ import fh.view.testkit.Conds
 
 import fh.view.model.{
   CallDecl,
+  IdKind,
   CardDef,
   CellKey,
   Dashboard,
@@ -593,16 +594,16 @@ class PklBuildSuite extends munit.FunSuite {
       c.downField("node").as[LayoutNode].fold(e => fail(e.toString), identity)
     val dashboard = Dashboard(cards = Map.empty, card = node)
     def lit(s: String) = ValueExpr.literal(s)
-    def on(key: String, id: String) = ListMap(key -> List(lit(id)))
+    def on(key: IdKind, id: String) = ListMap(key -> List(lit(id)))
     assertEquals(
       dashboard.calls.values.toSet,
       Set(
-        CallDecl(lit("light/turn_off"), on("area_id", "kitchen_1")),
-        CallDecl(lit("switch/turn_off"), on("floor_id", "g")),
-        CallDecl(lit("light/toggle"), on("entity_id", "light.kitchen")),
+        CallDecl(lit("light/turn_off"), on(IdKind.Area, "kitchen_1")),
+        CallDecl(lit("switch/turn_off"), on(IdKind.Floor, "g")),
+        CallDecl(lit("light/toggle"), on(IdKind.Entity, "light.kitchen")),
         CallDecl(
           lit("light/turn_on"),
-          on("entity_id", "light.kitchen"),
+          on(IdKind.Entity, "light.kitchen"),
           ListMap("effect" -> lit("colorloop"))
         )
       )

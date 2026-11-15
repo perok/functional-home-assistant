@@ -11,6 +11,7 @@ module core.predicate
 import "node.pkl" as nodes
 import "simple.pkl" as simpleMod
 import "slot.pkl" as slotMod
+import "../hass.pkl"
 
 typealias PredicateOp = simpleMod.CompareOp
 
@@ -52,7 +53,23 @@ open class Tally extends slotMod.Value {
   kind: "Present" = "Present"
   candidates: Listing<String>
   `when`: Mapping<String, slotMod.Expr> = new {}
+  /// What the candidates are, when not entities: an area or a floor has no
+  /// state, so its guard names every entity it reads.
+  of: ("area"|"floor")? = null
 }
+
+/// What a set's candidates and HA's target can name.
+typealias Addressed = hass.Entity|hass.Area|hass.Floor
+
+/// The id HA's target takes for `x`: an entity's own, not the area it is in.
+const function idOf(x: Addressed): String =
+  if (x is hass.Area) x.area_id
+  else if (x is hass.Floor) x.floor_id
+  else (x as hass.Entity).entity_id
+
+/// A [[Tally.of]]: null for an entity.
+const function kindOf(x: Addressed): ("area"|"floor")? =
+  if (x is hass.Area) "area" else if (x is hass.Floor) "floor" else null
 
 /// The ids of a [[Tally]]'s present candidates, uncounted: a named input CEL
 /// reads as a `list(string)`.
@@ -67,7 +84,8 @@ class Count extends Predicate {
   hidden `when`: Mapping<String, slotMod.Expr> = new {}
   hidden op: PredicateOp
   hidden value: Any
-  source = let (c = this) new Tally { candidates = c.candidates; `when` = c.`when` }
+  hidden of: ("area"|"floor")? = null
+  source = let (c = this) new Tally { candidates = c.candidates; `when` = c.`when`; of = c.of }
   steps =
     let (c = this)
       new Listing {
@@ -91,7 +109,8 @@ class First extends Predicate {
   hidden `when`: Mapping<String, slotMod.Expr> = new {}
   hidden orderBy: Listing<SortTerm> = new {}
   hidden entity: String
-  source = let (c = this) new Tally { candidates = c.candidates; `when` = c.`when` }
+  hidden of: ("area"|"floor")? = null
+  source = let (c = this) new Tally { candidates = c.candidates; `when` = c.`when`; of = c.of }
   steps =
     let (c = this)
       new Listing {
@@ -153,6 +172,8 @@ class SetNode extends nodes.LayoutNode {
   /// from the DOM, not hidden in it.
   limit: Int? = null
   members: Mapping<String, SetMember>
+  /// What the candidates are, when not entities ([[Tally.of]]).
+  of: ("area"|"floor")? = null
 }
 
 /// One ordering position, read per member: a property's value

@@ -71,7 +71,8 @@ object Ready:
       val members: Map[String, SetMember],
       val order: Option[Evaluator.Keys],
       val limit: Option[Int],
-      val cell: Option[Cell]
+      val cell: Option[Cell],
+      val of: IdKind = IdKind.Entity
   ) extends Node:
     def authoredId: Option[String] = None
 
@@ -147,8 +148,8 @@ object Ready:
   final class Call(
       val decl: CallDecl,
       val service: Evaluator.Run,
-      val target: ListMap[String, List[Evaluator.Run]],
-      val exclude: ListMap[String, List[Evaluator.Run]],
+      val target: ListMap[IdKind, List[Evaluator.Run]],
+      val exclude: ListMap[IdKind, List[Evaluator.Run]],
       val data: ListMap[String, Evaluator.Run],
       val reads: Set[SlotRead]
   )
@@ -289,7 +290,8 @@ object Ready:
           members.toMap,
           order,
           s.limit,
-          s.cell.map(_.ready)
+          s.cell.map(_.ready),
+          s.of
         )
       )
 
@@ -307,7 +309,7 @@ object Ready:
 
     private def call(d: CallDecl): Built[Call] =
       def run(e: ValueExpr) = Evaluator.compile(e, scope.call).map(_.run)
-      def keys(m: ListMap[String, List[ValueExpr]]) =
+      def keys(m: ListMap[IdKind, List[ValueExpr]]) =
         m.toList
           .traverse((k, es) => es.traverse(run).map(k -> _))
           .map(ListMap.from)

@@ -861,6 +861,20 @@ private[model] object Validate:
               s"$setId: candidate '$c' has no member entry — it could never " +
                 "render, so the build dropped it inconsistently"
             } ++
+            Option
+              .when(
+                s.of != IdKind.Entity && (
+                  s.members.values
+                    .flatMap(_.clauses)
+                    .flatMap(_.when)
+                    .exists(_.readsMissingSubject) ||
+                    s.orderBy.exists(_.by.readsMissingSubject)
+                )
+              )(
+                s"$setId: a set of ${s.of.word}s reads its member, which has " +
+                  "no state — name the entity a guard or an order term reads"
+              )
+              .toList ++
             s.members.toList.sortBy(_._1).flatMap { case (_, m) =>
               m.clauses.zipWithIndex.flatMap { case (clause, i) =>
                 walk(
@@ -1236,12 +1250,14 @@ private[model] object Validate:
     val callErrors: List[String] =
       calls.toList.sortBy(_._1).flatMap { (id, d) =>
         val call = s"the call ${d.service.literal.getOrElse(id)}"
+        // The kind of id a field names, which HA takes as text or a list of it.
         val fields =
-          ("service" -> d.service) ::
-            d.target.toList.flatMap((k, es) => es.map(k -> _)) ++
-            d.exclude.toList.flatMap((k, es) => es.map(s"exclude.$k" -> _)) ++
-            d.data.toList.map((k, e) => s"data.$k" -> e)
-        val fieldErrors = fields.flatMap { (where, e) =>
+          ("service", d.service, None) ::
+            d.target.toList.flatMap((k, es) => es.map((k.key, _, Some(k)))) ++
+            d.exclude.toList
+              .flatMap((k, es) => es.map((s"exclude.${k.key}", _, Some(k)))) ++
+            d.data.toList.map((k, e) => (s"data.$k", e, None))
+        val fieldErrors = fields.flatMap { (where, e, ids) =>
           val typed = e.typed(Nil)
           List(
             typed.left.toOption.map(m => s"$call: $where: ${m.message}"),
@@ -1257,18 +1273,22 @@ private[model] object Validate:
               .map(_.out)
               .filter { out =>
                 if (where == "service") !ValueType.fits(out, SlotType.Text)
-                else if (
-                  CallDecl.TargetKeys.contains(where) ||
-                  where.startsWith("exclude.")
-                )
+                else if (ids.isDefined)
                   out != ValueType.Text && out != ValueType.List(ValueType.Text)
                 else false
               }
-              .map(out => s"$call: $where gives a ${out.name}")
+              .map(out => s"$call: $where gives a ${out.name}"),
+            (ids, e.source) match
+              case (Some(k), p: Value.Present) if p.of != k =>
+                Some(
+                  s"$call: $where holds a set of ${p.of.word} ids, which goes " +
+                    s"under ${p.of.key}"
+                )
+              case _ => None
           ).flatten
         }
         val dataKeyErrors = d.data.keys.toList
-          .filter(k => CallDecl.TargetKeys.contains(k) || k == "exclude")
+          .filter(k => IdKind.ofKey(k).isDefined || k == "exclude")
           .map(k =>
             s"$call: the data key '$k' is named like a target key, and HA " +
               "merges a call's target into its data"

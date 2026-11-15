@@ -800,4 +800,119 @@ class UseCaseSuite extends munit.CatsEffectSuite {
         }
       }
   }
+
+  test(
+    "dashboard author: a room left out, and a room turned off, only while a condition holds"
+  ) {
+    val sun = FixtureEntity("sun.sun", "above_horizon")
+    val loft = io.circe.parser
+      .parse("""{
+        "areas": { "soverom": { "area_id": "soverom_1", "floor_id": "loft_1", "area_name": "Soverom" } },
+        "floors": { "loft": { "floor_id": "loft_1", "floor_name": "Loft",
+          "areas": { "soverom": { "area_id": "soverom_1", "floor_id": "loft_1", "area_name": "Soverom" } } } }
+      }""")
+      .fold(throw _, identity)
+    val entry =
+      """amends "@fh-dashboard/entry.pkl"
+        |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-dashboard/query.pkl" as q
+        |import "@fh-home/dump.pkl" as dump
+        |// The bedroom, while the sun is down: the same set either way.
+        |local bedroomAtNight = q.from(List(dump.areas.soverom))
+        |  .where((a) -> q.entity(dump.entities.sun_sun).stateIs("below_horizon"))
+        |card = (c.column) { children {
+        |  c.button("Loft av", c.tap.lights.off(dump.floors.loft).exclude(bedroomAtNight))
+        |  c.button("Soverom av", c.tap.lights.off(bedroomAtNight))
+        |} }
+        |""".stripMargin
+    TestServer
+      .resource(
+        PklFixture.buildDashboard(
+          "home",
+          entry,
+          HouseFixture.dumpWith(sun).deepMerge(loft)
+        ),
+        List(HouseFixture.kitchenLight, sun),
+        access = Access.Public
+      )
+      .use { ts =>
+        def sent = ts.fake.recordedCalls.map(_.flatMap(_.group.map(_.json)))
+        val floor = Json.obj("floor_id" -> Json.arr(Json.fromString("loft_1")))
+        for {
+          loftAt <- ts.pressOf("c_0", as = None)
+          roomAt <- ts.pressOf("c_1", as = None)
+          loftByDay <- ts.post(loftAt, as = None)
+          roomByDay <- ts.post(roomAt, as = None)
+          byDay <- sent
+          _ <- ts.record(sun.copy(state = "below_horizon"))
+          _ <- ts.post(loftAt, as = None)
+          _ <- ts.post(roomAt, as = None)
+          all <- sent
+        } yield {
+          assertEquals(
+            (loftByDay, roomByDay),
+            (Status.NoContent, Status.NoContent)
+          )
+          // By day the set is empty: the whole floor goes off, and the room's
+          // own call has nothing to act on, so HA hears nothing of it.
+          assertEquals(byDay, Vector(floor))
+          assertEquals(
+            all.drop(1),
+            Vector(
+              floor.deepMerge(
+                Json.obj(
+                  "exclude" -> Json.obj(
+                    "area_id" -> Json.arr(Json.fromString("soverom_1"))
+                  )
+                )
+              ),
+              Json.obj("area_id" -> Json.arr(Json.fromString("soverom_1")))
+            )
+          )
+        }
+      }
+  }
+
+  test(
+    "dashboard author: a set of rooms renders a room while its guard holds"
+  ) {
+    val sun = FixtureEntity("sun.sun", "above_horizon")
+    val loft = io.circe.parser
+      .parse("""{
+        "areas": { "soverom": { "area_id": "soverom_1", "floor_id": "loft_1", "area_name": "Soverom" } }
+      }""")
+      .fold(throw _, identity)
+    val entry =
+      """amends "@fh-dashboard/entry.pkl"
+        |import "@fh-dashboard/components.pkl" as c
+        |import "@fh-dashboard/query.pkl" as q
+        |import "@fh-home/dump.pkl" as dump
+        |card = (c.column) { children {
+        |  q.from(List(dump.areas.soverom))
+        |    .where((a) -> q.entity(dump.entities.sun_sun).stateIs("below_horizon"))
+        |    .render((a) -> c.title("Room " + a.area_name))
+        |    .build()
+        |} }
+        |""".stripMargin
+    TestServer
+      .resource(
+        PklFixture.buildDashboard(
+          "home",
+          entry,
+          HouseFixture.dumpWith(sun).deepMerge(loft)
+        ),
+        List(sun),
+        access = Access.Public
+      )
+      .use { ts =>
+        for {
+          day <- ts.load()
+          _ <- ts.record(sun.copy(state = "below_horizon"))
+          night <- ts.load()
+        } yield {
+          assert(!day.html.contains("Room Soverom"), clue = day.html)
+          assert(night.html.contains("Room Soverom"), clue = night.html)
+        }
+      }
+  }
 }

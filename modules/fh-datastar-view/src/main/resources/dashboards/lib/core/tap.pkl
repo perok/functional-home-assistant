@@ -335,15 +335,14 @@ const function declOf(c: Call): slotMod.CallDecl = new {
   data = c.data
 }
 
-/// The key of HA's target a [[Target]] fills: a set is its entities.
+/// The key of HA's target a [[Target]] fills: a set's is its candidates' kind.
 const local function targetKey(t: Target): "entity_id"|"area_id"|"floor_id" =
-  if (t is hass.Area) "area_id" else if (t is hass.Floor) "floor_id" else "entity_id"
+  let (kind = if (t is pred.Tally) t.of else pred.kindOf(t as pred.Addressed))
+    if (kind == "area") "area_id" else if (kind == "floor") "floor_id" else "entity_id"
 
 const local function targetId(t: Target): slotMod.Expr|String =
-  if (t is hass.Entity) t.entity_id
-  else if (t is hass.Area) t.area_id
-  else if (t is hass.Floor) t.floor_id
-  else new slotMod.Expr { source = t as pred.Tally }
+  if (t is pred.Tally) new slotMod.Expr { source = t }
+  else pred.idOf(t as pred.Addressed)
 
 /// The call [[click]] posts, and the refusal with it, so no card can place a
 /// call without it. Separate from [[tapSlots]] for a card with no
@@ -423,7 +422,10 @@ const function call(action: String, on: Target): Call =
 const local function setCall(action: String, on: pred.Tally): Call =
   let (domain = action.split("/").first)
   let (ids = on.candidates.toList())
-  let (stray = if (domain == "homeassistant") List() else ids.filter((id) -> !id.startsWith("\(domain).")))
+  // An area or a floor is no entity of a domain: HA picks the domain's own.
+  let (stray =
+    if (domain == "homeassistant" || on.of != null) List()
+    else ids.filter((id) -> !id.startsWith("\(domain).")))
     if (ids.isEmpty)
       throw("call(\"\(action)\", …): the set has no candidates, so the call would act on nothing.")
     else if (!stray.isEmpty)

@@ -282,6 +282,8 @@ gets the first clause whose condition holds; a clause with none always holds.
 (`Value.Present`, `pred.Tally` in Pkl). It is what a `List` of the candidates' reads filtered by
 their guards would mean, kept as one source so a candidate is its id on the wire. A tally counts
 it, `.present()` hands the ids to CEL, `first()` picks its leader, and a set call acts on it.
+Its candidates are entities, or areas or floors (`of`, an `IdKind`); an area or a floor has no
+state, so its guard names every entity it reads, and only those move it.
 
 **Member** — one materialised entity inside a candidate set, or one row inside a grouped slider.
 Members are addressable nodes in their own right, and so is every node below a member, under an id

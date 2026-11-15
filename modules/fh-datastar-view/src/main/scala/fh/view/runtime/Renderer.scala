@@ -17,6 +17,7 @@ import fh.view.model.{
   DomId,
   FetchTemplate,
   Fetching,
+  IdKind,
   LayoutNode,
   MemberId,
   NodeId,
@@ -450,10 +451,10 @@ class Renderer(validated: Dashboard.Validated) {
           def variable(name: String): String = answers.variable(name)
           override def posted(key: String): Any = values.getOrElse(key, null)
         def run(r: Evaluator.Run): Any = r(null, shared.states, in)
-        def targetIds(m: ListMap[String, List[Evaluator.Run]]) =
-          def ids(key: String) =
-            m.getOrElse(key, Nil).flatMap(r => Renderer.ids(run(r)))
-          TargetIds(ids("entity_id"), ids("area_id"), ids("floor_id"))
+        def targetIds(m: ListMap[IdKind, List[Evaluator.Run]]) =
+          def ids(k: IdKind) =
+            m.getOrElse(k, Nil).flatMap(r => Renderer.ids(run(r)))
+          TargetIds(ids(IdKind.Entity), ids(IdKind.Area), ids(IdKind.Floor))
         def valued(field: String, r: Evaluator.Run): Either[String, Any] =
           Option(run(r)).toRight(s"$field gives no value")
         for
