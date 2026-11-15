@@ -3,7 +3,8 @@ package fh.view.model
 import cats.syntax.all.*
 import fh.view.history.ChartStyle
 import fh.view.runtime.{Cel, Steps}
-import io.circe.{ACursor, Decoder, DecodingFailure}
+import scala.collection.immutable.ListMap
+import io.circe.{ACursor, Decoder, DecodingFailure, JsonObject, KeyDecoder}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 /** What a slot shows: a value read from its [[source]], then each step run on
@@ -986,6 +987,23 @@ private[model] object Strict:
       .withDiscriminator("kind")
       .withTransformMemberNames(wireName)
       .withStrictDecoding
+
+  /** An object in its wire order, which circe's `Map` does not keep, and
+    * refusing a key `K` does not name.
+    */
+  given listMap: [K: KeyDecoder as keys, V: Decoder]
+    => Decoder[ListMap[K, V]] =
+    Decoder.instance(c =>
+      c.as[JsonObject]
+        .flatMap(
+          _.keys.toList.traverse(k =>
+            keys(k)
+              .toRight(DecodingFailure(s"unknown key '$k'", c.history))
+              .flatMap(key => c.downField(k).as[V].map(key -> _))
+          )
+        )
+        .map(ListMap.from[K, V])
+    )
 
   def only(c: ACursor, allowed: Set[String]): Decoder.Result[Unit] =
     c.keys.toList.flatten.filterNot(allowed) match

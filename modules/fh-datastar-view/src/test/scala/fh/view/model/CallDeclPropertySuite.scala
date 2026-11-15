@@ -87,6 +87,29 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
       ListMap.from(data)
     )
 
+  test("a call decodes in its wire order, and refuses what it does not name") {
+    def call(json: String) = io.circe.parser.decode[CallDecl](json)
+    val service =
+      """"kind":"Service","service":"light/turn_on","target":{"area_id":["a"],"entity_id":["light.b"]}"""
+    assertEquals(
+      call(s"{$service}").map {
+        case s: CallDecl.Service => s.target.keys.toList
+        case other               => fail(s"decoded as $other")
+      },
+      Right(List(IdKind.Area, IdKind.Entity))
+    )
+    assertEquals(
+      call("""{"kind":"SetVar","variable":"tab"}"""),
+      Right(CallDecl.SetVar("tab", None))
+    )
+    List(
+      s"""{$service,"date":{}}""",
+      """{"kind":"Service","service":"x","target":{"entity":["light.b"]}}""",
+      """{"kind":"SetVar","variable":"tab","valeu":"1"}""",
+      """{"kind":"Toggle"}"""
+    ).foreach(bad => assert(call(bad).isLeft, clue = bad))
+  }
+
   test("a call is refused what the press could not run once for everyone") {
     val lit = ValueExpr.literal("light/toggle")
     val cases = List(
