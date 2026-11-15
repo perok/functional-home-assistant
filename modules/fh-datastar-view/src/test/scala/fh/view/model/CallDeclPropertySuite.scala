@@ -103,6 +103,25 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
     if (fine.nonEmpty) fail(fine.mkString("\n"))
   }
 
+  test("a set of areas goes under area_id, and only there") {
+    val discoOn = ValueExpr(
+      Value.Entity(Some("light.disco")),
+      List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("on"))))
+    )
+    val rooms = ValueExpr(
+      Value.Present(List("sofie"), Map("sofie" -> discoOn), IdKind.Area)
+    )
+    def under(k: IdKind) =
+      on(ValueExpr.literal("light/turn_off"))
+        .copy(exclude = ListMap(k -> List(rooms)))
+    assertEquals(refusals(under(IdKind.Area)), Nil)
+    val wrong = refusals(under(IdKind.Entity))
+    assert(
+      wrong.exists(_.contains("exclude.entity_id holds a set of area ids")),
+      clue = wrong
+    )
+  }
+
   test("a posted value is read only by a call") {
     val posted = ValueExpr(Value.Posted("v", ValueType.Int))
     val asked = ValueExpr(Value.Posted("v", ValueType.Bool))

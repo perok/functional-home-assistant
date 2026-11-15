@@ -1236,13 +1236,13 @@ private[model] object Validate:
     val callErrors: List[String] =
       calls.toList.sortBy(_._1).flatMap { (id, d) =>
         val call = s"the call ${d.service.literal.getOrElse(id)}"
-        // Whether the field names ids, which HA takes as text or a list of it.
+        // The kind of id a field names, which HA takes as text or a list of it.
         val fields =
-          ("service", d.service, false) ::
-            d.target.toList.flatMap((k, es) => es.map((k.key, _, true))) ++
+          ("service", d.service, None) ::
+            d.target.toList.flatMap((k, es) => es.map((k.key, _, Some(k)))) ++
             d.exclude.toList
-              .flatMap((k, es) => es.map((s"exclude.${k.key}", _, true))) ++
-            d.data.toList.map((k, e) => (s"data.$k", e, false))
+              .flatMap((k, es) => es.map((s"exclude.${k.key}", _, Some(k)))) ++
+            d.data.toList.map((k, e) => (s"data.$k", e, None))
         val fieldErrors = fields.flatMap { (where, e, ids) =>
           val typed = e.typed(Nil)
           List(
@@ -1259,11 +1259,18 @@ private[model] object Validate:
               .map(_.out)
               .filter { out =>
                 if (where == "service") !ValueType.fits(out, SlotType.Text)
-                else if (ids)
+                else if (ids.isDefined)
                   out != ValueType.Text && out != ValueType.List(ValueType.Text)
                 else false
               }
-              .map(out => s"$call: $where gives a ${out.name}")
+              .map(out => s"$call: $where gives a ${out.name}"),
+            (ids, e.source) match
+              case (Some(k), p: Value.Present) if p.of != k =>
+                Some(
+                  s"$call: $where holds a set of ${p.of.word} ids, which goes " +
+                    s"under ${p.of.key}"
+                )
+              case _ => None
           ).flatten
         }
         val dataKeyErrors = d.data.keys.toList

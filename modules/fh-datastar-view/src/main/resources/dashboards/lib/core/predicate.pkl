@@ -52,6 +52,9 @@ open class Tally extends slotMod.Value {
   kind: "Present" = "Present"
   candidates: Listing<String>
   `when`: Mapping<String, slotMod.Expr> = new {}
+  /// What the candidates are, when not entities: an area or a floor has no
+  /// state, so its guard names every entity it reads.
+  of: ("area"|"floor")? = null
 }
 
 /// The ids of a [[Tally]]'s present candidates, uncounted: a named input CEL

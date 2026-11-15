@@ -3,6 +3,7 @@ package fh.view.runtime
 import fh.view.testkit.Conds
 
 import fh.view.model.{
+  IdKind,
   Lit,
   Op,
   Part,
@@ -53,6 +54,33 @@ class ConditionsSuite extends munit.FunSuite {
     Evaluator.holds(run(p, st, states))
 
   private def matches(p: ValueExpr, st: EntityState) = holds(p, st, Map.empty)
+
+  test("a set of areas is present by what its guards name, with no state") {
+    val rooms = ValueExpr(
+      Value.Present(
+        List("sofies_soverom", "stue"),
+        Map("sofies_soverom" -> isOn("light.disco")),
+        IdKind.Area
+      )
+    )
+    def present(disco: String) =
+      run(rooms, noSubject, snapshot(st("light.disco", disco)))
+    assertEquals(present("on"), List("sofies_soverom", "stue"))
+    assertEquals(present("off"), List("stue"))
+    // What moves it is the disco light, never an area.
+    assertEquals(rooms.entities, List("light.disco"))
+    val readsItself = ValueExpr(
+      Value.Present(
+        List("stue"),
+        Map("stue" -> cmp("state", Op.Eq, Json.fromString("on"), None)),
+        IdKind.Area
+      )
+    )
+    assert(
+      readsItself.typed(Nil).left.exists(_.message.contains("no state")),
+      clue = readsItself.typed(Nil)
+    )
+  }
 
   test("comparisons read state and attributes off the subject") {
     val s = st("sensor.x", "18", "battery" -> Json.fromInt(15))

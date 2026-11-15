@@ -235,11 +235,15 @@ final case class ValueExpr(
       case Value.Fetch(_)                      => plain(ValueType.Series)
       case Value.Var(_)                        => plain(ValueType.Text)
       case Value.Posted(_, t)                  => plain(t)
-      case Value.Present(_, when)              =>
+      case Value.Present(_, when, of)          =>
         when.toList
           .sortBy(_._1)
           .collectFirstSome((id, g) =>
-            g.boolError.map(e => s"the guard on '$id': $e")
+            g.boolError.map(e => s"the guard on '$id': $e") orElse
+              Option.when(of != IdKind.Entity && g.readsMissingSubject)(
+                s"the guard on '$id' reads the ${of.word} itself, which has " +
+                  "no state — name the entity it reads"
+              )
           ) match
           case Some(e) => Left(ValueExpr.Mistyped(e))
           case None    => plain(ValueType.List(ValueType.Text))
@@ -283,7 +287,7 @@ final case class ValueExpr(
       case Value.Literal(_) | Value.List(_, _) | Value.Cel(_, _) |
           Value.Posted(_, _) =>
         false
-      case Value.Entity(_, _, _, _) | Value.Fetch(_) | Value.Present(_, _) |
+      case Value.Entity(_, _, _, _) | Value.Fetch(_) | Value.Present(_, _, _) |
           Value.Var(_) =>
         true
     ) || parts.exists {
@@ -297,7 +301,8 @@ final case class ValueExpr(
   def entities: List[String] =
     (source match
       case Value.Entity(of, _, _, _) => of.toList
-      case Value.Present(cs, _)      => cs
+      // An area or a floor is no entity: only what its guards name moves it.
+      case Value.Present(cs, _, of) => if (of == IdKind.Entity) cs else Nil
       // A window chosen by state follows it.
       case Value.Fetch(f) => f.window.entities
       case Value.Literal(_) | Value.List(_, _) | Value.Cel(_, _) |
@@ -543,10 +548,13 @@ enum Value derives CanEqual:
     * guard in `when` holds, an unnamed read in it reading that candidate. A
     * [[List]] of reads filtered by their guards would say the same, at about
     * four times the bytes per candidate; one source keeps a candidate its id.
+    * `of` is what the ids name: an area or a floor has no state, so its guard
+    * names every entity it reads.
     */
   case Present(
       candidates: scala.List[String] = Nil,
-      when: Map[String, ValueExpr] = Map.empty
+      when: Map[String, ValueExpr] = Map.empty,
+      of: IdKind = IdKind.Entity
   )
 
   /** Its items in order, each an `itemType` ([[ValueExpr.typed]]): what an
@@ -597,13 +605,13 @@ object Value:
   def about(subject: Option[String])(v: Value): Value = v match
     case e: Entity      => named(subject)(e)
     case List(t, items) => List(t, items.map(_.about(subject)))
-    case v @ (Literal(_) | Fetch(_) | Present(_, _) | Cel(_, _) | Var(_) |
+    case v @ (Literal(_) | Fetch(_) | Present(_, _, _) | Cel(_, _) | Var(_) |
         Posted(_, _)) =>
       v
 
   /** [[ValueExpr.parts]] of a source. */
   def parts(v: Value): scala.List[ValueExpr.Inner] = v match
-    case Present(_, when) =>
+    case Present(_, when, _) =>
       when.values.toList.map(ValueExpr.Inner.PerMember(_))
     case List(_, items) => items.map(ValueExpr.Inner.Item(_))
     case Cel(_, inputs) => inputs.values.toList.map(ValueExpr.Inner.Input(_))
@@ -621,9 +629,10 @@ object Value:
     case Literal(l)                 => s"lit:${Lit.key(l)}"
     case Entity(_, part, _, bypass) =>
       Part.key(part) + (if (bypass) "!b" else "")
-    case Fetch(f)          => s"fetch:${f.key}"
-    case Present(cs, when) =>
-      cs.mkString("present(", ",", "/") +
+    case Fetch(f)              => s"fetch:${f.key}"
+    case Present(cs, when, of) =>
+      (if (of == IdKind.Entity) "" else s"${of.word}:") +
+        cs.mkString("present(", ",", "/") +
         when.toList
           .sortBy(_._1)
           .map((id, g) => s"$id=${sized(g.inputKey)}")
@@ -662,9 +671,23 @@ object Value:
           Strict.only(c, Set("kind", "fetch")) *>
             c.get[FetchTemplate]("fetch").map(Fetch(_))
         case "Present" =>
-          Strict.only(c, Set("kind", "candidates", "when")) *> (
+          Strict.only(c, Set("kind", "candidates", "when", "of")) *> (
             c.getOrElse[scala.List[String]]("candidates")(Nil),
-            c.getOrElse[Map[String, ValueExpr]]("when")(Map.empty)
+            c.getOrElse[Map[String, ValueExpr]]("when")(Map.empty),
+            c.get[Option[String]]("of")
+              .flatMap(
+                _.fold(Right(IdKind.Entity))(w =>
+                  IdKind
+                    .ofWord(w)
+                    .toRight(
+                      DecodingFailure(
+                        s"a set of '$w' — one of " +
+                          IdKind.values.map(_.word).mkString(", "),
+                        c.history
+                      )
+                    )
+                )
+              )
           ).mapN(Present.apply)
         case "List" =>
           Strict.only(c, Set("kind", "itemType", "items")) *> (
