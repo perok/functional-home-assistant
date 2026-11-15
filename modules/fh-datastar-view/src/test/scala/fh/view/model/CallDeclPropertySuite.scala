@@ -80,7 +80,7 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
   private def on(service: ValueExpr, data: (String, ValueExpr)*) =
     CallDecl(
       service,
-      ListMap("entity_id" -> List(ValueExpr.literal("light.a"))),
+      ListMap(IdKind.Entity -> List(ValueExpr.literal("light.a"))),
       ListMap.from(data)
     )
 
@@ -234,7 +234,7 @@ object CallDeclPropertySuite {
   ):
     private def decl = CallDecl(
       doing.collectFirst { case (CallField.Service, r) => r.expr }.get,
-      ListMap("entity_id" -> List(ValueExpr.literal("light.a"))),
+      ListMap(IdKind.Entity -> List(ValueExpr.literal("light.a"))),
       ListMap.from(doing.collect { case (CallField.Data(k), r) => k -> r.expr })
     )
 

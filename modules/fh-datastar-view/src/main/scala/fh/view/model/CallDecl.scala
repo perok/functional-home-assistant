@@ -14,9 +14,9 @@ import scala.collection.immutable.ListMap
   */
 final case class CallDecl(
     service: ValueExpr,
-    target: ListMap[String, List[ValueExpr]],
+    target: ListMap[IdKind, List[ValueExpr]],
     data: ListMap[String, ValueExpr] = ListMap.empty,
-    exclude: ListMap[String, List[ValueExpr]] = ListMap.empty
+    exclude: ListMap[IdKind, List[ValueExpr]] = ListMap.empty
 ) derives CanEqual:
 
   /** What it does, besides what it reaches: the fields a node can see. */
@@ -40,9 +40,6 @@ enum CallField derives CanEqual:
 
 object CallDecl:
 
-  /** HA's own names; `exclude` takes the same. */
-  val TargetKeys: List[String] = List("entity_id", "area_id", "floor_id")
-
   private def ordered[A: Decoder](
       c: ACursor
   ): Decoder.Result[ListMap[String, A]] =
@@ -51,16 +48,21 @@ object CallDecl:
       .map(ListMap.from)
 
   private def keyed(c: ACursor, field: String) =
-    ordered[List[ValueExpr]](c.downField(field)).flatMap(t =>
-      t.keys.find(!TargetKeys.contains(_)) match
-        case Some(k) =>
-          Left(
-            DecodingFailure(
-              s"unknown $field key '$k' — one of ${TargetKeys.mkString(", ")}",
-              c.history
+    ordered[List[ValueExpr]](c.downField(field)).flatMap(
+      _.toList
+        .traverse((k, es) =>
+          IdKind
+            .ofKey(k)
+            .toRight(
+              DecodingFailure(
+                s"unknown $field key '$k' — one of " +
+                  IdKind.values.map(_.key).mkString(", "),
+                c.history
+              )
             )
-          )
-        case None => Right(t)
+            .map(_ -> es)
+        )
+        .map(ListMap.from)
     )
 
   given Decoder[CallDecl] = Decoder.instance { c =>
@@ -88,9 +90,11 @@ object CallId:
     def sized(s: String) = s"${s.length}:$s"
     def keyed(m: Iterable[(String, String)]) =
       m.toList.sortBy(_._1).map((k, v) => sized(k) + sized(v)).mkString
-    def ids(m: Iterable[(String, List[ValueExpr])]) =
+    def ids(m: Iterable[(IdKind, List[ValueExpr])]) =
       sized(
-        keyed(m.map((k, es) => k -> es.map(e => sized(e.inputKey)).mkString))
+        keyed(
+          m.map((k, es) => k.key -> es.map(e => sized(e.inputKey)).mkString)
+        )
       )
     val canonical =
       sized(d.service.inputKey) + ids(d.target) + ids(d.exclude) +

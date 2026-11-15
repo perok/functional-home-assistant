@@ -11,6 +11,7 @@ import fh.view.model.{
   CallField,
   CardDef,
   Dashboard,
+  IdKind,
   LayoutNode,
   NodeId,
   Region,
@@ -103,7 +104,7 @@ class ServerRoutesSuite extends ServerHarness {
 
   private def posting(key: String, t: ValueType) = CallDecl(
     ValueExpr.literal("light/turn_on"),
-    ListMap("entity_id" -> List(ValueExpr.literal("light.a"))),
+    ListMap(IdKind.Entity -> List(ValueExpr.literal("light.a"))),
     ListMap(key -> ValueExpr(Value.Posted(key, t)))
   )
 

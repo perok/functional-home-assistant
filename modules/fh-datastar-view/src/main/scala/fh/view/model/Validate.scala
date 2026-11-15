@@ -1236,12 +1236,14 @@ private[model] object Validate:
     val callErrors: List[String] =
       calls.toList.sortBy(_._1).flatMap { (id, d) =>
         val call = s"the call ${d.service.literal.getOrElse(id)}"
+        // Whether the field names ids, which HA takes as text or a list of it.
         val fields =
-          ("service" -> d.service) ::
-            d.target.toList.flatMap((k, es) => es.map(k -> _)) ++
-            d.exclude.toList.flatMap((k, es) => es.map(s"exclude.$k" -> _)) ++
-            d.data.toList.map((k, e) => s"data.$k" -> e)
-        val fieldErrors = fields.flatMap { (where, e) =>
+          ("service", d.service, false) ::
+            d.target.toList.flatMap((k, es) => es.map((k.key, _, true))) ++
+            d.exclude.toList
+              .flatMap((k, es) => es.map((s"exclude.${k.key}", _, true))) ++
+            d.data.toList.map((k, e) => (s"data.$k", e, false))
+        val fieldErrors = fields.flatMap { (where, e, ids) =>
           val typed = e.typed(Nil)
           List(
             typed.left.toOption.map(m => s"$call: $where: ${m.message}"),
@@ -1257,10 +1259,7 @@ private[model] object Validate:
               .map(_.out)
               .filter { out =>
                 if (where == "service") !ValueType.fits(out, SlotType.Text)
-                else if (
-                  CallDecl.TargetKeys.contains(where) ||
-                  where.startsWith("exclude.")
-                )
+                else if (ids)
                   out != ValueType.Text && out != ValueType.List(ValueType.Text)
                 else false
               }
@@ -1268,7 +1267,7 @@ private[model] object Validate:
           ).flatten
         }
         val dataKeyErrors = d.data.keys.toList
-          .filter(k => CallDecl.TargetKeys.contains(k) || k == "exclude")
+          .filter(k => IdKind.ofKey(k).isDefined || k == "exclude")
           .map(k =>
             s"$call: the data key '$k' is named like a target key, and HA " +
               "merges a call's target into its data"

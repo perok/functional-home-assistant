@@ -257,7 +257,7 @@ class DecisionFetchSuite extends munit.FunSuite {
           "tap" -> CallDecl(
             ValueExpr.literal("light/turn_off"),
             ListMap(
-              "entity_id" -> List(
+              IdKind.Entity -> List(
                 io.circe.parser
                   .decode[ValueExpr](tally)
                   .fold(e => fail(e.toString), identity)

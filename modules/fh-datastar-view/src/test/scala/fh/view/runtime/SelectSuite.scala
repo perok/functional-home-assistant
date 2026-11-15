@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.{CallDecl, NodeId}
+import fh.view.model.{CallDecl, IdKind, NodeId}
 import fh.view.testkit.{FixtureEntity, HouseFixture}
 import io.circe.Json
 import munit.CatsEffectSuite
@@ -351,7 +351,7 @@ object SelectSuite {
         case (d, url)
             if d.service.literal.contains(service) &&
               d.target
-                .get("entity_id")
+                .get(IdKind.Entity)
                 .exists(_.flatMap(_.literal) == List(entity)) =>
           url.split('/').last.takeWhile(_ != '?')
       }
