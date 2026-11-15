@@ -44,6 +44,9 @@ The Pi itself, 0.1.61 after 12.7 h (`/system/diagnostics`, 2026-11-15 23:02): cg
 
 ## Fixes
 
+First round, which forced a full GC before each reading and did not boot every run from the same
+cache state. Settled means 30 s after the fifth edit.
+
 | # | Change | Settled RSS / heap committed / live (MB) |
 |---|--------|------------------------------------------|
 | – | BASE (`slot-classes` e725e0b3) | 882 / 442 / 71 |
@@ -52,16 +55,30 @@ The Pi itself, 0.1.61 after 12.7 h (`/system/diagnostics`, 2026-11-15 23:02): cg
 | a+b | both | 491 / 217 / 49 |
 | a+b+#471 | plus `MinHeapFreeRatio=10 MaxHeapFreeRatio=30 -ShrinkHeapInSteps` | 429 / 114 / 52 |
 
-These come from the first round of runs, which forced a full GC before each reading and did not
-all boot from the same cache state. The commits record the controlled re-run.
+Controlled round: every boot with no site-eval or minifier cache, base = BASE as shipped, head =
+a + b. RSS / live (MB):
 
-- **a, trim the native heap periodically** (`run.sh`). One flag.
-- **b, evaluate the site in a child JVM.** The child runs `evaluateOutputText` and exits, so
-  the pinned graph and Pkl's JIT code go with it. The project, lockfile, import graph and
-  site-eval cache stay in the server. The cost is time: an edit's evaluation took 0.85 s
-  in-process and 2.0 s forked, on x86 with 4 CPUs.
-- **c, diagnostics report the whole `memory.stat` and the process's own RSS**, so finding 5
-  can be answered from the Pi after the next release.
+| Reading | GC forced before each | | No GC forced | |
+|---|---|---|---|---|
+| | base | head | base | head |
+| boot | 723 / 130 | 552 / 52 | 724 | 598 |
+| peak over the five edits | 951 / 301 | 597 / 59 | 979 | 853 |
+| settled | 832 / 72 | 555 / 53 | 979 | 836 |
+| settled, then one full GC | 771 / 61 | 555 / 53 | 926 / 74 | 775 / 61 |
+
+With no GC forced, head's heap still fills to ~496 MB committed: the server's own build garbage
+(decode, validate, the renderers) is promoted, and the old generation expands instead of being
+collected. That is #471's finding, and why its heap policy is measured next, on `memory-hunt-2`.
+
+- **a, trim the native heap every 30 s** (`run.sh`, 173a757d).
+- **b, evaluate the site in a child JVM** (0ff72f7f). Under `FH_PKL_EVAL=child`, which `run.sh`
+  sets, `PklEvalChild` runs `evaluateOutputText` and exits, so the pinned graph and Pkl's JIT
+  code go with it. The project, lockfile, import graph and site-eval cache stay in the server.
+  Dev runs and tests evaluate in process; `PklEvalChildSuite` holds the child's JSON equal to
+  the in-process JSON. The cost is time: an edit's evaluation took 0.6–0.8 s in process and
+  1.9–2.0 s in the child, on x86 with 4 CPUs.
+- **c, diagnostics report the whole `memory.stat` and the process's own RSS** (8c01b1cb), so
+  finding 5 can be answered from the Pi after the next release.
 
 ## Open questions for the maintainer
 
