@@ -75,5 +75,3 @@ is built, and the order below is a proposal.
   at that version may be simpler. Stragglers, resumes and per-viewer visibility are what the cache
   absorbs today; check what each would cost first. Measure with `RenderCacheContentionSuite` and
   `tickRender`.
-- **The tap call design:** a declared call id in place of the URL a template spells out. A
-  `number` slot type (slot-views point 4) waits on it.
