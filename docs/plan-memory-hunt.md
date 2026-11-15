@@ -105,6 +105,11 @@ update, with no edits, and there the whole stack is 447 MB against 621.
 
 ## Remaining leads
 
-- Metaspace (finding 4): an AppCDS/AOT cache would turn class metadata into file-backed pages.
-  It needs a training run per release.
+- Metaspace (finding 4): a dynamic CDS archive, measured on the whole stack. One training boot
+  with `-XX:ArchiveClassesAtExit` wrote 106 MB at SIGTERM. Booting from it with three clients:
+  metaspace committed 110 → 28 MB, shared class space 14 → 113 MB, RssAnon 380 → 346 MB, VmRSS
+  459 → 438 MB, and boot from the first log line to serving 11.1 → 7.7 s. Not built, because
+  three things need a decision: `-XX:+AutoCreateSharedArchive` rebuilds it after every update; it
+  is a 106 MB file in `/data` that backups must skip, as `graal-cache` is; and the JVM logs a CDS
+  error line at boot over `--enable-native-access` unless the dump used the same flags.
 - Whether the GraalJS isolate's native memory goes back after the minifier closes it.
