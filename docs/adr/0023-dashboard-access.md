@@ -310,7 +310,9 @@ so an excluded area keeps its later additions. It is part of the declaration, he
 A set may hold areas or floors (`Value.Present.of`, an `IdKind`, the same enum that keys the
 call's target and exclude); it sits under its own kind's key, and `validate` refuses one that
 does not. That is how an area is left out only while a condition holds: a set of one area,
-guarded, and HA still expands the area.
+guarded, and HA still expands the area. A `When` step that gates any value was the alternative;
+widening the one place a set's ids live kept the syntax a set of entities already has, and one
+set class (no split for areas) keeps rendering, ordering and counting a set of rooms as they are.
 A target left with no key is the press that finds no candidate.
 
 Not built yet: an allow or deny list per user or dashboard, set in the same
