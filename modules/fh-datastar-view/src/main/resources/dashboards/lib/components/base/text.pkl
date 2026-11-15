@@ -1,7 +1,7 @@
 /// Static text cards.
 module components.base.text
 
-import "../../core/node.pkl" as nodes
+import "../../core/node.pkl" as nodeMod
 import "../../core/slot.pkl" as slotMod
 import "../../core/text.pkl" as textMod
 
@@ -9,9 +9,9 @@ const local labelSlot: slotMod.Slot = slotMod.slot("label")
 const local toneSlot: slotMod.Slot = slotMod.slot("tone")
 
 /// Static title text (not bound to an entity).
-class SectionTitle extends nodes.Node {
+class SectionTitle extends nodeMod.Node {
   card = "sectionTitle"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     tag = "h2"
     classes = "fh-section \(textMod.BOX)"
     template = textMod.run(labelSlot)
@@ -25,9 +25,9 @@ function title(t: String): SectionTitle = new SectionTitle { text = t }
 
 /// A short line of static text in a tone — the same label a card places for a
 /// status of its own (`core/text.pkl`'s `label`).
-class Label extends nodes.Node {
+class Label extends nodeMod.Node {
   card = "label"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     template = textMod.label("\(toneSlot)", "\(labelSlot)")
   }
   hidden text: String

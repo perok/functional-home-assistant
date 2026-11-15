@@ -486,14 +486,14 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     // A card author imports the kit; `components.pkl` holds no card contract.
     """module mycards
       |
-      |import "@fh-dashboard/core/node.pkl" as nodes
+      |import "@fh-dashboard/core/node.pkl" as nodeMod
       |import "@fh-dashboard/core/slot.pkl" as slotMod
       |
       |const local labelSlot = slotMod.slot("label")
       |
-      |class Gauge extends nodes.Node {
+      |class Gauge extends nodeMod.Node {
       |  card = "gauge"
-      |  cardDef = new nodes.CardDef {
+      |  cardDef = new nodeMod.CardDef {
       |    template = "<article class=\"mine\">\(labelSlot)</article>"
       |  }
       |  label: String
@@ -591,14 +591,14 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       dir / "inline.pkl",
       s"""amends "@fh-dashboard/entry.pkl"
          |
-         |import "@fh-dashboard/core/node.pkl" as nodes
+         |import "@fh-dashboard/core/node.pkl" as nodeMod
          |import "@fh-dashboard/theme.pkl" as th
          |
          |theme = ${PklFixture.dummyTheme}
          |
-         |local class Badge extends nodes.Node {
+         |local class Badge extends nodeMod.Node {
          |  card = "badge"
-         |  cardDef = new nodes.CardDef { template = "<b class=\\"badge\\">here</b>" }
+         |  cardDef = new nodeMod.CardDef { template = "<b class=\\"badge\\">here</b>" }
          |}
          |
          |card = new Badge {}
@@ -632,15 +632,15 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       s"""amends "@fh-dashboard/entry.pkl"
          |
          |import "@fh-dashboard/components.pkl" as c
-         |import "@fh-dashboard/core/node.pkl" as nodes
+         |import "@fh-dashboard/core/node.pkl" as nodeMod
          |import "mycards.pkl" as mine
          |import "@fh-dashboard/theme.pkl" as th
          |
          |theme = ${PklFixture.dummyTheme}
          |
-         |local class Other extends nodes.Node {
+         |local class Other extends nodeMod.Node {
          |  card = "gauge"
-         |  cardDef = new nodes.CardDef { template = "<i>not the same</i>" }
+         |  cardDef = new nodeMod.CardDef { template = "<i>not the same</i>" }
          |}
          |
          |card = (c.column) { children { mine.gauge("a") new Other {} } }

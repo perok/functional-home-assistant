@@ -297,7 +297,7 @@ alone sends nothing, because the frame is diffed against what each session holds
 - A condition value on a card with a subject is named under that entity's signal path, since Pkl
   names the subject on the slot; its own `valueKey` keeps it distinct.
 - Inputs are node-local. An author's inputs go on the card, and the card hands each part the ones
-  that part's slots name (`nodes.inputsNamedIn`): a slider's second line reads them on its text
+  that part's slots name (`nodeMod.inputsNamedIn`): a slider's second line reads them on its text
   node, its readout on its head. It matches names with a regex, since Pkl cannot run the CEL
   parser; a wrong match is caught by the build, which binds by the parsed identifiers and refuses
   an input no expression reads.

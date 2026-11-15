@@ -3,7 +3,7 @@
 /// entities.
 module components.base.bar
 
-import "../../core/node.pkl" as nodes
+import "../../core/node.pkl" as nodeMod
 import "../../core/slot.pkl" as slotMod
 
 // The fill is the browser's arithmetic, because it can be a function of two
@@ -30,9 +30,9 @@ const local readable: String =
 /// reversed when [[down]]. Its readings are signals: a reading that moves costs
 /// its few bytes, never the bar. The bar hides while either reading is `""` or
 /// not a number.
-class ProgressBar extends nodes.Node {
+class ProgressBar extends nodeMod.Node {
   card = "progressBar"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     // Not a `<progress>`, whose parts need a vendor pseudo-element each; the
     // ARIA role carries its meaning.
     classes = "fh-bar"

@@ -6,7 +6,7 @@ module components.base.slider
 
 import "../../core/badge.pkl" as badgeMod
 import "../../core/icon.pkl" as icons
-import "../../core/node.pkl" as nodes
+import "../../core/node.pkl" as nodeMod
 import "../../core/shell.pkl"
 import "../../core/slot.pkl" as slotMod
 import "../../core/surface.pkl" as surfaceMod
@@ -134,14 +134,14 @@ const local restoreOnRefusal: String =
 /// own, so a brightness change repaints this and never the member rows beside
 /// it (ADR 0012). Built by [[Slider]], never by an author. The badge is here,
 /// so the slider's on look is too.
-class SliderHead extends nodes.ActiveNode {
+class SliderHead extends nodeMod.ActiveNode {
   card = "sliderHead"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     // Everything else on this row that moves is a signal (ADR 0017), which is
     // what lets the head be structure.
     regions = new Mapping {
-      ["text"] = new nodes.Region {}
-      ["actions"] = new nodes.Region {}
+      ["text"] = new nodeMod.Region {}
+      ["actions"] = new nodeMod.Region {}
     }
     // `display:contents` (`.fh-slider-body`): the label line and the track are
     // the card's own rows, or a member's one grid cell.
@@ -167,9 +167,9 @@ class SliderHead extends nodes.ActiveNode {
 /// The label and its second line: the head's only moving bytes, so a node and
 /// a patch target of their own. Its root is `display:contents`, so the head
 /// lays out `strong` and `.fh-sub` (a group's in two grid rows).
-class SliderText extends nodes.Node {
+class SliderText extends nodeMod.Node {
   card = "sliderText"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     classes = "fh-slider-text"
     template = """
       <strong class="\(textMod.BOX)">\(textMod.run(labelSlot))</strong>\(secondarySlot.ifSet(#"<span class="fh-sub \#(textMod.BOX)">\#(textMod.liveRun(secondarySlot))</span>"#))
@@ -190,16 +190,16 @@ class ControlHead {
 }
 
 /// One of a slider's [[Slider.buttons]]: a tap, shown as a pill in its look;
-/// a node, such as a pill or a `c.select`; or a [[nodes.SubjectButton]]. A null is
+/// a node, such as a pill or a `c.select`; or a [[nodeMod.SubjectButton]]. A null is
 /// no button.
-typealias SliderButton = tapMod.TapAction|nodes.LayoutNode|nodes.SubjectButton
+typealias SliderButton = tapMod.TapAction|nodeMod.LayoutNode|nodeMod.SubjectButton
 
-const local function pillsOf(bs: List<SliderButton?>): Listing<nodes.LayoutNode> =
+const local function pillsOf(bs: List<SliderButton?>): Listing<nodeMod.LayoutNode> =
   bs.filterNonNull()
     .map((b) ->
-      if (b is nodes.SubjectButton) throw("A c.its button is about the slider's own entity, and this slider has none.")
+      if (b is nodeMod.SubjectButton) throw("A c.its button is about the slider's own entity, and this slider has none.")
       else if (b is tapMod.TapAction) buttonMod.pill(b)
-      else b as nodes.LayoutNode)
+      else b as nodeMod.LayoutNode)
     .toListing()
 
 // One panel per main control, baked into the node: the shown one is in the first HTML,
@@ -209,7 +209,7 @@ const local function controlPanels(ms: List<ControlHead>): Mapping<String, surfa
     for (i, m in ms) {
       ["m\(i)"] = new surfaceMod.SurfaceDef {
         content = m.head
-        bakeInto = nodes.NODE_ID
+        bakeInto = nodeMod.NODE_ID
         bakeAs = "panel"
         bakeIndex = i
         activation = controlVar.selecting(m.value)
@@ -219,10 +219,10 @@ const local function controlPanels(ms: List<ControlHead>): Mapping<String, surfa
 
 /// The buttons at the track's end, the switch between the main controls among
 /// them: one pill over every head, so it stays put while they swap.
-class SliderPill extends nodes.Node {
+class SliderPill extends nodeMod.Node {
   card = "sliderPill"
-  cardDef = new nodes.CardDef {
-    regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
+  cardDef = new nodeMod.CardDef {
+    regions = new Mapping { [nodeMod.defaultRegion] = new nodeMod.Region {} }
     // A box inside the controls' row, not a container's cell: the inherited
     // `--fh-cell-width` would stretch it.
     layoutCell = false
@@ -230,18 +230,18 @@ class SliderPill extends nodes.Node {
     template = "{{{children}}}"
   }
   hidden buttons: List<SliderButton?>
-  children = new Mapping { [nodes.defaultRegion] = pillsOf(buttons) }
+  children = new Mapping { [nodeMod.defaultRegion] = pillsOf(buttons) }
 }
 
 /// A slider's head as one of several, chosen by [[controlVar]], with the pill
 /// beside it. The tabs machinery (ADR 0033): a head not shown is neither
 /// rendered nor kept live. A group's row has the heads and no pill.
-class SliderControls extends nodes.Node {
+class SliderControls extends nodeMod.Node {
   card = "sliderControls"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     regions = new Mapping {
-      [nodes.defaultRegion] = new nodes.Region {}
-      ["panel"] = new nodes.Region { fill = "baked" }
+      [nodeMod.defaultRegion] = new nodeMod.Region {}
+      ["panel"] = new nodeMod.Region { fill = "baked" }
     }
     // A row of the slider card, not a container's cell, as [[SliderPill]].
     layoutCell = false
@@ -269,7 +269,7 @@ class SliderControls extends nodes.Node {
 /// Members are ordinary nodes — another grouped slider, an [[EntityCard]], a
 /// query set — each with its own live patch. `EntitySlider.withSubSliders` is
 /// the chain form.
-open class Slider extends nodes.Node {
+open class Slider extends nodeMod.Node {
   card = "slider"
   hidden title: String|slotMod.Reading
   /// On an entity slider, often a `c.exprOf` reading of a DIFFERENT entity
@@ -278,7 +278,7 @@ open class Slider extends nodes.Node {
   /// The badge's MDI class (`mdi-lightbulb`). Null renders no badge.
   hidden glyph: String? = null
   /// The badge's on look, as `Tile.active`.
-  hidden active: nodes.BooleanInput = false
+  hidden active: nodeMod.BooleanInput = false
   hidden rangeMin: Number
   hidden rangeMax: Number
   /// Where the device is, as the input's number. Server-written; the drag moves
@@ -316,19 +316,19 @@ open class Slider extends nodes.Node {
   /// in its look. On a slider that declares [[controlVar]] they are on the
   /// pill, the switch between its [[controls]] among them.
   hidden buttons: List<SliderButton?> = List()
-  /// [[buttons]] as shown, its [[nodes.SubjectButton]]s filled in by a
+  /// [[buttons]] as shown, its [[nodeMod.SubjectButton]]s filled in by a
   /// subclass that knows an entity.
   hidden shownButtons: List<SliderButton?> = buttons
   /// Not `children`: this card has two regions, and these fill one.
-  hidden members: Listing<nodes.LayoutNode> = new {}
+  hidden members: Listing<nodeMod.LayoutNode> = new {}
   /// The entity a reading that names none reads — see `Button.subject`.
   hidden subject: String? = null
   /// Disables the range (or the press) while it holds, ORed with the commit's
   /// own refusal, as `Button.disabled`.
-  hidden disabled: nodes.BooleanInput? = null
+  hidden disabled: nodeMod.BooleanInput? = null
   hidden headSlots: Listing<slotMod.Slot> = new {
     slotMod.subject.of(subject)
-    nodes.disabledSlot(disabled)
+    nodeMod.disabledSlot(disabled)
     // `onRender`: an `aria-label` on a head that is never patched.
     labelSlot.of(if (title is slotMod.Reading) (title as slotMod.Reading) { reads = "onRender" } else title)
     badgeMod.icon.of(glyph)
@@ -387,10 +387,10 @@ open class Slider extends nodes.Node {
   // An author's inputs go on the slider, but its readings are on the head and
   // the text, so each takes the ones it reads. One nothing here reads stays on
   // the slider, where the build names it.
-  hidden headInputs: Map<String, nodes.Input> = nodes.inputsNamedIn(inputs, headSlots)
-  hidden textInputs: Map<String, nodes.Input> = nodes.inputsNamedIn(inputs, textSlots)
+  hidden headInputs: Map<String, nodeMod.Input> = nodeMod.inputsNamedIn(inputs, headSlots)
+  hidden textInputs: Map<String, nodeMod.Input> = nodeMod.inputsNamedIn(inputs, textSlots)
   wireInputs =
-    let (ownRead = nodes.inputsNamedIn(inputs, slots))
+    let (ownRead = nodeMod.inputsNamedIn(inputs, slots))
     let (own = inputs.toMap().filter((name, _) ->
         ownRead.containsKey(name) || !(headInputs.containsKey(name) || textInputs.containsKey(name))))
       if (own.isEmpty) null else own.mapValues((_, v) -> slotMod.wireInput(v))
@@ -428,7 +428,7 @@ open class Slider extends nodes.Node {
   function buttons(xs: List<SliderButton?>): this =
     (this) { buttons = xs }
   function busyVisual(b: Boolean): this = (this) { busyVisual = b }
-  function disabled(d: nodes.BooleanInput): this = (this) { disabled = d }
+  function disabled(d: nodeMod.BooleanInput): this = (this) { disabled = d }
   // BeerCSS's slider markup, `fh-slider` being its `.slider.max`: the wrapper
   // and a trailing `<span>` painted as the track, without `.tooltip`, whose
   // text bled through behind the track. The fill is ours, `--fh-fill` on the
@@ -442,10 +442,10 @@ open class Slider extends nodes.Node {
   //
   // A member-less slider still renders an empty `.fh-slider-members`: a card is
   // one shape, its optional pieces absent rather than different.
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     regions = new Mapping {
-      ["head"] = new nodes.Region {}
-      [nodes.defaultRegion] = new nodes.Region {}
+      ["head"] = new nodeMod.Region {}
+      [nodeMod.defaultRegion] = new nodeMod.Region {}
     }
     tag = "article"
     classes = "fh-card fh-slider-card \(groupSlot.ifSet("fh-slider-group"))"

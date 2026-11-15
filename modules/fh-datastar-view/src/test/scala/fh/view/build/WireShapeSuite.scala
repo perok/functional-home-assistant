@@ -58,7 +58,7 @@ class WireShapeSuite extends munit.FunSuite {
         |import "pkl:reflect"
         |import "@fh-dashboard/components.pkl" as c
         |import "@fh-dashboard/hass.pkl"
-        |import "@fh-dashboard/core/node.pkl" as nodes
+        |import "@fh-dashboard/core/node.pkl" as nodeMod
         |import "@fh-dashboard/core/slot.pkl" as slotMod
         |import "@fh-dashboard/core/surface.pkl" as surfaceMod
         |import "@fh-dashboard/core/tap.pkl" as tapMod
@@ -76,7 +76,7 @@ class WireShapeSuite extends munit.FunSuite {
         |// "does this module own the ancestor" true across a module boundary
         |// (`SetNode extends LayoutNode` now spans two files).
         |local mods: List<Module> =
-        |  List(nodes, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, varMod, historyProv, chartMod, themeMod) + c.modules
+        |  List(nodeMod, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, varMod, historyProv, chartMod, themeMod) + c.modules
         |local own: Map<String, reflect.Class> =
         |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
@@ -207,7 +207,7 @@ class WireShapeSuite extends munit.FunSuite {
 
   test("the slot shape agrees, minus what only one side names") {
     // `Reading` is `ValueExpr`: "reading" is the authoring word. Its
-    // `valueWhileSlot` is the slot's `valueWhile`, which `nodes.wireSlots` writes
+    // `valueWhileSlot` is the slot's `valueWhile`, which `nodeMod.wireSlots` writes
     // beside the expression's fields.
     check(
       "Reading",

@@ -216,7 +216,7 @@ finished, and are deleted (issue #23).
    unchanged if cases ever grow from leaves to subtrees.
 9. **Entries `amends "lib/entry.pkl"`.** `lib/entry.pkl` is the base module
    every entry amends: it carries the card registry
-   (`cards = nodes.cardsIn(…)`, decision 7) and the shared `theme`, and
+   (`cards = nodeMod.cardsIn(…)`, decision 7) and the shared `theme`, and
    declares the fields an entry fills — a required
    `card: c.Node` (the layout-tree root), and optional `title`/`surfaces`
    and a `theme` override. So an entry opens with `amends "lib/entry.pkl"` and sets

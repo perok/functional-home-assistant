@@ -11,7 +11,7 @@ import "../hass.pkl"
 import "../hass/active.pkl" as activeTables
 import "predicate.pkl" as predMod
 import "simple.pkl" as simpleMod
-import "node.pkl" as nodes
+import "node.pkl" as nodeMod
 
 /// A value read from its [[source]], then each of its [[steps]] run on it
 /// (`fh.view.model.ValueExpr`): a [[Reading]], or a condition
@@ -73,11 +73,11 @@ open class Reading extends Expr {
   ///
   /// A constant, or a value expression of a bool (a condition, a reading, CEL),
   /// over the card's subject when it names none; none may read a fetch.
-  hidden valueWhile: nodes.BooleanInput = true
+  hidden valueWhile: nodeMod.BooleanInput = true
   valueWhileSlot: Reading? =
     if (valueWhile == true) null
-    else if (valueWhile == false) nodes.booleanReading(predMod.neverHolds)
-    else nodes.booleanReading(valueWhile as Expr)
+    else if (valueWhile == false) nodeMod.booleanReading(predMod.neverHolds)
+    else nodeMod.booleanReading(valueWhile as Expr)
 }
 
 /// A step's operand: a literal, or a part of an entity.
@@ -178,7 +178,7 @@ class CelRead extends Value {
   kind: "Cel" = "Cel"
   src: String
   /// As [[simpleMod.Cel.inputs]].
-  hidden inputs: Mapping<String, nodes.Input>? = null
+  hidden inputs: Mapping<String, nodeMod.Input>? = null
   wireInputs: Map<String, Any>? = inputs?.toMap()?.mapValues((_, v) -> wireInput(v))
 }
 
@@ -186,7 +186,7 @@ class CelRead extends Value {
 /// as itself, anything else as the source it reads. An entity is the whole
 /// entity (`kitchen.attr.brightness`), and a tally its count unless it is a
 /// [[predMod.PresentList]].
-const function wireInput(v: nodes.Input): Any =
+const function wireInput(v: nodeMod.Input): Any =
   if (v is hass.Entity)
     Map("source", new EntityRead { of = v.entity_id; part = new simpleMod.Whole {} })
   else if (v is predMod.PresentList) Map("source", v)

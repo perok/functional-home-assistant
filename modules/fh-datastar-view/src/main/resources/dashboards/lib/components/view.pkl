@@ -11,7 +11,7 @@
 module components.view
 
 import "../core/tap.pkl" as core
-import "../core/node.pkl" as nodes
+import "../core/node.pkl" as nodeMod
 import "../hass.pkl"
 import "moreinfo.pkl" as moreinfo
 import "wheel.pkl" as wheelMod
@@ -28,7 +28,7 @@ function navigate(slug: String): core.Click = core.navigate(slug)
 function openPopup(surfaceId: String): core.OpenSurface = core.openPopup(surfaceId)
 
 /// Open a popup holding `body`.
-function openPopupInline(body: nodes.LayoutNode): core.OpenSurface = core.openPopupInline(body)
+function openPopupInline(body: nodeMod.LayoutNode): core.OpenSurface = core.openPopupInline(body)
 
 /// A colour wheel for the light, in a popup: hue and saturation, where a
 /// slider's hue track has full saturation only.

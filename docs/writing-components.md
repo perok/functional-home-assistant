@@ -26,14 +26,14 @@ Here is the smallest component that works:
 ```pkl
 module mycards
 
-import "@fh-dashboard/core/node.pkl" as nodes
+import "@fh-dashboard/core/node.pkl" as nodeMod
 import "@fh-dashboard/core/slot.pkl" as slotMod
 
 const local message = slotMod.slot("message")
 
-class Banner extends nodes.Node {
+class Banner extends nodeMod.Node {
   card = "banner"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     template = """
       <div class="banner">\(message)</div>
       """
@@ -107,7 +107,7 @@ your template, so the banner above is two elements. To make your own element
 the outer one, say what it is instead of writing it in the template:
 
 ```pkl
-cardDef = new nodes.CardDef {
+cardDef = new nodeMod.CardDef {
   tag = "article"
   classes = "banner"
   attrs = #"data-on:click="$open = true""#
@@ -460,12 +460,12 @@ it: `.postingChecked("brightness", dragged, simpleMod.within(0, 255))`, or
 A container declares **regions** instead of slots:
 
 ```pkl
-cardDef = new nodes.CardDef {
+cardDef = new nodeMod.CardDef {
   template = """
     <div class="panel">{{{children}}}</div>
     """
   regions = new Mapping {
-    ["children"] = new nodes.Region {}
+    ["children"] = new nodeMod.Region {}
   }
 }
 ```
@@ -482,7 +482,7 @@ a region's name.
 Put your card's CSS on the card itself:
 
 ```pkl
-cardDef = new nodes.CardDef {
+cardDef = new nodeMod.CardDef {
   template = "..."
   css = """
     .banner { padding: 8px; background: var(--fh-surface); }

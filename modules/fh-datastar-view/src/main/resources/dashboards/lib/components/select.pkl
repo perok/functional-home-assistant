@@ -20,7 +20,7 @@
 module components.select
 
 import "../core/icon.pkl" as icons
-import "../core/node.pkl" as nodes
+import "../core/node.pkl" as nodeMod
 import "../core/predicate.pkl" as predMod
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
@@ -74,20 +74,20 @@ const local function entityCall(o: hass.Options, v: String): tapMod.Call =
 
 // Each option is a node, so the card is structure: a patch of the select never
 // re-sends them.
-const local optionsRegion: Mapping<String, nodes.Region> =
-  new { [nodes.defaultRegion] = new nodes.Region {} }
+const local optionsRegion: Mapping<String, nodeMod.Region> =
+  new { [nodeMod.defaultRegion] = new nodeMod.Region {} }
 
-const local panelRegion: Mapping<String, nodes.Region> =
-  new { ["panel"] = new nodes.Region { fill = "baked" } }
+const local panelRegion: Mapping<String, nodeMod.Region> =
+  new { ["panel"] = new nodeMod.Region { fill = "baked" } }
 
 // One member per option, shown while `v` is at its value: the server renders the
 // chosen one, as a slider's mode panels.
-const local function panelsOf(v: varMod.Variable, nodesFor: List<nodes.LayoutNode>, cs: List<Choice>): Mapping<String, surfaceMod.SurfaceDef> =
+const local function panelsOf(v: varMod.Variable, nodesFor: List<nodeMod.LayoutNode>, cs: List<Choice>): Mapping<String, surfaceMod.SurfaceDef> =
   new Mapping {
     for (i, ch in cs) {
       ["o\(i)"] = new surfaceMod.SurfaceDef {
         content = nodesFor[i]
-        bakeInto = nodes.NODE_ID
+        bakeInto = nodeMod.NODE_ID
         bakeAs = "panel"
         bakeIndex = i
         activation = v.selecting(ch.value)
@@ -95,7 +95,7 @@ const local function panelsOf(v: varMod.Variable, nodesFor: List<nodes.LayoutNod
     }
   }
 
-abstract class Select extends nodes.Node {
+abstract class Select extends nodeMod.Node {
   hidden target: Over
   hidden choices: List<Choice> = offered(target).map((v) -> choiceOf(v))
   /// Whether a press chooses the NEXT option rather than its own.
@@ -111,7 +111,7 @@ abstract class Select extends nodes.Node {
         else (self) { choices = cs }
 
   /// The same choice in another style. A style is a class of its own (one card
-  /// each, since a card name has one template: `nodes.cardsIn`), so this builds
+  /// each, since a card name has one template: `nodeMod.cardsIn`), so this builds
   /// a new node: it carries what was set on this one,
   /// `.columns(6)` before it included, and the card computes the rest.
   function style(s: SelectStyle): Select =
@@ -136,7 +136,7 @@ abstract class Select extends nodes.Node {
 
   /// One option's node: choosing `pick` on a press, lit while `ch` is chosen.
   /// A cycle's face is a pill in the option's look, as a slider's buttons are.
-  function optionNode(ch: Choice, pick: Choice): nodes.LayoutNode =
+  function optionNode(ch: Choice, pick: Choice): nodeMod.LayoutNode =
     let (t = target) let (cyc = cycling)
       if (t is varMod.Variable)
         if (cyc)
@@ -155,7 +155,7 @@ abstract class Select extends nodes.Node {
         }
 
   /// Each option's node, in order.
-  hidden optionNodes: List<nodes.LayoutNode> =
+  hidden optionNodes: List<nodeMod.LayoutNode> =
     let (self = this) let (cs = choices)
       if (cs.isEmpty)
         throw("c.select(\(targetName(target))) has no options\(if (target is varMod.Variable) ": give them with .options(…)" else "").")
@@ -168,7 +168,7 @@ abstract class Select extends nodes.Node {
 /// A `div`, not a `nav`: under a `nav`, BeerCSS makes every `.tabs > a` the bar's full width.
 class SelectButtons extends Select {
   card = "selectButtons"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     regions = optionsRegion
     classes = "fh-tabs fh-select"
     template = "{{{children}}}"
@@ -212,7 +212,7 @@ const local cycleCss: String = """
 /// slot; [[VarSelectDropdown]] is a variable's.
 class SelectDropdown extends Select {
   card = "selectDropdown"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     regions = optionsRegion
     tag = "details"
     classes = "fh-select-menu"
@@ -243,7 +243,7 @@ class SelectDropdown extends Select {
 class VarSelectDropdown extends Select {
   hidden target: varMod.Variable
   card = "selectVarDropdown"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     regions = (optionsRegion) { ...panelRegion }
     tag = "details"
     classes = "fh-select-menu"
@@ -262,7 +262,7 @@ class VarSelectDropdown extends Select {
 class SelectCycle extends Select {
   hidden target: hass.Options
   card = "selectCycle"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     regions = optionsRegion
     classes = "fh-select-cycles fh-select-marked"
     template = "{{{children}}}"
@@ -276,7 +276,7 @@ class SelectCycle extends Select {
 class VarSelectCycle extends Select {
   hidden target: varMod.Variable
   card = "selectVarCycle"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     regions = panelRegion
     template = #"<div id="{{hostId}}" class="fh-select-cycles">{{{panel}}}</div>"#
     css = cycleCss
@@ -289,7 +289,7 @@ class VarSelectCycle extends Select {
 /// The label a [[VarSelectDropdown]] shows for one option. An icon replaces
 /// the label, as on a cycle's face, so a dropdown fits a slider's pill; the
 /// list still names every option.
-class ChoiceLabel extends nodes.Node {
+class ChoiceLabel extends nodeMod.Node {
   variants = new Mapping { ["selectChoice"] = choiceDef; ["selectChoiceIcon"] = choiceIconDef }
   card = if (icon != null) "selectChoiceIcon" else "selectChoice"
   cardDef = variants!![card]
@@ -301,12 +301,12 @@ class ChoiceLabel extends nodes.Node {
   }
 }
 
-const local choiceDef: nodes.CardDef = new {
+const local choiceDef: nodeMod.CardDef = new {
   tag = "span"
   template = "\(labelSlot)"
 }
 
-const local choiceIconDef: nodes.CardDef = new {
+const local choiceIconDef: nodeMod.CardDef = new {
   tag = "i"
   classes = "\(glyphSlot)"
   attrs = #"title="\#(labelSlot)""#
@@ -319,9 +319,9 @@ const local chosenSlot: slotMod.Slot = slotMod.slot("chosen")
 
 /// One option of a select over an entity: `fh-active` while the entity holds
 /// this value, decided by the server, so the first HTML is right.
-class EntityOption extends nodes.ActiveNode {
+class EntityOption extends nodeMod.ActiveNode {
   card = "selectEntityOption"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     // An anchor straight under the bar or the list, as a tab is, and no layout
     // box for the same reason ([[surfaces.TabButton]]).
     tag = "a"
@@ -355,25 +355,25 @@ function select(t: Target): Select =
 ///     (c.chooser(c.select(view).options(List("simple", "detail")))) {
 ///       children { c.iff(view.valueIs("detail")).then(…) }
 ///     }
-class Chooser extends nodes.Node {
+class Chooser extends nodeMod.Node {
   hidden bar: Select(target is varMod.Variable)
   hidden defaultValue: varMod.Value = bar.choices.first.value
   card = "chooser"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     regions = new Mapping {
-      [nodes.defaultRegion] = new nodes.Region {}
-      ["bar"] = new nodes.Region {}
+      [nodeMod.defaultRegion] = new nodeMod.Region {}
+      ["bar"] = new nodeMod.Region {}
     }
     classes = "fh-col"
     template = "{{{bar}}}{{{children}}}"
   }
   vars { (bar.target as varMod.Variable).defaultingTo(defaultValue) }
   // `let`: inside the Mapping's body `children` does not resolve to this node's.
-  regions = let (below = children as Listing<nodes.LayoutNode>) let (b = bar)
+  regions = let (below = children as Listing<nodeMod.LayoutNode>) let (b = bar)
     new Mapping {
       ["bar"] = new Listing { b }
       when (!below.isEmpty) {
-        [nodes.defaultRegion] = below
+        [nodeMod.defaultRegion] = below
       }
     }
   // A section header over its cards, not a third of a grid row.

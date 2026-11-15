@@ -3,7 +3,7 @@
 /// `core/surface.pkl`; the backend never reads a card name (ADR 0002/0007).
 module components.base.surface
 
-import "../../core/node.pkl" as nodes
+import "../../core/node.pkl" as nodeMod
 import "../../core/surface.pkl" as surfaceMod
 import "../../core/predicate.pkl" as pred
 import "../../core/slot.pkl" as slotMod
@@ -13,9 +13,9 @@ import "../../layout.pkl" as layout
 
 /// One tab in an `.fh-tabs` bar, an anchor straight under it: a [[Tabs]]
 /// member, or an option of `c.select(v)`. Built by the bar, not by an author.
-class TabButton extends nodes.Node {
+class TabButton extends nodeMod.Node {
   card = "tab"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     // An anchor, so a theme can style the bar's `> a`.
     tag = "a"
     layoutCell = false
@@ -40,7 +40,7 @@ const local labelSlot: slotMod.Slot = slotMod.slot("label")
 /// first HTML, and live off the variable's own signals, the ask while one is
 /// out, so a press lights at once; a patch carrying the class could land after
 /// a second press and light two tabs (ADRs 0019, 0025).
-const function tabButton(v: varMod.Variable, choice: varMod.Value, text: String): nodes.LayoutNode = (new TabButton {
+const function tabButton(v: varMod.Variable, choice: varMod.Value, text: String): nodeMod.LayoutNode = (new TabButton {
   label = text
   tapAction = v.choose(choice)
 }).cellClassWhen("fh-chosen", v.valueIs(choice))
@@ -50,15 +50,15 @@ const function tabButton(v: varMod.Variable, choice: varMod.Value, text: String)
 /// host and selected by it, and each button writes it (ADR 0033). The server
 /// commits `_var_<id>__tab` once the panel is in, the bar's cell mirrors it into
 /// the URL as `v.<id>.tab`, and a refresh restores the tab without a flash.
-class Tabs extends nodes.Node {
+class Tabs extends nodeMod.Node {
   card = "tabs"
   // The bar is structure: it holds the buttons and carries no live value; a
   // selection arrives as a signal frame. A live header goes beside the buttons
   // as a node of its own.
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     regions = new Mapping {
-      [nodes.defaultRegion] = new nodes.Region {}
-      ["panel"] = new nodes.Region { fill = "baked" }
+      [nodeMod.defaultRegion] = new nodeMod.Region {}
+      ["panel"] = new nodeMod.Region { fill = "baked" }
     }
     classes = "fh-col"
     template = """
@@ -73,7 +73,7 @@ class Tabs extends nodes.Node {
   ///   (c.tabs) { tabs { ["Lights"] { c.entityCard(e) c.entitySlider(l) } } }
   /// A tab's cards sit in a [[Row]]; nest another container as its one card
   /// for a different layout.
-  hidden tabs: Mapping<String, Listing<nodes.LayoutNode>> = new { default = (_) -> new Listing {} }
+  hidden tabs: Mapping<String, Listing<nodeMod.LayoutNode>> = new { default = (_) -> new Listing {} }
   // A List, because the derivations below need each tab's index.
   hidden labels: List<String> = tabs.keys.toList()
   vars { tabVar.defaultingTo("0") }
@@ -81,7 +81,7 @@ class Tabs extends nodes.Node {
     for (i, l in labels) {
       ["t\(i)"] = new surfaceMod.SurfaceDef {
         content = new layout.Row { children = tabs[l] }
-        bakeInto = nodes.NODE_ID
+        bakeInto = nodeMod.NODE_ID
         bakeAs = "panel"
         bakeIndex = i
         activation = tabVar.selects
@@ -116,24 +116,24 @@ const local function stateActivation(p: slotMod.Expr?): surfaceMod.StateActivati
 ///   (c.iff(p)) { `then` { ...cards... } `else` { ...cards... } }
 ///
 /// An If inside `else` is else-if.
-class If extends nodes.Node {
+class If extends nodeMod.Node {
   card = "ifhost"
   // `fh-ifhost` lets the base stylesheet collapse a cell whose branches all
   // failed.
-  cardDef = new nodes.CardDef {
-    regions = new Mapping { ["branch"] = new nodes.Region { fill = "baked" } }
+  cardDef = new nodeMod.CardDef {
+    regions = new Mapping { ["branch"] = new nodeMod.Region { fill = "baked" } }
     template = #"<div class="fh-ifhost" id="{{hostId}}">{{{branch}}}</div>"#
   }
   layoutClasses { "fh-cols-full" }
   hidden condition: slotMod.Expr|varMod.ValueIs
-  hidden `then`: Listing<nodes.LayoutNode> = new {}
-  hidden `else`: Listing<nodes.LayoutNode> = new {}
+  hidden `then`: Listing<nodeMod.LayoutNode> = new {}
+  hidden `else`: Listing<nodeMod.LayoutNode> = new {}
   // First match in `bakeIndex` order; `else` is the always-true member 1. Both
   // share one `bakeAs`, since the backend reads it off a group's first member.
   inlineSurfaces = new Mapping {
     ["then"] = new surfaceMod.SurfaceDef {
       content = new layout.Row { children = `then` }
-      bakeInto = nodes.NODE_ID
+      bakeInto = nodeMod.NODE_ID
       bakeAs = "branch"
       bakeIndex = 0
       activation =
@@ -145,7 +145,7 @@ class If extends nodes.Node {
     when (!`else`.isEmpty || condition is varMod.ValueIs) {
       ["else"] = new surfaceMod.SurfaceDef {
         content = new layout.Row { children = `else` }
-        bakeInto = nodes.NODE_ID
+        bakeInto = nodeMod.NODE_ID
         bakeAs = "branch"
         bakeIndex = 1
         activation =
@@ -155,10 +155,10 @@ class If extends nodes.Node {
     }
   }
   /// Append one node, or `new Listing { ... }` for several, to `then`.
-  function then(n: nodes.LayoutNode|Listing<nodes.LayoutNode>): this = let (l = this)
+  function then(n: nodeMod.LayoutNode|Listing<nodeMod.LayoutNode>): this = let (l = this)
     if (n is Listing) (l) { `then` { ...n } } else (l) { `then` { n } }
   /// `` .`else`(c.title("off")) ``.
-  function `else`(n: nodes.LayoutNode|Listing<nodes.LayoutNode>): this = let (l = this)
+  function `else`(n: nodeMod.LayoutNode|Listing<nodeMod.LayoutNode>): this = let (l = this)
     if (n is Listing) (l) { `else` { ...n } } else (l) { `else` { n } }
 }
 

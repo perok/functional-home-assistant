@@ -104,7 +104,7 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
-       |import "@fh-dashboard/core/node.pkl" as nodes
+       |import "@fh-dashboard/core/node.pkl" as nodeMod
        |import "@fh-dashboard/core/slot.pkl" as slotMod
        |import "@fh-dashboard/core/simple.pkl" as simpleMod
        |import "@fh-home/dump.pkl" as dump
@@ -118,9 +118,9 @@ class ThemeClassesPageSuite extends munit.CatsEffectSuite {
        |const local look = slotMod.cssClass("look")
        |const local said = slotMod.slot("said")
        |
-       |local class Probe extends nodes.Node {
+       |local class Probe extends nodeMod.Node {
        |  card = "probe"
-       |  cardDef = new nodes.CardDef {
+       |  cardDef = new nodeMod.CardDef {
        |    template = #"<i class="\\#(look)" \\#(look.bind)></i><span \\#(said.bind)>\\#(said)</span>"#
        |  }
        |  hidden word: slotMod.Reading

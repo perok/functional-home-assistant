@@ -165,7 +165,7 @@ font-family restatement. The icon font itself is every theme's: `Theme`'s defaul
 `deferredStylesheets` loads MDI, since the cards emit its classes.
 
 **A page carries the CSS of the cards its dashboard uses, and no others.** The
-registry is read off the nodes (`nodes.cardsIn` over the tree and every surface's
+registry is read off the nodes (`nodeMod.cardsIn` over the tree and every surface's
 content, `entry.pkl`), so a card no dashboard places costs that dashboard nothing.
 
 **A card's JavaScript rides with it too: `cardDef.script`.** The same argument

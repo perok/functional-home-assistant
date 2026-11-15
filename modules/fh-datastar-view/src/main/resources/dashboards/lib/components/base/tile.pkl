@@ -4,7 +4,7 @@
 module components.base.tile
 
 import "../../core/badge.pkl" as badgeMod
-import "../../core/node.pkl" as nodes
+import "../../core/node.pkl" as nodeMod
 import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
@@ -15,15 +15,15 @@ const local secondarySlot: slotMod.Slot = slotMod.slot("secondary")
 
 /// The tile. `title`, `reading`, `secondary` and `glyph` each take a literal or
 /// a reading; the card decides how each is carried.
-open class Tile extends nodes.ActiveNode {
+open class Tile extends nodeMod.ActiveNode {
   card = "tile"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     // Features are nodes, so the tile is structure and everything on it that
     // moves is a signal. The tap, its guard and its dimming are the ROW's, so a
     // feature's own press never also posts the tile's and a refused tile does
     // not dim its latch.
     regions = new Mapping {
-      ["features"] = new nodes.Region {}
+      ["features"] = new nodeMod.Region {}
     }
     // The glyph in the shared badge, which is also the spinner's host, then the
     // title with its reading and second line under it. A `div`, not BeerCSS's
@@ -63,11 +63,11 @@ open class Tile extends nodes.ActiveNode {
   hidden subject: String? = null
   /// Controls and readouts under the tile, HA's card features: nodes, each its
   /// own patch target and its own tap, outside the tile's.
-  hidden features: Listing<nodes.LayoutNode> = new {}
+  hidden features: Listing<nodeMod.LayoutNode> = new {}
   children = if (features.isEmpty) new Listing {} else new Mapping { ["features"] = features }
   /// Refuses the tap and wears `fh-disabled` while it holds, ORed with the
   /// tap's own refusal, as `Button.disabled`.
-  hidden disabled: nodes.BooleanInput? = null
+  hidden disabled: nodeMod.BooleanInput? = null
   slots {
     slotMod.subject.of(subject)
     slotMod.liveText(labelSlot, title)
@@ -78,11 +78,11 @@ open class Tile extends nodes.ActiveNode {
     // disabled.
     ...tapMod.tapSlots(tapAction)
     ...badgeMod.slots(active)
-    nodes.disabledSlot(disabled)
+    nodeMod.disabledSlot(disabled)
   }
-  function disabled(d: nodes.BooleanInput): this = (this) { disabled = d }
+  function disabled(d: nodeMod.BooleanInput): this = (this) { disabled = d }
   /// `c.entityCard(l).features(List(latch))`.
-  function features(xs: List<nodes.LayoutNode>): this = (this) { features = xs.toListing() }
+  function features(xs: List<nodeMod.LayoutNode>): this = (this) { features = xs.toListing() }
   /// `c.entityCard(l).active(false)` for a badge with neither an on nor an off look.
-  function active(a: nodes.BooleanInput): this = (this) { active = a }
+  function active(a: nodeMod.BooleanInput): this = (this) { active = a }
 }

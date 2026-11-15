@@ -2195,7 +2195,7 @@ class PklBuildSuite extends munit.FunSuite {
       s"""module probe
          |import "@fh-dashboard/hass.pkl"
          |import "@fh-dashboard/components.pkl" as c
-         |import "@fh-dashboard/core/node.pkl" as nodes
+         |import "@fh-dashboard/core/node.pkl" as nodeMod
          |import "@fh-dashboard/core/slot.pkl" as slotMod
          |$body
          |""".stripMargin
@@ -2204,10 +2204,10 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   private def structuralCard(value: String, binding: String = ""): String =
-    s"""class Probe extends nodes.Node {
+    s"""class Probe extends nodeMod.Node {
        |  card = "probe"
-       |  cardDef = new nodes.CardDef {
-       |    regions = new Mapping { ["children"] = new nodes.Region {} }
+       |  cardDef = new nodeMod.CardDef {
+       |    regions = new Mapping { ["children"] = new nodeMod.Region {} }
        |    template = #"<div>{{temp}}{{{children}}}</div>"#
        |  }
        |  slots { (slotMod.slot("temp")) { value = $value$binding } }

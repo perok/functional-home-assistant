@@ -133,7 +133,7 @@ and a refused click; a slider's range is disabled and its commit refuses.
   cards for one look. `EntitySlider` sets it for a light that cannot dim.
 - `buttons` is a list of taps and nodes, each tap a pill in its own look
   (`core/tap.pkl`'s `icon`/`label`/`lit`), so the base needs no HA to show
-  one. A `nodes.SubjectButton` is one the slider fills in from its subject entity
+  one. A `nodeMod.SubjectButton` is one the slider fills in from its subject entity
   (`c.its`, below): `EntitySlider` resolves them into `shownButtons`, so the base never
   names an entity, and refuses one left unresolved.
 - What makes a slider "about this entity" stays HA: `SlideAxis`, `domainAxes`,
@@ -212,7 +212,7 @@ something no card hands yet adds a field to `Holder`, defaulted to empty, and
 the card that knows it fills it.
 
 **Adding a card that takes them:** give its base card a `buttons` list typed
-to accept `nodes.SubjectButton`, and in its HA subclass map each `ItsButton`
+to accept `nodeMod.SubjectButton`, and in its HA subclass map each `ItsButton`
 through `resolve(new Holder { entity = … })` before the base sees it, as
 `EntitySlider.shownButtons` does. The items come for free.
 
