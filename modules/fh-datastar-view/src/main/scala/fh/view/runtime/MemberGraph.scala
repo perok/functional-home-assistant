@@ -214,10 +214,10 @@ private[runtime] final class MemberGraph(
       * shape.
       */
     private val clauses
-        : Map[String, List[(Option[Evaluator.Run], Option[Member])]] =
+        : Map[String, List[(Option[Ready.Condition], Option[Member])]] =
       src.s.members.map { case (e, m) =>
         e -> m.clauses.zipWithIndex.map { case (c, i) =>
-          c.when.map(_.run) -> (c.node match {
+          c.when -> (c.node match {
             case comp: Ready.Component => Some(member(this, e, comp, i))
             case _                     => None
           })
@@ -231,18 +231,12 @@ private[runtime] final class MemberGraph(
     /** An entity HA does not know is evaluated against an empty state, so a
       * clause guarded only on another entity still decides.
       */
-    def memberOf(
-        entityId: String,
-        states: Map[String, EntityState],
-        fetched: Shared.Fetched
-    ): Option[Member] = {
-      val subject = states.getOrElse(entityId, null)
+    def memberOf(entityId: String, d: Evaluator.Decision): Option[Member] = {
+      val subject = d.states.getOrElse(entityId, null)
       clauses
         .get(entityId)
         .flatMap(
-          _.find(
-            _._1.forall(g => Evaluator.holds(g(subject, states, fetched)))
-          )
+          _.find(_._1.forall(c => d.holds(c.run, c.readsMember, subject)))
         )
         .flatMap(_._2)
     }
@@ -251,12 +245,9 @@ private[runtime] final class MemberGraph(
         states: Map[String, EntityState],
         fetched: Shared.Fetched
     ): GroupMembers =
+      val d = Evaluator.Decision(states, fetched)
       GroupMembers.of(
-        src.arrange(
-          src.candidates.flatMap(memberOf(_, states, fetched)),
-          states,
-          fetched
-        )
+        src.arrange(src.candidates.flatMap(memberOf(_, d)), states, fetched)
       )
   }
 
@@ -552,7 +543,8 @@ private[runtime] final class MemberGraph(
   def memberAt(id: NodeId, shared: Shared): Option[Member] =
     memberSlot.get(id).flatMap { case (s, entityId) =>
       shared.member(id, s.src.reads)(f =>
-        if (s.src.s.limit.isEmpty) s.memberOf(entityId, shared.states, f)
+        if (s.src.s.limit.isEmpty)
+          s.memberOf(entityId, Evaluator.Decision(shared.states, f))
         else groupOf(s.gid, shared).members.find(_.id == id)
       )
     }
@@ -602,9 +594,10 @@ private[runtime] final class MemberGraph(
     // `was` stands in only while `next` does: one run answers both.
     val now = next.set(s.gid, s.src.reads, GroupMembers.empty) { f =>
       if (s.src.stable) {
+        val d = Evaluator.Decision(next.states, f)
         val (group, sw) = touched
           .foldLeft((was, Vector.empty[Member])) { case ((g, w), entityId) =>
-            applyOne(s, g, w, entityId, next.states, f)
+            applyOne(s, g, w, entityId, d)
           }
         swapped = Some(sw)
         group
@@ -636,12 +629,11 @@ private[runtime] final class MemberGraph(
       group: GroupMembers,
       replaced: Vector[Member],
       entityId: String,
-      states: Map[String, EntityState],
-      fetched: Shared.Fetched
+      d: Evaluator.Decision
   ): (GroupMembers, Vector[Member]) = {
     val key = MemberKey.Entity(entityId)
     val existing = group.members.find(_.key == key)
-    val arriving = s.memberOf(entityId, states, fetched)
+    val arriving = s.memberOf(entityId, d)
     // By clause, which fixes the node; not by node, since hoisting lifts a
     // slider's heads out of it and two slider clauses can leave equal nodes
     // over different surfaces.

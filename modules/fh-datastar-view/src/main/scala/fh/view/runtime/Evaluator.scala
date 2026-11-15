@@ -374,7 +374,9 @@ private[view] object Evaluator {
       Right((_, _, _) => c)
     case p: Value.Present =>
       present(p, scope).map(is =>
-        (_, states, fetched) => p.candidates.filter(is(_, states, fetched))
+        (_, states, fetched) =>
+          val d = Decision(states, fetched)
+          p.candidates.filter(is(_, d))
       )
     case Value.List(_, items) =>
       runs(items, scope, named).map(rs =>
@@ -498,27 +500,59 @@ private[view] object Evaluator {
     case l: java.util.List[?]     => List.from(l.iterator.asScala)
     case other                    => other
 
-  /** Whether a candidate is present: unguarded, or its guard holds over it. */
+  /** One decision over a snapshot, member by member. A guard that reads no
+    * member answers every member alike, so it runs once in it.
+    */
+  final class Decision(
+      val states: Map[String, EntityState],
+      val fetched: Lookup
+  ) {
+    private var alike: java.util.IdentityHashMap[Run, Boolean] | Null = null
+
+    def holds(run: Run, readsMember: Boolean, subject: EntityState | Null) =
+      if (readsMember) Evaluator.holds(run(subject, states, fetched))
+      else {
+        val known = alike match
+          case null =>
+            val m = java.util.IdentityHashMap[Run, Boolean]()
+            alike = m
+            m
+          case m => m
+        known.computeIfAbsent(
+          run,
+          r => Evaluator.holds(r.nn(null, states, fetched))
+        )
+      }
+  }
+
+  /** Whether a candidate is present: unguarded, or its guard holds over it.
+    * Each guard lands per candidate; equal ones share one compile.
+    */
   private def present(
       p: Value.Present,
       scope: Scope
-  ): Built[
-    (String, Map[String, EntityState], Lookup) => Boolean
-  ] =
+  ): Built[(String, Decision) => Boolean] =
     p.when.toList
-      .traverse((id, g) => inner(g, scope).map(id -> _.run))
-      .map { list =>
-        val guards = list.toMap
+      .groupBy(_._2.inputKey)
+      .values
+      .toList
+      .traverse(same =>
+        inner(same.head._2, scope)
+          .map(c => same.map((id, g) => id -> (c.run, g.readsMissingSubject)))
+      )
+      .map { lists =>
+        val guards = lists.flatten.toMap
         val ofEntities = p.of == IdKind.Entity
-        (id, states, fetched) =>
-          val g = guards.getOrElse(id, null)
-          g == null || {
-            // An area or a floor has no state; its guard names what it reads.
-            if (ofEntities) {
-              val st = states.getOrElse(id, null)
-              st != null && holds(g(st, states, fetched))
-            } else holds(g(null, states, fetched))
-          }
+        (id, d) =>
+          guards.get(id) match
+            case None                     => true
+            case Some((run, readsMember)) =>
+              // An area or a floor has no state; its guard names what it
+              // reads.
+              if (ofEntities) {
+                val st = d.states.getOrElse(id, null)
+                st != null && d.holds(run, readsMember, st)
+              } else d.holds(run, readsMember, null)
       }
 
   /** `present op n`, stopping once the candidates left cannot change it: `> 0`
@@ -526,11 +560,7 @@ private[view] object Evaluator {
     */
   private def countIs(
       candidates: List[String],
-      is: (
-          String,
-          Map[String, EntityState],
-          Lookup
-      ) => Boolean,
+      is: (String, Decision) => Boolean,
       op: Op,
       n: Long
   ): Run = {
@@ -547,11 +577,12 @@ private[view] object Evaluator {
       case _             => holdsAt(lo) == holdsAt(hi)
     val size = candidates.size.toLong
     (_, states, fetched) =>
+      val d = Decision(states, fetched)
       var lo = 0L
       var hi = size
       var rest = candidates
       while (rest.nonEmpty && !settled(lo, hi)) {
-        if (is(rest.head, states, fetched)) lo += 1 else hi -= 1
+        if (is(rest.head, d)) lo += 1 else hi -= 1
         rest = rest.tail
       }
       holdsAt(lo)

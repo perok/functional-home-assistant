@@ -80,13 +80,15 @@ object Ready:
 
   final case class SetClause(when: Option[Condition], node: Node)
 
-  /** A guard or a state surface's condition, and the entities and fetches it
-    * reads.
+  /** A guard or a state surface's condition, the entities and fetches it reads,
+    * and whether it reads the member: one that does not answers every member
+    * alike.
     */
   final case class Condition(
       run: Evaluator.Run,
       entities: List[String],
-      reads: Set[SlotRead]
+      reads: Set[SlotRead],
+      readsMember: Boolean
   )
 
   /** A slot's run, and its bind pass's facts, each read once: a paint reads
@@ -283,11 +285,15 @@ object Ready:
         }
 
     def set(s: LayoutNode.SetNode): Built[SetNode] =
+      // A `where` lands once per candidate; equal ones share one compile.
+      val guards =
+        scala.collection.mutable.HashMap.empty[String, Built[Condition]]
+      def guard(e: ValueExpr) = guards.getOrElseUpdate(e.inputKey, condition(e))
       (
         s.members.toList.traverse((e, m) =>
           m.clauses
             .traverse(cl =>
-              (cl.when.traverse(condition), node(cl.node)).mapN(SetClause(_, _))
+              (cl.when.traverse(guard), node(cl.node)).mapN(SetClause(_, _))
             )
             .map(e -> SetMember(_))
         ),
@@ -354,7 +360,14 @@ object Ready:
     private def condition(e: ValueExpr): Built[Condition] =
       Evaluator
         .compile(e, scope)
-        .map(c => Condition(c.run, e.entities, SlotAsk.decision(e.fetches)))
+        .map(c =>
+          Condition(
+            c.run,
+            e.entities,
+            SlotAsk.decision(e.fetches),
+            e.readsMissingSubject
+          )
+        )
 
   /** The wire's whole-dashboard facts, read off it once by the walk. */
   final case class Dashboard(
