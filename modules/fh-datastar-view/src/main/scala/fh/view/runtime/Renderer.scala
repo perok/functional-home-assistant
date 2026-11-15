@@ -37,7 +37,8 @@ import fh.view.model.{
   CallDecl,
   CallField,
   CallId,
-  ThemeClasses
+  ThemeClasses,
+  VarValue
 }
 import scala.collection.immutable.ListMap
 import scala.jdk.CollectionConverters.*
@@ -322,7 +323,7 @@ class Renderer(validated: Dashboard.Validated) {
         .get(entityId)
         .map(Cel.run(program, _, dashboard.slug))
         .filter(v =>
-          VarKey.ValueToken.matches(v) && refusals(Map(key -> v)).isEmpty
+          VarValue.of(v).isDefined && refusals(Map(key -> v)).isEmpty
         )
         .map(key -> _)
     }.toMap
@@ -586,7 +587,7 @@ class Renderer(validated: Dashboard.Validated) {
   private[runtime] def choicePress(
       slug: String,
       key: VarKey,
-      value: Option[String],
+      value: Option[VarValue],
       shared: Shared
   ): Option[String] = {
     val id = CallDecl.SetVar(key.name, value).id

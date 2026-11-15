@@ -27,7 +27,7 @@ enum CallDecl derives CanEqual:
   /** This viewer's choice of the node variable `variable`, its declarer the
     * nearest one at the pressing node; `None` clears the choice.
     */
-  case SetVar(variable: String, value: Option[String])
+  case SetVar(variable: String, value: Option[VarValue])
 
   def all: List[ValueExpr] = this match
     case Service(service, target, data, exclude) =>
@@ -59,6 +59,7 @@ enum CallField derives CanEqual:
 
 object CallDecl:
   import Strict.listMap
+  import io.github.iltotore.iron.circe.given
 
   given Decoder[CallDecl] =
     ConfiguredDecoder.derived(using Strict.configuration)

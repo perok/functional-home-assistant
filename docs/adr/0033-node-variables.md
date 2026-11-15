@@ -201,8 +201,9 @@ option and puts the select above the cards beneath it; `c.history.chooser` is on
 `c.controlChooser` one over the main controls. Each option is a `tab` node whose tap is
 `Variable.choose`: a declared call of the `SetVar` kind (ADR 0023), posted by `tapMod.post` as a
 service call is, the pending ask (`{{{tap.pending}}}`) written first. Its name and value are typed
-as plain tokens, since they are spelled into signal names, the URL and a JS string; `validate`
-holds a choice to them, and refuses one placed where nothing at or above declares its variable. A button per node is what lets each have its own busy signal (ADR 0019). One generic
+as plain tokens, since they are spelled into signal names, the URL and a JS string; a choice's
+value is a `VarValue`, refused at decode otherwise, and `validate` refuses one placed where
+nothing at or above declares its variable. A button per node is what lets each have its own busy signal (ADR 0019). One generic
 chooser rather than a card per variable: a card per variable copied the same regions and template.
 Neither a shipped chooser nor its reader's `.fromChooser()` takes the variable's name, so the pair
 cannot drift.
