@@ -69,6 +69,11 @@ export FH_PKL_CACHE_DIR=/data/pkl-cache
 # than hardcoded, so it stays right if that moves.
 export FH_INSTANCE_URL="http://127.0.0.1:${PORT}"
 
+# The site evaluation runs in a JVM of its own that exits with it: in process,
+# pkl-core's stdlib caches keep up to three evaluated sites reachable (~250 MB
+# on the Pi's workspace) and the heap stays grown (docs/plan-memory-hunt.md).
+export FH_PKL_EVAL=child
+
 # The heap ceiling is a NUMBER, not a fraction of the machine.
 # `-XX:MaxRAMPercentage` reads the cgroup limit when there is one and the
 # HOST's physical RAM when there is not — and the supervisor puts no memory
