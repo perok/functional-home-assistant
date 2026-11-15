@@ -1129,7 +1129,7 @@ facts {
       rangeMin = 1
       rangeMax = 255
       position = (simpleMod.attr("brightness")) {
-        default = "0"
+        default = "1"
         bypassUnavailable = false
       }
       fill = (simpleMod.fill("brightness", 1, 255)) {

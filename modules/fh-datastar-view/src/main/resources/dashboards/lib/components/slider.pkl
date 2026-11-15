@@ -160,11 +160,13 @@ class EntitySlider extends sliderBase.Slider {
   active = slotMod.activeOf(entity) ?? false
   title = slotMod.labelSlot(entity, label)
   glyph = if (icon != null) icons.mdiClass(icon!!) else null
-  // An unavailable entity reads "0", not "unavailable".
+  // An entity without the attribute (off, unavailable) reads the bottom of the
+  // range, not "unavailable": the drag signal adopts it, and a press posting a
+  // value outside the range is refused (`commitTap`'s check).
   position =
-    (if (element != null) slotMod.celReading("\(valueExpr).optMap(v, math.round(v)).orValue(0.0)")
+    (if (element != null) slotMod.celReading("\(valueExpr).optMap(v, math.round(v)).orValue(\(rangeMin.toFloat()))")
     else simpleMod.attr(valueAttr)) {
-      default = "0"
+      default = rangeMin.toString()
     }
   // Not rounded: beer.min.js recomputes the same percentage unrounded after
   // every morph, and a rounded value twitched into place.

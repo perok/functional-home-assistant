@@ -165,6 +165,50 @@ class LightSliderSuite extends CatsEffectSuite {
     }
   }
 
+  // A light that is on without its level (just turned on, back from
+  // unavailable): the drag signal adopts what the page seeds, so a seed the
+  // range check refuses makes every press without a drag fail.
+  test("a slider without its level seeds a value its own range check takes") {
+    val levels = Set("brightness", "color_temp_kelvin", "hs_color")
+    def levelless(e: FixtureEntity) =
+      e.copy(attributes = e.attributes.removedAll(levels))
+    val range = """<input[^>]*type="range"[^>]*>""".r
+    def attr(tag: String, name: String) =
+      s"""\\s$name="([^"]*)"""".r.findFirstMatchIn(tag).map(_.group(1).toDouble)
+    def seeds(html: String) =
+      range
+        .findAllIn(html)
+        .toList
+        .map(t => (attr(t, "min"), attr(t, "value"), attr(t, "max")))
+    for {
+      lampSeeds <- served(levelless(lamp))(_.load().map(d => seeds(d.html)))
+      dimmed <- served(levelless(dimmer)) { ts =>
+        for {
+          doc <- ts.load()
+          at <- ts.pressWhere(_.data.contains("brightness"))
+          seeded = seeds(doc.html).collectFirst { case (_, Some(v), _) =>
+            v.toInt
+          }
+          status <- ts.post(
+            at,
+            body = s"""{"posted":{"slide":${seeded.getOrElse(-1)}}}"""
+          )
+          calls <- ts.fake.recordedCalls
+        } yield (seeds(doc.html), status, calls.size)
+      }
+    } yield {
+      val (dimmerSeeds, status, calls) = dimmed
+      val all = lampSeeds ++ dimmerSeeds
+      assert(all.nonEmpty, clue = "no range input on either page")
+      all.foreach {
+        case (Some(lo), Some(v), Some(hi)) =>
+          assert(lo <= v && v <= hi, clue = (lo, v, hi))
+        case other => fail(s"a range input without min, value and max: $other")
+      }
+      assertEquals((status, calls), (Status.NoContent, 1))
+    }
+  }
+
   test("a hue list whose first element leaves the range is refused") {
     served(lamp) { ts =>
       for {

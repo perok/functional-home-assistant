@@ -1992,7 +1992,8 @@ class PklBuildSuite extends munit.FunSuite {
       slots("value").expr.source,
       Value.Entity(None, Part.Attr("brightness"), bypassUnavailable = false)
     )
-    assertEquals(slots("value").expr.default, Some(fh.view.model.Lit.Text("0")))
+    // The bottom of the range, which the press's range check lets through.
+    assertEquals(slots("value").expr.default, Some(fh.view.model.Lit.Text("1")))
   }
 
   test("a slider with children is the same card, holding ordinary nodes") {

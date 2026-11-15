@@ -200,7 +200,7 @@
                           "type" : "bool"
                         },
                         "value" : {
-                          "default" : "0",
+                          "default" : "1",
                           "signal" : {
                             "kind" : "Attr",
                             "name" : "value"
@@ -409,7 +409,7 @@
                           "type" : "bool"
                         },
                         "value" : {
-                          "default" : "0",
+                          "default" : "2000",
                           "signal" : {
                             "kind" : "Attr",
                             "name" : "value"
@@ -1035,7 +1035,7 @@
                           "type" : "bool"
                         },
                         "value" : {
-                          "default" : "0",
+                          "default" : "1",
                           "signal" : {
                             "kind" : "Attr",
                             "name" : "value"
@@ -1244,7 +1244,7 @@
                           "type" : "bool"
                         },
                         "value" : {
-                          "default" : "0",
+                          "default" : "2000",
                           "signal" : {
                             "kind" : "Attr",
                             "name" : "value"
