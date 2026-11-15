@@ -155,7 +155,10 @@ Deciding is evaluate `by`, take the case whose `is` equals it, else `otherwise`,
   in a guard reading the candidate, and an unguarded member is `Fixed`. No case holding and no
   `otherwise` is today's "not rendered". The presence fold stays in Pkl (`query.pkl` `buildSet`
   folds presence into each clause), so each member's `by` is what is left for that candidate.
-  Whether equal guards are shared is open question 3.
+  The wire keeps one `by` per candidate. The compile shares what is equal, by key, as it shares
+  signals and CEL programs: equal guards are compiled once, and one that reads no member (a
+  `q.entity(x)` term, a variable) is evaluated once per decision for every member. A guard that
+  reads the member shares its compiled form, never its answer.
 - **A fetch window** stays `Choice[Window]`, as built.
 
 The author's side:
@@ -302,6 +305,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    - `Fill.Set` with members as `Choice[LayoutNode]` and its `of`, `IndexOfTrue`, `.of(set)`, the
      `group` card; `SetNode` goes from Pkl, the wire, `Ready`, `Validate` and `Renderer`, and
      `groupOpen` goes.
+   - Equal guards shared by key (§3), with a test that two members with equal guards and
+     different states are decided apart.
    - Goldens byte-identical, area sets (`UseCaseSuite`'s rendered rooms) included. Bench
      `publishSetOrdered`, `leaderRow`, `tickRender`, and `validated` timing. Pkl fact: a set beside
      other content is an error.
@@ -350,6 +355,13 @@ variables. This plan is deleted when the work lands.
   needs a page load. And each dashboard is its own renderer and publisher (ADR 0021) with its own
   access rule and call allowlist (ADR 0023), so a swap changes the session's renderer and re-checks
   access, the renderer swap round 12 of this design named. Its own plan, after R4.
+- **One guard for many members, on the wire.** `members` repeats an equal guard per candidate
+  (about 3–8% of a set's JSON in `sets.json` and `starter.json`; the nodes are the rest).
+  Candidates could be grouped by an equal guard (`guards: [{by, candidates}]`), at the cost of a
+  member no longer being a `Choice`. The query API could make the choice explicit instead: today
+  `where((e) -> q.entity(x).stateIs("on"))` reads no member yet lands in every member's guard; a
+  condition on the set itself ("show the whole set while …", named other than the keyword
+  `when`) would be one guard on the set, and `where` would stay per member.
 
 ## Open questions
 
@@ -360,12 +372,9 @@ variables. This plan is deleted when the work lands.
    by id, so `v.choose` no longer spells a URL. Before R1 (it lets `below`/`Spelling` and the
    `@@VAR` token go, gives step 0 its route, and lets R4 lift the call-field refusal), or later,
    with those kept.
-3. **Set guards repeat per candidate**: on the wire, `members` holds one `by` per candidate, the
-   same expression where the fold left the same residual. Keep that, sharing in the compile what
-   is equal, or group candidates by an equal guard on the wire.
-4. **The select's dropdown label over a variable** is a bake group only so the first HTML shows the
+3. **The select's dropdown label over a variable** is a bake group only so the first HTML shows the
    chosen option (`select.pkl:15`). A value slot reading the variable could show it, but it sits
    on a structure card, which refuses a live slot written as bytes; settle it in R3.
-5. **Not built until a card needs it:** a cell class whose name an expression computes
+4. **Not built until a card needs it:** a cell class whose name an expression computes
    (`cellClassFrom(state.match(…))`, expanded in Pkl to one bool per literal arm), and `Step.Match`
    with typed keys like `Case.is`.
