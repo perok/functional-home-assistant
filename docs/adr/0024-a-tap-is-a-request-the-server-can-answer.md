@@ -79,9 +79,10 @@ case than the bug it replaces, which is why it needs no retry of its own.
 
 **3. A tap that cannot be served says so — as page state, not as a status.**
 204 was indistinguishable from success. Every refusal now answers **200 carrying
-`datastar-patch-signals`**: HA rejecting the service call, this dashboard not
-naming the entity, a surface id this build no longer has, a `conn` held by
-another slug. One function answers all of them (`Server.actionRefused`), so
+`datastar-patch-signals`**: HA rejecting the service call, a call this dashboard
+does not declare or the pressed node does not place, a press whose node showed
+the call otherwise (ADR 0023's `seen`), a posted value of the wrong type, a
+surface id this build no longer has, a `conn` held by another slug. One function answers all of them (`Server.actionRefused`), so
 "an action reports its refusal" is a rule rather than a habit each route
 follows.
 
@@ -123,7 +124,14 @@ exists to remove.
 A call over a set that finds no candidate present at the press (ADR 0023) is not
 a refusal but a success: 204, with no call to HA. Nothing to act on is already
 the state the press asked for (an "all off" with everything off), and a refusal
-would paint the control as failed for doing what it says. Not built: a success
+would paint the control as failed for doing what it says.
+
+A refused `seen` names the field and both values (`service: "lock/lock" shown,
+"lock/unlock" now`), so the toast says what moved. One effect of it: Datastar
+retries a press whose answer was lost. If HA had acted, the retry finds the state
+moved and is refused, so the viewer sees a refusal for a press that worked. A
+call whose service is a literal has no `seen`, so its retry acts again, as it
+always did. Not built: a success
 answer ("Turned off 3 lights"). The toast is this ADR's error channel, so one
 would need a neutral look and a signal of its own; meanwhile the label says what
 a press will do (ADR 0034) and the state change shows what it did.

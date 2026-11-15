@@ -9,7 +9,7 @@ import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
 import fh.view.auth.{AuthSessions, HaOAuth}
 import fh.view.build.{Minifier, PklDump, Site}
-import fh.view.model.{Access, Dashboard}
+import fh.view.model.{Access, CallDecl, Dashboard}
 import fh.view.telemetry.{Logging, Meters, Telemetry}
 import fh.view.testkit.{
   FakeConfig,
@@ -145,6 +145,36 @@ final class TestServer(
       Request[IO](Method.GET, Uri.unsafeFromString(s"/d/$slug$query")),
       as
     )
+
+  /** The call the page renders on `node`, as its browser posts it. */
+  def pressOf(
+      node: String,
+      query: String = "",
+      as: Option[String] = Some(auth.defaultSession)
+  ): IO[String] =
+    page(query, as).map(html =>
+      TestServer
+        .pressIn(html, node)
+        .getOrElse(
+          sys.error(s"no call on $node in the page: $html")
+        )
+    )
+
+  /** The press of a call the page may not have opened (a popup's, a panel's):
+    * the first whose declaration `p` holds for.
+    */
+  def pressWhere(p: CallDecl => Boolean): IO[String] =
+    presses.map(
+      _.collectFirst { case (d, url) if p(d) => url }
+        .getOrElse(sys.error("no such call on the dashboard"))
+    )
+
+  /** Every call a node outside a set places, beside its press. */
+  def presses: IO[List[(CallDecl, String)]] =
+    server
+      .liveSlug(slug)
+      .flatMap(_.renderer.get)
+      .map(_.rendererOf.toList.flatMap(_.presses(slug)))
 
   /** An action that works answers 204 and nothing else; the effect is the
     * recorded [[ServiceCall]].
@@ -327,6 +357,14 @@ final class TestServer(
 }
 
 object TestServer {
+
+  /** `tapMod.post`'s URL for `node` in `html`: what a press on it posts to. */
+  def pressIn(html: String, node: String): Option[String] =
+    s"""sse/call/[^/']+/[0-9a-f]{16}\\?node=${java.util.regex.Pattern.quote(
+        node
+      )}'""".r
+      .findFirstIn(html)
+      .map(_.stripSuffix("'"))
 
   final case class Document(html: String, stream: Uri, conn: String)
 

@@ -69,7 +69,7 @@ class ActionSignalNamesSuite extends CatsEffectSuite {
           val req = Request[IO](
             Method.POST,
             Uri.unsafeFromString(
-              s"/sse/call/x/light/toggle/entity/${light.entityId}" +
+              "/sse/call/x/0123456789abcdef" +
                 s"?${Server.NodeParam}=$nodeId&${Server.GroupParam}=$groupId"
             )
           )

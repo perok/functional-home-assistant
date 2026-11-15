@@ -6,6 +6,7 @@ import fh.view.model.{
   SortTerm,
   Access,
   Activation,
+  CallDecl,
   CardDef,
   Case,
   Cell,
@@ -256,6 +257,11 @@ class WireShapeSuite extends munit.FunSuite {
     check("PresentList", Value.Present(Nil, Map.empty))
     check("ListRead", Value.List(ValueType.Bool, Nil))
     check("VarRead", Value.Var("x"))
+    check("PostedRead", Value.Posted("x", ValueType.Int))
+    check(
+      "CallDecl",
+      CallDecl(ValueExpr.literal("a/b"), scala.collection.immutable.ListMap())
+    )
     check("Attr", Part.Attr("x"))
     check("Whole", Part.Whole)
     // Scala's `inputs` is Pkl's `wireInputs`: Pkl's `inputs` is the hidden one.
@@ -284,6 +290,7 @@ class WireShapeSuite extends munit.FunSuite {
     check("AnyOfStep", Step.AnyOf)
     check("CompareStep", Step.Compare(Op.Eq, lit))
     check("NotStep", Step.Not)
+    check("CheckStep", Step.Check(Nil))
     check("FirstStep", Step.First())
     check("ThemeClassesStage", Step.ThemeClasses)
     check("JsonStage", Step.Json)
@@ -316,7 +323,8 @@ class WireShapeSuite extends munit.FunSuite {
           "Tally",
           "ListRead",
           "CelRead",
-          "VarRead"
+          "VarRead",
+          "PostedRead"
         ),
       (caseNames[Step] - "Simple" - "Stage" ++ caseNames[
         Step.Simple
@@ -337,6 +345,7 @@ class WireShapeSuite extends munit.FunSuite {
         "AnyOfStep",
         "CompareStep",
         "NotStep",
+        "CheckStep",
         "FirstStep",
         "ThemeClassesStage",
         "JsonStage",

@@ -66,6 +66,20 @@ final case class ValueExpr(
     case ValueExpr.Inner.Input(e)     => e.entities
   } ++ dependsOn
 
+  /** Every named entity read at any depth, with the part it takes: a call's
+    * field reading any is seen ([[Ready.Compile]]).
+    */
+  def entityReads: Set[(String, Part)] =
+    all.flatMap { e =>
+      (e.source match
+        case Value.Entity(Some(of), part, _, _) => List(of -> part)
+        case _                                  => Nil
+      ) ++ e.parts.collect {
+        case ValueExpr.Inner.Operand(Value.Entity(Some(of), part, _, _)) =>
+          of -> part
+      }
+    }.toSet
+
   /** Whether any read names no entity after [[about]]: on a card with none. */
   def readsMissingSubject: Boolean =
     (source match
@@ -130,7 +144,7 @@ final case class ValueExpr(
     (source match
       case Value.Cel(src, in) => List(src -> in)
       case _                  => Nil
-    ) ++ steps.collect { case Step.Cel(src, in) => src -> in }
+    ) ++ steps.flatMap(Step.cels)
 
   /** It and every expression inside it ([[parts]]) at any depth, each with
     * whether its CELs see the node's inputs: a guard and an order term, read
@@ -220,6 +234,7 @@ final case class ValueExpr(
       case Value.Entity(_, Part.Whole, _, _)   => plain(ValueType.Entity)
       case Value.Fetch(_)                      => plain(ValueType.Series)
       case Value.Var(_)                        => plain(ValueType.Text)
+      case Value.Posted(_, t)                  => plain(t)
       case Value.Present(_, when)              =>
         when.toList
           .sortBy(_._1)
@@ -234,23 +249,40 @@ final case class ValueExpr(
       case _ => None
     }
     val checked = orderErrors.fold(start)(e => Left(ValueExpr.Mistyped(e)))
-    steps.foldLeft(checked)((acc, step) =>
-      acc.flatMap(t =>
-        step match
-          case Step.Cel(src, own) => cel(src, own, Some(t.out), t.keys)
-          case s                  =>
-            ValueType
-              .after(s, t.out)
-              .left
-              .map(ValueExpr.Mistyped(_))
-              .map(o => t.copy(out = o))
+    def through(
+        from: Either[ValueExpr.Mistyped, ValueExpr.Typed],
+        ss: List[Step]
+    ): Either[ValueExpr.Mistyped, ValueExpr.Typed] =
+      ss.foldLeft(from)((acc, step) =>
+        acc.flatMap(t =>
+          step match
+            case Step.Cel(src, own) => cel(src, own, Some(t.out), t.keys)
+            case Step.Check(test)   =>
+              through(Right(t), test).flatMap(tested =>
+                Either.cond(
+                  tested.out == ValueType.Bool,
+                  t.copy(keys = tested.keys),
+                  ValueExpr.Mistyped(
+                    s"has a check whose test is ${tested.out.name}, not a bool"
+                  )
+                )
+              )
+            case s =>
+              ValueType
+                .after(s, t.out)
+                .left
+                .map(ValueExpr.Mistyped(_))
+                .map(o => t.copy(out = o))
+        )
       )
-    )
+    through(checked, steps)
 
   /** Live: what it answers moves, so a once-read cannot hold it. */
   lazy val isLive: Boolean =
     (source match
-      case Value.Literal(_) | Value.List(_, _) | Value.Cel(_, _) => false
+      case Value.Literal(_) | Value.List(_, _) | Value.Cel(_, _) |
+          Value.Posted(_, _) =>
+        false
       case Value.Entity(_, _, _, _) | Value.Fetch(_) | Value.Present(_, _) |
           Value.Var(_) =>
         true
@@ -269,13 +301,18 @@ final case class ValueExpr(
       // A window chosen by state follows it.
       case Value.Fetch(f) => f.window.entities
       case Value.Literal(_) | Value.List(_, _) | Value.Cel(_, _) |
-          Value.Var(_) =>
+          Value.Var(_) | Value.Posted(_, _) =>
         Nil
     ) ++ partEntities
 
   /** Every node variable it reads, at any depth: what makes it per viewer. */
   def variables: List[String] =
     all.map(_.source).collect { case Value.Var(n) => n }.distinct
+
+  /** Whether it reads what a press posts, at any depth. */
+  def readsPosted: Boolean = all.exists(_.source match
+    case _: Value.Posted => true
+    case _               => false)
 
 object ValueExpr:
 
@@ -388,15 +425,17 @@ object ValueType:
   val Series: ValueType = List(List(Real))
 
   /** A list source's item type, as Pkl names it. */
-  given Decoder[ValueType] = Decoder[String].emap {
-    case "text"   => Right(Text)
-    case "bool"   => Right(Bool)
-    case "int"    => Right(Int)
-    case "real"   => Right(Real)
-    case "dyn"    => Right(Dyn)
-    case "entity" => Right(Entity)
-    case other    => Left(s"unknown item type: $other")
-  }
+  given Decoder[ValueType] = Decoder[String].emap(named)
+
+  private def named(s: String): Either[String, ValueType] = s match
+    case "text"       => Right(Text)
+    case "bool"       => Right(Bool)
+    case "int"        => Right(Int)
+    case "real"       => Right(Real)
+    case "dyn"        => Right(Dyn)
+    case "entity"     => Right(Entity)
+    case s"list($of)" => named(of).map(List(_))
+    case other        => Left(s"unknown item type: $other")
 
   private val numberLike = Set[ValueType](Text, Int, Real, Dyn)
 
@@ -432,6 +471,7 @@ object ValueType:
       case _: Step.Chart     => takes(in == Series, "a fetch's series", TextRaw)
       case Step.ThemeClasses => takes(in == Text, "text", Text)
       case _: Step.Cel       => Right(Dyn)
+      case _: Step.Check     => Right(in)
 
   /** What becomes text where it meets its slot, and only there: between steps
     * nothing converts. `dyn` passes, since an attribute or CEL's `dyn` may be
@@ -443,6 +483,7 @@ object ValueType:
     case SlotType.Text    => shown(out)
     case SlotType.TextRaw => shown(out) || out == TextRaw
     case SlotType.Bool    => out == Bool || out == Dyn
+    case SlotType.Number  => out == Int || out == Real || out == Dyn
 
 /** A literal as Pkl wrote it. A number is typed by its spelling: a Pkl `Float`
   * `2.0` and an `Int` `2` are one value, and CEL's compiler types them apart.
@@ -526,6 +567,11 @@ enum Value derives CanEqual:
     */
   case Var(name: String)
 
+  /** What the press posted under `key`, decoded as `type`: one request's, read
+    * only by its call, so `validate` keeps it out of every slot.
+    */
+  case Posted(key: String, `type`: ValueType)
+
 object Value:
 
   /** What a step reads besides the value before it. Pkl writes only these
@@ -551,7 +597,9 @@ object Value:
   def about(subject: Option[String])(v: Value): Value = v match
     case e: Entity      => named(subject)(e)
     case List(t, items) => List(t, items.map(_.about(subject)))
-    case v @ (Literal(_) | Fetch(_) | Present(_, _) | Cel(_, _) | Var(_)) => v
+    case v @ (Literal(_) | Fetch(_) | Present(_, _) | Cel(_, _) | Var(_) |
+        Posted(_, _)) =>
+      v
 
   /** [[ValueExpr.parts]] of a source. */
   def parts(v: Value): scala.List[ValueExpr.Inner] = v match
@@ -559,7 +607,8 @@ object Value:
       when.values.toList.map(ValueExpr.Inner.PerMember(_))
     case List(_, items) => items.map(ValueExpr.Inner.Item(_))
     case Cel(_, inputs) => inputs.values.toList.map(ValueExpr.Inner.Input(_))
-    case Literal(_) | Entity(_, _, _, _) | Fetch(_) | Var(_) => Nil
+    case Literal(_) | Entity(_, _, _, _) | Fetch(_) | Var(_) | Posted(_, _) =>
+      Nil
 
   /** An entity read that names none, reading `subject`. */
   def named(subject: Option[String])(e: Entity): Entity =
@@ -584,7 +633,8 @@ object Value:
       items.map(i => sized(i.inputKey)).mkString("list(", "", ")")
     case Cel(src, inputs) =>
       s"cel:${src.length}:$src" + ValueExpr.inputsKey(inputs)
-    case Var(name) => s"var:${sized(name)}"
+    case Var(name)      => s"var:${sized(name)}"
+    case Posted(key, t) => s"posted:${sized(key)}:${t.name}"
 
   private def sized(k: String) = s"${k.length}:$k"
 
@@ -629,11 +679,14 @@ object Value:
         case "Var" =>
           Strict.only(c, Set("kind", "name")) *>
             c.get[String]("name").map(Var(_))
+        case "Posted" =>
+          Strict.only(c, Set("kind", "key", "type")) *>
+            (c.get[String]("key"), c.get[ValueType]("type")).mapN(Posted.apply)
         case other =>
           Left(
             DecodingFailure(
               s"unknown value kind '$other' — Entity, Fetch, Present, " +
-                "List, Cel or Var, or a bare literal",
+                "List, Cel, Var or Posted, or a bare literal",
               c.history
             )
           )
@@ -737,6 +790,13 @@ object Step:
   final case class Match(cases: Map[String, Lit], otherwise: Value.Operand)
       extends Simple
 
+  /** The value, while the `steps` over it come out `true`; otherwise no value.
+    * The test sees the value and ends in a bool, and the value itself passes
+    * through unchanged: a slot's `default` fills a failed check, and a call's
+    * field refuses the press.
+    */
+  final case class Check(steps: List[Step]) extends Step
+
   /** The renderer's own steps. */
   sealed trait Stage extends Step
 
@@ -782,6 +842,7 @@ object Step:
       case Fill(a, b)     => Fill(v(a), v(b))
       case Match(cs, o)   => Match(cs, v(o))
       case Compare(op, t) => Compare(op, v(t))
+      case Check(ss)      => Check(ss.map(about(subject)))
       case s @ (_: Cel | _: First | _: Duration | Count | AllOf | AnyOf | Not |
           ThemeClasses | Json | JsonText | _: Chart) =>
         s
@@ -813,6 +874,7 @@ object Step:
     case Json         => "json"
     case JsonText     => "jsonText"
     case _: Chart     => "chart"
+    case _: Check     => "check"
 
   /** [[ValueExpr.parts]] of a step. */
   def parts(s: Step): List[ValueExpr.Inner] =
@@ -827,6 +889,7 @@ object Step:
       case Compare(_, t)  => List(Operand(t))
       case Cel(_, inputs) => inputs.values.toList.map(Input(_))
       case First(orderBy) => orderBy.map(o => PerMember(o.by))
+      case Check(ss)      => ss.flatMap(parts)
       case _: Duration | Count | AllOf | AnyOf | Not | ThemeClasses | Json |
           JsonText | _: Chart =>
         Nil
@@ -862,6 +925,13 @@ object Step:
       case Json           => "json"
       case JsonText       => "jsonText"
       case Chart(style)   => s"chart:$style"
+      case Check(ss)      => ss.map(key).mkString("check(", ",", ")")
+
+  /** Every CEL of a step, a check's test's included. */
+  def cels(s: Step): List[(String, Map[String, ValueExpr])] = s match
+    case Cel(src, in) => List(src -> in)
+    case Check(ss)    => ss.flatMap(cels)
+    case _            => Nil
 
   given Decoder[Step] =
     ConfiguredDecoder.derived(using Strict.configuration)

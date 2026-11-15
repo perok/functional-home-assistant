@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import api.homeassistant.{HomeAssistantApi, ServiceTarget}
 import scala.util.chaining.*
-import cats.data.{NonEmptyList, OptionT}
+import cats.data.{EitherT, NonEmptyList, OptionT}
 import cats.effect.{IO, Resource}
 import cats.effect.kernel.Ref
 import cats.effect.std.Supervisor
@@ -23,6 +23,9 @@ import fh.view.history.{ChartRenderer, History, SeriesSource}
 import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.model.{
   Ready,
+  CallDecl,
+  CallField,
+  CallId,
   ChromeColors,
   Dashboard,
   DomId,
@@ -30,13 +33,15 @@ import fh.view.model.{
   Permission,
   SignalId,
   SlotRead,
-  TapCall,
+  SlotValue,
   ThemeClasses,
-  Step
+  Step,
+  Value,
+  ValueType
 }
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
-import io.circe.{Decoder, Json}
+import io.circe.{Decoder, Json, JsonObject}
 import org.http4s.*
 import org.http4s.circe.*
 import org.http4s.dsl.io.*
@@ -218,11 +223,10 @@ class Server(
     // `domain` is the service's, not always the target's
     // (`homeassistant.toggle` on a `light`). `kind` is `entity`, `area` or
     // `floor`; HA expands the last two (issue #389).
-    case req @ POST -> Root / "sse" / "call" / slug / domain / service / kind / id =>
+    case req @ POST -> Root / "sse" / "call" / slug / id =>
       req.bodyText.compile.string.flatMap(body =>
-        Server.callData(body) match {
-          case Right(data) =>
-            tapCall(req, slug, domain, service, kind, id, data)
+        Server.callBody(body) match {
+          case Right(b)  => tapCall(req, slug, CallId.parse(id), b)
           case Left(why) => actionRefused(req, why)
         }
       )
@@ -252,70 +256,85 @@ class Server(
       )
   }
 
-  /** Refused unless a tap on this dashboard declares exactly this call; the
-    * value itself is free (ADR 0023). A missing or failed dashboard permits
-    * nothing.
+  /** Refused unless this dashboard declares the call and the pressed node
+    * places it; then the server runs its own evaluation of it now, the posted
+    * values being the one client input (ADR 0023). A missing or failed
+    * dashboard permits nothing.
     */
   private def tapCall(
       req: Request[IO],
       slug: String,
-      domain: String,
-      service: String,
-      kind: String,
-      id: String,
-      data: Option[(String, Json)]
+      id: CallId,
+      body: Server.CallBody
   ): IO[Response[IO]] =
     gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
       (site.permissionFor(Some(slug)), gate.of(req)).flatMapN {
         (permission, user) =>
-          TapCall
-            .targetOf(kind, id)
-            .map(TapCall(s"$domain/$service", _, data.map(_._1)))
-            .flatMap(permission.reachOf(user, _)) match {
-            case Some(reach) =>
-              targetAtPress(slug, reach).flatMap {
-                case Some(target) =>
-                  callService(
-                    domain,
-                    service,
-                    target,
-                    data.fold(Json.obj())((k, v) => Json.obj(k -> v)),
-                    req
-                  )
-                // Nothing to act on is already the state asked for.
-                case None => NoContent()
-              }
-            case None =>
-              actionRefused(
-                req,
-                s"no tap on this dashboard calls $domain/$service on $kind $id"
-              )
-          }
+          (for
+            call <- EitherT.fromOption[IO](
+              permission.callOf(user, id),
+              s"no tap on this dashboard makes the call $id"
+            )
+            posted <- EitherT.fromEither[IO](
+              Server.postedValues(call.decl, body.posted)
+            )
+            p <- EitherT(pressed(req, slug, id, call, posted))
+            _ <- EitherT.fromEither[IO](
+              Server.seenRefusal(p.seen, body.seen).toLeft(())
+            )
+          yield p).foldF(actionRefused(req, _), send(req, _))
       }
     )
 
-  /** A set's candidates present in the store now, the same rule a label's count
-    * of it reads (`Evaluator.presentOf`); `None` when none is. Only ever a
-    * subset of the candidates fixed at build, so a press reaches nothing the
-    * dashboard does not name.
+  /** The call run now, as the pressed node places it: a set member is its
+    * current clause, so a page drawn from another one is refused here when that
+    * clause's call differs, and by `seen` when both declare the same call.
     */
-  private def targetAtPress(
+  private def pressed(
+      req: Request[IO],
       slug: String,
-      reach: Ready.Reach
-  ): IO[Option[ServiceTarget]] =
-    reach match {
-      case t: ServiceTarget => IO.pure(Some(t))
-      case s: Ready.SetCall =>
+      id: CallId,
+      call: Ready.Call,
+      posted: Map[String, Any]
+  ): IO[Either[String, Renderer.Pressed]] =
+    req.uri.query.params.get(Server.NodeParam) match {
+      case None       => IO.pure(Left("the press names no node"))
+      case Some(node) =>
         rendererFor(slug).flatMap {
           case None =>
             IO.raiseError(FHError.unavailable(s"dashboard '$slug' is not live"))
           case Some(renderer) =>
             stateStore.current
-              .flatMap(decided(renderer, _)(renderer.pressed(s, _)))
-              .map((present, _) =>
-                NonEmptyList.fromList(present).map(ServiceTarget.Entities(_))
-              )
+              .flatMap(decided(renderer, _) { at =>
+                renderer
+                  .componentAt(NodeId.derived(node), at)
+                  .flatMap(c => c.calls.values.find(_.id == id).map(c -> _))
+                  .toRight(s"the node $node does not place the call $id")
+                  .flatMap((c, placed) =>
+                    renderer.press(call, placed.seen, c, at, posted)
+                  )
+              })
+              .map(_._1)
         }
+    }
+
+  private def send(req: Request[IO], p: Renderer.Pressed): IO[Response[IO]] =
+    p.service.split('/') match {
+      case Array(domain, service) =>
+        ServiceTarget.of(p.target, p.exclude) match {
+          case Some(target) =>
+            callService(
+              domain,
+              service,
+              target,
+              Json.fromFields(p.data.toList.map((k, v) => k -> Server.json(v))),
+              req
+            )
+          // Nothing to act on is already the state asked for.
+          case None => NoContent()
+        }
+      case _ =>
+        actionRefused(req, s"the service '${p.service}' is not domain/service")
     }
 
   /** `store`'s version with what `walk` reaches decided: its result, and the
@@ -2073,7 +2092,7 @@ object Server {
           case Some(live) =>
             live.renderer.get.map {
               case RendererState.Ready(r) =>
-                Permission(r.access, r.reachOf)
+                Permission(r.access, r.callOf)
               // Its page carries build diagnostics.
               case RendererState.Failed(_) => Permission.none
             }
@@ -2960,24 +2979,101 @@ object Server {
       .replace("\"", "&quot;")
       .replace("'", "&#39;")
 
-  /** A call's value, from its body `{"data": {<key>: <value>}}`, typed as the
-    * page sent it. One key at most: a tap declares one (ADR 0023). An empty
-    * body is a call with no data.
+  /** A press's body (`tapMod.post`): the values the card posts, and what the
+    * node showed of the fields it sees. A blank body is neither.
     */
-  def callData(body: String): Either[String, Option[(String, Json)]] =
-    if (body.isBlank) Right(None)
+  final case class CallBody(posted: JsonObject, seen: JsonObject)
+
+  def callBody(body: String): Either[String, CallBody] =
+    if (body.isBlank) Right(CallBody(JsonObject.empty, JsonObject.empty))
     else
       io.circe.parser
         .parse(body)
         .toOption
-        .toRight("the call's body is not JSON")
-        .flatMap(_.hcursor.downField("data").focus match {
-          case None       => Right(None)
-          case Some(data) =>
-            data.asObject.map(_.toList) match {
-              case Some(Nil)           => Right(None)
-              case Some(single :: Nil) => Right(Some(single))
-              case _ => Left("a call's data is one key and its value")
-            }
-        })
+        .flatMap(_.asObject)
+        .toRight("the call's body is not a JSON object")
+        .flatMap { o =>
+          def part(k: String) = o(k).fold(Right(JsonObject.empty))(
+            _.asObject.toRight(s"the call's $k is not an object")
+          )
+          (part("posted"), part("seen")).mapN(CallBody.apply)
+        }
+
+  /** Each posted value decoded as the source reading it declares, exactly the
+    * keys the call reads: the one client input that reaches HA.
+    */
+  def postedValues(
+      decl: CallDecl,
+      posted: JsonObject
+  ): Either[String, Map[String, Any]] = {
+    val declared = decl.all
+      .flatMap(_.all)
+      .map(_.source)
+      .collect { case Value.Posted(k, t) => k -> t }
+      .toMap
+    def as(t: ValueType, j: Json): Option[Any] = t match
+      case ValueType.Int      => j.asNumber.flatMap(_.toLong)
+      case ValueType.Real     => j.asNumber.map(_.toDouble)
+      case ValueType.Bool     => j.asBoolean
+      case ValueType.List(of) =>
+        j.asArray.flatMap(_.toList.traverse(as(of, _)))
+      case _ => j.asString
+    posted.keys.find(!declared.contains(_)) match
+      case Some(k) =>
+        Left(s"the press posted '$k', which the call does not read")
+      case None =>
+        declared.toList
+          .sortBy(_._1)
+          .traverse { (k, t) =>
+            posted(k)
+              .toRight(s"the press posted no '$k'")
+              .flatMap(j =>
+                as(t, j)
+                  .toRight(s"the posted '$k' is not ${t.name}: ${j.noSpaces}")
+              )
+              .map(k -> _)
+          }
+          .map(_.toMap)
+  }
+
+  /** Why the press is refused, if the page showed a field other than it is now:
+    * the fields it posts must be exactly the ones the node sees.
+    */
+  def seenRefusal(
+      now: List[(CallField, SlotValue)],
+      seen: JsonObject
+  ): Option[String] = {
+    val shown: Map[String, Json] =
+      seen.toList.flatMap {
+        case ("data", d) =>
+          d.asObject.toList
+            .flatMap(_.toList)
+            .map((k, v) => CallField.Data(k).name -> v)
+        case (k, v) => List(k -> v)
+      }.toMap
+    def spelt(v: SlotValue) = v match
+      case b: Boolean => Json.fromBoolean(b)
+      case d: Double  => Json.fromDoubleOrString(d)
+      case s: String  => Json.fromString(s)
+    val expected = now.map((f, v) => f.name -> v).toMap
+    shown.keys.toList.sorted.find(!expected.contains(_)) match
+      case Some(k) => Some(s"$k: not something this control shows")
+      case None    =>
+        now.collectFirst {
+          case (f, _) if !shown.contains(f.name) =>
+            s"${f.name}: not shown"
+          case (f, v) if shown(f.name) != spelt(v) =>
+            s"${f.name}: ${shown(f.name).noSpaces} shown, ${spelt(v).noSpaces} now"
+        }
+  }
+
+  /** A field's value as HA takes it. */
+  def json(v: Any): Json = v match
+    case s: String       => Json.fromString(s)
+    case b: Boolean      => Json.fromBoolean(b)
+    case n: Long         => Json.fromLong(n)
+    case n: Int          => Json.fromInt(n)
+    case d: Double       => Json.fromDoubleOrString(d)
+    case xs: Iterable[?] => Json.fromValues(xs.map(json))
+    case other           => Json.fromString(Steps.text(other))
 }

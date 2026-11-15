@@ -533,6 +533,7 @@ private[runtime] object Patches {
             name,
             value match
               case b: Boolean => Json.fromBoolean(b)
+              case d: Double  => Json.fromDoubleOrString(d)
               case s: String  => Json.fromString(s)
           )
           moved += 1

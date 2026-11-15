@@ -1,6 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
+import cats.syntax.all.*
 import fh.view.testkit.FixtureEntity
 import io.circe.Json
 import munit.CatsEffectSuite
@@ -78,13 +79,34 @@ class ColourWheelSuite extends CatsEffectSuite {
     }
   }
 
+  test("a colour outside the wheel is refused, and HA never hears it") {
+    served { ts =>
+      for {
+        at <- ts.pressWhere(_.data.contains("hs_color"))
+        refusals <- List(
+          "[400,35]",
+          "[-1,35]",
+          "[200,101]",
+          "[200,-1]",
+          "[200]",
+          "[200,35,1]"
+        ).traverse(hs => ts.postResult(at, body = s"""{"posted":{"hs":$hs}}"""))
+        calls <- ts.fake.recordedCalls
+      } yield {
+        refusals.foreach { (status, body) =>
+          assertEquals(status, Status.Ok)
+          assert(body.contains("gives no value"), clue = body)
+        }
+        assertEquals(calls, Vector.empty)
+      }
+    }
+  }
+
   test("a pastel from the wheel reaches HA as hs_color") {
     served { ts =>
       for {
-        status <- ts.post(
-          s"sse/call/${ts.slug}/light/turn_on/entity/light.lamp",
-          body = """{"data":{"hs_color":[200,35]}}"""
-        )
+        at <- ts.pressWhere(_.data.contains("hs_color"))
+        status <- ts.post(at, body = """{"posted":{"hs":[200,35]}}""")
         calls <- ts.fake.recordedCalls
       } yield {
         assertEquals(status, Status.NoContent)

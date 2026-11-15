@@ -84,6 +84,17 @@ that does not show leaves a trailing space, which HTML ignores. A piece that is 
 finished text, `""` when there is nothing, as `historyReadings` sets `postfix`
 to `" °C"`. And every slot you set must be placed somewhere in the template.
 
+A value your card's own JavaScript does arithmetic on, such as a position or
+a range end, is a `slotMod.number("pos")` slot. The build refuses a reading that
+is not a number, and the value reaches your script as a number:
+`\(pos.jsValue)` reads `180`, not `'180'`, so there is no `Number(…)` to write.
+In the markup, `\(pos)` prints it as usual.
+
+Inside a handler or any other Datastar expression (`data-on:*`, `data-effect`,
+`data-text`, …), place a text slot as `\(label.jsValue)`, never `\(label)`:
+the plain hole pastes the text into JavaScript, where a `'` in it breaks the
+handler, so the build refuses it. A number or bool slot may sit there bare.
+
 The `banner(...)` function at the bottom is just a friendlier way to write
 `new Banner { text = "..." }`. Every shipped component has one.
 
@@ -380,9 +391,10 @@ a `tapMod.busy.ifSet(…)` section around anything — the pieces bring their ow
 place them whether or not this particular card guards its tap.
 
 **Do not build the click yourself.** The slots carry more than the click: the
-service and what it acts on, which the server checks every press against, and
-for a call over a set, the set itself. A card that leaves them out has a
-button the server refuses.
+call the tap declares, which the server runs itself at every press, and what the
+card shows of it. A lock's tile shows the lock's state, so its press says which
+service it showed, and the server refuses it if the lock has moved since. A card
+that leaves the slots out has a button the server refuses.
 
 `refusedAttr` disables the control while the tap would be refused (its entity is
 unavailable, say). It is for a `<button>` or other form control; on an element
@@ -409,6 +421,40 @@ icon's slot):
 
 The spinner is separate because its class name comes from the theme, and only
 your template knows which element holds the icon.
+
+### Posting a value with the press
+
+A slider or a colour wheel sends a value only the page knows: where the drag
+ended. Say what the press posts, under a name and with the page expression that
+gives it, once for the card:
+
+```pkl
+const local dragged: slotMod.PostedRead =
+  new { key = "drag"; type = "int"; js = "Number($_{{id}}__drag)" }
+```
+
+Place the post in your template with it. `tapMod.post` writes the URL and the
+body, so you never spell either:
+
+```pkl
+data-on:change="\(tapMod.refusalGuard)\(tapMod.post(tapMod.tapCall, List(dragged)))"
+```
+
+The tap says which of HA's fields the value fills, and may give it its own type:
+
+```pkl
+c.tap.call("light/turn_on", lamp).posting("brightness", dragged)
+c.tap.call("light/turn_on", lamp).posting("hs_color", (dragged) { type = "list(real)" })
+```
+
+The server reads the value as that type and refuses a press that posts anything
+else. A value fixed at build time is not posted at all: `.with("transition", 2)`
+goes straight into the call.
+
+A page can post anything, so keep the value to what the field takes. `postingChecked`
+takes checks, and a value they refuse refuses the press before Home Assistant hears of
+it: `.postingChecked("brightness", dragged, simpleMod.within(0, 255))`, or
+`simpleMod.checkCel("value.size() == 2 && value[0] <= 360.0")` for a list.
 
 ---
 

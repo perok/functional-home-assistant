@@ -117,7 +117,7 @@ open class Axis {
   /// `hs_color[0]`.
   element: Int? = null
   /// Sent after the value, in one list: `[h, 100]` is a hue at full saturation.
-  sentWith: List<Int> = List()
+  sentWith: Int? = null
   /// When the entity is on this axis now. Null is always.
   inUseWhen: AttrIn? = null
 }
@@ -218,7 +218,7 @@ class Colour extends Axis {
   min = 0
   max = 360
   element = 0
-  sentWith = List(100)
+  sentWith = 100
   inUseWhen = new { attr = "color_mode"; values = hassLight.COLOUR_MODES }
 }
 

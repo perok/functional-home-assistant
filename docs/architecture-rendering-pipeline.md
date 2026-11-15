@@ -105,7 +105,7 @@ flowchart TB
     CHART["ChartRenderer<br/>ECharts SSR in a GraalJS isolate<br/>one context behind a Mutex (ADR 0032)"]
   end
 
-  GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>an action is bounded by its dashboard's OWN entities"]
+  GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>a call is admitted by its declared id, and only on a node that places it"]
   ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>(a popup's also from popstate: Back/Forward, ADR 0005)<br/>carries conn + the popup's ui-state<br/>a conn this process has forgotten is MINTED, not dropped (ADR 0024)<br/>the swap COMMITS ui_popups; the tap only says what it asked for (ADR 0025)"]
   VAR["node variable (ADR 0033)<br/>POST var/&lt;slug&gt;/&lt;declarer&gt;/&lt;name&gt;/&lt;value&gt; · or v. on the page URL<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press is one: it swaps the panel it selects<br/>re-renders the readers this viewer is shown, commits LAST"]
   SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>open set, holds (what this DOM has: byte-slot values, signals),<br/>position, told, vars (this viewer's choices),<br/>initialValues (where the document opened a variable)<br/>+ a backlog for a client with no stream"]
@@ -157,9 +157,9 @@ load redirects to login — a human is waiting there — and everything that pag
 with a caller-chosen `onInvalid`, not two. Admission is not one-time:
 a page has finished long before anything could change, but an SSE stream runs for hours, so the
 two SSE routes go through `handleStream`, which wraps the body in one `interruptWhen` over the
-same `Access.permits` the door used. An action POST names its dashboard in the URL and may only
-reach an entity that dashboard references — live membership varies, the candidate LIST does not.
-See ADR 0023.
+same `Access.permits` the door used. A call POST names its dashboard and a call that dashboard
+declares, by id; the server then runs its own evaluation of that call — live membership varies,
+the candidate LIST does not. See ADR 0023.
 
 **Nothing is pushed.** A frame is recorded once per slug; every byte is produced by the session that
 will receive it, from the same `Patches.resume` a reconnect runs. A live tick is a resume from
@@ -466,9 +466,21 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   browser and a programmatic `change` is swallowed by the guard. The busy class
   rides the `.fh-slider` track wrapper (and the head badge, whose icon spins
   during the commit).
+- **A press is the server's own evaluation of a declared call** (ADR 0023).
+  `POST /sse/call/<slug>/<callId>?node=<id>`, its body `{posted, seen}`, which
+  `tapMod.post` spells: `Server.tapCall` looks the id up in `Dashboard.calls`
+  and the call on the node as it stands now (`Renderer.componentAt`, so a set
+  member is its current clause), decodes `posted` as each `Posted` source
+  types it, runs every field through `decided` (a fetch answered first,
+  `Renderer.press`), refuses a `seen` that is not exactly the node's seen
+  fields at their values now, and calls HA. A seen field is a `Handler` slot
+  the build added to the node (`Ready.seenSlot`, ADR 0017), so it rides the
+  seed and the signal frames as every signal slot does, and the press reads
+  it from the page.
 - **A refusal is signals on a 200, not a status** (ADR 0024). Every refused
-  action — HA rejecting the call, a call this dashboard does not declare, an
-  unknown surface, a `conn` on another slug — goes through `Server.actionRefused`
+  action — HA rejecting the call, a call this dashboard does not declare or the
+  node does not place, a `seen` the server now disagrees with, a posted value of
+  the wrong type, an unknown surface, a `conn` on another slug — goes through `Server.actionRefused`
   and answers 200 with a `datastar-patch-signals` body: `_<node>__error` on the
   control that was pressed, `_<group>__pending` cleared, `_toast` carrying HA's
   own message. The two ids ride in the action's query string, read off

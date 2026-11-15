@@ -146,8 +146,8 @@ binds the slot, beside `signal` — the card says how its template reads the val
 has no binding of its own (`docs/terminology.md`). The build checks every place a template puts a
 slot against its type, so escaping is removed only where a card writes `textRaw` down: a live
 `onclick` handler, a service spliced into one, a chart's SVG. A `class:` binding is a bool by
-kind. One field rather than a per-card list, so another type is one more case: `"number"`, once a
-signal can carry a JSON number (a slot value is `String | Boolean` today).
+kind. One field rather than a per-card list, so another type is one more case, as `"number"` was:
+an int, a real or a `dyn`, carried as a number in its signal (ADR 0017).
 
 Text, a number, a bool and `dyn` become text where a value meets its slot, and only there: they
 fit `text` and `textRaw`, a bool printing `true` or `false`, which a client library can read.
@@ -232,7 +232,7 @@ slot, the same mechanism on its own element.
 | | |
 |---|---|
 | Which entities can move it | Shared: `ValueExpr.entities`, which for a tally walks its candidates plus the entities their residuals name. They join the node's `liveEntities` (the reverse index that wakes a page node) and `referencedEntities`, so the watched set the upstream subscription asks for (ADR 0030) and ADR 0023's bound. |
-| Evaluating it | Shared: `Evaluator`, the one compiler (ADR 0035) — `presentOf` lists a tally, `holds` decides a condition. |
+| Evaluating it | Shared: `Evaluator`, the one compiler (ADR 0035) — a tally runs as any value does, `holds` decides a condition. |
 | What fires | Not shared, deliberately. A flipped `c.iff` swaps a surface (`SurfaceGraph.affectedStateGroups`); a moved value patches a slot. Two jobs, two paths. |
 
 **The server computes the result.** The whole expression is evaluated on the server and sent the

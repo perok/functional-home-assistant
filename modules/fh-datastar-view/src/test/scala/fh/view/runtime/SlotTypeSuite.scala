@@ -11,8 +11,10 @@ import fh.view.model.{
   LayoutNode,
   Lit,
   Op,
+  SignalId,
   SlotRead,
   SlotType,
+  SlotValue,
   Step,
   TemplateSlot,
   Value,
@@ -35,8 +37,10 @@ class SlotTypeSuite extends munit.FunSuite {
     ).validate()
 
   private def literalFor(t: SlotType) =
-    ValueExpr(Value.Literal(if t == SlotType.Bool then Lit.Bool(true)
-    else Lit.Text("a")))
+    ValueExpr(Value.Literal(t match
+      case SlotType.Bool   => Lit.Bool(true)
+      case SlotType.Number => Lit.Whole(1)
+      case _               => Lit.Text("a")))
 
   private val holes = Map(
     "escaped" -> "{{x}}",
@@ -44,11 +48,44 @@ class SlotTypeSuite extends munit.FunSuite {
     "section" -> "{{#x}}on{{/x}}"
   )
 
+  test("a number is a number at both ends, a whole one without its .0") {
+    val sig = SignalId.derived("_e.light.k.t1")
+    assertEquals(Datastar.jsValue(128.0), "128")
+    assertEquals(Datastar.jsValue(0.5), "0.5")
+    assert(
+      Datastar.signalsAttr(Map(sig -> 128.0)).contains("t1: 128}"),
+      clue = Datastar.signalsAttr(Map(sig -> 128.0))
+    )
+    assertEquals(SlotValue.text(128.0), "128")
+  }
+
+  test("text pasted into a Datastar expression is refused, and nothing else") {
+    val text = TemplateSlot(ValueExpr.literal("it's"))
+    val inClick = """<b data-on:click="alert('{{x}}')"></b>"""
+    assert(
+      errors(inClick, text).exists(_.contains("inside a Datastar expression")),
+      clue = errors(inClick, text)
+    )
+    assertEquals(
+      errors("""<b data-on:click="alert({{{x.jsValue}}})"></b>""", text),
+      Nil
+    )
+    assertEquals(errors("""<b title="{{x}}"></b>""", text), Nil)
+    assertEquals(
+      errors(
+        inClick,
+        TemplateSlot(literalFor(SlotType.Number), `type` = SlotType.Number)
+      ),
+      Nil
+    )
+  }
+
   test("each slot type is placed only in the holes it names") {
     val allowed = Map(
       SlotType.Text -> Set("escaped", "section"),
       SlotType.TextRaw -> Set("raw", "section"),
-      SlotType.Bool -> Set("section")
+      SlotType.Bool -> Set("section"),
+      SlotType.Number -> Set("escaped", "section")
     )
     for
       t <- SlotType.values.toList
@@ -88,6 +125,11 @@ class SlotTypeSuite extends munit.FunSuite {
       assertEquals(
         ValueType.fits(out, SlotType.Bool),
         out == ValueType.Bool || out == ValueType.Dyn,
+        clue = out
+      )
+      assertEquals(
+        ValueType.fits(out, SlotType.Number),
+        Set(ValueType.Int, ValueType.Real, ValueType.Dyn)(out),
         clue = out
       )
   }

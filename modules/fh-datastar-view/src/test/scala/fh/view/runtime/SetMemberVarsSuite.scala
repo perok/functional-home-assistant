@@ -140,7 +140,7 @@ class SetMemberVarsSuite extends CatsEffectSuite {
           val page = viewer.document.html
           // Both start on the mode their light is in.
           assertEquals(
-            "color_temp_kelvin".r.findAllMatchIn(page).size >= 2,
+            """class="[^"]*fh-track-kelvin""".r.findAllMatchIn(page).size >= 2,
             true,
             clue = page
           )
@@ -156,7 +156,7 @@ class SetMemberVarsSuite extends CatsEffectSuite {
           // Back in the set, light.a shows the control chosen before it left.
           val arrived = back.flatMap(_.data).mkString("\n")
           assert(arrived.contains("c_1_light_a"), arrived)
-          assert(arrived.contains("hs_color"), arrived)
+          assert(arrived.contains("fh-track-hue"), arrived)
         }
       }
       .timeout(60.seconds)
@@ -210,11 +210,11 @@ class SetMemberVarsSuite extends CatsEffectSuite {
           // Off, light.a is a card: still in the set, with no `control`.
           val card = asCard.flatMap(_.data).mkString("\n")
           assert(card.contains("c_0_light_a"), card)
-          assert(!card.contains("hs_color"), card)
+          assert(!card.contains("fh-track-hue"), card)
           assertEquals(kept, Map(keyOf("c_0_light_a") -> "colour"))
           val back = asSlider.flatMap(_.data).mkString("\n")
           assert(back.contains("c_0_light_a"), back)
-          assert(back.contains("hs_color"), back)
+          assert(back.contains("fh-track-hue"), back)
         }
       }
       .timeout(60.seconds)
@@ -271,12 +271,12 @@ class SetMemberVarsSuite extends CatsEffectSuite {
           assertEquals(wrote._1, org.http4s.Status.NoContent, clue = wrote)
           // The dark clause's colour head, never the lit clause's.
           val sent = swapped.flatMap(_.data).mkString("\n")
-          assert(sent.contains("hs_color"), sent)
+          assert(sent.contains("fh-track-hue"), sent)
           assert(sent.contains("Dark") && !sent.contains("Lit"), sent)
           // Switched on, the lit clause shows the choice made while dark.
           val back = lit.flatMap(_.data).mkString("\n")
           assert(back.contains("Lit") && !back.contains("Dark"), back)
-          assert(back.contains("hs_color"), back)
+          assert(back.contains("fh-track-hue"), back)
         }
       }
       .timeout(60.seconds)

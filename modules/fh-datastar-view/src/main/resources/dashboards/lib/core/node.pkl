@@ -233,6 +233,14 @@ abstract class Node extends LayoutNode {
   ) = new {}
   /// [[slots]] as the wire holds them, by name.
   fixed templateSlots: Mapping<String, Any> = wireSlots(slots, subjectOf(slots))
+  /// The calls [[slots]] place ([[slotMod.CallSlot]]), by name.
+  hidden declared: Map<String, slotMod.CallDecl> =
+    slots.toList()
+      .filter((s) -> s is slotMod.CallSlot && s.declares != null)
+      .toMap((s) -> s.name, (s) -> (s as slotMod.CallSlot).declares!!)
+  /// [[declared]] as the wire holds it; absent on a node that places none.
+  fixed calls: Mapping<String, Any>? =
+    if (declared.isEmpty) null else declared.mapValues((_, d) -> wireCall(d)).toMapping()
   /// [[slots]] that are set, by name.
   hidden slotsByName: Map<String, slotMod.Slot> =
     slots.toList().filter((s) -> s.value != null).toMap((s) -> s.name, (s) -> s)
@@ -433,6 +441,29 @@ const local function wireReading(r: slotMod.Reading, subject: String?, themed: B
       + (if (vw != null) Map("valueWhile", wireReading(vw, subject, false)) else Map())
 
 const local themeStage: simpleMod.ThemeClassesStage = new {}
+
+// Every read named: a call has no subject, and its id is a hash of this.
+const local function wireCall(d: slotMod.CallDecl): Map<String, Any> =
+  Map(
+    "service", wireValue(d.service),
+    "target", d.target.toMap().mapValues((_, es) -> es.toList().map((e) -> wireValue(e)))
+  ) + (if (d.exclude.isEmpty) Map() else Map("exclude", d.exclude.toMap().mapValues((_, es) -> es.toList().map((e) -> wireValue(e)))))
+    + (if (d.data.isEmpty) Map() else Map("data", d.data.toMap().mapValues((_, v) -> wireValue(v))))
+
+const local function wireValue(v: Any): Any =
+  if (v is slotMod.Reading) wireReading(v, null, false)
+  else if (v is slotMod.Expr)
+    Map("source", v.source) + (if (v.steps.isEmpty) Map() else Map("steps", v.steps))
+  else if (v is List)
+    Map("source", new slotMod.ListRead {
+      itemType =
+        if (v.every((x) -> x is Boolean)) "bool"
+        else if (v.every((x) -> x is Int)) "int"
+        else if (v.every((x) -> x is Number)) "real"
+        else "text"
+      items { for (x in v) { x } }
+    })
+  else v
 
 // By name, set ones only, a reading carrying its slot's `signal` and `type`,
 // and a literal a bare value. A themed slot's value takes the theme's swap as

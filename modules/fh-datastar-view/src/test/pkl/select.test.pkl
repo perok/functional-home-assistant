@@ -45,7 +45,7 @@ facts {
     // A field Node gains must be named here: carried by `style`, or computed by
     // the card. Otherwise it is dropped by `.style(…)` without a word.
     local carried = Set("cellClasses", "layoutClasses", "stateClasses", "liveClasses", "liveStyles", "renderClasses", "id", "vars", "inputs")
-    local cards = Set("kind", "cell", "card", "cardDef", "variants", "slots", "templateSlots", "slotsByName", "children", "regions", "wireInputs", "inlineSurfaces")
+    local cards = Set("kind", "cell", "card", "cardDef", "variants", "slots", "templateSlots", "slotsByName", "declared", "calls", "children", "regions", "wireInputs", "inlineSurfaces")
     reflect.Class(nodes.LayoutNode).properties.keys + reflect.Class(nodes.Node).properties.keys == carried + cards
   }
 
@@ -107,7 +107,7 @@ facts {
     opts.map((o) -> o.slotsByName["label"].value) == List("quiet", "turbo", "it's max")
     local tap = (opts[1] as selectMod.EntityOption).tapAction
     tap.service == "select/select_option"
-    tap.dataKey == "option" && tap.dataValue == #""turbo""#
+    tap.data.toMap() == Map("option", "turbo")
     local lit = (opts[2] as selectMod.EntityOption).active as predMod.Cmp
     lit.part == null && lit.op == "eq" && lit.value == "it's max" && lit.entity == "select.robot_mode"
     // The dropdown's label is the server's, so the first HTML names it.
@@ -129,7 +129,7 @@ facts {
     // not lit, which would read as "on".
     local tap = (cyc[0] as buttonMod.Pill).tapAction as tapMod.Call
     tap.service == "light/turn_on"
-    tap.dataKey == "effect" && tap.dataValue == #""Rainbow Slow""#
+    tap.data.toMap() == Map("effect", "Rainbow Slow")
     (((cyc[1] as buttonMod.Pill).liveClasses["fh-chosen"].source as slotMod.EntityRead).part as simpleMod.Attr).name == "effect"
     (cyc[1] as buttonMod.Pill).active == false
   }

@@ -4,18 +4,21 @@ import api.homeassistant.ServiceTarget
 import cats.syntax.all.*
 import fh.view.model.{
   Access,
+  CallDecl,
   LayoutNode,
   Lit,
+  Part,
   Step,
   Value,
   ValueExpr,
   TemplateSlot
 }
-import fh.view.testkit.DashboardBuilders.{component, lit}
 import fh.view.runtime.TestServer
 import fh.view.testkit.{FixtureDashboard, HouseFixture, PklFixture, ServiceCall}
 import io.circe.Json
 import org.http4s.Status
+
+import scala.collection.immutable.ListMap
 
 /** The built dashboard's own taps are the allowlist, for every target kind:
   * anything else is one URL edit from unlocking the front door, and an area or
@@ -24,30 +27,29 @@ import org.http4s.Status
   */
 class GroupCallSuite extends FunctionalSuite {
 
+  private def decl(service: ValueExpr, key: String, id: String) =
+    CallDecl(service, ListMap(key -> List(ValueExpr.literal(id))))
+
   /** What `c.tap.lights.off(dump.areas.stue)` leaves on its node. */
   private val lightsOff: LayoutNode.Component =
-    component(
-      "light",
-      "name" -> lit("Stue"),
-      "state" -> TemplateSlot(
-        ValueExpr(Value.Entity(Some(HouseFixture.kitchenLight.entityId)))
-      ),
-      "service" -> lit("light/turn_off"),
-      "targetKind" -> lit("area"),
-      "targetId" -> lit("stue")
+    LayoutNode.Component(
+      "call",
+      calls = Map(
+        "tap" -> decl(ValueExpr.literal("light/turn_off"), "area_id", "stue")
+      )
     )
 
   private def house = scene
     .card(FixtureDashboard.light("Kitchen", HouseFixture.kitchenLight))
     .card(lightsOff)
 
+  private def offAt(ts: TestServer) =
+    FixtureDashboard.pressOf(ts.slug, lightsOff, "c_1")
+
   test("a declared area call goes to HA with the area as its target") {
     withServer(house, Access.Public) { ts =>
       for {
-        status <- ts.post(
-          s"sse/call/${ts.slug}/light/turn_off/area/stue",
-          as = None
-        )
+        status <- ts.post(offAt(ts), as = None)
         calls <- ts.fake.recordedCalls
       } yield {
         assertEquals(status, Status.NoContent)
@@ -67,7 +69,7 @@ class GroupCallSuite extends FunctionalSuite {
     }
   }
 
-  test("the URL a Pkl area tap renders is the call the server allows") {
+  test("the call a Pkl area tap renders is the call the server allows") {
     val dump = HouseFixture.transformedDump.mapObject(
       _.add(
         "areas",
@@ -93,11 +95,7 @@ class GroupCallSuite extends FunctionalSuite {
       )
       .use { ts =>
         for {
-          html <- ts.page(as = None)
-          click = """@post\((.*?), \{filterSignals""".r
-            .findFirstMatchIn(html)
-            .fold(fail(s"no action on the page: $html"))(_.group(1))
-          url = """'([^']*)'""".r.findAllMatchIn(click).map(_.group(1)).mkString
+          url <- ts.pressOf("c_0", as = None)
           status <- ts.post(url, as = None)
           calls <- ts.fake.recordedCalls
         } yield {
@@ -110,73 +108,159 @@ class GroupCallSuite extends FunctionalSuite {
       }
   }
 
-  /** What a lock's default tap leaves on its node: the service its state picks.
+  private val door = HouseFixture.frontLock.entityId
+
+  /** What a lock's tap leaves on a card that shows the lock: the service its
+    * state picks, which the card sees.
     */
   private val lockTap: LayoutNode.Component =
-    component(
-      "light",
-      "name" -> lit("Door"),
-      "state" -> TemplateSlot(
-        ValueExpr(Value.Entity(Some(HouseFixture.frontLock.entityId)))
+    LayoutNode.Component(
+      "callShowing",
+      templateSlots = Map(
+        "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(door))))
       ),
-      "service" -> TemplateSlot(
-        ValueExpr(
-          Value.Entity(Some(HouseFixture.frontLock.entityId)),
-          List(
-            Step.Match(
-              Map("locked" -> Lit.Text("lock/unlock")),
-              Value.Literal(Lit.Text("lock/lock"))
+      calls = Map(
+        "tap" -> decl(
+          ValueExpr(
+            Value.Entity(Some(door)),
+            List(
+              Step.Match(
+                Map("locked" -> Lit.Text("lock/unlock")),
+                Value.Literal(Lit.Text("lock/lock"))
+              )
             )
-          )
+          ),
+          "entity_id",
+          door
         )
-      ),
-      "targetKind" -> lit("entity"),
-      "targetId" -> lit(HouseFixture.frontLock.entityId)
+      )
     )
 
-  test("a service the state picks declares every arm it can post") {
+  test("a service the state picks is acted on only as the page saw it") {
     withServer(scene.card(lockTap), Access.Public) { ts =>
-      val door = HouseFixture.frontLock.entityId
+      val at = FixtureDashboard.pressOf(ts.slug, lockTap, "c_0")
+      def seen(json: String) = s"""{"seen":$json}"""
       for {
-        unlock <- ts.post(s"sse/call/${ts.slug}/lock/unlock/entity/$door", None)
-        lock <- ts.post(s"sse/call/${ts.slug}/lock/lock/entity/$door", None)
-        open <- ts.postResult(
-          s"sse/call/${ts.slug}/lock/open/entity/$door",
-          None
-        )
+        stale <- ts.postResult(at, None, seen("""{"service":"lock/lock"}"""))
+        unseen <- ts.postResult(at, None, seen("{}"))
+        unlock <- ts.post(at, None, seen("""{"service":"lock/unlock"}"""))
+        _ <- ts.record(HouseFixture.frontLock.copy(state = "unlocked"))
+        lock <- ts.post(at, None, seen("""{"service":"lock/lock"}"""))
         calls <- ts.fake.recordedCalls
       } yield {
+        assert(
+          stale._2.contains(
+            """service: \"lock/lock\" shown, \"lock/unlock\" now"""
+          ),
+          clue = stale
+        )
+        assert(unseen._2.contains("service: not shown"), clue = unseen)
         assertEquals((unlock, lock), (Status.NoContent, Status.NoContent))
-        assert(open._2.contains("no tap on this dashboard calls"), clue = open)
         assertEquals(calls.map(_.service), Vector("unlock", "lock"))
       }
     }
   }
 
-  test("every part of the call is checked, not only the area") {
-    val undeclared = List(
-      // Named by the dashboard, but no tap calls this on it.
-      s"light/turn_off/entity/${HouseFixture.kitchenLight.entityId}" -> "",
-      "lock/unlock/area/stue" -> "",
-      "light/turn_off/area/kjokken" -> "",
-      "light/turn_off/floor/stue" -> "",
-      "light/turn_off/device/stue" -> "",
-      "light/turn_off/area/stue" -> """{"data":{"brightness":100}}"""
-    )
-    withServer(house, Access.Public) { ts =>
+  /** A lock's state-picked service on a node that paints nothing of the lock: a
+    * button beside the card that shows it.
+    */
+  private val lockButton: LayoutNode.Component =
+    lockTap.copy(card = "call", templateSlots = Map.empty)
+
+  test("a service the state picks is seen though the node paints nothing") {
+    // The scene seeds only what slots paint; the server watches a call's too.
+    withServer(
+      scene.card(lockButton).entity(HouseFixture.frontLock),
+      Access.Public
+    ) { ts =>
+      val at = FixtureDashboard.pressOf(ts.slug, lockButton, "c_0")
       for {
-        answers <- undeclared.traverse((p, body) =>
-          ts.postResult(
-            s"sse/call/${ts.slug}/$p?node=c_1",
-            as = None,
-            body = body
+        stale <- ts.postResult(at, None, """{"seen":{"service":"lock/lock"}}""")
+        unlock <- ts.post(at, None, """{"seen":{"service":"lock/unlock"}}""")
+        calls <- ts.fake.recordedCalls
+      } yield {
+        assert(
+          stale._2.contains(
+            """service: \"lock/lock\" shown, \"lock/unlock\" now"""
+          ),
+          clue = stale
+        )
+        assertEquals(unlock, Status.NoContent)
+        assertEquals(calls.map(_.service), Vector("unlock"))
+      }
+    }
+  }
+
+  private val temp = HouseFixture.outsideTemp
+
+  /** A call sending a live number: what `c.exprOf(temp, "double(value.state)")`
+    * leaves as a data value.
+    */
+  private val matchTemp: LayoutNode.Component =
+    LayoutNode.Component(
+      "call",
+      calls =
+        Map(
+          "tap" -> CallDecl(
+            ValueExpr.literal("input_number/set_value"),
+            ListMap("entity_id" -> List(ValueExpr.literal(temp.entityId))),
+            ListMap(
+              "value" -> ValueExpr(
+                Value.Entity(Some(temp.entityId), Part.Whole),
+                List(Step.Cel("double(value.state)"))
+              )
+            )
           )
+        )
+    )
+
+  test("a live data value is sent only as the page saw it, number as number") {
+    withServer(scene.card(matchTemp).entity(temp), Access.Public) { ts =>
+      val at = FixtureDashboard.pressOf(ts.slug, matchTemp, "c_0")
+      def seen(json: String) = s"""{"seen":{"data":$json}}"""
+      for {
+        fractional <- ts.post(at, None, seen("""{"value":12.4}"""))
+        _ <- ts.record(temp.copy(state = "21"))
+        stale <- ts.postResult(at, None, seen("""{"value":12.4}"""))
+        whole <- ts.post(at, None, seen("""{"value":21}"""))
+        unknown <- ts.postResult(at, None, seen("""{"value":21,"x":1}"""))
+        calls <- ts.fake.recordedCalls
+      } yield {
+        assertEquals((fractional, whole), (Status.NoContent, Status.NoContent))
+        assert(
+          stale._2.contains("data.value: 12.4 shown, 21.0 now"),
+          clue = stale
+        )
+        assert(
+          unknown._2.contains("data.x: not something this control shows"),
+          clue = unknown
+        )
+        assertEquals(
+          calls.map(_.serviceData.hcursor.get[Double]("value").toOption),
+          Vector(Some(12.4), Some(21.0))
+        )
+      }
+    }
+  }
+
+  test("only the declared call, on a node that places it, reaches HA") {
+    withServer(house, Access.Public) { ts =>
+      val at = offAt(ts)
+      val refused = List(
+        at.replaceAll("/[0-9a-f]{16}\\?", "/0000000000000000?") -> "",
+        at.replace("node=c_1", "node=c_0") -> "",
+        at -> """{"posted":{"brightness":100}}""",
+        at -> """{"seen":{"service":"light/turn_off"}}"""
+      )
+      for {
+        answers <- refused.traverse((p, body) =>
+          ts.postResult(p, as = None, body = body)
         )
         calls <- ts.fake.recordedCalls
       } yield {
-        answers.zip(undeclared).foreach { case ((status, body), path) =>
-          assertEquals(status, Status.Ok, clue = path)
-          assert(body.contains("no tap on this dashboard calls"), clue = body)
+        answers.zip(refused).foreach { case ((status, body), press) =>
+          assertEquals(status, Status.Ok, clue = press)
+          assert(body.contains("_toast"), clue = body)
         }
         assertEquals(calls, Vector.empty)
       }

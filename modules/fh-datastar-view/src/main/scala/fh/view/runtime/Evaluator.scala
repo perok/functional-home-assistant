@@ -45,6 +45,10 @@ private[view] object Evaluator {
     def fetched(f: FetchTemplate): Object
     def variable(name: String): String
 
+    /** Only a press has a posted value, and only its call reads one. */
+    def posted(key: String): Any =
+      throw FHError.internal(s"a value read the posted '$key' outside a press")
+
   object Lookup:
     /** Answers and no variables: a decision's. */
     def answering(answer: FetchTemplate => Object): Lookup = new Lookup:
@@ -84,15 +88,26 @@ private[view] object Evaluator {
     * CEL reads as `dashboard_slug`, and its CEL programs, each built the first
     * time it is asked for.
     */
-  final class Scope(val slug: String):
-    private val built =
-      new java.util.concurrent.ConcurrentHashMap[Cel.Key, Built[Cel.Program]]()
+  final class Scope private (
+      val slug: String,
+      val posts: Boolean,
+      built: java.util.concurrent.ConcurrentHashMap[Cel.Key, Built[Cel.Program]]
+  ):
+
+    /** What a call compiles in, the one place a posted value can be read: a
+      * press is the only run that has one.
+      */
+    def call: Scope = new Scope(slug, true, built)
 
     def program(k: Cel.Key): Built[Cel.Program] =
       built.computeIfAbsent(
         k,
         k => Cel.parse(k).left.map(ValueExpr.Mistyped(_))
       )
+
+  object Scope:
+    def apply(slug: String): Scope =
+      new Scope(slug, false, java.util.concurrent.ConcurrentHashMap())
 
   /** An expression made ready to run, and the type it answers. */
   final case class Compiled(run: Run, out: ValueType)
@@ -223,17 +238,6 @@ private[view] object Evaluator {
         s"a value read the fetch '${f.key}' where none is answered"
       )
     def variable(name: String): String = noVariable(name)
-
-  /** A set's candidates present in a snapshot: what a call over it acts on. */
-  def presentOf(
-      p: Value.Present,
-      scope: Scope
-  ): Built[
-    (Map[String, EntityState], Lookup) => List[String]
-  ] =
-    present(p, scope).map(is =>
-      (states, fetched) => p.candidates.filter(is(_, states, fetched))
-    )
 
   /** An ordering, its keys read once per candidate rather than per comparison
     * (`publishSetOrdered`): a bool key sorts `true` first under `asc`; a
@@ -382,8 +386,17 @@ private[view] object Evaluator {
           lift(Cel.eval(p, null, scope.slug, inputs(states, fetched)))
       )
     // Its answer is drawn by its stage, never read here.
-    case _: Value.Fetch  => Right((_, _, _) => "")
-    case Value.Var(name) => Right((_, _, in) => in.variable(name))
+    case _: Value.Fetch       => Right((_, _, _) => "")
+    case Value.Var(name)      => Right((_, _, in) => in.variable(name))
+    case Value.Posted(key, _) =>
+      Either.cond(
+        scope.posts,
+        (_, _, in) => in.posted(key),
+        ValueExpr.Mistyped(
+          s"the posted '$key' is read outside a call — only a call reads " +
+            "what a press posts"
+        )
+      )
 
   private def step(
       s: Step,
@@ -408,6 +421,18 @@ private[view] object Evaluator {
             prev(subject, states, fetched) match
               case ids: List[?] => leader(ids, keys, states, fetched)
               case _            => null
+        )
+    // The test is a chain over `prev` that ends in a bool, so `prev` runs
+    // twice: a Run takes no value in, and a check's value is a posted one or a
+    // cheap read.
+    case Step.Check(test) =>
+      test
+        .foldLeftM(prev)((acc, s) => step(s, acc, programs, scope, named))
+        .map(tested =>
+          (subject, states, fetched) =>
+            if (holds(tested(subject, states, fetched)))
+              prev(subject, states, fetched)
+            else null
         )
     case f: Step.Simple => Right(simple(f, prev))
     // The renderer's own, applied after the run.

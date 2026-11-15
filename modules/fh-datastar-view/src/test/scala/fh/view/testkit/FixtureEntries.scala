@@ -93,6 +93,10 @@ object FixtureEntries {
         |    }))
         |    c.lock.controls(dump.entities.lock_front_door)
         |    c.button("Home", c.view.navigate("home"))
+        |    c.button("Match outside", (c.tap.call("input_number/set_value", temp)) {
+        |      data { ["value"] = c.exprOf(temp, "double(value.state)") }
+        |    }).secondary(c.exprOf(temp, "value.state"))
+        |    c.button("Front door", c.tap.toggle(dump.entities.lock_front_door))
         |  }
         |}
         |""".stripMargin

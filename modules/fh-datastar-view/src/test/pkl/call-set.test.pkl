@@ -11,6 +11,7 @@ import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
 import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switchMod
 
@@ -24,14 +25,16 @@ local lit = q.from(List(taklys, lampe)).where(q.eq(q.stateProp, "on"))
 local litByDay = lit.where((e) ->
   if (e == lampe) q.not(q.entity(sun).stateIs("below_horizon")) else true)
 
+// The tally a set call targets, as the wire writes it.
 local function setOf(n: nodes.Node): Mapping =
-  new json.Parser { useMapping = true }.parse(n.slotsByName["targetSet"].value as String) as Mapping
+  new json.Parser { useMapping = true }.parse(
+    new JsonRenderer {}.renderValue((n.declared["tap"].target["entity_id"].toList().single as slotMod.Expr).source)
+  ) as Mapping
 
 facts {
-  ["a set call routes by an id and carries the set it filters"] {
+  ["a set call targets the set it filters"] {
     let (b = c.button("Av", c.tap.call("light/turn_off", lit)))
-      b.slotsByName["targetKind"].value == "set"
-      && (b.slotsByName["targetId"].value as String).matches(Regex("[0-9a-f]{16}"))
+      b.declared["tap"].target.keys == Set("entity_id")
       && (setOf(b)["candidates"] as Listing).toList() == List("light.taklys", "light.lampe")
   }
   ["a guard naming another entity rides in the tally"] {
@@ -41,10 +44,10 @@ facts {
         ((p as Mapping)["steps"] as Listing).toList().map((s) -> (s as Mapping)["kind"]) == List("Compare", "Not")
         && ((p as Mapping)["source"] as Mapping)["of"] == "sun.sun")
   }
-  ["equal sets share an id, different ones do not"] {
-    let (idOf = (s: q.EntitySet) -> c.button("Av", c.tap.call("light/turn_off", s)).slotsByName["targetId"].value)
-      idOf.apply(lit) == idOf.apply(q.from(List(taklys, lampe)).where(q.eq(q.stateProp, "on")))
-      && idOf.apply(lit) != idOf.apply(litByDay)
+  ["equal sets declare equal calls, different ones do not"] {
+    let (declOf = (s: q.EntitySet) -> c.button("Av", c.tap.call("light/turn_off", s)).declared["tap"])
+      declOf.apply(lit) == declOf.apply(q.from(List(taklys, lampe)).where(q.eq(q.stateProp, "on")))
+      && declOf.apply(lit) != declOf.apply(litByDay)
   }
   ["every card that places a tap carries its set"] {
     let (t = c.tap.lights.off(lit))
@@ -53,10 +56,29 @@ facts {
         c.pill(t),
         new tileMod.Tile { title = "Av"; tapAction = t },
         new switchMod.Switch { label = "Av"; tapAction = t; on = new { entityId = "light.lampe" } }
-      ).every((n) -> n.slotsByName["targetKind"].value == "set" && setOf(n) == setOf(c.button("Av", t)))
+      ).every((n) -> setOf(n) == setOf(c.button("Av", t)))
   }
   ["an entity call carries no set"] {
-    !c.button("Av", c.tap.lights.off(taklys)).slotsByName.containsKey("targetSet")
+    c.button("Av", c.tap.lights.off(taklys)).declared["tap"].target["entity_id"].toList() == List("light.taklys")
+  }
+  ["a call with no exclusion declares none"] {
+    c.button("Av", c.tap.lights.off(taklys)).declared["tap"].exclude.isEmpty
+  }
+  ["a fixed exclusion is in the target's shape, under its key"] {
+    let (d = c.button("Av", c.tap.lights.off(lit).exclude(lampe)).declared["tap"])
+      d.target.keys == Set("entity_id")
+      && d.exclude.keys == Set("entity_id")
+      && d.exclude["entity_id"].toList() == List("light.lampe")
+  }
+  ["an excluded set is its tally"] {
+    let (d = c.button("Av", c.tap.lights.off(lampe).exclude(litByDay)).declared["tap"])
+      d.exclude["entity_id"].toList().single is slotMod.Expr
+      && (d.exclude["entity_id"].toList().single as slotMod.Expr).source is pred.Tally
+  }
+  ["exclusions are kept in the order given, a key's ids together"] {
+    let (d = c.button("Av", c.tap.lights.off(lampe).exclude(taklys).exclude(lampe)).declared["tap"])
+      d.exclude.keys == Set("entity_id")
+      && d.exclude["entity_id"].toList() == List("light.taklys", "light.lampe")
   }
   ["a set of another domain is a build error, naming the strays"] {
     module.catch(() -> c.tap.call("light/turn_off", q.from(List(taklys, bryter))))

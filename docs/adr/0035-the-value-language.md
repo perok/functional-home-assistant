@@ -27,17 +27,34 @@ step with a mode, so a type never depends on an option: JSON for a raw hole will
 in a condition alike (`Steps.read`). A typed read of one attribute converts only that one
 until something has built the entity's whole attribute map (`EntityState.attribute`).
 
-**A list source declares its item type** (`itemType`; Pkl's `ListRead` is the and/or of
-conditions, so `bool`), and each item is held to it. The type is the list's own, never read off its items or
+**A list source declares its item type** (`itemType`: `bool` for the and/or of conditions, the
+literals' own type for a call's list value), and each item is held to it. The type is the list's own, never read off its items or
 the step after it, so an empty list is typed as any other. Its size is the runtime's: `AllOf`
 over none holds, `AnyOf` over none does not, `Count` is 0.
 
 **A node variable's value is text** (`Value.Var`, ADR 0033): the viewer's, so a reading of one is
 decided per viewer, where every other source is decided once per state version.
 
+**A posted value is its declared type** (`Value.Posted(key, type)`, ADR 0023): what one press
+posted under `key`, decoded as `type` (`int`, `real`, `bool`, `text`, or a list of one) before
+anything reads it, so a value of another type refuses the press. It is not `Var`: a variable is
+held per viewer across requests and read by any slot, while a posted value lives for one request
+and only its call reads one: the build compiles a call in the one scope that may read it, so a
+posted value anywhere else fails the build.
+
+**A `Check` step keeps a value to a test.** Its steps run over the incoming value and must end in
+a bool (`Compare`, `Match` or CEL; the build refuses any other end). While they come out `true`
+the value passes through unchanged, and otherwise the result is `null`, which is what a posted
+value out of range needs: a slot's `default` fills it, and a call's field with no value refuses
+the press, naming the field. Its type is its input's. Two bounds are two checks in a row. The
+slider checks its drag to the range its track draws, and the wheel its `[h, s]`, so a page
+cannot send HA a value its own control could not. The test reads the value again where the
+step before it is read (a `Run` takes no value in), so a check follows cheap reads.
+
 **`null` comes from two places only.** An entity read: an entity the store lacks, an attribute the
 entity does not report, a JSON `null`. And a step with no result: `First` over an empty list,
-`Percent`, `Fill` and `Duration` over text that is not a number, CEL returning `null`. A `once`
+`Percent`, `Fill` and `Duration` over text that is not a number, a failed `Check`, CEL returning
+`null`. A `once`
 read is of *which entity this is* (a service picked by its domain), which it is whether or not
 the store holds it, so it reads the entity's identity and never gives `null`.
 

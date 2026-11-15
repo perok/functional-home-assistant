@@ -117,6 +117,17 @@ class RenderGoldenSuite extends munit.FunSuite {
     )
   }
 
+  test("a call id is numbered by first appearance, an equal one alike") {
+    def page(a: String, b: String) =
+      s"@post('sse/call/x/$a?node=c_0') @post('sse/call/x/$b?node=c_1') @post('sse/call/x/$a?node=c_2')"
+    assertEquals(
+      RenderGoldenSuite.normaliseCallIds(
+        page("0123456789abcdef", "fedcba9876543210")
+      ),
+      "@post('sse/call/x/call_1?node=c_0') @post('sse/call/x/call_2?node=c_1') @post('sse/call/x/call_1?node=c_2')"
+    )
+  }
+
   test("normaliseIds numbers every shape of node id by first appearance") {
     val page =
       """<div id="c_0" data-fh-node="c_0_light_kitchen"></div>""" +
@@ -244,7 +255,23 @@ object RenderGoldenSuite {
     def n(hash: String) = seen.getOrElseUpdate(hash, seen.size + 1)
     TransformHash.findAllIn(Seed.replaceAllIn(text, "")).foreach(n)
     val named = TransformHash.replaceAllIn(text, m => s"t#${n(m.matched)}")
-    Seed.replaceAllIn(named, m => quoteReplacement(sortLeaves(m.matched)))
+    normaliseCallIds(
+      Seed.replaceAllIn(named, m => quoteReplacement(sortLeaves(m.matched)))
+    )
+  }
+
+  private val CallIdToken = """(?<=sse/call/[^/']{1,64}/)[0-9a-f]{16}\b""".r
+
+  /** A call id becomes `call_<n>` by first appearance: an edit to one
+    * declaration then shows in the wire snapshot, not in every golden with a
+    * tap.
+    */
+  def normaliseCallIds(text: String): String = {
+    val seen = scala.collection.mutable.LinkedHashMap.empty[String, Int]
+    CallIdToken.replaceAllIn(
+      text,
+      m => s"call_${seen.getOrElseUpdate(m.matched, seen.size + 1)}"
+    )
   }
 
   /** `state` sorts before every `t…` in a seed, so it stays first. */

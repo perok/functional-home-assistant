@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.NodeId
+import fh.view.model.{CallDecl, NodeId}
 import fh.view.testkit.{FixtureEntity, HouseFixture}
 import io.circe.Json
 import munit.CatsEffectSuite
@@ -222,14 +222,13 @@ class SelectSuite extends CatsEffectSuite {
   ) {
     TestServer
       .fromWorkspace("select-entity", entityEntry, List(robot))
-      .use(_.page())
+      .use(ts => (ts.page(), ts.presses).tupled)
       .timeout(60.seconds)
-      .map { html =>
+      .map { (html, presses) =>
         // A call per option per style, each to select_option.
         assertEquals(
-          "select/select_option' \\+ '/entity/select\\.robot_mode".r
-            .findAllMatchIn(html)
-            .size,
+          SelectSuite
+            .callsIn(html, presses, "select/select_option", robot.entityId),
           4,
           clue = html
         )
@@ -305,13 +304,11 @@ class SelectSuite extends CatsEffectSuite {
   ) {
     TestServer
       .fromWorkspace("select-options", optionsEntry, List(heater, vent))
-      .use(_.page())
+      .use(ts => (ts.page(), ts.presses).tupled)
       .timeout(60.seconds)
-      .map { html =>
+      .map { (html, presses) =>
         def calls(service: String, entity: String): Int =
-          s"$service' \\+ '/entity/${entity.replace(".", "\\.")}".r
-            .findAllMatchIn(html)
-            .size
+          SelectSuite.callsIn(html, presses, service, entity)
         assertEquals(calls("climate/set_hvac_mode", heater.entityId), 3, html)
         assertEquals(calls("climate/set_preset_mode", heater.entityId), 2, html)
         assertEquals(calls("fan/set_preset_mode", vent.entityId), 2, html)
@@ -338,4 +335,27 @@ class SelectSuite extends CatsEffectSuite {
         )
       }
   }
+}
+
+object SelectSuite {
+
+  /** How many presses `html` renders of calls to `service` on `entity`. */
+  def callsIn(
+      html: String,
+      presses: List[(CallDecl, String)],
+      service: String,
+      entity: String
+  ): Int =
+    presses
+      .collect {
+        case (d, url)
+            if d.service.literal.contains(service) &&
+              d.target
+                .get("entity_id")
+                .exists(_.flatMap(_.literal) == List(entity)) =>
+          url.split('/').last.takeWhile(_ != '?')
+      }
+      .distinct
+      .map(id => html.split(s"/$id\\?node=", -1).length - 1)
+      .sum
 }

@@ -120,15 +120,8 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(errs.exists(_.contains("never reads slots: round")), clue = errs)
   }
 
-  test("validate: a view reads its slot; the route is the server's") {
-    val errs = oneCard(
-      "<b {{{label.bind}}}></b>",
-      Map(
-        "label" -> text,
-        Dashboard.ServiceSlot -> text,
-        Dashboard.TargetIdSlot -> text
-      )
-    )
+  test("validate: a view reads its slot") {
+    val errs = oneCard("<b {{{label.bind}}}></b>", Map("label" -> text))
     assertEquals(errs, Nil)
   }
 

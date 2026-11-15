@@ -12,6 +12,47 @@
             ],
             "head" : [
               {
+                "calls" : {
+                  "tap" : {
+                    "data" : {
+                      "brightness" : {
+                        "source" : {
+                          "key" : "slide",
+                          "kind" : "Posted",
+                          "type" : "int"
+                        },
+                        "steps" : [
+                          {
+                            "kind" : "Check",
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "gte",
+                                "to" : 1
+                              }
+                            ]
+                          },
+                          {
+                            "kind" : "Check",
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "lte",
+                                "to" : 255
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "service" : "light/turn_on",
+                    "target" : {
+                      "entity_id" : [
+                        "light.kitchen"
+                      ]
+                    }
+                  }
+                },
                 "card" : "sliderHead",
                 "cell" : {
                   "classes" : {
@@ -55,7 +96,6 @@
                     "source" : true,
                     "type" : "bool"
                   },
-                  "dataKey" : "brightness",
                   "entity_id" : "light.kitchen",
                   "fill" : {
                     "default" : "100%",
@@ -88,15 +128,17 @@
                     ]
                   },
                   "label" : "Kitchen",
-                  "max" : "255",
-                  "min" : "1",
+                  "max" : {
+                    "source" : 255,
+                    "type" : "number"
+                  },
+                  "min" : {
+                    "source" : 1,
+                    "type" : "number"
+                  },
                   "onoff" : {
                     "source" : true,
                     "type" : "bool"
-                  },
-                  "service" : {
-                    "source" : "light/turn_on",
-                    "type" : "textRaw"
                   },
                   "state" : {
                     "signal" : {
@@ -124,10 +166,8 @@
                     ],
                     "type" : "bool"
                   },
-                  "targetId" : "light.kitchen",
-                  "targetKind" : "entity",
                   "value" : {
-                    "default" : "0",
+                    "default" : "1",
                     "signal" : {
                       "kind" : "Attr",
                       "name" : "value"
@@ -138,7 +178,8 @@
                         "kind" : "Attr",
                         "name" : "brightness"
                       }
-                    }
+                    },
+                    "type" : "number"
                   }
                 },
                 "vars" : [
@@ -160,6 +201,47 @@
             ],
             "head" : [
               {
+                "calls" : {
+                  "tap" : {
+                    "data" : {
+                      "brightness" : {
+                        "source" : {
+                          "key" : "slide",
+                          "kind" : "Posted",
+                          "type" : "int"
+                        },
+                        "steps" : [
+                          {
+                            "kind" : "Check",
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "gte",
+                                "to" : 1
+                              }
+                            ]
+                          },
+                          {
+                            "kind" : "Check",
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "lte",
+                                "to" : 255
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "service" : "light/turn_on",
+                    "target" : {
+                      "entity_id" : [
+                        "light.kitchen"
+                      ]
+                    }
+                  }
+                },
                 "card" : "sliderHead",
                 "cell" : {
                   "classes" : {
@@ -203,7 +285,6 @@
                     "source" : true,
                     "type" : "bool"
                   },
-                  "dataKey" : "brightness",
                   "dragPercent" : {
                     "source" : true,
                     "type" : "bool"
@@ -240,15 +321,17 @@
                     ]
                   },
                   "label" : "Kitchen",
-                  "max" : "255",
-                  "min" : "1",
+                  "max" : {
+                    "source" : 255,
+                    "type" : "number"
+                  },
+                  "min" : {
+                    "source" : 1,
+                    "type" : "number"
+                  },
                   "onoff" : {
                     "source" : true,
                     "type" : "bool"
-                  },
-                  "service" : {
-                    "source" : "light/turn_on",
-                    "type" : "textRaw"
                   },
                   "state" : {
                     "default" : "0 %",
@@ -288,10 +371,8 @@
                     ],
                     "type" : "bool"
                   },
-                  "targetId" : "light.kitchen",
-                  "targetKind" : "entity",
                   "value" : {
-                    "default" : "0",
+                    "default" : "1",
                     "signal" : {
                       "kind" : "Attr",
                       "name" : "value"
@@ -302,7 +383,8 @@
                         "kind" : "Attr",
                         "name" : "brightness"
                       }
-                    }
+                    },
+                    "type" : "number"
                   }
                 },
                 "vars" : [
@@ -324,6 +406,47 @@
             ],
             "head" : [
               {
+                "calls" : {
+                  "tap" : {
+                    "data" : {
+                      "brightness" : {
+                        "source" : {
+                          "key" : "slide",
+                          "kind" : "Posted",
+                          "type" : "int"
+                        },
+                        "steps" : [
+                          {
+                            "kind" : "Check",
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "gte",
+                                "to" : 1
+                              }
+                            ]
+                          },
+                          {
+                            "kind" : "Check",
+                            "steps" : [
+                              {
+                                "kind" : "Compare",
+                                "op" : "lte",
+                                "to" : 255
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "service" : "light/turn_on",
+                    "target" : {
+                      "entity_id" : [
+                        "light.kitchen"
+                      ]
+                    }
+                  }
+                },
                 "card" : "sliderHead",
                 "cell" : {
                   "classes" : {
@@ -349,6 +472,16 @@
                 "regions" : {
                   "actions" : [
                     {
+                      "calls" : {
+                        "tap" : {
+                          "service" : "light/toggle",
+                          "target" : {
+                            "entity_id" : [
+                              "light.kitchen"
+                            ]
+                          }
+                        }
+                      },
                       "card" : "pill",
                       "cell" : {
                         "layout" : [
@@ -378,10 +511,6 @@
                           "source" : true,
                           "type" : "bool"
                         },
-                        "service" : {
-                          "source" : "light/toggle",
-                          "type" : "textRaw"
-                        },
                         "tapDisabled" : {
                           "signal" : {
                             "kind" : "Handler"
@@ -400,9 +529,7 @@
                             }
                           ],
                           "type" : "bool"
-                        },
-                        "targetId" : "light.kitchen",
-                        "targetKind" : "entity"
+                        }
                       },
                       "vars" : [
                       ]
@@ -426,7 +553,6 @@
                     "source" : true,
                     "type" : "bool"
                   },
-                  "dataKey" : "brightness",
                   "entity_id" : "light.kitchen",
                   "fill" : {
                     "default" : "100%",
@@ -459,15 +585,17 @@
                     ]
                   },
                   "label" : "Kitchen",
-                  "max" : "255",
-                  "min" : "1",
+                  "max" : {
+                    "source" : 255,
+                    "type" : "number"
+                  },
+                  "min" : {
+                    "source" : 1,
+                    "type" : "number"
+                  },
                   "onoff" : {
                     "source" : true,
                     "type" : "bool"
-                  },
-                  "service" : {
-                    "source" : "light/turn_on",
-                    "type" : "textRaw"
                   },
                   "state" : {
                     "signal" : {
@@ -495,10 +623,8 @@
                     ],
                     "type" : "bool"
                   },
-                  "targetId" : "light.kitchen",
-                  "targetKind" : "entity",
                   "value" : {
-                    "default" : "0",
+                    "default" : "1",
                     "signal" : {
                       "kind" : "Attr",
                       "name" : "value"
@@ -509,7 +635,8 @@
                         "kind" : "Attr",
                         "name" : "brightness"
                       }
-                    }
+                    },
+                    "type" : "number"
                   }
                 },
                 "vars" : [
@@ -531,6 +658,16 @@
             ],
             "head" : [
               {
+                "calls" : {
+                  "tap" : {
+                    "service" : "light/toggle",
+                    "target" : {
+                      "entity_id" : [
+                        "light.plug"
+                      ]
+                    }
+                  }
+                },
                 "card" : "sliderHead",
                 "cell" : {
                   "classes" : {
@@ -617,15 +754,17 @@
                     ]
                   },
                   "label" : "Plug",
-                  "max" : "255",
-                  "min" : "1",
+                  "max" : {
+                    "source" : 255,
+                    "type" : "number"
+                  },
+                  "min" : {
+                    "source" : 1,
+                    "type" : "number"
+                  },
                   "onoff" : {
                     "source" : true,
                     "type" : "bool"
-                  },
-                  "service" : {
-                    "source" : "light/toggle",
-                    "type" : "textRaw"
                   },
                   "state" : {
                     "signal" : {
@@ -653,14 +792,12 @@
                     ],
                     "type" : "bool"
                   },
-                  "targetId" : "light.plug",
-                  "targetKind" : "entity",
                   "toggle" : {
                     "source" : true,
                     "type" : "bool"
                   },
                   "value" : {
-                    "default" : "0",
+                    "default" : "1",
                     "signal" : {
                       "kind" : "Attr",
                       "name" : "value"
@@ -671,7 +808,8 @@
                         "kind" : "Attr",
                         "name" : "brightness"
                       }
-                    }
+                    },
+                    "type" : "number"
                   }
                 },
                 "vars" : [
@@ -703,7 +841,7 @@
       "template" : "<div class=\"fh-cell fh-col{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "pill" : {
-      "template" : "<button class=\"fh-cell fh-chip {{#round.has}}fh-circle{{/round.has}}{{{cellClasses}}}\"{{{cell}}} data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}}{{#tapDisabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#name}} title=\"{{name}}\" aria-label=\"{{name}}\"{{/name}}{{#busyVisual.has}}{{#glyph}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/glyph}}{{/busyVisual.has}}>{{#glyph}}<i class=\"mdi {{glyph}}\"></i>{{/glyph}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}</button>"
+      "template" : "<button class=\"fh-cell fh-chip {{#round.has}}fh-circle{{/round.has}}{{{cellClasses}}}\"{{{cell}}} data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#tap.has}}@post('sse/call/{{dashboardSlug}}/{{{tap.callId}}}?node={{id}}', {payload: {posted: {}, seen: {{{tap.seen}}} } }){{/tap.has}}{{^tap.has}}{{{onclick}}}{{/tap.has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}}{{#tapDisabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#name}} title=\"{{name}}\" aria-label=\"{{name}}\"{{/name}}{{#busyVisual.has}}{{#glyph}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/glyph}}{{/busyVisual.has}}>{{#glyph}}<i class=\"mdi {{glyph}}\"></i>{{/glyph}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}</button>"
     },
     "slider" : {
       "regions" : {
@@ -726,7 +864,7 @@
           "fill" : "eager"
         }
       },
-      "template" : "<div class=\"fh-cell fh-slider-body{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-slider-head {{#greyed.has}}fh-slider-greyed{{/greyed.has}}\">\n  {{#icon.has}}<span class=\"fh-badge fh-icon-shape fh-slider-icon {{#onoff.has}}fh-onoff{{/onoff.has}}\"{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-class:fh-error=\"$_{{id}}__error\" data-signals__ifmissing=\"{_{{id}}__busy_change_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy_change$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_change_slow = $_{{id}}__busy_change\" data-class:fh-busy-spin=\"$_{{id}}__busy_change_slow\" data-attr:aria-busy=\"$_{{id}}__busy_change_slow\"{{/busyVisual.has}}><i class=\"mdi {{icon}}\" {{{icon.bind}}}></i></span>{{/icon.has}}\n  {{{text}}}\n  {{#state.has}}<span class=\"fh-reading\" {{{state.bind}}}>{{state}}</span>{{/state.has}}\n  <div class=\"fh-slider-actions\">{{{actions}}}</div>\n</div>\n<div class=\"fh-slider {{#hueTrack.has}}fh-track-hue{{/hueTrack.has}} {{#kelvinTrack.has}}fh-track-kelvin{{/kelvinTrack.has}} {{#greyed.has}}fh-slider-greyed{{/greyed.has}}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\" data-on-signal-patch=\"$_{{id}}__error && ($_{{id}}__slide = {{{value.jsValue}}}{{#fill.signal}}, ${{fill.signal}} = (100 - (({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{/fill.signal}}{{#dragPercent.has}}{{#state.signal}}, ${{state.signal}} = Math.round((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/state.signal}}{{/dragPercent.has}}{{#hueTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = 'hsl(' + Math.round({{{value.jsValue}}}) + ',100%,50%)'{{/fillColor.signal}}{{/hueTrack.has}}{{#kelvinTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = ({{{value.jsValue}}} >= {{min}} ? 'rgb(' + Math.round(255 - 54 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(166 + 60 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(87 + 168 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ')' : 'transparent'){{/fillColor.signal}}{{/kelvinTrack.has}})\"{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}>\n  {{^toggle.has}}<input type=\"range\" min=\"{{min}}\" max=\"{{max}}\" value=\"{{value}}\"\n      {{{value.bind}}}\n      data-signals__ifmissing=\"{ _{{id}}__slide: '{{value}}' }\"\n      data-bind=\"_{{id}}__slide\"\n      {{#value.signal}}data-on-signal-patch-filter=\"{include:/^{{value.signal}}$/}\" data-on-signal-patch=\"$_{{id}}__slide = {{{value.jsValue}}}\"{{/value.signal}}\n      data-effect=\"$_sse > 0 && ($_{{id}}__slide = {{{value.jsValue}}}{{#fill.signal}}, ${{fill.signal}} = (100 - (({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{/fill.signal}}{{#dragPercent.has}}{{#state.signal}}, ${{state.signal}} = Math.round((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/state.signal}}{{/dragPercent.has}}{{#hueTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = 'hsl(' + Math.round({{{value.jsValue}}}) + ',100%,50%)'{{/fillColor.signal}}{{/hueTrack.has}}{{#kelvinTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = ({{{value.jsValue}}} >= {{min}} ? 'rgb(' + Math.round(255 - 54 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(166 + 60 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(87 + 168 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ')' : 'transparent'){{/fillColor.signal}}{{/kelvinTrack.has}})\"\n      data-indicator=\"_{{id}}__busy_change\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}} data-attr:disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"\n      data-on:input=\"{{#fill.signal}}${{fill.signal}} = (100 - ((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{/fill.signal}}{{#dragPercent.has}}{{#state.signal}}; ${{state.signal}} = Math.round(((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/state.signal}}{{/dragPercent.has}}{{#hueTrack.has}}{{#fillColor.signal}}; ${{fillColor.signal}} = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'{{/fillColor.signal}}{{/hueTrack.has}}{{#kelvinTrack.has}}{{#fillColor.signal}}; ${{fillColor.signal}} = (evt.target.value >= {{min}} ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ')' : 'transparent'){{/fillColor.signal}}{{/kelvinTrack.has}}\"\n      data-on:change=\"{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}$_{{id}}__busy_change ? '' : @post('sse/call/{{dashboardSlug}}/{{{service}}}/{{targetKind}}/{{targetId}}?node={{id}}', {payload: {data: {'{{dataKey}}': {{#valueRest}}[{{/valueRest}}Number($_{{id}}__slide){{#valueRest}}{{valueRest}}]{{/valueRest}} } } })\" />{{/toggle.has}}\n  <span style=\"--fh-fill: {{fill}};background:{{fillColor}}\" {{{fill.bind}}} {{{fillColor.bind}}}></span>\n  {{#toggle.has}}<button type=\"button\" class=\"fh-slider-toggle\" aria-label=\"{{label}}\"\n      {{{value.bind}}}\n      data-on:click=\"$_{{id}}__busy_change ? '' : {{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#service.has}}@post('sse/call/{{dashboardSlug}}/' + {{{service.jsValue}}} + '/{{targetKind}}/{{targetId}}?node={{id}}', {{#dataKey.has}}{payload: {data: {'{{dataKey}}': {{dataValue}} } } }{{/dataKey.has}}{{^dataKey.has}}{filterSignals:{exclude:'.*'}}{{/dataKey.has}}){{/service.has}}{{^service.has}}{{{onclick}}}{{/service.has}}\"\n      data-indicator=\"_{{id}}__busy_change\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}} data-attr:disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"></button>{{/toggle.has}}\n</div></div>"
+      "template" : "<div class=\"fh-cell fh-slider-body{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-slider-head {{#greyed.has}}fh-slider-greyed{{/greyed.has}}\">\n  {{#icon.has}}<span class=\"fh-badge fh-icon-shape fh-slider-icon {{#onoff.has}}fh-onoff{{/onoff.has}}\"{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-class:fh-error=\"$_{{id}}__error\" data-signals__ifmissing=\"{_{{id}}__busy_change_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy_change$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_change_slow = $_{{id}}__busy_change\" data-class:fh-busy-spin=\"$_{{id}}__busy_change_slow\" data-attr:aria-busy=\"$_{{id}}__busy_change_slow\"{{/busyVisual.has}}><i class=\"mdi {{icon}}\" {{{icon.bind}}}></i></span>{{/icon.has}}\n  {{{text}}}\n  {{#state.has}}<span class=\"fh-reading\" {{{state.bind}}}>{{state}}</span>{{/state.has}}\n  <div class=\"fh-slider-actions\">{{{actions}}}</div>\n</div>\n<div class=\"fh-slider {{#hueTrack.has}}fh-track-hue{{/hueTrack.has}} {{#kelvinTrack.has}}fh-track-kelvin{{/kelvinTrack.has}} {{#greyed.has}}fh-slider-greyed{{/greyed.has}}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\" data-on-signal-patch=\"$_{{id}}__error && ($_{{id}}__slide = {{{value.jsValue}}}{{#fill.signal}}, ${{fill.signal}} = (100 - (({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{/fill.signal}}{{#dragPercent.has}}{{#state.signal}}, ${{state.signal}} = Math.round((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/state.signal}}{{/dragPercent.has}}{{#hueTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = 'hsl(' + Math.round({{{value.jsValue}}}) + ',100%,50%)'{{/fillColor.signal}}{{/hueTrack.has}}{{#kelvinTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = ({{{value.jsValue}}} >= {{min}} ? 'rgb(' + Math.round(255 - 54 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(166 + 60 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(87 + 168 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ')' : 'transparent'){{/fillColor.signal}}{{/kelvinTrack.has}})\"{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy_change\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}>\n  {{^toggle.has}}<input type=\"range\" min=\"{{min}}\" max=\"{{max}}\" value=\"{{value}}\"\n      {{{value.bind}}}\n      data-signals__ifmissing=\"{ _{{id}}__slide: {{{value.jsValue}}} }\"\n      data-bind=\"_{{id}}__slide\"\n      {{#value.signal}}data-on-signal-patch-filter=\"{include:/^{{value.signal}}$/}\" data-on-signal-patch=\"$_{{id}}__slide = {{{value.jsValue}}}\"{{/value.signal}}\n      data-effect=\"$_sse > 0 && ($_{{id}}__slide = {{{value.jsValue}}}{{#fill.signal}}, ${{fill.signal}} = (100 - (({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{/fill.signal}}{{#dragPercent.has}}{{#state.signal}}, ${{state.signal}} = Math.round((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/state.signal}}{{/dragPercent.has}}{{#hueTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = 'hsl(' + Math.round({{{value.jsValue}}}) + ',100%,50%)'{{/fillColor.signal}}{{/hueTrack.has}}{{#kelvinTrack.has}}{{#fillColor.signal}}, ${{fillColor.signal}} = ({{{value.jsValue}}} >= {{min}} ? 'rgb(' + Math.round(255 - 54 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(166 + 60 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(87 + 168 * ((({{{value.jsValue}}} - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ')' : 'transparent'){{/fillColor.signal}}{{/kelvinTrack.has}})\"\n      data-indicator=\"_{{id}}__busy_change\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}} data-attr:disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"\n      data-on:input=\"{{#fill.signal}}${{fill.signal}} = (100 - ((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + '%'{{/fill.signal}}{{#dragPercent.has}}{{#state.signal}}; ${{state.signal}} = Math.round(((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}}))) + ' %'{{/state.signal}}{{/dragPercent.has}}{{#hueTrack.has}}{{#fillColor.signal}}; ${{fillColor.signal}} = 'hsl(' + Math.round(evt.target.value) + ',100%,50%)'{{/fillColor.signal}}{{/hueTrack.has}}{{#kelvinTrack.has}}{{#fillColor.signal}}; ${{fillColor.signal}} = (evt.target.value >= {{min}} ? 'rgb(' + Math.round(255 - 54 * (((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(166 + 60 * (((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ',' + Math.round(87 + 168 * (((evt.target.value - {{min}}) * 100 / ({{max}} - {{min}})) / 100)) + ')' : 'transparent'){{/fillColor.signal}}{{/kelvinTrack.has}}\"\n      data-on:change=\"{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}$_{{id}}__busy_change ? '' : @post('sse/call/{{dashboardSlug}}/{{{tap.callId}}}?node={{id}}', {payload: {posted: {'slide': {{#valueRest.has}}[{{/valueRest.has}}$_{{id}}__slide{{#valueRest.has}}, {{valueRest}}]{{/valueRest.has}}}, seen: {{{tap.seen}}} } })\" />{{/toggle.has}}\n  <span style=\"--fh-fill: {{fill}};background:{{fillColor}}\" {{{fill.bind}}} {{{fillColor.bind}}}></span>\n  {{#toggle.has}}<button type=\"button\" class=\"fh-slider-toggle\" aria-label=\"{{label}}\"\n      {{{value.bind}}}\n      data-on:click=\"$_{{id}}__busy_change ? '' : {{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#tap.has}}@post('sse/call/{{dashboardSlug}}/{{{tap.callId}}}?node={{id}}', {payload: {posted: {}, seen: {{{tap.seen}}} } }){{/tap.has}}{{^tap.has}}{{{onclick}}}{{/tap.has}}\"\n      data-indicator=\"_{{id}}__busy_change\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}} data-attr:disabled=\"$_{{id}}__busy_change{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"></button>{{/toggle.has}}\n</div></div>"
     },
     "sliderText" : {
       "template" : "<div class=\"fh-cell fh-slider-text{{{cellClasses}}}\"{{{cell}}}><strong class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></strong>{{#secondary.has}}<span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span>{{/secondary.has}}</div>"

@@ -1,6 +1,7 @@
 package fh.view.functional
 
-import fh.view.runtime.{StateChange, changes}
+import fh.view.model.ValueType
+import fh.view.runtime.{StateChange, TestServer, changes}
 import fh.view.testkit.{
   DashboardBuilders,
   FixtureDashboard,
@@ -81,18 +82,30 @@ class DashboardBehaviourSuite extends FunctionalSuite {
 
   // Only a call its dashboard declares gets through (ADR 0023), so the
   // smallest world that records one declares it.
-  private def calling(service: String, dataKey: Option[String] = None) =
+  private def calling(service: String, posted: (String, ValueType)*) =
     scene.card(
       DashboardBuilders.col(
         FixtureDashboard.light("Kitchen", kitchen),
-        FixtureDashboard.call(service, kitchen, dataKey)
+        FixtureDashboard.call(service, kitchen, posted*)
       )
+    )
+
+  // The call node is the second of the column the scene's own holds.
+  private def pressOf(
+      ts: TestServer,
+      service: String,
+      posted: (String, ValueType)*
+  ) =
+    FixtureDashboard.pressOf(
+      ts.slug,
+      FixtureDashboard.call(service, kitchen, posted*),
+      "c_0_1"
     )
 
   test("a control click calls the service back into HA") {
     withServer(calling("light/toggle")) { ts =>
       ts.post(
-        s"sse/call/${ts.slug}/light/toggle/entity/light.kitchen"
+        pressOf(ts, "light/toggle")
       ) *> ts.fake.recordedCalls
     }.assertEquals(
       Vector(ServiceCall("light", "toggle", "light.kitchen", Json.obj()))
@@ -100,10 +113,10 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   }
 
   test("a value-carrying control passes its data through to HA") {
-    withServer(calling("light/turn_on", Some("brightness"))) { ts =>
+    withServer(calling("light/turn_on", "brightness" -> ValueType.Int)) { ts =>
       ts.post(
-        s"sse/call/${ts.slug}/light/turn_on/entity/light.kitchen",
-        body = """{"data":{"brightness":200}}"""
+        pressOf(ts, "light/turn_on", "brightness" -> ValueType.Int),
+        body = """{"posted":{"brightness":200}}"""
       ) *>
         ts.fake.recordedCalls
     }.assertEquals(
@@ -119,10 +132,16 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   }
 
   test("a value in the call's body reaches HA as the JSON it was") {
-    withServer(calling("light/turn_on", Some("hs_color"))) { ts =>
+    withServer(
+      calling("light/turn_on", "hs_color" -> ValueType.List(ValueType.Real))
+    ) { ts =>
       ts.post(
-        s"sse/call/${ts.slug}/light/turn_on/entity/light.kitchen",
-        body = """{"data":{"hs_color":[120,100]}}"""
+        pressOf(
+          ts,
+          "light/turn_on",
+          "hs_color" -> ValueType.List(ValueType.Real)
+        ),
+        body = """{"posted":{"hs_color":[120,100]}}"""
       ) *> ts.fake.recordedCalls
     }.assertEquals(
       Vector(
@@ -139,15 +158,15 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   test(
     "a body value under a key no tap declares is refused, and HA never hears"
   ) {
-    withServer(calling("light/turn_on", Some("brightness"))) { ts =>
+    withServer(calling("light/turn_on", "brightness" -> ValueType.Int)) { ts =>
       for {
         undeclared <- ts.postResult(
-          s"sse/call/${ts.slug}/light/turn_on/entity/light.kitchen",
-          body = """{"data":{"effect":"colorloop"}}"""
+          pressOf(ts, "light/turn_on", "brightness" -> ValueType.Int),
+          body = """{"posted":{"effect":"colorloop"}}"""
         )
         twoKeys <- ts.postResult(
-          s"sse/call/${ts.slug}/light/turn_on/entity/light.kitchen",
-          body = """{"data":{"brightness":1,"effect":"colorloop"}}"""
+          pressOf(ts, "light/turn_on", "brightness" -> ValueType.Int),
+          body = """{"posted":{"brightness":1,"effect":"colorloop"}}"""
         )
         calls <- ts.fake.recordedCalls
       } yield {
@@ -163,7 +182,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
   test("round-trip: act on HA, then the consequent state reaches the browser") {
     withServer(calling("light/turn_off")) { ts =>
       for {
-        _ <- ts.post(s"sse/call/${ts.slug}/light/turn_off/entity/light.kitchen")
+        _ <- ts.post(pressOf(ts, "light/turn_off"))
         // The fake does not simulate HA, so the resulting state change is
         // emitted explicitly.
         sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))

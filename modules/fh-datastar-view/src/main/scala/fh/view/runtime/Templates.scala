@@ -73,6 +73,10 @@ object Templates {
     case JsValue extends View("jsValue")
     case Signal extends View("signal")
 
+    /** A placed call's id and its `seen` object, for `tapMod.post`. */
+    case CallId extends View("callId")
+    case Seen extends View("seen")
+
   object View:
     private val bySpelling: Map[String, View] =
       values.map(v => v.spelling -> v).toMap
@@ -208,6 +212,9 @@ object Templates {
     * @param unguardedSignals
     *   the slots whose `x.signal` sits outside `{{#x.signal}}`, where it would
     *   print nothing on a node whose `x` is not a signal
+    * @param inExpression
+    *   the names placed as `{{x}}` inside a Datastar expression attribute,
+    *   where the value is pasted into JavaScript
     */
   final case class Reads(
       names: Set[String],
@@ -219,7 +226,8 @@ object Templates {
       views: Set[(String, View)],
       boundInOwnSection: Set[String],
       unknownViews: Set[String],
-      unguardedSignals: Set[String]
+      unguardedSignals: Set[String],
+      inExpression: Set[String] = Set.empty
   )
 
   /** A `{{#tag}}` section, or `{{^tag}}` when inverted. */
@@ -254,11 +262,24 @@ object Templates {
         Card(
           tpl,
           readCodes(tpl.getCodes(), regions, Nil, Reads.empty)
+            .copy(inExpression = inExpression(template))
         )
       )
     catch
       case e: com.github.mustachejava.MustacheException =>
         Left(Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
+
+  // An attribute whose value the bundle evaluates as JavaScript; a bare
+  // `data-bind` or `data-indicator` names a signal, and is not one.
+  private val ExpressionAttr =
+    """\sdata-(?:on[:-][^\s=]*|effect|init|computed[^\s=]*|text|show|class[^\s=]*|style[^\s=]*|attr[^\s=]*|signals[^\s=]*)="([^"]*)"""".r
+  private val EscapedTag = """(?<!\{)\{\{\s*([A-Za-z_][\w]*)\s*\}\}(?!\})""".r
+
+  private def inExpression(template: String): Set[String] =
+    ExpressionAttr
+      .findAllMatchIn(template)
+      .flatMap(m => EscapedTag.findAllMatchIn(m.group(1)).map(_.group(1)))
+      .toSet
 
   private def readCodes(
       codes: Array[com.github.mustachejava.Code],

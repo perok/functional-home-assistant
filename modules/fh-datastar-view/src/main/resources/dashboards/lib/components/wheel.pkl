@@ -46,9 +46,9 @@ const local move: String =
     "\(shownS) = \(hs)[1] / 100, " +
     "\(shownP) = 'hsl(' + \(hs)[0] + ',' + \(hs)[1] + '%,50%)'"
 
-const local commit: String =
-  "@post('sse/call/{{dashboardSlug}}/\(tapMod.service.raw)/\(tapMod.targetKind)/\(tapMod.targetId)?node={{id}}', " +
-    tapMod.withData("\(tapMod.dataKey)", hs) + ")"
+const local picked: slotMod.PostedRead = new { key = "hs"; type = "list(real)"; js = hs }
+
+const local commit: String = tapMod.post(tapMod.tapCall, List(picked))
 
 const local function hsRead(body: String, otherwise: String): String =
   "value.attr[?'hs_color'].optMap(hs, \(body)).orValue('\(otherwise)')"
@@ -62,7 +62,7 @@ class ColourWheel extends nodes.Node {
     // the cell writes `style` on, needs none: a `cellStyle` would bind the
     // server's reading where the knob shows the drag.
     classes = "fh-wheel"
-    attrs = #"\#(hue.bind) \#(sat.bind) \#(paint.bind) data-signals__ifmissing="{ _{{id}}__drag: false, _{{id}}__hs: [], _{{id}}__h: '\#(hue)', _{{id}}__s: '\#(sat)', _{{id}}__p: '\#(paint)' }" \#(adoptOnPatch) data-effect="\#(shell.streamDown) && (\#(adopt))" data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(drag) = true; \#(move)" data-on:pointermove="\#(drag) && (\#(move))" data-on:pointerup="\#(drag) && (\#(drag) = false, \#(tapMod.refusalGuard)\#(commit))" data-on:pointercancel="\#(drag) && (\#(drag) = false, \#(adopt))"\#(tapMod.guardMechanism)"#
+    attrs = #"\#(hue.bind) \#(sat.bind) \#(paint.bind) data-signals__ifmissing="{ _{{id}}__drag: false, _{{id}}__hs: [], _{{id}}__h: \#(hue.jsValue), _{{id}}__s: \#(sat.jsValue), _{{id}}__p: \#(paint.jsValue) }" \#(adoptOnPatch) data-effect="\#(shell.streamDown) && (\#(adopt))" data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(drag) = true; \#(move)" data-on:pointermove="\#(drag) && (\#(move))" data-on:pointerup="\#(drag) && (\#(drag) = false, \#(tapMod.refusalGuard)\#(commit))" data-on:pointercancel="\#(drag) && (\#(drag) = false, \#(adopt))"\#(tapMod.guardMechanism)"#
     template = #"<span class="fh-wheel-knob" style="background:\#(paint);--fh-h:\#(hue);--fh-s:\#(sat)" data-style:background="\#(shownP)" data-style:--fh-h="\#(shownH)" data-style:--fh-s="\#(shownS)" data-init="\#(adopt)" data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(adopt))"></span>"#
     // `flex:none`: its size is the wheel's, whatever share a row hands a cell.
     css = """
@@ -76,7 +76,10 @@ class ColourWheel extends nodes.Node {
     script = wheelScript
   }
   hidden light: hass.LightEntity(colour != null)
-  hidden setColour: tapMod.Call = (tapMod.call("light/turn_on", light)) { dataKey = "hs_color"; busyVisual = false }
+  hidden setColour: tapMod.Call =
+    (tapMod.call("light/turn_on", light).postingChecked("hs_color", picked, List(
+      simpleMod.checkCel("value.size() == 2 && value[0] >= 0.0 && value[0] <= 360.0 && value[1] >= 0.0 && value[1] <= 100.0")
+    ))) { busyVisual = false }
   slots {
     slotMod.signalled(hue, new slotMod.Reading {
       entityId = light.entity_id
