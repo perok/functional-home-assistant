@@ -17,6 +17,7 @@ import fh.view.model.{
 }
 import fh.view.fetch.FetchSnapshot
 import fh.view.history.Windows
+import fh.view.testkit.Slots
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -95,13 +96,15 @@ object VarEnvBench {
   private def chart(entity: String) =
     LayoutNode.Component(
       "chart",
-      Map(
-        "chart" -> TemplateSlot(
-          ValueExpr(
-            Value.Fetch(
-              FetchTemplate(entity, chosenBy("window", Windows.presets))
-            ),
-            List(Step.Json, Step.JsonText)
+      Slots.values(
+        Map(
+          "chart" -> TemplateSlot(
+            ValueExpr(
+              Value.Fetch(
+                FetchTemplate(entity, chosenBy("window", Windows.presets))
+              ),
+              List(Step.Json, Step.JsonText)
+            )
           )
         )
       )
@@ -113,7 +116,7 @@ object VarEnvBench {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         (RenderBench.leaf(signals = true)(0).copy(id = Some("plain")) ::
           RenderBench.tree(RenderBench.Leaves, 4) ::
           List.tabulate(4)(i => chart(s"sensor.main_$i")))*

@@ -24,6 +24,7 @@ import fh.view.model.{
 }
 import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.testkit.DashboardBuilders.{chosenBy, declared}
+import fh.view.testkit.Slots
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -194,18 +195,20 @@ object VarWriteBench {
   private def chart(entity: String) =
     LayoutNode.Component(
       "chart",
-      Map(
-        "chart" -> TemplateSlot(
-          ValueExpr(
-            Value.Fetch(
-              FetchTemplate(
-                entity,
-                chosenBy("window", fh.view.history.Windows.presets)
-              )
+      Slots.values(
+        Map(
+          "chart" -> TemplateSlot(
+            ValueExpr(
+              Value.Fetch(
+                FetchTemplate(
+                  entity,
+                  chosenBy("window", fh.view.history.Windows.presets)
+                )
+              ),
+              List(Step.Chart())
             ),
-            List(Step.Chart())
-          ),
-          `type` = SlotType.TextRaw
+            `type` = SlotType.TextRaw
+          )
         )
       )
     )
@@ -213,7 +216,7 @@ object VarWriteBench {
   private def panel(from: Int) =
     LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         List.tabulate(PanelLeaves)(i =>
           RenderBench.leaf(signals = true)(from + i)
         )*
@@ -237,12 +240,12 @@ object VarWriteBench {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         host("tabs", "tab", "0"),
         host("view", "view", "a"),
         LayoutNode.Component(
           "col",
-          regions = LayoutNode.kids(
+          slots = Slots.kids(
             List.tabulate(4)(i => chart(s"sensor.main_$i"))*
           ),
           id = Some("charts"),

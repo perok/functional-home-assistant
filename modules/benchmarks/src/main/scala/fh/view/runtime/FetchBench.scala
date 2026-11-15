@@ -25,6 +25,7 @@ import fh.view.model.{
 import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.testkit.DashboardBuilders.declared
 import fh.view.history.Windows
+import fh.view.testkit.Slots
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -166,13 +167,15 @@ object FetchBench {
   private def chart(entity: String, id: Option[String] = None) =
     LayoutNode.Component(
       "chart",
-      Map(
-        "chart" -> TemplateSlot(
-          ValueExpr(
-            Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day))),
-            List(Step.Chart())
-          ),
-          `type` = SlotType.TextRaw
+      Slots.values(
+        Map(
+          "chart" -> TemplateSlot(
+            ValueExpr(
+              Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day))),
+              List(Step.Chart())
+            ),
+            `type` = SlotType.TextRaw
+          )
         )
       ),
       id = id
@@ -188,7 +191,7 @@ object FetchBench {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         (RenderBench.leaf(signals = true)(0).copy(id = Some("plain")) ::
           RenderBench.tree(RenderBench.Leaves, 4) ::
           List.tabulate(4)(i =>
@@ -207,8 +210,7 @@ object FetchBench {
       "t0" -> Surface(
         LayoutNode.Component(
           "col",
-          regions =
-            LayoutNode.kids(List.tabulate(4)(i => chart(s"sensor.tab_$i"))*)
+          slots = Slots.kids(List.tabulate(4)(i => chart(s"sensor.tab_$i"))*)
         ),
         bakeInto = Some(NodeId.derived("tabs")),
         bakeAs = Some("panel"),

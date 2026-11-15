@@ -20,8 +20,8 @@ for "something picks what fills a host": `SurfaceGraph` bakes a choice into a ho
 slots, a bool signal slot and a fetch window's `Choice.Chosen.by`, but a bake member still reads
 it as `Activation.Var`.
 
-**State:** direction agreed in chat (2026-11-10); the prework is on main (below); the R steps are
-not built.
+**State:** direction agreed in chat (2026-11-10); the prework is on main (below); R1 is built
+(`slot-classes`), R2 onward not. The opening describes the shape before R1.
 
 ## What this builds on
 
@@ -107,7 +107,7 @@ const local panel = slotMod.nodes("panel")
 cardDef { classes = "fh-col"; template = "<div class=\"fh-tabs\">\(bar)</div>\(panel)" }
 slots {
   bar.of(buttons)
-  panel.of(new Listing { nodes.group("div", "fh-tab-panel", nodes.match(tab.value, new Mapping { ["0"] = a; ["1"] = b })) })
+  panel.of(new Listing { nodeMod.group("div", "fh-tab-panel", nodeMod.match(tab.value, new Mapping { ["0"] = a; ["1"] = b })) })
 }
 ```
 
@@ -152,7 +152,7 @@ Deciding is evaluate `by`, take the case whose `is` equals it, else `otherwise`,
   "window".
 - **A chain of conditions** uses one new step, `IndexOfTrue`, a sibling of `AnyOf`: over a list of
   bools, the index of the first that holds, or no value.
-  `nodes.iff(p).then(a).elif(q).then(b).else(x)` is `by = List(Bool, [p, q]) |> IndexOfTrue`,
+  `nodeMod.iff(p).then(a).elif(q).then(b).else(x)` is `by = List(Bool, [p, q]) |> IndexOfTrue`,
   `cases = [0 → a, 1 → b]`, `otherwise = x`; a plain `iff(p)` is `by = p`, `cases = [true → a]`.
   It reads `null` (an attribute the entity does not report, ADR 0035) as not holding and goes on,
   as a clause's `when` does today, and reads its items one at a time, stopping at the first
@@ -174,16 +174,16 @@ The author's side:
 ```pkl
 slots {
   features.of(new Listing { a; b })                                             // fixed nodes
-  branch.of(nodes.iff(c.isOn(lamp)).then(a).elif(c.isOn(fan)).then(b).`else`(x)) // conditions
-  panel.of(nodes.match(mode.state, new Mapping { ["heat"] = h; ["cool"] = k }, off)) // one value
+  branch.of(nodeMod.iff(c.isOn(lamp)).then(a).elif(c.isOn(fan)).then(b).`else`(x)) // conditions
+  panel.of(nodeMod.match(mode.state, new Mapping { ["heat"] = h; ["cool"] = k }, off)) // one value
   members.of(q.from(lights).where(…).orderBy(…).render(c.light))                // a set
 }
 ```
 
-- One chain, today's: `nodes.iff(p).then(a)` gains `.elif(q).then(b)`, each step returning `this`
+- One chain, today's: `nodeMod.iff(p).then(a)` gains `.elif(q).then(b)`, each step returning `this`
   (#694), and `c.iff` is a `group` holding one, with the same methods; else-if no longer nests a
   host per level. Tabs, `c.select` and the slider's controls
-  build `nodes.match` over their variable; popups are a `nodes.match` over `popups` (§7).
+  build `nodeMod.match` over their variable; popups are a `nodeMod.match` over `popups` (§7).
 - **A set** is the slot's whole fill: members are placed relative to each other, so a fixed
   sibling in the same host would need anchors.
 - `choose`/`each` and the separate `fills` block do not exist; `inlineSurfaces`, `bakeInto`,
@@ -231,20 +231,23 @@ each refusal below is a stopgap, not a rule to keep:
 
 ### 6. The wire
 
-Pkl lowers `slots` to one map, as it lowers them to `templateSlots` today, each slot carrying its
-kind:
+Pkl lowers `slots` to one map, `wireSlots` (Pkl's `slots` is the author's, as with `inputs` and
+`wireInputs`; Scala's field is `slots`), each slot carrying its kind (built in R1):
 
 ```scala
 slots: Map[String, Slot]
 enum Slot:                         // decoded by `kind`
-  case Value(slot: TemplateSlot)   // "kind": "value", today's TemplateSlot fields beside it
-  case Nodes(fill: Fill)           // "kind": "nodes" (§3)
+  case Value(slot: TemplateSlot)   // "kind": "Value", the TemplateSlot fields flat beside it
+  case Nodes(fill: Fill)           // "kind": "Nodes" (§3)
 ```
 
 - One map is one namespace, as a template's names are: a value slot and a nodes slot cannot share
   a name, with no rule to say so.
-- The decoder only picks the case by `kind`. `Ready`'s compile splits the map by kind once, so the
-  evaluator and the walk each get a typed map of their own, and no consumer matches on the union.
+- The decoder only picks the case by `kind`. `Component` splits the map by kind once
+  (`valueSlots`, `fills`, `regions`), so no consumer matches on the union.
+- The card's own `regions` on the wire (each nodes slot's name, `fill: baked` for one a bake
+  fills) stays until R4; Pkl builds it from the card's nodes slots, a baked one written
+  `slotMod.nodes("panel").baked()`. R4 deletes both.
 - Each Pkl slot class carries its `kind`, which `WireShapeSuite` pairs with the Scala case.
 - Cell slots keep using `TemplateSlot` inside `Cell`, whose maps are their placement.
 
@@ -284,7 +287,7 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
     again, with no search. Cheaper, but right only if the log never misses one, and a write to a
     variable an order reads moves members it cannot name. Worth it only if the bench shows the
     search costs.
-- **Popups** are one `nodes.match(popups, …)` on the root, in the chrome's `#popups` (the one host
+- **Popups** are one `nodeMod.match(popups, …)` on the root, in the chrome's `#popups` (the one host
   that is not a card's root; `validate` already checks the chrome writes it): one case per popup
   on the dashboard, nothing otherwise. What the spike (step 0) settled:
   - **The root declares `popups`, and a popup's content starts with the root's scope**: the root
@@ -351,18 +354,14 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    popups opened and closed by choosing a root `popups` variable through today's swap, from a
    registered popup, a set member's and a tab panel's, with a refusal on a forgotten `conn`.
    What it settled is in §7.
-1. **R1, slot classes**, on `var-signal-reads`.
-   - `NodesSlot` and its base beside `Slot`; `CardDef.regions` and `nodes.Region` go; the
-     library's `nodes` import alias is renamed so it no longer reads like `slotMod.nodes` (one
-     bulk edit).
-   - The one `slots` wire map (§6), `templateSlots` gone into it, with `Fill.Nodes(Fixed)`; a nodes
-     slot a bake fills keeps today's baked marker (`Region.fill`) until R4; wire snapshots change
-     once. Every card that declares a region moves: `layout.pkl` (Grid, Row,
-     Column), `core/surface.pkl` (Popup), `components/base/surface.pkl` (Tabs, If),
-     `components/select.pkl`, `components/base/slider.pkl`, `components/base/tile.pkl`.
-   - Goldens byte-identical. Pkl facts: a typo is an error, an unplaced nodes slot is an error.
-     `PklEditorSupportSuite` cases for what R1 bets the editor follows: completion on a
-     `slotMod.nodes(…)` handle, and `panel.bind` reported on a `NodesSlot`.
+1. **R1, slot classes**, branch `slot-classes` on `var-signal-reads`. **Built.**
+   - `NodesSlot` and `AnySlot` beside `Slot`; `CardDef.regions` and `nodes.Region` gone from Pkl;
+     the `node.pkl` alias is now `nodeMod`. `children { … }` fills `slotMod.childrenSlot`, implied
+     where the template places it; children given to a card that places none is a Pkl error.
+   - The one `wireSlots` map (§6) with `Fill.Nodes(Fixed)`; `validate` refuses a `Chosen` fill,
+     which nothing places yet. Wire snapshots changed once; goldens byte-identical.
+   - Completion on a nodes-slot handle works at expression level only (inside `slots { … }` it
+     returns nothing; `docs/pkl-editor-support.md`).
 2. **R2, a set is a fill.**
    - `Fill.Set` with members as `Choice[LayoutNode]` and its `of`, `IndexOfTrue`, `.of(set)`, the
      `group` card; `SetNode` goes from Pkl, the wire, `Ready`, `Validate` and `Renderer`, and
@@ -372,7 +371,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      and `validated` timing. Pkl fact: a set beside other content is an error. A test that a
      member whose first clause reads an attribute its entity does not report shows its second.
 3. **R3, choices in Pkl.**
-   - `nodes.iff`/`elif`/`else`, `nodes.match` over a variable, `c.iff(…).elif`; Tabs, If, select
+   - `nodeMod.iff`/`elif`/`else`, `nodeMod.match` over a variable, `c.iff(…).elif`; Tabs, If, select
      and the slider's controls on it, the three that host beside other content through a `group`.
    - The builders write today's bake fields (`inlineSurfaces`, `bakeInto`/`bakeAs`/`bakeIndex`,
      the baked marker), each choice baked into its card's root, so the runtime is untouched and no
@@ -382,7 +381,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      URL naming a variable declared inside a panel (`v.<id>.x`) stops matching.
 4. **R4, one runtime path.**
    - `Fill.Nodes(Chosen)` replaces the bake fields on the wire, `inlineSurfaces` staying only for
-     popups; `nodes.match` over a state reading. The four suites building on `{{bakeIndex}}`
+     popups; `nodeMod.match` over a state reading. The four suites building on `{{bakeIndex}}`
      (`LiveStreamSuite`, `RenderInputsSuite`, `RendererSuite`, `ServerHarness`) are rewritten;
      `LiveStreamSuite`'s server-rendered active tab moves to the document form of the tab's
      `cellClassWhen` (agreed 2026-11-10 as `cellClassAtRender`, which `var-signal-reads` folds into
@@ -428,7 +427,7 @@ deciding per send), 0017, 0020 (theme classes on the root), 0022
 terminology (region, host, member, clause, plus **nodes slot**, **fill**, **pick** and
 **group**; bake, bake group, `bakeInto`, `bakeAs` and `bakeIndex` go in R4);
 `writing-components.md` (the one host rule, the two slot kinds) and `writing-dashboards.md`
-(`elif`, `nodes.match`, `.of(set)`); the module `CLAUDE.md` lines on `.fh-group`, the If,
+(`elif`, `nodeMod.match`, `.of(set)`); the module `CLAUDE.md` lines on `.fh-group`, the If,
 variables and the tap routes. This plan is deleted when the work lands.
 
 ## Later
@@ -464,7 +463,7 @@ variables and the tap routes. This plan is deleted when the work lands.
 
 ## Open questions
 
-1. **Names**, free to change while v0: the `core/node.pkl` alias, `group` (it shares a word with
+1. **Names**, free to change while v0: `group` (it shares a word with
    the bake group until R4), `pick`, `IndexOfTrue`, the slot kinds and their base (`AnySlot`),
    `.inHistory()`.
 2. **The select's dropdown label over a variable** is a bake group only so the first HTML shows the
