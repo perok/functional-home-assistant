@@ -168,7 +168,8 @@ unavailable switch.
 - **What wakes a reading is what its reads name** (`ValueExpr.entities`): the source's entities,
   the operands', and those an order term names. No step adds any. A `Present` names its
   candidates, so `Present |> First` follows every candidate; a list of literal ids is text and
-  names none.
+  names none. A `Present` of areas or floors (`of`) names only what its guards name: an area has
+  no state, so its guard runs with no subject and the typing refuses one that reads it.
 - **Closures, not an opcode VM, Truffle nodes or a class per reading:** a reading is a few steps
   whose work lives in shared helpers, so a faster dispatch only shortens the gaps between them,
   2–4% of a render as profiled. The measurement, and what would reopen it, is in
