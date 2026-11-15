@@ -472,19 +472,19 @@ class VarTapSuite extends ServerHarness {
     )
   }
 
-  test("a press under a conn this process forgot mints its session") {
+  test("a press under a conn this process forgot is refused, its ask cleared") {
+    // A press cannot carry the viewer's other choices or open panels, so a
+    // session minted from one would render against a guess.
     served { ts =>
       for {
         result <- choose(ts, "forgotten", "window", "7d")
-        chose <- ts.sessions
-          .get("forgotten")
-          .flatMap(_.traverse(_.state.map(_.vars)))
+        minted <- ts.sessions.get("forgotten")
       } yield {
-        assertEquals(result._1, Status.NoContent, clue = result)
-        assertEquals(
-          chose,
-          Some(Map(VarKey(NodeId.derived("panel"), "window") -> "7d"))
-        )
+        val (status, body) = result
+        assertEquals(status, Status.Ok)
+        assert(body.contains(Server.NotConnectedMessage), clue = body)
+        assert(body.contains("\"_var_panel__window__pending\":\"\""), body)
+        assertEquals(minted, None)
       }
     }
   }

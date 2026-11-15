@@ -216,10 +216,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `DashboardBuild.decode` BEFORE validation, so a `Validated` is final and a `fh push --slug`
   rename cannot leave a compiled tap URL naming the old dashboard.
   The surface taps carry it too — `POST /sse/surface/:slug/open/:id`, `POST /sse/popup/:slug/close`
-  — for a second reason (ADR 0024): a `conn` this process has forgotten (an idle page outliving
-  its session's linger) can then be RE-MINTED rather than dropped, the same thing the stream route
-  already does. Before that, such a tap answered 204 and did nothing at all, while the client's own
-  signal assignment still moved the URL. Standing principle from the same ADR, aspirational and
+  — so the gate checks them as every route. A tap under a `conn` this process has forgotten (an
+  idle page outliving its session's linger, a restart) is REFUSED with a toast, never minted: a
+  tap carries too little of the page to rebuild its session, and the reconnecting stream, which
+  carries the viewer's choices and its cursor, rebuilds it (ADR 0024). Standing principle from the same ADR, aspirational and
   not enforced: **the DOM we send should be as usable as possible without JS** — signals for
   liveness and effects, not for the core meaning of a tap.
   A selection tap does NOT set the committed signal itself (ADR 0025): it writes a pending

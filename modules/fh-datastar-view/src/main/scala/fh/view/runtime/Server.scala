@@ -1354,8 +1354,12 @@ class Server(
             FHError.notFound(s"no dashboard '$slug' is being served")
           )
         case Some(renderer) =>
-          sessionFor(slug, conn, renderer, requested).flatMap {
+          // Only the stream makes a session: a press carries too little of
+          // the page to rebuild one (ADR 0024).
+          sessions.get(conn).flatMap {
             case None =>
+              actionRefused(req, Server.NotConnectedMessage, pending)
+            case Some(session) if session.slug != slug =>
               actionRefused(req, Server.WrongSlugMessage, pending)
             case Some(session) =>
               session.run(s =>
@@ -1373,36 +1377,6 @@ class Server(
         case e: FHError if e.status < 500 =>
           actionRefused(req, e.message, pending)
       }
-
-  /** Mints a session when `conn` names nothing (an idle page whose session was
-    * reaped); its patches wait in the backlog until the reconnecting stream
-    * adopts it. `None`: `conn` is another dashboard's, and re-registering it
-    * would unroute that page.
-    */
-  private def sessionFor(
-      slug: String,
-      conn: String,
-      renderer: Renderer,
-      requested: Option[String]
-  ): IO[Option[Session]] =
-    sessions.get(conn).flatMap {
-      case Some(session) => IO.pure(Option.when(session.slug == slug)(session))
-      case None          =>
-        Session
-          .create(
-            slug,
-            supervisor,
-            logger,
-            SessionState.initial.copy(open =
-              renderer.surfaces.selectedSurfaces(
-                selectionsOf(renderer, requested, Map.empty)
-              )
-            )
-          )
-          .flatTap(sessions.register(conn, _))
-          .flatTap(reapAfter(conn, _, Tenure.Fresh, windows.adoption))
-          .map(Some(_))
-    }
 
   private def connOf(body: Json): Option[String] =
     body.hcursor.get[String](Server.ConnSignal).toOption
@@ -2637,6 +2611,12 @@ object Server {
   private[runtime] val WrongSlugMessage: String =
     "connection belongs to another dashboard"
 
+  /** A press under a `conn` this process does not hold: the page's stream is
+    * down or not yet back, and only the stream rebuilds the session.
+    */
+  private[runtime] val NotConnectedMessage: String =
+    "Not connected — press again once the page has reconnected"
+
   /** What an action says about itself: the pressed control, filled at click
     * time (`core/tap.pkl`).
     */
@@ -3004,16 +2984,12 @@ object Server {
   /** How long a never-adopted session waits for its stream: a parse and a round
     * trip, and shorter than [[LingerWindow]] because an abandoned load (a burst
     * of reloads) is the common case.
-    *
-    * Too short drops a tap-minted session's queued patch (ADR 0024), so the
-    * popup does not open and the user taps again. Measure a real reconnect
-    * before shortening it.
     */
   val AdoptionWindow: FiniteDuration = 10.seconds
 
   /** How long a returning client is told only what moved: a phone waking, a
-    * lid, a wifi handover. Too short costs a fatter first patch, not
-    * correctness — true only because a tap mints (ADR 0024).
+    * lid, a wifi handover. Too short costs a fatter first patch, and a tap in
+    * that window is refused until the stream is back (ADR 0024).
     */
   val LingerWindow: FiniteDuration = 2.minutes
 

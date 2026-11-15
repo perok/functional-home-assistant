@@ -101,9 +101,9 @@ object Outlet {
 }
 
 /** One dashboard client, normally created by the document it loaded: the page
-  * render is the only place that knows what it put in the DOM. A session minted
-  * for an unknown `conn` ([[Server.adoptOrMint]], [[Server.sessionFor]]) starts
-  * with empty `holds`, so its resume re-sends rather than under-sends.
+  * render is the only place that knows what it put in the DOM. A stream naming
+  * an unknown `conn` mints one ([[Server.adoptOrMint]]), with empty `holds`, so
+  * its resume re-sends rather than under-sends; a tap never does.
   *
   * '''One owner.''' Its [[SessionState]] is a value only the owner fiber moves,
   * one [[Session.run]] at a time, and a step's frames reach the client in the
