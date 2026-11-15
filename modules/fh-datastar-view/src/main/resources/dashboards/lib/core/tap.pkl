@@ -65,6 +65,8 @@ abstract class TapAction {
 /// choice of a node variable ([[SetVar]]). Its answer is a wait worth showing.
 abstract class Press extends TapAction {
   busy = true
+  /// What the server runs at the press (`Dashboard.calls`, ADR 0023).
+  hidden decl: slotMod.CallDecl
 }
 
 class Call extends Press {
@@ -100,6 +102,7 @@ class Call extends Press {
   /// card sending the same call cannot go unguarded. Not the busy guard: this
   /// follows the ENTITY, including a lock someone moved from its keypad.
   disabledWhile: Listing<String> = new {}
+  decl = serviceOf(this)
 }
 
 /// A tap that is its own click expression. `onclick` is what a card whose root
@@ -121,6 +124,7 @@ class SetVar extends Press {
   variable: String
   /// Null clears the choice, back to the declared value.
   value: String?
+  decl = let (t = this) new slotMod.SetVarCall { variable = t.variable; value = t.value }
 }
 
 // URLs are relative to the page's <base href>, which is the ingress prefix
@@ -322,14 +326,9 @@ const function refusedStates(t: TapAction, target: Target?): List<String> =
 const function tapDisabledSlot(states: List<String>): slotMod.Reading =
   simpleMod.stateIn(states.toListing())
 
-/// What the call `c` asks HA, as the server runs it at the press
-/// (`Dashboard.calls`, ADR 0023). Every read names its entity: a declaration
-/// has no subject. A set is its tally, which the press narrows to the
-/// candidates present then.
-const function declOf(t: Press): slotMod.CallDecl =
-  if (t is SetVar) new slotMod.SetVarCall { variable = t.variable; value = t.value }
-  else serviceOf(t as Call)
-
+/// What the call `c` asks HA. Every read names its entity: a declaration has
+/// no subject. A set is its tally, which the press narrows to the candidates
+/// present then.
 const local function serviceOf(c: Call): slotMod.ServiceCall = new {
   service =
     if (c.service is slotMod.Reading && c.target is hass.Entity)
@@ -366,7 +365,7 @@ const function tapRoute(t: TapAction): Listing<slotMod.Slot> =
   let (states = refusedStates(t, target))
     new {
       when (t is Press) {
-        (tapCall) { declares = declOf(t) }
+        (tapCall) { declares = (t as Press).decl }
       } else {
         onclick.of((t as Click).onclick)
       }
