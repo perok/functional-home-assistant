@@ -286,57 +286,33 @@ class Server(
       d: CallDecl.SetVar,
       body: Server.CallBody
   ): IO[Response[IO]] =
-    req.uri.query.params.get(Server.NodeParam).map(NodeId.derived) match {
-      case None       => actionRefused(req, "the press names no node")
-      case Some(node) =>
-        rendererFor(slug).flatMap {
-          case None =>
-            IO.raiseError(FHError.unavailable(s"dashboard '$slug' is not live"))
-          case Some(renderer) =>
-            renderer.vars.keyAt(node, d.variable) match {
-              case None =>
-                actionRefused(
-                  req,
-                  s"no node at or above $node declares the variable '${d.variable}'"
-                )
-              case Some(key) =>
-                val pending = Some(key.pendingSignal)
-                stateStore.current
-                  .flatMap(decided(renderer, _) { at =>
-                    renderer
-                      .componentAt(node, at)
-                      .exists(_.calls.values.exists(_.id == id))
-                  })
-                  .flatMap {
-                    case (false, _) =>
-                      actionRefused(
-                        req,
-                        s"the node $node does not place the call $id",
-                        pending
-                      )
-                    case (true, _) =>
-                      body.conn match
-                        case None => actionRefused(req, "missing conn", pending)
-                        case Some(conn) =>
-                          inSession(req, slug, conn, body.popup, pending)(
-                            (session, renderer, selections) =>
-                              setVar(
-                                session,
-                                renderer,
-                                key,
-                                d.value,
-                                selections
-                              )
-                          )
-                  }
-            }
-        }
-    }
+    (for
+      (renderer, node) <- EitherT(pressAt(req, slug))
+        .leftMap(_ -> Option.empty[String])
+      key <- EitherT.fromOption[IO](
+        renderer.vars.keyAt(node, d.variable),
+        s"no node at or above $node declares the variable '${d.variable}'" ->
+          Option.empty[String]
+      )
+      pending = Option(key.pendingSignal)
+      _ <- EitherT(placedAt(renderer, node, id)((_, _, _) => Right(())))
+        .leftMap(_ -> pending)
+      conn <- EitherT.fromOption[IO](body.conn, "missing conn" -> pending)
+    yield (renderer, key, conn)).foldF(
+      (why, pending) => actionRefused(req, why, pending),
+      (renderer, key, conn) =>
+        inSession(
+          req,
+          slug,
+          IO.pure(renderer),
+          conn,
+          body.popup,
+          Some(key.pendingSignal)
+        )((session, renderer, selections) =>
+          setVar(session, renderer, key, d.value, selections)
+        )
+    )
 
-  /** The call run now, as the pressed node places it: a set member is its
-    * current clause, so a page drawn from another one is refused here when that
-    * clause's call differs, and by `seen` when both declare the same call.
-    */
   private def pressed(
       req: Request[IO],
       slug: String,
@@ -344,26 +320,42 @@ class Server(
       call: Ready.ServiceCall,
       posted: Map[String, Any]
   ): IO[Either[String, Renderer.Pressed]] =
-    req.uri.query.params.get(Server.NodeParam) match {
+    EitherT(pressAt(req, slug)).flatMapF { (renderer, node) =>
+      placedAt(renderer, node, id)((c, placed, at) =>
+        renderer.press(call, placed.seen, c, at, posted)
+      )
+    }.value
+
+  /** The pressed node, the client's claim, and the dashboard's renderer. */
+  private def pressAt(
+      req: Request[IO],
+      slug: String
+  ): IO[Either[String, (Renderer, NodeId)]] =
+    req.uri.query.params.get(Server.NodeParam).map(NodeId.derived) match
       case None       => IO.pure(Left("the press names no node"))
       case Some(node) =>
         rendererFor(slug).flatMap {
           case None =>
             IO.raiseError(FHError.unavailable(s"dashboard '$slug' is not live"))
-          case Some(renderer) =>
-            stateStore.current
-              .flatMap(decided(renderer, _) { at =>
-                renderer
-                  .componentAt(NodeId.derived(node), at)
-                  .flatMap(c => c.calls.values.find(_.id == id).map(c -> _))
-                  .toRight(s"the node $node does not place the call $id")
-                  .flatMap((c, placed) =>
-                    renderer.press(call, placed.seen, c, at, posted)
-                  )
-              })
-              .map(_._1)
+          case Some(renderer) => IO.pure(Right(renderer -> node))
         }
-    }
+
+  /** `f` over the call `id` as `node` places it now: a set member is its
+    * current clause, so a page drawn from another one is refused here when that
+    * clause's call differs, and by `seen` when both declare the same call.
+    */
+  private def placedAt[A](renderer: Renderer, node: NodeId, id: CallId)(
+      f: (Ready.Component, Ready.Placed, Shared) => Either[String, A]
+  ): IO[Either[String, A]] =
+    stateStore.current
+      .flatMap(decided(renderer, _) { at =>
+        renderer
+          .componentAt(node, at)
+          .flatMap(c => c.calls.values.find(_.id == id).map(c -> _))
+          .toRight(s"the node $node does not place the call $id")
+          .flatMap((c, placed) => f(c, placed, at))
+      })
+      .map(_._1)
 
   private def send(req: Request[IO], p: Renderer.Pressed): IO[Response[IO]] =
     p.service.split('/') match {
@@ -1329,7 +1321,18 @@ class Server(
           actionRefused(req, "missing conn")
         case Some((conn, requested)) =>
           gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
-            inSession(req, slug, conn, requested, None)(f)
+            inSession(
+              req,
+              slug,
+              rendererFor(slug).flatMap(
+                _.liftTo[IO](
+                  FHError.notFound(s"no dashboard '$slug' is being served")
+                )
+              ),
+              conn,
+              requested,
+              None
+            )(f)
           )
       }
 
@@ -1339,6 +1342,7 @@ class Server(
   private def inSession(
       req: Request[IO],
       slug: String,
+      served: IO[Renderer],
       conn: String,
       requested: Option[String],
       pending: Option[String]
@@ -1347,29 +1351,24 @@ class Server(
         Session.Step[Unit]
       ]
   ): IO[Response[IO]] =
-    rendererFor(slug)
-      .flatMap {
-        case None =>
-          IO.raiseError(
-            FHError.notFound(s"no dashboard '$slug' is being served")
-          )
-        case Some(renderer) =>
-          // Only the stream makes a session: a press carries too little of
-          // the page to rebuild one (ADR 0024).
-          sessions.get(conn).flatMap {
-            case None =>
-              actionRefused(req, Server.NotConnectedMessage, pending)
-            case Some(session) if session.slug != slug =>
-              actionRefused(req, Server.WrongSlugMessage, pending)
-            case Some(session) =>
-              session.run(s =>
-                f(
-                  session,
-                  renderer,
-                  selectionsOf(renderer, requested, s.values)
-                )(s)
-              ) *> NoContent()
-          }
+    served
+      .flatMap { renderer =>
+        // Only the stream makes a session: a press carries too little of the
+        // page to rebuild one (ADR 0024).
+        sessions.get(conn).flatMap {
+          case None =>
+            actionRefused(req, Server.NotConnectedMessage, pending)
+          case Some(session) if session.slug != slug =>
+            actionRefused(req, Server.WrongSlugMessage, pending)
+          case Some(session) =>
+            session.run(s =>
+              f(
+                session,
+                renderer,
+                selectionsOf(renderer, requested, s.values)
+              )(s)
+            ) *> NoContent()
+        }
       }
       // A 4xx becomes a refusal; a 5xx is our bug and stays with
       // [[FHError.handle]] rather than showing the user an internal message.
