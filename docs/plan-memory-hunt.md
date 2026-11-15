@@ -68,7 +68,22 @@ a + b. RSS / live (MB):
 
 With no GC forced, head's heap still fills to ~496 MB committed: the server's own build garbage
 (decode, validate, the renderers) is promoted, and the old generation expands instead of being
-collected. That is #471's finding, and why its heap policy is measured next, on `memory-hunt-2`.
+collected. That is #471's finding.
+
+`memory-hunt-2` stacks #471 on top: its heap policy (`MinHeapFreeRatio=10
+MaxHeapFreeRatio=30 -ShrinkHeapInSteps`, plus `System.gc()` after every build) and one compiler
+thread for the chart isolate. Same scenario, no GC forced, RSS MB:
+
+| Reading | base | a + b | a + #471, in process | a + b + #471 |
+|---|---|---|---|---|
+| boot | 724 | 598 | 621 | **447** |
+| peak over the five edits | 979 | 853 | 859 | **525** |
+| settled | 979 | 836 | 480 | **464** |
+
+The heap policy is what brings the settled figure down. The child evaluation is what keeps a
+boot and a reload from pinning: in process, edit 2 left 293 MB in the heap and RSS peaked at
+859 MB before the stdlib caches went megamorphic. The Pi's usual state is the boot after an
+update, with no edits, and there the whole stack is 447 MB against 621.
 
 - **a, trim the native heap every 30 s** (`run.sh`, 173a757d).
 - **b, evaluate the site in a child JVM** (0ff72f7f). Under `FH_PKL_EVAL=child`, which `run.sh`
@@ -85,8 +100,8 @@ collected. That is #471's finding, and why its heap policy is measured next, on 
 1. Is a slower reload (b) acceptable on the Pi? It costs about 1.2 s more per evaluation on
    x86, likely several seconds on the Pi. The other option is to keep evaluating in-process
    and accept up to ~250 MB pinned after a few reloads.
-2. #471's heap flags and `System.gc` after a build: with b, a build allocates little in the
-   server, so is the explicit GC still worth it? Measured both ways below once decided.
+2. #471 is now part of this stack (`memory-hunt-2`), and the numbers say it is still needed with
+   b. Close #471 in favour of this stack, or merge #471 first and rebase this onto it?
 
 ## Remaining leads
 
