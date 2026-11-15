@@ -17,9 +17,8 @@ What fills a region is also written three different ways, and only two of them i
 The set's root is the last markup Scala writes outside the page shell. The runtime has two paths
 for "something picks what fills a host": `SurfaceGraph` bakes a choice into a host, and
 `MemberGraph` places a set's members. A variable is an expression source (`Value.Var`) for value
-slots, `cellClassAtRender` and a fetch window's `Choice.Chosen.by`, but a bake member still reads
-it as `Activation.Var`, and one Datastar string is spelled in Pkl from `Variable.below`, around an
-`@@VAR:<name>@@` declarer token: `TabButton.active`, the tab's live highlight.
+slots, a bool signal slot and a fetch window's `Choice.Chosen.by`, but a bake member still reads
+it as `Activation.Var`.
 
 **State:** direction agreed in chat (2026-11-10); the prework is on main (below); the R steps are
 not built.
@@ -65,47 +64,41 @@ All on main:
   **pkl-lsp** support is recorded in `docs/pkl-editor-support.md` with `PklEditorSupportSuite`
   (#698, #701).
 
+Below R1, its own PR stacked on this one (branch `var-signal-reads`,
+`docs/plan-var-signal-reads.md`):
+- **A variable read in a bool signal slot**: `v.valueIs(x)` binds the variable's own
+  pending-or-committed signals at the node, and the document form writes it for the viewer.
+  `TabButton.active`, `cellClassAtRender`, `Variable.below`/`own`/`declarer`/`Spelling` and the
+  `@@VAR` splice go with it, so a declarer is resolved in one place (`Dashboard.scopeOf`), the
+  one R5 changes.
+
 ## The idea
 
-A region is a slot whose value is nodes, and a variable a card's markup refers to is a slot too.
-The differences between the three kinds are the kind's own rules:
+A region is a slot whose value is nodes. The differences between the two kinds are the kind's own
+rules:
 
-| | `Slot` (as today) | `NodesSlot` | `VarSlot` |
-|---|---|---|---|
-| Declared | `slotMod.slot("label")` | `slotMod.nodes("features")` | `slotMod.variable("chooses")` |
-| Placed | `\(label)`, `label.raw`, `label.bind`, sections | `\(features)`, a raw hole; once, outside every section | `\(chooses.chosen)`, `.committed`, `.pending`, `.urlParam` |
-| Filled | `label.of(literal \| reading)` | `features.of(nodes \| choice \| set)` | `chooses.of(v)`, a `varMod.Variable` |
-| Live form | `signal`: a change is a frame | a choice or a set: a change is a patch into the card's root | none: the browser reads the variable's own signals |
-| Card | leaf, if no slot is nodes | structure (ADR 0012): its other live slots are signals | either |
+| | `Slot` (as today) | `NodesSlot` |
+|---|---|---|
+| Declared | `slotMod.slot("label")` | `slotMod.nodes("features")` |
+| Placed | `\(label)`, `label.raw`, `label.bind`, sections | `\(features)`, a raw hole; once, outside every section |
+| Filled | `label.of(literal \| reading)` | `features.of(nodes \| choice \| set)` |
+| Live form | `signal`: a change is a frame | a choice or a set: a change is a patch into the card's root |
+| Card | leaf, if no slot is nodes | structure (ADR 0012): its other live slots are signals |
 
 The leaf/structure rule stays as it is: a nodes slot's content never comes back through its card's
 patch.
 
 ## Design
 
-### 1. Three slot classes
+### 1. Two slot classes
 
 `Slot` keeps its name and all its members (`bind`, `raw`, `jsValue`, `ifSet`, …), so no component
-that types a handle `slotMod.Slot` changes. `NodesSlot` and `VarSlot` have only what their kind
-needs, so `panel.bind` is a Pkl error at the line, not a build check. The three share an abstract
-base holding the name (`AnySlot`, name open), which a listing of every kind is typed with.
+that types a handle `slotMod.Slot` changes. `NodesSlot` has only what its kind needs, so
+`panel.bind` is a Pkl error at the line, not a build check. The two share an abstract base holding
+the name (`AnySlot`, name open), which a listing of both kinds is typed with.
 
 `CardDef.regions` and `nodes.Region` go: a card's nodes slots are its handles, as its value slots
 are. `children { … }` stays the sugar for the default nodes slot, `children`.
-
-A `VarSlot` exists because a card's template is shared by every node of the card, and one card
-serves several variables (`TabButton` serves `c.tabs`' `tab` and `c.select(v)`'s `v`), so the
-template names its own handle and each node says which variable it means. The compile resolves
-each node's variable to its declarer once, as it resolves a `Value.Var`, and refuses one with no
-declarer above, as the `@@VAR:…@@` token does today; the renderer fills `{{{chooses.chosen}}}`
-from that, as cheaply as `{{id}}`. A `VarSlot` only spells signal names, so it is not a reader: a
-write nothing reads is still refused.
-
-`Variable` keeps what is about the variable: its name and declaration (`vars { v.defaultingTo(x) }`),
-its reads (`v.value`, `v.valueIs(x)`), and its write (`v.choose(x)`). `Variable.below`, `own`,
-`declarer` and `Spelling` go in R1 with `TabButton.active`, the last thing spelled from them
-(`own` has no user but a Pkl fact), and the `@@VAR` token and its splice
-(`DashboardBuild.declarerToken`) with them.
 
 ### 2. Placement and the one host rule
 
@@ -162,6 +155,9 @@ Deciding is evaluate `by`, take the case whose `is` equals it, else `otherwise`,
   bools, the index of the first that holds, or no value.
   `nodes.iff(p).then(a).elif(q).then(b).else(x)` is `by = List(Bool, [p, q]) |> IndexOfTrue`,
   `cases = [0 → a, 1 → b]`, `otherwise = x`; a plain `iff(p)` is `by = p`, `cases = [true → a]`.
+  It reads `null` (an attribute the entity does not report, ADR 0035) as not holding and goes on,
+  as a clause's `when` does today, and reads its items one at a time, stopping at the first
+  `true`, as `AnyOf` does.
 - **A set's member is the same shape**, once per candidate: today's `SetMember(clauses: [when → node])`
   is `by = List(Bool, [when₁, …]) |> IndexOfTrue` (a single guard is `by = when`), an unnamed read
   in a guard reading the candidate, and an unguarded member is `Fixed`. No case holding and no
@@ -196,8 +192,6 @@ slots {
 
 ### 4. Variables in decisions (R4)
 
-- **The tab's live highlight** is spelled with a `VarSlot` from R1
-  (`String(\(chooses.chosen)) === '\(choiceSlot)'`), and `TabButton.active` goes.
 - **A guard** is `Choice.Chosen`'s `by` (§3). The bake groups' `Activation.Var` and `VarAt` are
   replaced in R4, where the pick replaces bake groups; R3's choices over a variable lower to them
   in the build until then.
@@ -207,7 +201,8 @@ index) or the variable's write wakes it, and it is decided per viewer, a cost on
 pays.
 
 **What `validate` refuses today, for this work to lift.** A variable read (`v.value`,
-`v.valueIs`) is allowed only in a leaf's value slots, `cellClassAtRender` and a window's `by`;
+`v.valueIs`) is allowed only in a leaf's value slots, a bool signal slot as `v.valueIs(x)` and a
+window's `by`;
 each refusal below is a stopgap, not a rule to keep:
 - **Shared decisions** (clauses, state surfaces, `valueWhile`, order keys): decided per viewer
   once the pick replaces bake groups (R4), and `Activation.Var`/`VarAt` and the lowering of
@@ -216,10 +211,10 @@ each refusal below is a stopgap, not a rule to keep:
   reading a variable needs the viewer's session there. Every call's body carries `conn` (#707),
   so lifting it is the service case reading the presser's variables; it stays refused until a card
   needs it.
-- **Signal slots** (`cellClassWhen`, `cellStyle`, any display signal): a plain `v.value` or
-  `v.valueIs(x)` can bind the client's own committed signal (`_var_<declarer>__<name>`), with no
-  server frame, as the tab bar does; any other expression needs CEL lowered to a Datastar
-  expression, which does not exist. Stays refused until a card needs it.
+- **Signal slots** (`cellClassWhen`, `cellStyle`, any display signal): `v.valueIs(x)` in a bool
+  one binds the variable's own signals (below R1); a plain `v.value` could the same way, and any
+  other expression needs CEL lowered to a Datastar expression, which does not exist. Stays refused
+  until a card needs it.
 - **A structural card's own bytes**: structure is never cached, so it is a render and a patch per
   viewer on each write; no dashboard needs it yet.
 
@@ -245,14 +240,12 @@ slots: Map[String, Slot]
 enum Slot:                         // decoded by `kind`
   case Value(slot: TemplateSlot)   // "kind": "value", today's TemplateSlot fields beside it
   case Nodes(fill: Fill)           // "kind": "nodes" (§3)
-  case Var(variable: String)       // "kind": "var", resolved at compile
 ```
 
 - One map is one namespace, as a template's names are: a value slot and a nodes slot cannot share
   a name, with no rule to say so.
 - The decoder only picks the case by `kind`. `Ready`'s compile splits the map by kind once, so the
-  evaluator, the walk and the variable resolution each get a typed map of their own, and no
-  consumer matches on the union.
+  evaluator and the walk each get a typed map of their own, and no consumer matches on the union.
 - Each Pkl slot class carries its `kind`, which `WireShapeSuite` pairs with the Scala case.
 - Cell slots keep using `TemplateSlot` inside `Cell`, whose maps are their placement.
 
@@ -281,6 +274,9 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
     is above every place a popup opens from, so an opener inside a popup (the colour wheel in a
     more-info) resolves the variable. Today a popup is its own scope root (`Dashboard.varScopes`,
     `scopeOf`); after this every root variable reaches popups, a root window chooser included.
+    The name is reserved: `validate` refuses an author's declaration of `popups`, which would hide
+    the root's from every opener below it (ADR 0033 records a `root.` reference as the
+    alternative, should an author ever need to reach past a nearer declaration).
   - **No value is `""` on the wire**, which the signals, the URL mirror and the env already read
     as nothing, so the Scala needs no `Option`; Pkl's `Declaration.default` becomes
     `varMod.Value?`, null lowering to `""`. A clear reads it again.
@@ -326,32 +322,26 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    popups opened and closed by choosing a root `popups` variable through today's swap, from a
    registered popup, a set member's and a tab panel's, with a refusal on a forgotten `conn`.
    What it settled is in §7.
-1. **R1, slot classes.**
-   - `NodesSlot`, `VarSlot` and their base beside `Slot`; `CardDef.regions` and `nodes.Region`
-     go; the library's `nodes` import alias is renamed so it no longer reads like
-     `slotMod.nodes` (one bulk edit).
+1. **R1, slot classes**, on `var-signal-reads`.
+   - `NodesSlot` and its base beside `Slot`; `CardDef.regions` and `nodes.Region` go; the
+     library's `nodes` import alias is renamed so it no longer reads like `slotMod.nodes` (one
+     bulk edit).
    - The one `slots` wire map (§6), `templateSlots` gone into it, with `Fill.Nodes(Fixed)`; a nodes
      slot a bake fills keeps today's baked marker (`Region.fill`) until R4; wire snapshots change
      once. Every card that declares a region moves: `layout.pkl` (Grid, Row,
      Column), `core/surface.pkl` (Popup), `components/base/surface.pkl` (Tabs, If),
      `components/select.pkl`, `components/base/slider.pkl`, `components/base/tile.pkl`.
-     `TabButton` spells its highlight with a `VarSlot`, and `active` goes; with it
-     `Variable.below`, `own`, `declarer`, `Spelling` and `DashboardBuild.declarerToken` (§1).
-     `VarSignalNamesSuite` pairs the `VarSlot`'s spellings with `VarKey` instead;
-     `components.test.pkl`'s "a variable spells its declarer…" fact goes with them, and the fact
-     that a variable's name is a token reads it through something other than `declarer`.
-   - Goldens byte-identical. Pkl facts: a typo is an error, an unplaced nodes slot is an error, a
-     variable slot with no declarer above is an error. `PklEditorSupportSuite` cases for what R1
-     bets the editor follows: completion on a `slotMod.nodes(…)` handle, and `panel.bind` reported
-     on a `NodesSlot`.
+   - Goldens byte-identical. Pkl facts: a typo is an error, an unplaced nodes slot is an error.
+     `PklEditorSupportSuite` cases for what R1 bets the editor follows: completion on a
+     `slotMod.nodes(…)` handle, and `panel.bind` reported on a `NodesSlot`.
 2. **R2, a set is a fill.**
    - `Fill.Set` with members as `Choice[LayoutNode]` and its `of`, `IndexOfTrue`, `.of(set)`, the
      `group` card; `SetNode` goes from Pkl, the wire, `Ready`, `Validate` and `Renderer`, and
      `groupOpen` goes.
    - Goldens byte-identical, area sets (`UseCaseSuite`'s rendered rooms) included. Bench
      `publishSetOrdered`, `publishSetGuarded`, `publishSetNamedGuard`, `leaderRow`, `tickRender`,
-     and `validated` timing. Pkl fact: a set beside
-     other content is an error.
+     and `validated` timing. Pkl fact: a set beside other content is an error. A test that a
+     member whose first clause reads an attribute its entity does not report shows its second.
 3. **R3, choices in Pkl.**
    - `nodes.iff`/`elif`/`else`, `nodes.match` over a variable, `c.iff(…).elif`; Tabs, If, select
      and the slider's controls on it, the three that host beside other content through a `group`.
@@ -365,8 +355,9 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    - `Fill.Nodes(Chosen)` replaces the bake fields on the wire, `inlineSurfaces` staying only for
      popups; `nodes.match` over a state reading. The four suites building on `{{bakeIndex}}`
      (`LiveStreamSuite`, `RenderInputsSuite`, `RendererSuite`, `ServerHarness`) are rewritten;
-     `LiveStreamSuite`'s server-rendered active tab moves to `cellClassAtRender` (agreed
-     2026-11-10).
+     `LiveStreamSuite`'s server-rendered active tab moves to the document form of the tab's
+     `cellClassWhen` (agreed 2026-11-10 as `cellClassAtRender`, which `var-signal-reads` folds into
+     it).
    - A test of one guard reading a variable and a state, with two viewers on different values.
    - The pick, its planner and its ids (§7); deciding per send; `Activation.Var`, `VarAt`,
      `SurfaceGraph`'s bake groups and `MemberGraph`'s nesting cases go; the shared decisions'
@@ -376,7 +367,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    - Ids move again; the same normalised comparison, then the goldens are regenerated.
    - Bench everything R2 measured.
 5. **R5, popups on the pick.**
-   - Popups as §7 has them, their taps `SetVar` calls on `popups`: the root's `popups`, a popup
+   - Popups as §7 has them, their taps `SetVar` calls on `popups`: the root's `popups`, its name
+     reserved, a popup
      starting with the root's scope (`NodeVariablesSuite`'s "a SURFACE is its own scope root"
      becomes "a popup starts with the root's scope", agreed 2026-11-15), an empty default,
      `.inHistory()` with `v.choosing`, and the `v.<root>.popups` parameter. Also check why two of
@@ -387,14 +379,14 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
 6. **R6, markup.** A test that no Scala source writes markup outside the contract in §8.
 
 Docs go in each step's commit: ADRs 0002 (popups), 0003 (sets), 0005/0025/0033 (the popup
-variable, a popup's scope, the history mirror, the variable slot, `below`/`own` gone), 0007
+variable, a popup's scope, the reserved name, the history mirror), 0007
 (choices), 0008 (the set's root is a card), 0016/0024 (a popup's open and close are `SetVar`
 calls, and what a press's body carries),
 0012 (structure, `bakeIndex`, deciding per send), 0017, 0020 (theme classes on the root), 0022
 (ids), 0034/0035 (`Choice` for nodes, `IndexOfTrue`); the pipeline doc §1a and §3–§4b;
-terminology (region, host, member, clause, plus **nodes slot**, **variable slot**, **fill**,
-**pick** and **group**; bake, bake group, `bakeInto`, `bakeAs` and `bakeIndex` go in R4);
-`writing-components.md` (the one host rule, the three slot kinds) and `writing-dashboards.md`
+terminology (region, host, member, clause, plus **nodes slot**, **fill**, **pick** and
+**group**; bake, bake group, `bakeInto`, `bakeAs` and `bakeIndex` go in R4);
+`writing-components.md` (the one host rule, the two slot kinds) and `writing-dashboards.md`
 (`elif`, `nodes.match`, `.of(set)`); the module `CLAUDE.md` lines on `.fh-group`, the If,
 variables and the tap routes. This plan is deleted when the work lands.
 
@@ -421,6 +413,13 @@ variables and the tap routes. This plan is deleted when the work lands.
   run-time half: decided once at set level, an unchanged answer touches no member, where today a
   change to the entity it names re-decides every one (`publishSetNamedGuard`, about 0.9 µs a
   member). Raise after R4, with a real dashboard's numbers.
+- **Stable popup ids and variable URL names.** An inline popup is sugar for one in the root's
+  collection, hoisted there by the build, so its id is the build's: its position, which moves when
+  a card is inserted above it, and after R5 that id is the `popups` value a link or a held session
+  names. Derive it from what the popup shows (a more-info's from its entity, merging equal ones),
+  with an opt-in `.named(…)` for the rest. A variable's URL name, `v.<declarer id>.<name>`, moves
+  the same way; an opt-in `.urlName(…)`, unique per dashboard, would keep tab links working while
+  node ids stay derived.
 
 ## Open questions
 
