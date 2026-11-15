@@ -200,25 +200,47 @@ abstract class Node extends LayoutNode {
   /// `cards`) reads these, since such a `card` has no value without a node.
   hidden variants: Mapping<String, CardDef>? = null
   // The structural check mirrors `LayoutNode.Component.liveEntitiesAsBytes`.
-  /// What this node's card reads ([[slotMod.Slot]]): `slots { label.of(…) }`. A
-  /// slot with no value is not set; [[templateSlots]] is what reaches the backend.
+  /// What this node's card places by name: `slots { label.of(…) }` for a value
+  /// ([[slotMod.Slot]]), `slots { features.of(…) }` for nodes
+  /// ([[slotMod.NodesSlot]]). A value slot with no value is not set; a nodes
+  /// slot is listed whether or not it holds any, which is how its card declares
+  /// it. [[wireSlots]] is what reaches the backend.
   ///
-  /// On a structural card (one with regions) a live slot read as bytes is refused,
-  /// since its patch would carry everything the card holds: put live markup in a
-  /// region as a node, or make it a signal slot. `once` and `onRender` reads are
-  /// fine.
-  hidden slots: Listing<slotMod.Slot>(
-    !isStructure(cardDef) || !toList().any((s) ->
+  /// On a structural card (one with a nodes slot) a live slot read as bytes is
+  /// refused, since its patch would carry everything the card holds: put live
+  /// markup in a nodes slot as a node, or make it a signal slot. `once` and
+  /// `onRender` reads are fine.
+  hidden slots: Listing<slotMod.AnySlot>(
+    !(toList().any((s) -> s is slotMod.NodesSlot) || placesChildren(cardDef)) || !valueSlotsIn(this).any((s) ->
       s.value is slotMod.Reading && !(s.value.source is slotMod.CelRead) && s.value.reads == "live" && s.signal == null &&
         (s.value.entityId != null ||
-        toList().any((t) -> t.name == "entity_id" && t.value is String))),
+        valueSlotsIn(this).any((t) -> t.name == "entity_id" && t.value is String))),
     namedOnce(this, card)
   ) = new {}
-  /// [[slots]] as the wire holds them, by name.
-  fixed templateSlots: Mapping<String, Any> = wireSlots(slots, subjectOf(slots))
+  /// [[slots]] that hold a value.
+  hidden valueSlots: List<slotMod.Slot> = valueSlotsIn(slots)
+  /// [[slots]] that hold nodes, and the default one ([[children]]) where the
+  /// card's template places it and `slots` does not list it.
+  hidden nodesSlots: List<slotMod.NodesSlot> =
+    let (own = slots.toList().filter((s) -> s is slotMod.NodesSlot).map((s) -> s as slotMod.NodesSlot))
+      if (placesChildren(cardDef) && !own.any((s) -> s.name == slotMod.childrenSlot.name))
+        own + List(slotMod.childrenSlot.of(children))
+      else own
+  /// The nodes each nodes slot holds, by name: empty ones too.
+  hidden regions: Mapping<String, Listing<LayoutNode>> =
+    nodesSlots.toMap((s) -> s.name, (s) -> s.nodes).toMapping()
+  /// Each nodes slot's name and whether a surface fills it.
+  hidden nodesDeclared: Map<String, Boolean> =
+    nodesSlots.toMap((s) -> s.name, (s) -> s.bakedBy)
+  /// [[slots]] as the wire holds them, by name: every value slot that is set
+  /// and every nodes slot holding nodes. `slots` is the author's name for them.
+  fixed wireSlots: Mapping<String, Any> =
+    if (!children.isEmpty && !nodesDeclared.containsKey(slotMod.childrenSlot.name))
+      throw("card '\(card)' places no `children` nodes slot, so the children given to it would never render")
+    else wireSlotMap(slots, nodesSlots, subjectOf(slots))
   /// The calls [[slots]] place ([[slotMod.CallSlot]]), by name.
   hidden declared: Map<String, slotMod.CallDecl> =
-    slots.toList()
+    valueSlots
       .filter((s) -> s is slotMod.CallSlot && s.declares != null)
       .toMap((s) -> s.name, (s) -> (s as slotMod.CallSlot).declares!!)
   /// [[declared]] as the wire holds it; absent on a node that places none.
@@ -226,22 +248,17 @@ abstract class Node extends LayoutNode {
     if (declared.isEmpty) null else declared.mapValues((_, d) -> wireCall(d)).toMapping()
   /// [[slots]] that are set, by name.
   hidden slotsByName: Map<String, slotMod.Slot> =
-    slots.toList().filter((s) -> s.value != null).toMap((s) -> s.name, (s) -> s)
+    valueSlots.filter((s) -> s.value != null).toMap((s) -> s.name, (s) -> s)
   /// An id of the author's choosing for this node and the root of its
   /// descendants' (`detail`, `detail_0`, …). Ids are user-visible — a tab bar
   /// mirrors its own into the URL — so naming the node keeps a bookmark working
   /// when a card is inserted above it. Must be a unique plain token, outside
   /// any candidate set's clause.
   id: String? = null
-  /// What fills this node's regions. A `Listing` fills the default region
-  /// (`Grid { children { … } }`); a `Mapping` names each one, for a card with
-  /// more than one hole ([[Slider]]).
-  hidden children: Listing<LayoutNode>|Mapping<String, Listing<LayoutNode>> = new Listing {}
-  /// [[children]] with the default region named: the one form on the wire.
-  regions: Mapping<String, Listing<LayoutNode>>? =
-    if (children is Mapping) children
-    else if (children.isEmpty) null
-    else new Mapping { [defaultRegion] = children }
+  /// What fills this node's default nodes slot ([[slotMod.childrenSlot]]):
+  /// `Grid { children { … } }`. A card whose template places it needs no entry
+  /// in [[slots]]; its other nodes slots are filled there.
+  hidden children: Listing<LayoutNode> = new Listing {}
   /// The node variables this node declares ([[varMod]]). Its subtree is where
   /// they apply, a tab panel or `If` branch included; a popup does not see the
   /// page's.
@@ -286,9 +303,9 @@ abstract class Node extends LayoutNode {
 /// that part's slots read; the build's own parse then checks every part.
 const function inputsNamedIn(
   vs: Mapping<String, Input>,
-  slots: Listing<slotMod.Slot>
+  slots: Listing<slotMod.AnySlot>
 ): Map<String, Input> =
-  let (cels = slots.toList().map((s) -> s.value)
+  let (cels = valueSlotsIn(slots).map((s) -> s.value)
       .filter((v) -> v is slotMod.Reading)
       .flatMap((v) -> (v as slotMod.Reading).steps.toList())
       .filter((st) -> st is simpleMod.Cel)
@@ -312,22 +329,10 @@ abstract class ActiveNode extends Node {
   }
 }
 
-/// A named hole in a card's template. `eager` holds the node's own children,
-/// rendered with the card. `baked` is filled per viewer by a surface (a tab
-/// panel, an [[If]] branch, a popup), and its element carries
-/// `id="{{hostId}}"` so it can be addressed.
-class Region {
-  fill: "eager"|"baked" = "eager"
-}
-
-/// The region a bare `children` Listing fills; `LayoutNode.DefaultRegion` in
-/// the backend.
-const defaultRegion: String = "children"
-
-/// A card's markup. A card is a LEAF (no regions) or STRUCTURE (regions), and a
+/// A card's markup. A card is a LEAF (no nodes slot) or STRUCTURE (some), and a
 /// patch replaces a node's own element, so structure is never a patch target
 /// (ADR 0012). A card that wants its own bytes to change puts that markup in a
-/// region, as a node ([[SliderHead]]).
+/// nodes slot, as a node ([[SliderHead]]).
 class CardDef {
   /// The root element's name. The library writes the root from this,
   /// [[classes]] and [[attrs]], with the node's id and cell classes on it, so
@@ -348,12 +353,10 @@ class CardDef {
   /// must be a slot the node sets (or `id`, `hostId`, `dashboardSlug`), one
   /// inside a section may be absent, and every slot the node sets must be
   /// named here. The build checks both. A template places a slot through its
-  /// handle ([[slotMod.Slot]]: `\(label)`, `label.bind`, `label.ifSet(…)`).
+  /// handle ([[slotMod.Slot]]: `\(label)`, `label.bind`, `label.ifSet(…)`) and
+  /// a nodes slot through its own (`\(features)`), once and outside every
+  /// section.
   template: String
-  /// The template places each as `{{{name}}}`, eager or baked: once, and
-  /// outside every section. A structural card assigns `new Mapping { … }`: a null default
-  /// has nothing to amend.
-  regions: Mapping<String, Region>? = null
   /// The CSS this card's markup needs to work, emitted ahead of the theme's
   /// `styles` (ADR 0020). Colour goes through the `--fh-*` variables, never a
   /// framework's role name; a rule on a class the card does not emit belongs in
@@ -370,34 +373,41 @@ class CardDef {
 /// space) and `cell` (the id, the signal seed, the cell bindings).
 class WireCard {
   template: String
-  regions: Mapping<String, Region>?
+  /// The card's nodes slots: each name, and `fill = "baked"` for one a surface
+  /// fills. Null on a leaf.
+  regions: Mapping<String, Map<String, String>>?
   css: String
   script: String?
   layoutCell: Boolean?
 }
 
-const local function wireCard(d: CardDef): WireCard = new {
+const local function wireCard(d: CardDef, nodesSlots: Map<String, Boolean>): WireCard = new {
   template =
     let (cls = (if (d.layoutCell) List("fh-cell") else List()) + (if (d.classes.isEmpty) List() else List(d.classes)))
       "<\(d.tag) class=\"\(cls.join(" ")){{{cellClasses}}}\"{{{cell}}}\(if (d.attrs.isEmpty) "" else " " + d.attrs)>\(d.template)</\(d.tag)>"
-  regions = d.regions
+  regions =
+    if (nodesSlots.isEmpty) null
+    else nodesSlots.mapValues((_, baked) -> if (baked) Map("fill", "baked") else Map()).toMapping()
   css = d.css
   script = d.script
   layoutCell = if (d.layoutCell) null else false
 }
 
-const local function isStructure(d: CardDef): Boolean = d.regions != null
-
 // The wire is keyed by name, so a second slot of one name would silently win.
-const local function namedOnce(slots: Listing<slotMod.Slot>, card: String): Boolean =
+const local function namedOnce(slots: Listing<slotMod.AnySlot>, card: String): Boolean =
   let (twice = slots.toList().map((s) -> s.name).groupBy((n) -> n).filter((_, ns) -> ns.length > 1).keys)
     if (twice.isEmpty) true
     else throw("card '\(card)': slot \(twice.toList().map((n) -> "'\(n)'").join(", ")) is listed twice in `slots`")
 
 // The entity a reading that names none reads: the card's `entity_id` literal.
-const local function subjectOf(slots: Listing<slotMod.Slot>): String? =
-  let (s = slots.toList().findOrNull((t) -> t.name == slotMod.subject.name))
+const local function subjectOf(slots: Listing<slotMod.AnySlot>): String? =
+  let (s = valueSlotsIn(slots).findOrNull((t) -> t.name == slotMod.subject.name))
     if (s?.value is String) s.value as String else null
+
+const local function placesChildren(d: CardDef): Boolean = d.template.contains(slotMod.childrenSlot.toString())
+
+const local function valueSlotsIn(slots: Listing<slotMod.AnySlot>): List<slotMod.Slot> =
+  slots.toList().filter((s) -> s is slotMod.Slot).map((s) -> s as slotMod.Slot)
 
 // A reading as the wire holds it: its set fields, an empty `steps` left out,
 // and its `valueWhileSlot` under the wire's name. The card's own entity is not
@@ -453,22 +463,29 @@ const local function wireValue(v: Any): Any =
     })
   else v
 
-// By name, set ones only, a reading carrying its slot's `signal` and `type`,
-// and a literal a bare value. A themed slot's value takes the theme's swap as
-// its last step.
-const local function wireSlots(slots: Listing<slotMod.Slot>, subject: String?): Mapping<String, Any> = new {
-  for (s in slots) {
-    when (s.value != null) {
-      [s.name] =
-        if (s.value is slotMod.Reading)
-          wireReading(s.value as slotMod.Reading, subject, s.themed)
-            + (if (s.signal != null) Map("signal", s.signal) else Map())
-            + (if (s.type != null) Map("type", s.type) else Map())
-        else if (s.signal != null)
-          throw("slot '\(s.name)' is a constant literal and cannot be a signal slot — a value that never moves has nothing to patch")
-        else if (s.themed) Map("source", s.value, "steps", List(themeStage))
-        else if (s.type != null) Map("source", s.value, "type", s.type)
-        else s.value
+// By name: a value slot that is set, a reading carrying its slot's `signal` and
+// `type`, and a literal its `source`; a nodes slot that holds nodes. A themed
+// slot's value takes the theme's swap as its last step.
+const local function wireSlotMap(slots: Listing<slotMod.AnySlot>, nodesSlots: List<slotMod.NodesSlot>, subject: String?): Mapping<String, Any> = new {
+  for (a in nodesSlots) {
+    when (!a.nodes.isEmpty) {
+      [a.name] = Map("kind", a.kind, "fill", a.fill)
+    }
+  }
+  for (a in slots) {
+    when (a is slotMod.Slot && a.value != null) {
+      [a.name] =
+        let (s = a as slotMod.Slot)
+          Map("kind", s.kind) + (
+            if (s.value is slotMod.Reading)
+              wireReading(s.value as slotMod.Reading, subject, s.themed)
+                + (if (s.signal != null) Map("signal", s.signal) else Map())
+                + (if (s.type != null) Map("type", s.type) else Map())
+            else if (s.signal != null)
+              throw("slot '\(s.name)' is a constant literal and cannot be a signal slot — a value that never moves has nothing to patch")
+            else if (s.themed) Map("source", s.value, "steps", List(themeStage))
+            else if (s.type != null) Map("source", s.value, "type", s.type)
+            else Map("source", s.value))
     }
   }
 }
@@ -481,8 +498,15 @@ const function cardsIn(roots: List<LayoutNode>): Mapping<String, WireCard> =
     .groupBy((n) -> n.card)
     .mapValues((name, ns) ->
       let (defs = ns.map((n) -> n.cardDef).distinct)
-        if (defs.length == 1) wireCard(defs.first)
-        else throw("card '\(name)' has \(defs.length) different cardDefs: two card classes claim the name, or a cardDef reads its own node"))
+      let (declared = ns.map((n) -> n.nodesDeclared).distinct)
+        if (defs.length != 1)
+          throw("card '\(name)' has \(defs.length) different cardDefs: two card classes claim the name, or a cardDef reads its own node")
+        else if (declared.length != 1)
+          throw("card '\(name)' has \(declared.length) different sets of nodes slots: its class must list the same ones in `slots` on every node")
+        else
+          let (unplaced = declared.first.keys.filter((n) -> !defs.first.template.contains("{{{\(n)}}}")))
+            if (unplaced.isEmpty) wireCard(defs.first, declared.first)
+            else throw("card '\(name)': nodes slot \(unplaced.toList().map((n) -> "'\(n)'").join(", ")) is never placed — its template has no {{{\(unplaced.first)}}}"))
     .toMapping()
 
 // Every place a node can hold another; a new one belongs here, or its cards
@@ -490,7 +514,7 @@ const function cardsIn(roots: List<LayoutNode>): Mapping<String, WireCard> =
 const local function nodesUnder(n: LayoutNode): List<Node> =
   if (n is Node)
     List(n)
-      + (n.regions?.toMap()?.values ?? List()).flatMap((l) -> l.toList()).flatMap((k) -> nodesUnder(k))
+      + n.regions.toMap().values.flatMap((l) -> l.toList()).flatMap((k) -> nodesUnder(k))
       + (n.inlineSurfaces?.toMap()?.values ?? List()).flatMap((s) -> nodesUnder(s.content))
   else if (n is predMod.SetNode)
     n.members.toMap().values.flatMap((m) -> m.clauses.toList()).flatMap((c) -> nodesUnder(c.node))

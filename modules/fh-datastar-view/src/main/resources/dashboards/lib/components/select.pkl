@@ -72,13 +72,10 @@ const local function entityChosen(o: hass.Options, v: String): predMod.Predicate
 const local function entityCall(o: hass.Options, v: String): tapMod.Call =
   tapMod.call(o.service, o.owner).with(o.key, v)
 
-// Each option is a node, so the card is structure: a patch of the select never
-// re-sends them.
-const local optionsRegion: Mapping<String, nodeMod.Region> =
-  new { [nodeMod.defaultRegion] = new nodeMod.Region {} }
-
-const local panelRegion: Mapping<String, nodeMod.Region> =
-  new { ["panel"] = new nodeMod.Region { fill = "baked" } }
+// Each option is a node in the default nodes slot, so the card is structure: a
+// patch of the select never re-sends them. A variable's panel is baked.
+const local panelSlot: slotMod.NodesSlot = slotMod.nodes("panel").baked()
+const local barSlot: slotMod.NodesSlot = slotMod.nodes("bar")
 
 // One member per option, shown while `v` is at its value: the server renders the
 // chosen one, as a slider's mode panels.
@@ -169,9 +166,8 @@ abstract class Select extends nodeMod.Node {
 class SelectButtons extends Select {
   card = "selectButtons"
   cardDef = new nodeMod.CardDef {
-    regions = optionsRegion
     classes = "fh-tabs fh-select"
-    template = "{{{children}}}"
+    template = "\(slotMod.childrenSlot)"
   }
 }
 
@@ -179,7 +175,7 @@ class SelectButtons extends Select {
 const local function menuTemplate(chosen: String): String =
   #"<summary class="fh-select-summary">"# +
     chosen +
-    #"<i class="mdi mdi-chevron-down"></i></summary><div class="fh-select-list" data-on:click="el.closest('details').open = false">{{{children}}}</div>"#
+    #"<i class="mdi mdi-chevron-down"></i></summary><div class="fh-select-list" data-on:click="el.closest('details').open = false">\#(slotMod.childrenSlot)</div>"#
 
 const local menuAttrs: String = #"data-on:click__outside="el.open = false""#
 
@@ -213,7 +209,6 @@ const local cycleCss: String = """
 class SelectDropdown extends Select {
   card = "selectDropdown"
   cardDef = new nodeMod.CardDef {
-    regions = optionsRegion
     tag = "details"
     classes = "fh-select-menu"
     attrs = menuAttrs
@@ -235,7 +230,9 @@ class SelectDropdown extends Select {
           }
         }
       }
-  slots { slotMod.signalled(chosenSlot, chosen, slotMod.asText) }
+  slots {
+    slotMod.signalled(chosenSlot, chosen, slotMod.asText)
+  }
 }
 
 /// [[SelectDropdown]] over a node variable: its label is one member per option,
@@ -244,12 +241,14 @@ class VarSelectDropdown extends Select {
   hidden target: varMod.Variable
   card = "selectVarDropdown"
   cardDef = new nodeMod.CardDef {
-    regions = (optionsRegion) { ...panelRegion }
     tag = "details"
     classes = "fh-select-menu"
     attrs = menuAttrs
-    template = menuTemplate(#"<span id="{{hostId}}">{{{panel}}}</span>"#)
+    template = menuTemplate(#"<span id="{{hostId}}">\#(panelSlot)</span>"#)
     css = menuCss
+  }
+  slots {
+    panelSlot
   }
   inlineSurfaces =
     let (cs = choices)
@@ -263,9 +262,8 @@ class SelectCycle extends Select {
   hidden target: hass.Options
   card = "selectCycle"
   cardDef = new nodeMod.CardDef {
-    regions = optionsRegion
     classes = "fh-select-cycles fh-select-marked"
-    template = "{{{children}}}"
+    template = "\(slotMod.childrenSlot)"
     css = cycleCss
   }
   cycling = true
@@ -277,10 +275,10 @@ class VarSelectCycle extends Select {
   hidden target: varMod.Variable
   card = "selectVarCycle"
   cardDef = new nodeMod.CardDef {
-    regions = panelRegion
-    template = #"<div id="{{hostId}}" class="fh-select-cycles">{{{panel}}}</div>"#
+    template = #"<div id="{{hostId}}" class="fh-select-cycles">\#(panelSlot)</div>"#
     css = cycleCss
   }
+  slots { panelSlot }
   cycling = true
   children = new Listing {}
   inlineSurfaces = panelsOf(target, optionNodes, choices)
@@ -360,22 +358,13 @@ class Chooser extends nodeMod.Node {
   hidden defaultValue: varMod.Value = bar.choices.first.value
   card = "chooser"
   cardDef = new nodeMod.CardDef {
-    regions = new Mapping {
-      [nodeMod.defaultRegion] = new nodeMod.Region {}
-      ["bar"] = new nodeMod.Region {}
-    }
     classes = "fh-col"
-    template = "{{{bar}}}{{{children}}}"
+    template = "\(barSlot)\(slotMod.childrenSlot)"
   }
   vars { (bar.target as varMod.Variable).defaultingTo(defaultValue) }
-  // `let`: inside the Mapping's body `children` does not resolve to this node's.
-  regions = let (below = children as Listing<nodeMod.LayoutNode>) let (b = bar)
-    new Mapping {
-      ["bar"] = new Listing { b }
-      when (!below.isEmpty) {
-        [nodeMod.defaultRegion] = below
-      }
-    }
+  slots {
+    let (b = bar) barSlot.of(new Listing { b })
+  }
   // A section header over its cards, not a third of a grid row.
   layoutClasses { "fh-cols-full" }
 

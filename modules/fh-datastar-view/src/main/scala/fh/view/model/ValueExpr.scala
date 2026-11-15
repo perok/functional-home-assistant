@@ -988,9 +988,12 @@ object SortTerm:
   */
 private[model] object Strict:
 
-  /** Pkl's `wireInputs` is `inputs` here: the Pkl `inputs` is the author's. */
+  /** Pkl's `wireInputs` is `inputs` here, and `wireSlots` is `slots`: the Pkl
+    * ones are the author's.
+    */
   val wireName: String => String =
     case "inputs" => "wireInputs"
+    case "slots"  => "wireSlots"
     case other    => other
 
   val configuration: Configuration =

@@ -126,7 +126,7 @@ same commit; ADRs that change the pipeline update it too.
 
 | File | Role |
 |---|---|
-| `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `SetNode`); `validate`'s rules are `model/Validate.scala`; what a slot or a condition reads is `model/ValueExpr.scala` (`ValueExpr`, `Value`, `Step`), run by the one evaluator `runtime/Evaluator.scala`; `validated` walks the wire model into the compiled one the runtime reads, `model/Ready.scala`, every expression beside its run; the language's rules are ADR 0035 |
+| `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `SetNode`), a component's `slots` one map of `Slot`, a value or a nodes slot by `kind`; `validate`'s rules are `model/Validate.scala`; what a slot or a condition reads is `model/ValueExpr.scala` (`ValueExpr`, `Value`, `Step`), run by the one evaluator `runtime/Evaluator.scala`; `validated` walks the wire model into the compiled one the runtime reads, `model/Ready.scala`, every expression beside its run; the language's rules are ADR 0035 |
 | `fh/view/build/SourceEval.scala` | The authoring-language seam: `.pkl` → `PklBuild` (Pkl is the only evaluated language) |
 | `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.33.0) + typed dump generation — rendered to text and packaged, never written as a loose file. **Touching how the dump is TYPED** — capability classes, a modelled domain's value groups, the codegen `warnings` pass, adding a domain — **read ADR 0013 first**: it owns that design, the per-domain coverage table and the add-a-domain recipe |
 | `fh/view/build/LibPackage.scala` / `AddonBootstrap.scala` | The server boot path: `@fh-dashboard` packaged into a persistent cache, then the workspace seeded — on EVERY start, add-on and local `sbt dashboardServe` alike (repo resources as the bundled lib, pkl's own `~/.cache/pkl`, and whichever workspace dir the run was given). **Touching seeding, module resolution or the workspace scaffold — read ADR 0010 first**: it owns the write-once rule for user files, package-form as the ONE resolution mode, and why the two per-reader values (`FH_PKL_CACHE_DIR`, `FH_INSTANCE_URL`) come from the reader's ENVIRONMENT — the instance writes no `.fh/machine.json` at all — so one workspace serves an HA device, a laptop and a dev container at once |
@@ -187,7 +187,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   repaints wholesale — and pushes a session only the nodes whose byte-slot values moved from
   what that session holds (`holds`, ADR 0012; http4s ember).
 - **Phase discipline**: leaf templates escape `{{slot}}` values; container templates splice their
-  children unescaped at a raw hole named after the region, `{{{children}}}`; other raw author values (action
+  children unescaped at a raw hole named after the nodes slot, `{{{children}}}` (`slotMod.nodes("x")`); other raw author values (action
   URLs, ids) use `{{{...}}}`. Pkl sources live in `src/main/resources/dashboards/` (the seeded
   starter + demo modules, plus `lib/*.pkl`); the dump is a cache package (never on disk in the repo) and
   `dashboard.json` is generated + gitignored.
@@ -248,7 +248,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (its Mustache
   template), and the emitted `cards` registry is the cards the tree uses, read off its nodes. `Dashboard.validate` holds
   each node to its template's names (`Templates.card`): a name outside every section must be a slot, injected var or
-  region; every slot must be named, unless the server reads it itself (`Dashboard.readByRenderer`). Call-style factories / classes return layout nodes referencing a card
+  nodes slot; every slot must be named, unless the server reads it itself (`Dashboard.readByRenderer`). Call-style factories / classes return layout nodes referencing a card
   by name; a new container/leaf kind is one class, no Scala change. Datastar attributes use
   **colon** syntax (`data-on:click`,
   `data-bind`, `data-signals`). A reading's `default` (`ValueExpr.default`) fills an empty result
@@ -325,10 +325,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   fetch and seeded as a cache package (no file on disk). Feature surface: containers (grid/row/column) + the layout-cell builders
   (`columns`/`fullWidth`/`hug`/`centered`/`cellClass`, ADR 0008), sectionTitle/entityCard/button/pill/slider,
   a slider with `members` — the SAME card, holding member rows that are ORDINARY nodes: the head and
-  the members are two REGIONS of it, so a master state change never repaints a row. The head is
+  the members are two NODES SLOTS of it, so a master state change never repaints a row. The head is
   itself structure (#151): its label and second line are a `sliderText` leaf (the only bytes on the
   row that move — everything else is a signal or a literal), and its buttons are a pill
-  each, in an `actions` region, so two of them can be in flight without disabling one another.
+  each, in an `actions` nodes slot, so two of them can be in flight without disabling one another.
   `.buttons(…)` is the list, of taps (each a pill in its own look) and pills, a null being no
   button (`l.colour.ifNonNull((col) -> c.view.colourWheel(col))` for a light that may lack colour); on a slider with
   main controls they sit on the pill; `c.its.*` are the ones about the slider's own entity (ADR 0015). Every slider

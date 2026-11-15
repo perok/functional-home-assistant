@@ -31,9 +31,8 @@ const local extraClass: slotMod.Slot = slotMod.cssClass("class")
 typealias Justify = "start"|"center"|"end"
 
 const local function boxDef(cls: String): nodeMod.CardDef = new {
-  regions = new Mapping { [nodeMod.defaultRegion] = new nodeMod.Region {} }
   classes = cls + extraClass.ifTrue(" \(extraClass)")
-  template = "{{{children}}}"
+  template = "\(slotMod.childrenSlot)"
 }
 
 class Row extends Box {

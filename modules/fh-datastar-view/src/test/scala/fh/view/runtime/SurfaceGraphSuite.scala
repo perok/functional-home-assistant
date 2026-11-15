@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.Conds
 
 import fh.view.model.{
@@ -26,7 +28,7 @@ import io.circe.Json
 class SurfaceGraphSuite extends munit.FunSuite {
 
   private def col(kids: LayoutNode*) =
-    LayoutNode.Component("col", regions = LayoutNode.kids(kids*))
+    LayoutNode.Component("col", slots = Slots.kids(kids*))
 
   private def isOn(e: String): ValueExpr =
     Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(e))
@@ -384,8 +386,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
               None,
               LayoutNode.Component(
                 "tile",
-                Map.empty,
-                LayoutNode.kids(nestedSet)
+                Slots.kids(nestedSet)
               )
             )
           )

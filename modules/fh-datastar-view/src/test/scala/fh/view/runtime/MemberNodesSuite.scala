@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -46,14 +48,16 @@ class MemberNodesSuite extends ServerHarness {
 
   private def tile(id: String) = LayoutNode.Component(
     "tile",
-    Map(
-      "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
-      "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(id))))
+    Slots.values(
+      Map(
+        "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+        "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(id))))
+      )
     )
   )
 
   private def col(children: LayoutNode*) =
-    LayoutNode.Component("col", regions = LayoutNode.kids(children*))
+    LayoutNode.Component("col", slots = Slots.kids(children*))
 
   private val whileOn: ValueExpr =
     Conds.cmp("state", Op.Eq, Json.fromString("on"))
@@ -189,7 +193,7 @@ class MemberNodesSuite extends ServerHarness {
       LayoutNode
         .Component(
           "text",
-          Map("text" -> TemplateSlot(ValueExpr.literal(text)))
+          Slots.values(Map("text" -> TemplateSlot(ValueExpr.literal(text))))
         ),
       bakeInto = Some(member),
       bakeAs = Some("panel"),
@@ -203,7 +207,7 @@ class MemberNodesSuite extends ServerHarness {
       card = LayoutNode.Component(
         "col",
         vars = declared("tab" -> "0"),
-        regions = LayoutNode.kids(
+        slots = Slots.kids(
           LayoutNode.SetNode(
             candidates = ids,
             members = ids.map { id =>
@@ -213,9 +217,11 @@ class MemberNodesSuite extends ServerHarness {
                     None,
                     LayoutNode.Component(
                       "host",
-                      Map(
-                        "entity_id" -> TemplateSlot(
-                          ValueExpr.literal(id)
+                      Slots.values(
+                        Map(
+                          "entity_id" -> TemplateSlot(
+                            ValueExpr.literal(id)
+                          )
                         )
                       )
                     )

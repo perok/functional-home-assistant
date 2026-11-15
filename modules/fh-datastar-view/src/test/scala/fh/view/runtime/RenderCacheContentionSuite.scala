@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.syntax.all.*
@@ -53,16 +55,20 @@ class RenderCacheContentionSuite extends ServerHarness {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.Component(
           "tabs",
-          regions = Map(
-            "bar" -> List(
-              LayoutNode.Component(
-                "card",
-                templateSlots = Map(
-                  "state" -> TemplateSlot(
-                    ValueExpr(Value.Entity(Some("sensor.shared")))
+          slots = Slots.nodes(
+            Map(
+              "bar" -> List(
+                LayoutNode.Component(
+                  "card",
+                  slots = Slots.values(
+                    Map(
+                      "state" -> TemplateSlot(
+                        ValueExpr(Value.Entity(Some("sensor.shared")))
+                      )
+                    )
                   )
                 )
               )
@@ -76,9 +82,11 @@ class RenderCacheContentionSuite extends ServerHarness {
       "t0" -> Surface(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.a")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.a")))
+              )
             )
           )
         ),
@@ -90,9 +98,11 @@ class RenderCacheContentionSuite extends ServerHarness {
       "t1" -> Surface(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.b")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.b")))
+              )
             )
           )
         ),
@@ -114,12 +124,14 @@ class RenderCacheContentionSuite extends ServerHarness {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.shared")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.shared")))
+              )
             )
           )
         )
@@ -140,14 +152,16 @@ class RenderCacheContentionSuite extends ServerHarness {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.shared")))
-            ),
-            "window" -> TemplateSlot(ValueExpr(Value.Var("window")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.shared")))
+              ),
+              "window" -> TemplateSlot(ValueExpr(Value.Var("window")))
+            )
           )
         )
       ),
@@ -297,17 +311,22 @@ class RenderCacheContentionSuite extends ServerHarness {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.shared"))),
-              signal = Some(SignalBind.Text)
-            ),
-            "name" -> TemplateSlot(
-              ValueExpr(
-                Value.Entity(Some("sensor.shared"), Part.Attr("friendly_name"))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.shared"))),
+                signal = Some(SignalBind.Text)
+              ),
+              "name" -> TemplateSlot(
+                ValueExpr(
+                  Value.Entity(
+                    Some("sensor.shared"),
+                    Part.Attr("friendly_name")
+                  )
+                )
               )
             )
           )

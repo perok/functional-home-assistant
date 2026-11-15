@@ -77,7 +77,7 @@ object Scene {
 
     def walk(n: LayoutNode): List[String] = n match {
       case c: LayoutNode.Component =>
-        fromSlots(c.templateSlots, c.subjectEntity) ++ c.allChildren.flatMap(
+        fromSlots(c.valueSlots, c.subjectEntity) ++ c.allChildren.flatMap(
           walk
         )
       case set: LayoutNode.SetNode =>

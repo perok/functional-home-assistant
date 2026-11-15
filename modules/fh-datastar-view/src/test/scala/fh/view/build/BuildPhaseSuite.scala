@@ -1,5 +1,7 @@
 package fh.view.build
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -104,8 +106,10 @@ class BuildPhaseSuite extends munit.FunSuite {
         "card" -> TestCard(template, regions = regions),
         "leaf" -> TestCard("<i></i>")
       ),
-      card =
-        LayoutNode.Component("card", templateSlots = slots, regions = filled)
+      card = LayoutNode.Component(
+        "card",
+        slots = Slots.values(slots) ++ Slots.nodes(filled)
+      )
     ).validate()
 
   private val text = TemplateSlot(ValueExpr.literal("x"))
@@ -291,8 +295,12 @@ class BuildPhaseSuite extends munit.FunSuite {
         "detail" -> Surface(
           LayoutNode.Component(
             card = "card",
-            regions = Map(
-              LayoutNode.DefaultRegion -> List(LayoutNode.Component("missing"))
+            slots = Slots.nodes(
+              Map(
+                LayoutNode.DefaultRegion -> List(
+                  LayoutNode.Component("missing")
+                )
+              )
             )
           )
         )
@@ -360,13 +368,13 @@ class BuildPhaseSuite extends munit.FunSuite {
           .parse(s"""
             { "cards": {}, "card": {
                 "kind": "Component", "card": "fhcol",
-                "regions": { "children": [
+                "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
                   { "kind": "Component", "card": "card" },
                   { "kind": "Component", "card": "button"$idField,
-                    "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
+                    "wireSlots": { "onclick": { "kind": "Value", "source": "open @@NODE_ID@@_self" } },
                     "inlineSurfaces": { "self": {
                       "content": { "kind": "Component", "card": "card" } } } }
-                ] } } }
+                ] } } } } }
           """)
           .toOption
           .get
@@ -402,16 +410,16 @@ class BuildPhaseSuite extends munit.FunSuite {
       .parse("""
         { "cards": {}, "card": {
             "kind": "Component", "card": "fhcol",
-            "regions": { "children": [
+            "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
               { "kind": "SetNode",
                 "candidates": ["sensor.batt"],
                 "members": { "sensor.batt": { "clauses": [
                   { "node": { "kind": "Component", "card": "tile",
-                      "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
+                      "wireSlots": { "onclick": { "kind": "Value", "source": "open @@NODE_ID@@_self" } },
                       "inlineSurfaces": { "self": {
                         "content": { "kind": "Component", "card": "card" } } } } }
                 ] } } }
-            ] } } }
+            ] } } } } }
       """)
       .toOption
       .get
@@ -436,7 +444,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       .parse("""
         { "cards": {}, "card": {
             "kind": "Component", "card": "fhcol",
-            "regions": { "children": [
+            "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
               { "kind": "SetNode",
                 "candidates": ["sensor.batt"],
                 "members": { "sensor.batt": { "clauses": [
@@ -447,7 +455,7 @@ class BuildPhaseSuite extends munit.FunSuite {
                       "inlineSurfaces": { "self": {
                         "content": { "kind": "Component", "card": "card" } } } } }
                 ] } } }
-            ] } } }
+            ] } } } } }
       """)
       .toOption
       .get
@@ -467,26 +475,26 @@ class BuildPhaseSuite extends munit.FunSuite {
       .parse("""
         { "cards": {}, "card": {
             "kind": "Component", "card": "fhcol",
-            "regions": { "children": [
+            "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
               { "kind": "Component", "card": "slider",
-                "regions": {
-                  "head": [
+                "wireSlots": {
+                  "head": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
                     { "kind": "Component", "card": "sliderHead",
-                      "regions": {
-                        "actions": [
+                      "wireSlots": {
+                        "actions": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
                           { "kind": "Component", "card": "sliderAction",
-                            "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
+                            "wireSlots": { "onclick": { "kind": "Value", "source": "open @@NODE_ID@@_self" } },
                             "inlineSurfaces": { "self": {
                               "content": { "kind": "Component", "card": "card" } } } }
-                        ] } }
-                  ],
-                  "children": [
+                        ] } } } }
+                  ] } },
+                  "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
                     { "kind": "Component", "card": "slider",
-                      "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
+                      "wireSlots": { "onclick": { "kind": "Value", "source": "open @@NODE_ID@@_self" } },
                       "inlineSurfaces": { "self": {
                         "content": { "kind": "Component", "card": "card" } } } }
-                  ] } }
-            ] } } }
+                  ] } } } }
+            ] } } } } }
       """)
       .toOption
       .get
@@ -508,7 +516,9 @@ class BuildPhaseSuite extends munit.FunSuite {
   private def node(fields: String, children: String*): String =
     s"""{ "kind": "Component", "card": "x"$fields""" +
       (if (children.isEmpty) ""
-       else s""", "regions": { "children": [${children.mkString(",")}] }""") +
+       else
+         s""", "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [${children
+             .mkString(",")}] } } }""") +
       " }"
 
   private def hoistCard(card: String, surfaces: String = "{}"): Json =
@@ -565,15 +575,15 @@ class BuildPhaseSuite extends munit.FunSuite {
           "cards": {},
           "card": {
             "kind": "Component", "card": "fhcol",
-            "regions": { "children": [
+            "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
               { "kind": "Component", "card": "button",
                 "params": { "label": "More" },
                 "entities": [],
-                "templateSlots": { "onclick": { "entity": "",
+                "wireSlots": { "onclick": { "kind": "Value", "entity": "",
                   "transform": "\"@post('sse/surface/open/@@NODE_ID@@_self')\"" } },
                 "inlineSurfaces": { "self": {
                   "content": { "kind": "Component", "card": "card" } } } }
-            ] }
+            ] } } }
           }
         }
       """)
@@ -588,8 +598,10 @@ class BuildPhaseSuite extends munit.FunSuite {
 
     val trigger = hoisted
       .downField("card")
-      .downField("regions")
+      .downField("wireSlots")
       .downField("children")
+      .downField("fill")
+      .downField("choice")
       .downN(0)
     assert(
       trigger.downField("inlineSurfaces").failed,
@@ -597,7 +609,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
     assertEquals(
       trigger
-        .downField("templateSlots")
+        .downField("wireSlots")
         .downField("onclick")
         .get[String]("transform")
         .toOption,
@@ -626,14 +638,14 @@ class BuildPhaseSuite extends munit.FunSuite {
         {
           "cards": {},
           "card": {
-            "kind": "Component", "card": "tabs", "entities": [], "templateSlots": {},
+            "kind": "Component", "card": "tabs", "entities": [],
             "params": { "initial": "@@NODE_ID@@_0", "panelHost": "panel_@@NODE_ID@@", "sig": "tab_@@NODE_ID@@" },
-            "regions": { "children": [
+            "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
               { "kind": "Component", "card": "button", "entities": [],
                 "params": { "active": "$tab_@@NODE_ID@@ == '@@NODE_ID@@_0'" },
-                "templateSlots": { "onclick": { "entity": "",
+                "wireSlots": { "onclick": { "kind": "Value", "entity": "",
                   "transform": "\"@post('sse/surface/open/@@NODE_ID@@_0')\"" } } }
-            ] },
+            ] } } },
             "inlineSurfaces": {
               "0": { "content": { "kind":"Component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" },
               "1": { "content": { "kind":"Component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" }
@@ -673,14 +685,19 @@ class BuildPhaseSuite extends munit.FunSuite {
       Some("panel_c")
     )
 
-    val first = node.downField("regions").downField("children").downN(0)
+    val first = node
+      .downField("wireSlots")
+      .downField("children")
+      .downField("fill")
+      .downField("choice")
+      .downN(0)
     assertEquals(
       first.downField("params").get[String]("active").toOption,
       Some("$tab_c == 'c_0'")
     )
     assertEquals(
       first
-        .downField("templateSlots")
+        .downField("wireSlots")
         .downField("onclick")
         .get[String]("transform")
         .toOption,
@@ -1040,7 +1057,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(
       DashboardBuild.unresolvedTokens(
         json(
-          """{"card":{"templateSlots":{"active":"($_@@NODE_ID@@__pending || $x) == 0"}},
+          """{"card":{"wireSlots":{"active":"($_@@NODE_ID@@__pending || $x) == 0"}},
             | "cards":{"a":{"template":"<i class=\"@@CLASSBIND:busySpin:$b@@\"></i>"}}}""".stripMargin
         )
       ),
@@ -1094,7 +1111,8 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map("ok" -> TestCard("<i>{{label}}</i>")),
       card = LayoutNode.Component(
         "ok",
-        templateSlots = Map("label" -> TemplateSlot(ValueExpr.literal("x")))
+        slots =
+          Slots.values(Map("label" -> TemplateSlot(ValueExpr.literal("x"))))
       ),
       surfaces = Map("p" -> Surface(LayoutNode.Component("nope")))
     )
@@ -1112,11 +1130,13 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map("card" -> TestCard("<span>{{state}}</span>")),
       card = LayoutNode.Component(
         "card",
-        templateSlots = Map(
-          "state" -> TemplateSlot(
-            ValueExpr(
-              Value.Entity(Some("e.x"), Part.Whole),
-              List(Step.Cel("'unclosed"))
+        slots = Slots.values(
+          Map(
+            "state" -> TemplateSlot(
+              ValueExpr(
+                Value.Entity(Some("e.x"), Part.Whole),
+                List(Step.Cel("'unclosed"))
+              )
             )
           )
         )

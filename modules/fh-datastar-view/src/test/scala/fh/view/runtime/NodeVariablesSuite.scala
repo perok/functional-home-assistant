@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.DashboardBuilders
 
 import fh.view.testkit.TestCard
@@ -43,7 +45,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   private def chartNode(param: Choice[Window] = chosen) =
     LayoutNode.Component(
       "chart",
-      templateSlots = Map("chart" -> chartSlot(param))
+      slots = Slots.values(Map("chart" -> chartSlot(param)))
     )
 
   private def box(
@@ -52,7 +54,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   ): LayoutNode.Component =
     LayoutNode.Component(
       "box",
-      regions = LayoutNode.kids(kids*),
+      slots = Slots.kids(kids*),
       vars = declared(vars.toList*)
     )
 
@@ -121,7 +123,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     val d = dash(
       LayoutNode.Component(
         "chart",
-        templateSlots = Map("chart" -> chartSlot()),
+        slots = Slots.values(Map("chart" -> chartSlot())),
         vars = declared("window" -> "7d")
       )
     )

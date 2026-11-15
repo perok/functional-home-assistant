@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -48,9 +50,11 @@ class ValueWhileSuite extends munit.FunSuite {
 
   private def node(of: TemplateSlot) = LayoutNode.Component(
     card = "bar",
-    templateSlots = Map(
-      "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
-      "of" -> of
+    slots = Slots.values(
+      Map(
+        "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
+        "of" -> of
+      )
     )
   )
 
@@ -64,7 +68,7 @@ class ValueWhileSuite extends munit.FunSuite {
     ),
     card = LayoutNode.Component(
       card = "col",
-      regions = Map(LayoutNode.DefaultRegion -> nodes.toList)
+      slots = Slots.nodes(Map(LayoutNode.DefaultRegion -> nodes.toList))
     )
   )
 
@@ -121,11 +125,13 @@ class ValueWhileSuite extends munit.FunSuite {
   test("a set asks only for its present members, in the clause they are in") {
     def chart(e: String) = LayoutNode.Component(
       "chart",
-      Map(
-        "chart" -> TemplateSlot(
-          ValueExpr(
-            Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day))),
-            List(Step.Json, Step.JsonText)
+      Slots.values(
+        Map(
+          "chart" -> TemplateSlot(
+            ValueExpr(
+              Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day))),
+              List(Step.Json, Step.JsonText)
+            )
           )
         )
       )

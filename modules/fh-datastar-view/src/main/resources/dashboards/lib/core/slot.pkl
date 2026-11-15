@@ -197,6 +197,12 @@ const function wireInput(v: nodeMod.Input): Any =
       + (if (v.dependsOn.isEmpty) Map() else Map("dependsOn", v.dependsOn))
   else v
 
+/// What a card's template places by name: a [[Slot]] (a value) or a
+/// [[NodesSlot]] (nodes). A node's `slots` lists both.
+abstract class AnySlot {
+  name: String(!contains("."))
+}
+
 /// One named value a card's template places, filled per node. The template
 /// reaches it through this object, so its name is written once:
 ///
@@ -209,8 +215,8 @@ const function wireInput(v: nodeMod.Input): Any =
 /// Interpolated, it is the plain hole: `\(label)` is `{{label}}`. A slot with
 /// no value is not set, which [[ifSet]] tests; one with only a name is what a
 /// template piece shared across cards places (`core/tap.pkl`'s).
-open class Slot {
-  name: String(!contains("."))
+open class Slot extends AnySlot {
+  kind: "Value" = "Value"
   /// A literal, a [[Reading]], or null: not set.
   value: (String|Boolean|Number|Reading)? = null
   /// Carry the value as a Datastar signal rather than bytes, so a change costs a
@@ -277,6 +283,44 @@ open class Slot {
 }
 
 const function slot(n: String): Slot = new { name = n }
+
+/// A slot whose value is nodes: the card places `\(handle)` (a raw hole,
+/// `{{{name}}}`) once, outside every section, and each node fills it with
+/// `of`. Its nodes keep ids of their own, so a card holding one is structure
+/// (ADR 0012).
+///
+/// ```
+/// const local features = slotMod.nodes("features")
+/// template = "<div>…</div>\(features)"
+/// slots { features.of(featureNodes) }
+/// ```
+class NodesSlot extends AnySlot {
+  kind: "Nodes" = "Nodes"
+  /// The nodes written down.
+  hidden nodes: Listing<nodeMod.LayoutNode> = new {}
+  /// Filled per viewer by a surface (a tab panel, an `If` branch) rather than
+  /// by [[nodes]]; its host carries `id="{{hostId}}"`.
+  hidden bakedBy: Boolean = false
+  /// What the wire holds of it, [[nodes]] being a fixed fill.
+  fixed fill: NodesFill = new { choice = nodes }
+
+  function of(ns: Listing<nodeMod.LayoutNode>): this = (this) { nodes = ns }
+  /// A slot a surface fills: its [[nodes]] are none.
+  function baked(): this = (this) { bakedBy = true }
+
+  function toString(): String = "{{{" + name + "}}}"
+}
+
+/// A [[NodesSlot]]'s fill as the wire holds it (`fh.view.model.Fill`).
+class NodesFill {
+  kind: "Nodes" = "Nodes"
+  choice: Listing<nodeMod.LayoutNode>
+}
+
+const function nodes(n: String): NodesSlot = new { name = n }
+
+/// The nodes slot `children { … }` fills.
+const childrenSlot: NodesSlot = nodes("children")
 
 /// A slot the template reads as on or off, where the string `"false"` would
 /// be truthy: a Boolean, or a reading the build checks yields one.

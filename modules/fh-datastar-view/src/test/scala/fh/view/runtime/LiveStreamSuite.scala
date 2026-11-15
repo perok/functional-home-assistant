@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
@@ -113,12 +115,14 @@ class LiveStreamSuite extends ServerHarness {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.shared")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.shared")))
+              )
             )
           )
         ),
@@ -170,8 +174,7 @@ class LiveStreamSuite extends ServerHarness {
       "det" -> Surface(
         LayoutNode.Component(
           "col",
-          regions =
-            LayoutNode.kids(LayoutNode.Component("tabs", vars = TabDeclared))
+          slots = Slots.kids(LayoutNode.Component("tabs", vars = TabDeclared))
         )
       ),
       "t0" -> tabMember(
@@ -204,7 +207,7 @@ class LiveStreamSuite extends ServerHarness {
         "det" -> Surface(
           LayoutNode.Component(
             "col",
-            regions = LayoutNode.kids(branchCard("sensor.a"))
+            slots = Slots.kids(branchCard("sensor.a"))
           )
         )
       )
@@ -304,13 +307,13 @@ class LiveStreamSuite extends ServerHarness {
       card = LayoutNode
         .Component(
           "col",
-          regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
+          slots = Slots.kids(LayoutNode.Component("ifhost"))
         ),
       surfaces = Map(
         "then" -> stateMember(
           LayoutNode.Component(
             "col",
-            regions = LayoutNode.kids(branchCard("sensor.a"))
+            slots = Slots.kids(branchCard("sensor.a"))
           ),
           "c_0",
           0,
@@ -536,16 +539,20 @@ class LiveStreamSuite extends ServerHarness {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.Component(
           "tabs",
-          regions = Map(
-            "bar" -> List(
-              LayoutNode.Component(
-                "bar",
-                templateSlots = Map(
-                  "title" -> TemplateSlot(
-                    ValueExpr(Value.Entity(Some("sensor.title")))
+          slots = Slots.nodes(
+            Map(
+              "bar" -> List(
+                LayoutNode.Component(
+                  "bar",
+                  slots = Slots.values(
+                    Map(
+                      "title" -> TemplateSlot(
+                        ValueExpr(Value.Entity(Some("sensor.title")))
+                      )
+                    )
                   )
                 )
               )
@@ -751,20 +758,24 @@ class LiveStreamSuite extends ServerHarness {
       ),
       card = LayoutNode.Component(
         "col",
-        regions = LayoutNode.kids(
+        slots = Slots.kids(
           LayoutNode.Component(
             "card",
-            templateSlots = Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.a")))
+            slots = Slots.values(
+              Map(
+                "state" -> TemplateSlot(
+                  ValueExpr(Value.Entity(Some("sensor.a")))
+                )
               )
             )
           ),
           LayoutNode.Component(
             "card",
-            templateSlots = Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.b")))
+            slots = Slots.values(
+              Map(
+                "state" -> TemplateSlot(
+                  ValueExpr(Value.Entity(Some("sensor.b")))
+                )
               )
             )
           )

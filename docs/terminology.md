@@ -344,25 +344,36 @@ alike (ADR 0033).
 The vendor is a third thing again, and the reason the sentence "Chrome ignores the chrome colour
 in an installed app" needs writing out rather than shortening.
 
-**Region** — a named hole in a template that something else fills, spelled `{{{name}}}` and placed
-exactly once, outside every section. A card declares them
-(`CardDef.regions`), a node fills them (`Component.regions`, keyed by region name). `fill = "eager"`
-splices the children it was given; `fill = "baked"` is filled by a surface instead (see **bake**).
+**Nodes slot** — a slot whose value is nodes, where a value slot's is a reading or a literal. A card
+module declares the handle (`const local features = slotMod.nodes("features")`), its template
+places it as a raw hole, `\(features)` printing `{{{features}}}`, once and outside every section,
+and each node fills it (`slots { features.of(nodes) }`). The handle is a `NodesSlot`, which has
+only what its kind needs, so `features.bind` is a Pkl error at the line. A value slot and a nodes
+slot share one namespace, as a template's names do, and one wire map, `slots`, each entry
+carrying its `kind`.
 
-Every region is named on the wire, the default one included. `children` is the AUTHORING word —
-`Grid { children { … } }` is still what a one-hole card is written as, and Pkl resolves the name
-before it emits. Two words for two sides of one thing, and the sugar stops at the boundary.
+**Fill** — what a nodes slot holds on one node. Today only nodes written down (`Fill.Nodes` with a
+fixed choice); a node's fills are the nodes slots it sets, and the card's own list of them is
+`WireCard.regions`.
 
-**Leaf card** — a card with no regions. Its template *is* what a live patch renders, so a leaf is
+**Region** — a nodes slot, in the words the runtime and the ids still use (`c_1_head_0`, the
+`regions` of a wire card). `fill = "baked"` on a card's region marks one a surface fills instead of
+the node (see **bake**); the author writes it as `slotMod.nodes("panel").baked()`.
+
+`children` is the default nodes slot (`slotMod.childrenSlot`). `Grid { children { … } }` is the
+sugar for filling it, and a card whose template places `{{{children}}}` needs nothing in its
+`slots` for it. Every other nodes slot is named in the card's `slots` and filled there.
+
+**Leaf card** — a card with no nodes slot. Its template *is* what a live patch renders, so a leaf is
 the only kind of node a patch ever targets.
 
-**Structural card** — a card with regions. Its element contains what it holds, so a patch aimed at
+**Structural card** — a card with a nodes slot. Its element contains what it holds, so a patch aimed at
 it would carry that content back with it — which is why **structure is never a patch target**. A
 structural card therefore has only what it holds to show: a live slot on one is a build error
 *unless the value travels as a signal*, which never becomes bytes in the element. ADR 0012, ADR
 0017.
 
-A card wanting its OWN markup to move puts that markup in a region, as a node — a slider's head is
+A card wanting its OWN markup to move puts that markup in a nodes slot, as a node — a slider's head is
 a leaf card beside the rows for exactly this reason. So the guarantee needs no rule to police it:
 every hole in a template is filled by a node with an id of its own, and a patch at one node can
 never reach another's content.

@@ -610,10 +610,21 @@ private[model] object Validate:
         c: LayoutNode.Component
     ): List[String] =
       c.calls.keySet
-        .intersect(c.templateSlots.keySet)
+        .intersect(c.valueSlots.keySet)
         .toList
         .sorted
         .map(n => s"$nodeId: '$n' is both a slot and a call — rename one")
+
+    // Only fixed nodes are placed so far; a choice would be dropped silently.
+    def unplacedFillErrors(
+        nodeId: String,
+        c: LayoutNode.Component
+    ): List[String] =
+      c.fills.toList.sortBy(_._1).collect {
+        case (n, Fill.Nodes(_: Choice.Chosen[?])) =>
+          s"$nodeId: nodes slot '$n' is filled with a choice, which nothing " +
+            "places yet"
+      }
 
     /** A choice is of the variable as this node reads it. */
     def choiceErrors(
@@ -788,7 +799,7 @@ private[model] object Validate:
         scope: Map[String, String]
     ): List[String] =
       node match
-        case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _, _) =>
+        case c @ LayoutNode.Component(card, _, cell, _, vars, _, _) =>
           val layoutErrors = Option
             .when(
               cards.get(card).exists(!_.layoutCell) &&
@@ -807,9 +818,9 @@ private[model] object Validate:
           templateErrors(
             nodeId,
             card,
-            slots.keySet ++ c.calls.keySet,
+            c.valueSlots.keySet ++ c.calls.keySet,
             c.regions.keySet
-          ) ++ placedCallErrors(nodeId, c) ++
+          ) ++ placedCallErrors(nodeId, c) ++ unplacedFillErrors(nodeId, c) ++
             choiceErrors(nodeId, c, here) ++
             slotErrors(nodeId, card, checked, here) ++
             varErrors(nodeId, vars) ++

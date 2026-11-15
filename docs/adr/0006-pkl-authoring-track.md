@@ -66,7 +66,7 @@ finished, and are deleted (issue #23).
    hand-curated per domain (HA's attribute shapes exist only in its developer
    docs, not machine-readably); it types only what the dump extracts.
 5. **The output contract is the existing one**: Pkl components emit
-   `{kind: "Component", card, slots, regions}` nodes and a
+   `{kind: "Component", card, slots}` nodes and a
    `{cards, theme, card, surfaces?}` top level. Every discriminator (`kind`, `op`, `stage`) is the
    Scala case name, verbatim, so no decoder renames one (`SetNode` included: `LayoutNode.Set`
    would shadow `scala.Set`). Pkl declares each as a string-literal type, so Pkl refuses a
@@ -124,9 +124,10 @@ finished, and are deleted (issue #23).
    (`\(label)` is `{{label}}`, `label.bind` is `{{{label.bind}}}`,
    `label.ifSet(…)` a section on whether the node sets it) and
    `slots { label.of(v) }` fills it, so a misspelt name is a Pkl error at its
-   line, in the editor too. `slots` is a hidden `Listing<Slot>`, and the node's
-   `templateSlots` is computed from it as the name→value map the backend
-   decodes, as `regions` is from `children` and `cell` from the cell builders.
+   line, in the editor too. `slots` is a hidden `Listing<AnySlot>`, a `Slot` (a
+   value) or a `NodesSlot` (nodes), and the node's `wireSlots` is computed from
+   it as the name→slot map the backend decodes (each entry carrying its `kind`),
+   as `cell` is from the cell builders.
    An output converter did that job first; it had to be installed by every
    module that renders nodes (`site.pkl`, `entry.pkl`, a test's probe module),
    and a bare `JsonRenderer` skipped it. A handle holds the name only,

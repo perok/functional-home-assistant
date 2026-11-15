@@ -1,5 +1,7 @@
 package fh.view.functional
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import api.homeassistant.ws.domain.HistoryPoint
 import cats.effect.IO
@@ -29,7 +31,7 @@ class DecisionFetchServedSuite extends CatsEffectSuite {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.SetNode(
           candidates = List(left.entityId),
           members = Map(
@@ -55,7 +57,9 @@ class DecisionFetchServedSuite extends CatsEffectSuite {
                   ),
                   LayoutNode.Component(
                     "item",
-                    Map("label" -> TemplateSlot(ValueExpr.literal("washing")))
+                    Slots.values(
+                      Map("label" -> TemplateSlot(ValueExpr.literal("washing")))
+                    )
                   )
                 )
               )

@@ -2,562 +2,644 @@
   "card" : {
     "card" : "fhcol",
     "kind" : "Component",
-    "regions" : {
-      "children" : [
-        {
-          "card" : "tile",
-          "inlineSurfaces" : {
-            "self" : {
-              "content" : {
-                "card" : "popup",
-                "kind" : "Component",
-                "regions" : {
-                  "children" : [
-                    {
-                      "card" : "fhcol",
-                      "kind" : "Component",
-                      "regions" : {
-                        "children" : [
-                          {
-                            "card" : "tile",
-                            "kind" : "Component",
-                            "templateSlots" : {
-                              "entity_id" : "sensor.washer_remaining",
-                              "icon" : {
-                                "source" : "mdi mdi-progress-clock",
-                                "steps" : [
-                                  {
-                                    "kind" : "ThemeClasses"
-                                  }
-                                ]
-                              },
-                              "label" : "Washing Machine",
-                              "value" : {
-                                "signal" : {
-                                  "kind" : "Text"
-                                },
-                                "source" : {
-                                  "bypassUnavailable" : true,
-                                  "kind" : "Entity"
-                                },
-                                "steps" : [
-                                  {
-                                    "kind" : "WithUnit",
-                                    "unit" : {
-                                      "kind" : "Entity",
-                                      "part" : {
-                                        "kind" : "Attr",
-                                        "name" : "unit_of_measurement"
-                                      }
-                                    }
-                                  }
-                                ]
-                              }
-                            },
-                            "vars" : [
-                            ]
-                          },
-                          {
-                            "card" : "chooser",
-                            "cell" : {
-                              "layout" : [
-                                "fh-cols-full"
-                              ]
-                            },
-                            "kind" : "Component",
-                            "regions" : {
-                              "bar" : [
-                                {
-                                  "card" : "selectButtons",
-                                  "kind" : "Component",
-                                  "regions" : {
-                                    "children" : [
-                                      {
-                                        "calls" : {
-                                          "tap" : {
-                                            "kind" : "SetVar",
-                                            "value" : "1h",
-                                            "variable" : "window"
-                                          }
-                                        },
-                                        "card" : "tab",
-                                        "cell" : {
-                                          "classes" : {
-                                            "fh-chosen" : {
-                                              "source" : {
-                                                "kind" : "Var",
-                                                "name" : "window"
-                                              },
-                                              "steps" : [
-                                                {
-                                                  "kind" : "Compare",
-                                                  "op" : "eq",
-                                                  "to" : "1h"
-                                                }
-                                              ]
-                                            }
-                                          }
-                                        },
-                                        "kind" : "Component",
-                                        "templateSlots" : {
-                                          "busy" : {
-                                            "source" : true,
-                                            "type" : "bool"
-                                          },
-                                          "busyVisual" : {
-                                            "source" : true,
-                                            "type" : "bool"
-                                          },
-                                          "label" : "1h"
-                                        },
-                                        "vars" : [
-                                        ]
-                                      },
-                                      {
-                                        "calls" : {
-                                          "tap" : {
-                                            "kind" : "SetVar",
-                                            "value" : "24h",
-                                            "variable" : "window"
-                                          }
-                                        },
-                                        "card" : "tab",
-                                        "cell" : {
-                                          "classes" : {
-                                            "fh-chosen" : {
-                                              "source" : {
-                                                "kind" : "Var",
-                                                "name" : "window"
-                                              },
-                                              "steps" : [
-                                                {
-                                                  "kind" : "Compare",
-                                                  "op" : "eq",
-                                                  "to" : "24h"
-                                                }
-                                              ]
-                                            }
-                                          }
-                                        },
-                                        "kind" : "Component",
-                                        "templateSlots" : {
-                                          "busy" : {
-                                            "source" : true,
-                                            "type" : "bool"
-                                          },
-                                          "busyVisual" : {
-                                            "source" : true,
-                                            "type" : "bool"
-                                          },
-                                          "label" : "24h"
-                                        },
-                                        "vars" : [
-                                        ]
-                                      },
-                                      {
-                                        "calls" : {
-                                          "tap" : {
-                                            "kind" : "SetVar",
-                                            "value" : "7d",
-                                            "variable" : "window"
-                                          }
-                                        },
-                                        "card" : "tab",
-                                        "cell" : {
-                                          "classes" : {
-                                            "fh-chosen" : {
-                                              "source" : {
-                                                "kind" : "Var",
-                                                "name" : "window"
-                                              },
-                                              "steps" : [
-                                                {
-                                                  "kind" : "Compare",
-                                                  "op" : "eq",
-                                                  "to" : "7d"
-                                                }
-                                              ]
-                                            }
-                                          }
-                                        },
-                                        "kind" : "Component",
-                                        "templateSlots" : {
-                                          "busy" : {
-                                            "source" : true,
-                                            "type" : "bool"
-                                          },
-                                          "busyVisual" : {
-                                            "source" : true,
-                                            "type" : "bool"
-                                          },
-                                          "label" : "7d"
-                                        },
-                                        "vars" : [
-                                        ]
-                                      },
-                                      {
-                                        "calls" : {
-                                          "tap" : {
-                                            "kind" : "SetVar",
-                                            "value" : "30d",
-                                            "variable" : "window"
-                                          }
-                                        },
-                                        "card" : "tab",
-                                        "cell" : {
-                                          "classes" : {
-                                            "fh-chosen" : {
-                                              "source" : {
-                                                "kind" : "Var",
-                                                "name" : "window"
-                                              },
-                                              "steps" : [
-                                                {
-                                                  "kind" : "Compare",
-                                                  "op" : "eq",
-                                                  "to" : "30d"
-                                                }
-                                              ]
-                                            }
-                                          }
-                                        },
-                                        "kind" : "Component",
-                                        "templateSlots" : {
-                                          "busy" : {
-                                            "source" : true,
-                                            "type" : "bool"
-                                          },
-                                          "busyVisual" : {
-                                            "source" : true,
-                                            "type" : "bool"
-                                          },
-                                          "label" : "30d"
-                                        },
-                                        "vars" : [
-                                        ]
-                                      }
-                                    ]
-                                  },
-                                  "templateSlots" : {
-                                    
-                                  },
-                                  "vars" : [
-                                  ]
-                                }
+    "vars" : [
+    ],
+    "wireSlots" : {
+      "children" : {
+        "fill" : {
+          "choice" : [
+            {
+              "card" : "tile",
+              "inlineSurfaces" : {
+                "self" : {
+                  "content" : {
+                    "card" : "popup",
+                    "kind" : "Component",
+                    "vars" : [
+                    ],
+                    "wireSlots" : {
+                      "children" : {
+                        "fill" : {
+                          "choice" : [
+                            {
+                              "card" : "fhcol",
+                              "kind" : "Component",
+                              "vars" : [
                               ],
-                              "children" : [
-                                {
-                                  "card" : "historyChart",
-                                  "kind" : "Component",
-                                  "templateSlots" : {
-                                    "chart" : {
-                                      "source" : {
-                                        "fetch" : {
-                                          "entity" : "sensor.washer_remaining",
-                                          "provider" : "history",
-                                          "window" : {
-                                            "by" : {
-                                              "source" : {
-                                                "kind" : "Var",
-                                                "name" : "window"
-                                              },
-                                              "steps" : [
-                                              ]
+                              "wireSlots" : {
+                                "children" : {
+                                  "fill" : {
+                                    "choice" : [
+                                      {
+                                        "card" : "tile",
+                                        "kind" : "Component",
+                                        "vars" : [
+                                        ],
+                                        "wireSlots" : {
+                                          "entity_id" : {
+                                            "kind" : "Value",
+                                            "source" : "sensor.washer_remaining"
+                                          },
+                                          "icon" : {
+                                            "kind" : "Value",
+                                            "source" : "mdi mdi-progress-clock",
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
+                                          },
+                                          "label" : {
+                                            "kind" : "Value",
+                                            "source" : "Washing Machine"
+                                          },
+                                          "value" : {
+                                            "kind" : "Value",
+                                            "signal" : {
+                                              "kind" : "Text"
                                             },
-                                            "cases" : [
+                                            "source" : {
+                                              "bypassUnavailable" : true,
+                                              "kind" : "Entity"
+                                            },
+                                            "steps" : [
                                               {
-                                                "is" : "1h",
-                                                "value" : {
-                                                  "kind" : "Raw",
-                                                  "span" : 3600
-                                                }
-                                              },
-                                              {
-                                                "is" : "24h",
-                                                "value" : {
-                                                  "fallback" : true,
-                                                  "kind" : "Statistics",
-                                                  "period" : "5minute",
-                                                  "span" : 86400
-                                                }
-                                              },
-                                              {
-                                                "is" : "7d",
-                                                "value" : {
-                                                  "fallback" : true,
-                                                  "kind" : "Statistics",
-                                                  "period" : "hour",
-                                                  "span" : 604800
-                                                }
-                                              },
-                                              {
-                                                "is" : "30d",
-                                                "value" : {
-                                                  "fallback" : true,
-                                                  "kind" : "Statistics",
-                                                  "period" : "hour",
-                                                  "span" : 2592000
+                                                "kind" : "WithUnit",
+                                                "unit" : {
+                                                  "kind" : "Entity",
+                                                  "part" : {
+                                                    "kind" : "Attr",
+                                                    "name" : "unit_of_measurement"
+                                                  }
                                                 }
                                               }
-                                            ],
-                                            "kind" : "Chosen"
-                                          }
-                                        },
-                                        "kind" : "Fetch"
-                                      },
-                                      "steps" : [
-                                        {
-                                          "kind" : "Chart",
-                                          "style" : {
-                                            "unit" : "min"
+                                            ]
                                           }
                                         }
-                                      ],
-                                      "type" : "textRaw"
-                                    }
+                                      },
+                                      {
+                                        "card" : "chooser",
+                                        "cell" : {
+                                          "layout" : [
+                                            "fh-cols-full"
+                                          ]
+                                        },
+                                        "kind" : "Component",
+                                        "vars" : [
+                                          {
+                                            "default" : "24h",
+                                            "inUrl" : true,
+                                            "name" : "window"
+                                          }
+                                        ],
+                                        "wireSlots" : {
+                                          "bar" : {
+                                            "fill" : {
+                                              "choice" : [
+                                                {
+                                                  "card" : "selectButtons",
+                                                  "kind" : "Component",
+                                                  "vars" : [
+                                                  ],
+                                                  "wireSlots" : {
+                                                    "children" : {
+                                                      "fill" : {
+                                                        "choice" : [
+                                                          {
+                                                            "calls" : {
+                                                              "tap" : {
+                                                                "kind" : "SetVar",
+                                                                "value" : "1h",
+                                                                "variable" : "window"
+                                                              }
+                                                            },
+                                                            "card" : "tab",
+                                                            "cell" : {
+                                                              "classes" : {
+                                                                "fh-chosen" : {
+                                                                  "source" : {
+                                                                    "kind" : "Var",
+                                                                    "name" : "window"
+                                                                  },
+                                                                  "steps" : [
+                                                                    {
+                                                                      "kind" : "Compare",
+                                                                      "op" : "eq",
+                                                                      "to" : "1h"
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            },
+                                                            "kind" : "Component",
+                                                            "vars" : [
+                                                            ],
+                                                            "wireSlots" : {
+                                                              "busy" : {
+                                                                "kind" : "Value",
+                                                                "source" : true,
+                                                                "type" : "bool"
+                                                              },
+                                                              "busyVisual" : {
+                                                                "kind" : "Value",
+                                                                "source" : true,
+                                                                "type" : "bool"
+                                                              },
+                                                              "label" : {
+                                                                "kind" : "Value",
+                                                                "source" : "1h"
+                                                              }
+                                                            }
+                                                          },
+                                                          {
+                                                            "calls" : {
+                                                              "tap" : {
+                                                                "kind" : "SetVar",
+                                                                "value" : "24h",
+                                                                "variable" : "window"
+                                                              }
+                                                            },
+                                                            "card" : "tab",
+                                                            "cell" : {
+                                                              "classes" : {
+                                                                "fh-chosen" : {
+                                                                  "source" : {
+                                                                    "kind" : "Var",
+                                                                    "name" : "window"
+                                                                  },
+                                                                  "steps" : [
+                                                                    {
+                                                                      "kind" : "Compare",
+                                                                      "op" : "eq",
+                                                                      "to" : "24h"
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            },
+                                                            "kind" : "Component",
+                                                            "vars" : [
+                                                            ],
+                                                            "wireSlots" : {
+                                                              "busy" : {
+                                                                "kind" : "Value",
+                                                                "source" : true,
+                                                                "type" : "bool"
+                                                              },
+                                                              "busyVisual" : {
+                                                                "kind" : "Value",
+                                                                "source" : true,
+                                                                "type" : "bool"
+                                                              },
+                                                              "label" : {
+                                                                "kind" : "Value",
+                                                                "source" : "24h"
+                                                              }
+                                                            }
+                                                          },
+                                                          {
+                                                            "calls" : {
+                                                              "tap" : {
+                                                                "kind" : "SetVar",
+                                                                "value" : "7d",
+                                                                "variable" : "window"
+                                                              }
+                                                            },
+                                                            "card" : "tab",
+                                                            "cell" : {
+                                                              "classes" : {
+                                                                "fh-chosen" : {
+                                                                  "source" : {
+                                                                    "kind" : "Var",
+                                                                    "name" : "window"
+                                                                  },
+                                                                  "steps" : [
+                                                                    {
+                                                                      "kind" : "Compare",
+                                                                      "op" : "eq",
+                                                                      "to" : "7d"
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            },
+                                                            "kind" : "Component",
+                                                            "vars" : [
+                                                            ],
+                                                            "wireSlots" : {
+                                                              "busy" : {
+                                                                "kind" : "Value",
+                                                                "source" : true,
+                                                                "type" : "bool"
+                                                              },
+                                                              "busyVisual" : {
+                                                                "kind" : "Value",
+                                                                "source" : true,
+                                                                "type" : "bool"
+                                                              },
+                                                              "label" : {
+                                                                "kind" : "Value",
+                                                                "source" : "7d"
+                                                              }
+                                                            }
+                                                          },
+                                                          {
+                                                            "calls" : {
+                                                              "tap" : {
+                                                                "kind" : "SetVar",
+                                                                "value" : "30d",
+                                                                "variable" : "window"
+                                                              }
+                                                            },
+                                                            "card" : "tab",
+                                                            "cell" : {
+                                                              "classes" : {
+                                                                "fh-chosen" : {
+                                                                  "source" : {
+                                                                    "kind" : "Var",
+                                                                    "name" : "window"
+                                                                  },
+                                                                  "steps" : [
+                                                                    {
+                                                                      "kind" : "Compare",
+                                                                      "op" : "eq",
+                                                                      "to" : "30d"
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            },
+                                                            "kind" : "Component",
+                                                            "vars" : [
+                                                            ],
+                                                            "wireSlots" : {
+                                                              "busy" : {
+                                                                "kind" : "Value",
+                                                                "source" : true,
+                                                                "type" : "bool"
+                                                              },
+                                                              "busyVisual" : {
+                                                                "kind" : "Value",
+                                                                "source" : true,
+                                                                "type" : "bool"
+                                                              },
+                                                              "label" : {
+                                                                "kind" : "Value",
+                                                                "source" : "30d"
+                                                              }
+                                                            }
+                                                          }
+                                                        ],
+                                                        "kind" : "Nodes"
+                                                      },
+                                                      "kind" : "Nodes"
+                                                    }
+                                                  }
+                                                }
+                                              ],
+                                              "kind" : "Nodes"
+                                            },
+                                            "kind" : "Nodes"
+                                          },
+                                          "children" : {
+                                            "fill" : {
+                                              "choice" : [
+                                                {
+                                                  "card" : "historyChart",
+                                                  "kind" : "Component",
+                                                  "vars" : [
+                                                  ],
+                                                  "wireSlots" : {
+                                                    "chart" : {
+                                                      "kind" : "Value",
+                                                      "source" : {
+                                                        "fetch" : {
+                                                          "entity" : "sensor.washer_remaining",
+                                                          "provider" : "history",
+                                                          "window" : {
+                                                            "by" : {
+                                                              "source" : {
+                                                                "kind" : "Var",
+                                                                "name" : "window"
+                                                              },
+                                                              "steps" : [
+                                                              ]
+                                                            },
+                                                            "cases" : [
+                                                              {
+                                                                "is" : "1h",
+                                                                "value" : {
+                                                                  "kind" : "Raw",
+                                                                  "span" : 3600
+                                                                }
+                                                              },
+                                                              {
+                                                                "is" : "24h",
+                                                                "value" : {
+                                                                  "fallback" : true,
+                                                                  "kind" : "Statistics",
+                                                                  "period" : "5minute",
+                                                                  "span" : 86400
+                                                                }
+                                                              },
+                                                              {
+                                                                "is" : "7d",
+                                                                "value" : {
+                                                                  "fallback" : true,
+                                                                  "kind" : "Statistics",
+                                                                  "period" : "hour",
+                                                                  "span" : 604800
+                                                                }
+                                                              },
+                                                              {
+                                                                "is" : "30d",
+                                                                "value" : {
+                                                                  "fallback" : true,
+                                                                  "kind" : "Statistics",
+                                                                  "period" : "hour",
+                                                                  "span" : 2592000
+                                                                }
+                                                              }
+                                                            ],
+                                                            "kind" : "Chosen"
+                                                          }
+                                                        },
+                                                        "kind" : "Fetch"
+                                                      },
+                                                      "steps" : [
+                                                        {
+                                                          "kind" : "Chart",
+                                                          "style" : {
+                                                            "unit" : "min"
+                                                          }
+                                                        }
+                                                      ],
+                                                      "type" : "textRaw"
+                                                    }
+                                                  }
+                                                }
+                                              ],
+                                              "kind" : "Nodes"
+                                            },
+                                            "kind" : "Nodes"
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "card" : "entityInfo",
+                                        "kind" : "Component",
+                                        "vars" : [
+                                        ],
+                                        "wireSlots" : {
+                                          "attributes" : {
+                                            "default" : "",
+                                            "kind" : "Value",
+                                            "source" : {
+                                              "kind" : "Entity",
+                                              "part" : {
+                                                "kind" : "Whole"
+                                              }
+                                            },
+                                            "steps" : [
+                                              {
+                                                "kind" : "Cel",
+                                                "src" : "value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
+                                              }
+                                            ]
+                                          },
+                                          "entity_id" : {
+                                            "kind" : "Value",
+                                            "source" : "sensor.washer_remaining"
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "card" : "button",
+                                        "kind" : "Component",
+                                        "vars" : [
+                                        ],
+                                        "wireSlots" : {
+                                          "label" : {
+                                            "kind" : "Value",
+                                            "source" : "Close"
+                                          },
+                                          "onclick" : {
+                                            "kind" : "Value",
+                                            "source" : "$ui_popups && history.back()",
+                                            "type" : "textRaw"
+                                          },
+                                          "size" : {
+                                            "kind" : "Value",
+                                            "source" : "fh-size-large",
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
+                                          }
+                                        }
+                                      }
+                                    ],
+                                    "kind" : "Nodes"
                                   },
-                                  "vars" : [
-                                  ]
+                                  "kind" : "Nodes"
                                 }
-                              ]
-                            },
-                            "templateSlots" : {
-                              
-                            },
-                            "vars" : [
-                              {
-                                "default" : "24h",
-                                "inUrl" : true,
-                                "name" : "window"
                               }
-                            ]
-                          },
-                          {
-                            "card" : "entityInfo",
-                            "kind" : "Component",
-                            "templateSlots" : {
-                              "attributes" : {
-                                "default" : "",
-                                "source" : {
-                                  "kind" : "Entity",
-                                  "part" : {
-                                    "kind" : "Whole"
-                                  }
-                                },
-                                "steps" : [
-                                  {
-                                    "kind" : "Cel",
-                                    "src" : "value.attr.transformList(k, v, k + ': ' + str(v)).sort().join('\\n')"
-                                  }
-                                ]
-                              },
-                              "entity_id" : "sensor.washer_remaining"
-                            },
-                            "vars" : [
-                            ]
-                          },
-                          {
-                            "card" : "button",
-                            "kind" : "Component",
-                            "templateSlots" : {
-                              "label" : "Close",
-                              "onclick" : {
-                                "source" : "$ui_popups && history.back()",
-                                "type" : "textRaw"
-                              },
-                              "size" : {
-                                "source" : "fh-size-large",
-                                "steps" : [
-                                  {
-                                    "kind" : "ThemeClasses"
-                                  }
-                                ]
-                              }
-                            },
-                            "vars" : [
-                            ]
-                          }
-                        ]
-                      },
-                      "templateSlots" : {
-                        
-                      },
-                      "vars" : [
-                      ]
-                    }
-                  ]
-                },
-                "templateSlots" : {
-                  
-                },
-                "vars" : [
-                ]
-              }
-            }
-          },
-          "kind" : "Component",
-          "regions" : {
-            "features" : [
-              {
-                "card" : "ifhost",
-                "cell" : {
-                  "layout" : [
-                    "fh-cols-full"
-                  ]
-                },
-                "inlineSurfaces" : {
-                  "then" : {
-                    "activation" : {
-                      "condition" : {
-                        "source" : {
-                          "kind" : "Entity",
-                          "of" : "sensor.washer_remaining"
+                            }
+                          ],
+                          "kind" : "Nodes"
                         },
-                        "steps" : [
-                          {
-                            "kind" : "Compare",
-                            "op" : "gt",
-                            "to" : 0
-                          }
-                        ]
-                      },
-                      "kind" : "State"
-                    },
-                    "bakeAs" : "branch",
-                    "bakeIndex" : 0,
-                    "bakeInto" : "@@NODE_ID@@",
-                    "content" : {
-                      "card" : "fhrow",
-                      "kind" : "Component",
-                      "regions" : {
-                        "children" : [
-                          {
-                            "card" : "progressBar",
-                            "kind" : "Component",
-                            "templateSlots" : {
-                              "down" : {
-                                "source" : true,
-                                "type" : "bool"
-                              },
-                              "of" : {
-                                "signal" : {
-                                  "kind" : "Handler"
-                                },
-                                "source" : {
-                                  "kind" : "Entity",
-                                  "of" : "sensor.washer_program_duration"
-                                }
-                              },
-                              "value" : {
-                                "signal" : {
-                                  "kind" : "Handler"
-                                },
+                        "kind" : "Nodes"
+                      }
+                    }
+                  }
+                }
+              },
+              "kind" : "Component",
+              "vars" : [
+              ],
+              "wireSlots" : {
+                "busy" : {
+                  "kind" : "Value",
+                  "source" : true,
+                  "type" : "bool"
+                },
+                "busyVisual" : {
+                  "kind" : "Value",
+                  "source" : true,
+                  "type" : "bool"
+                },
+                "entity_id" : {
+                  "kind" : "Value",
+                  "source" : "sensor.washer_remaining"
+                },
+                "features" : {
+                  "fill" : {
+                    "choice" : [
+                      {
+                        "card" : "ifhost",
+                        "cell" : {
+                          "layout" : [
+                            "fh-cols-full"
+                          ]
+                        },
+                        "inlineSurfaces" : {
+                          "then" : {
+                            "activation" : {
+                              "condition" : {
                                 "source" : {
                                   "kind" : "Entity",
                                   "of" : "sensor.washer_remaining"
+                                },
+                                "steps" : [
+                                  {
+                                    "kind" : "Compare",
+                                    "op" : "gt",
+                                    "to" : 0
+                                  }
+                                ]
+                              },
+                              "kind" : "State"
+                            },
+                            "bakeAs" : "branch",
+                            "bakeIndex" : 0,
+                            "bakeInto" : "@@NODE_ID@@",
+                            "content" : {
+                              "card" : "fhrow",
+                              "kind" : "Component",
+                              "vars" : [
+                              ],
+                              "wireSlots" : {
+                                "children" : {
+                                  "fill" : {
+                                    "choice" : [
+                                      {
+                                        "card" : "progressBar",
+                                        "kind" : "Component",
+                                        "vars" : [
+                                        ],
+                                        "wireSlots" : {
+                                          "down" : {
+                                            "kind" : "Value",
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "of" : {
+                                            "kind" : "Value",
+                                            "signal" : {
+                                              "kind" : "Handler"
+                                            },
+                                            "source" : {
+                                              "kind" : "Entity",
+                                              "of" : "sensor.washer_program_duration"
+                                            }
+                                          },
+                                          "value" : {
+                                            "kind" : "Value",
+                                            "signal" : {
+                                              "kind" : "Handler"
+                                            },
+                                            "source" : {
+                                              "kind" : "Entity",
+                                              "of" : "sensor.washer_remaining"
+                                            }
+                                          }
+                                        }
+                                      }
+                                    ],
+                                    "kind" : "Nodes"
+                                  },
+                                  "kind" : "Nodes"
                                 }
                               }
-                            },
-                            "vars" : [
-                            ]
+                            }
                           }
-                        ]
-                      },
-                      "templateSlots" : {
-                        
-                      },
-                      "vars" : [
-                      ]
+                        },
+                        "kind" : "Component",
+                        "vars" : [
+                        ],
+                        "wireSlots" : {
+                          
+                        }
+                      }
+                    ],
+                    "kind" : "Nodes"
+                  },
+                  "kind" : "Nodes"
+                },
+                "icon" : {
+                  "kind" : "Value",
+                  "source" : "mdi mdi-progress-clock",
+                  "steps" : [
+                    {
+                      "kind" : "ThemeClasses"
                     }
+                  ]
+                },
+                "label" : {
+                  "kind" : "Value",
+                  "source" : "Washing Machine"
+                },
+                "onclick" : {
+                  "kind" : "Value",
+                  "source" : {
+                    "kind" : "Cel",
+                    "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+                  },
+                  "type" : "textRaw"
+                },
+                "secondary" : {
+                  "default" : "",
+                  "kind" : "Value",
+                  "signal" : {
+                    "kind" : "Text"
+                  },
+                  "source" : {
+                    "bypassUnavailable" : true,
+                    "kind" : "Entity",
+                    "of" : "sensor.washer_status"
                   }
                 },
-                "kind" : "Component",
-                "templateSlots" : {
-                  
+                "tappable" : {
+                  "kind" : "Value",
+                  "source" : true,
+                  "type" : "bool"
                 },
-                "vars" : [
-                ]
-              }
-            ]
-          },
-          "templateSlots" : {
-            "busy" : {
-              "source" : true,
-              "type" : "bool"
-            },
-            "busyVisual" : {
-              "source" : true,
-              "type" : "bool"
-            },
-            "entity_id" : "sensor.washer_remaining",
-            "icon" : {
-              "source" : "mdi mdi-progress-clock",
-              "steps" : [
-                {
-                  "kind" : "ThemeClasses"
-                }
-              ]
-            },
-            "label" : "Washing Machine",
-            "onclick" : {
-              "source" : {
-                "kind" : "Cel",
-                "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
-              },
-              "type" : "textRaw"
-            },
-            "secondary" : {
-              "default" : "",
-              "signal" : {
-                "kind" : "Text"
-              },
-              "source" : {
-                "bypassUnavailable" : true,
-                "kind" : "Entity",
-                "of" : "sensor.washer_status"
-              }
-            },
-            "tappable" : {
-              "source" : true,
-              "type" : "bool"
-            },
-            "value" : {
-              "signal" : {
-                "kind" : "Text"
-              },
-              "source" : {
-                "kind" : "Entity"
-              },
-              "steps" : [
-                {
-                  "kind" : "Duration",
-                  "scale" : 60
-                }
-              ],
-              "valueWhile" : {
-                "source" : {
-                  "kind" : "Entity"
-                },
-                "steps" : [
-                  {
-                    "kind" : "Compare",
-                    "op" : "gt",
-                    "to" : 0
+                "value" : {
+                  "kind" : "Value",
+                  "signal" : {
+                    "kind" : "Text"
+                  },
+                  "source" : {
+                    "kind" : "Entity"
+                  },
+                  "steps" : [
+                    {
+                      "kind" : "Duration",
+                      "scale" : 60
+                    }
+                  ],
+                  "valueWhile" : {
+                    "source" : {
+                      "kind" : "Entity"
+                    },
+                    "steps" : [
+                      {
+                        "kind" : "Compare",
+                        "op" : "gt",
+                        "to" : 0
+                      }
+                    ]
                   }
-                ]
+                }
               }
             }
-          },
-          "vars" : [
-          ]
-        }
-      ]
-    },
-    "templateSlots" : {
-      
-    },
-    "vars" : [
-    ]
+          ],
+          "kind" : "Nodes"
+        },
+        "kind" : "Nodes"
+      }
+    }
   },
   "cards" : {
     "button" : {
@@ -566,10 +648,10 @@
     "chooser" : {
       "regions" : {
         "bar" : {
-          "fill" : "eager"
+          
         },
         "children" : {
-          "fill" : "eager"
+          
         }
       },
       "template" : "<div class=\"fh-cell fh-col{{{cellClasses}}}\"{{{cell}}}>{{{bar}}}{{{children}}}</div>"
@@ -580,7 +662,7 @@
     "fhcol" : {
       "regions" : {
         "children" : {
-          "fill" : "eager"
+          
         }
       },
       "template" : "<div class=\"fh-cell fh-col{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
@@ -588,7 +670,7 @@
     "fhrow" : {
       "regions" : {
         "children" : {
-          "fill" : "eager"
+          
         }
       },
       "template" : "<div class=\"fh-cell fh-row{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
@@ -607,7 +689,7 @@
     "popup" : {
       "regions" : {
         "children" : {
-          "fill" : "eager"
+          
         }
       },
       "template" : "<div class=\"fh-cell fh-popup-backdrop{{{cellClasses}}}\"{{{cell}}} data-on:click=\"evt.target === el && $ui_popups && history.back()\"><dialog open class=\"fh-popup\"><button class=\"fh-popup-close\" data-on:click=\"$ui_popups && history.back()\" data-on:keydown__window=\"evt.key === 'Escape' && $ui_popups && history.back()\">✕</button>{{{children}}}</dialog></div>"
@@ -618,7 +700,7 @@
     "selectButtons" : {
       "regions" : {
         "children" : {
-          "fill" : "eager"
+          
         }
       },
       "template" : "<div class=\"fh-cell fh-tabs fh-select{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
@@ -630,7 +712,7 @@
     "tile" : {
       "regions" : {
         "features" : {
-          "fill" : "eager"
+          
         }
       },
       "template" : "<article class=\"fh-cell fh-card fh-entity fh-tile-card{{{cellClasses}}}\"{{{cell}}}>  <div class=\"fh-tile {{#tappable.has}}fh-tappable{{/tappable.has}} {{#tapDisabled}}fh-disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}}fh-disabled{{/disabled}}{{/tapDisabled}}\"{{#tappable.has}}\n  data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#tap.has}}{{{tap.pending}}}@post('sse/call/{{dashboardSlug}}/{{{tap.callId}}}?node={{id}}', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {{{tap.seen}}} } }){{/tap.has}}{{^tap.has}}{{{onclick}}}{{/tap.has}}\"{{/tappable.has}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}>{{#icon.has}}<span class=\"fh-badge fh-icon-shape  {{#onoff.has}}fh-onoff{{/onoff.has}}\"{{#busy.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/busyVisual.has}}{{/busy.has}}><i class=\"{{icon}}\" {{{icon.bind}}}></i></span>{{/icon.has}}<span class=\"fh-lines\"><span class=\"fh-text\"><span class=\"fh-text-run\" {{{label.bind}}}>{{label}}</span></span>\n  <span class=\"fh-reading fh-text\"><span class=\"fh-text-run\" {{{value.bind}}}>{{value}}</span></span>{{#secondary.has}}\n  <span class=\"fh-sub fh-text\"><span class=\"fh-text-run\" {{{secondary.bind}}}>{{secondary}}</span></span>{{/secondary.has}}</span></div>{{{features}}}</article>"

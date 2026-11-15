@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.history.Windows
 import cats.effect.{IO, Ref}
@@ -32,9 +34,11 @@ class PullReadsSuite extends munit.FunSuite {
 
   private def plain(id: String) = LayoutNode.Component(
     "dot",
-    Map(
-      "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
-      "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+    Slots.values(
+      Map(
+        "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
+        "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+      )
     ),
     id = Some(id)
   )
@@ -42,13 +46,15 @@ class PullReadsSuite extends munit.FunSuite {
   private def chart(entity: String, id: Option[String]) =
     LayoutNode.Component(
       "chart",
-      Map(
-        "chart" -> TemplateSlot(
-          ValueExpr(
-            Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day))),
-            List(Step.Chart())
-          ),
-          `type` = SlotType.TextRaw
+      Slots.values(
+        Map(
+          "chart" -> TemplateSlot(
+            ValueExpr(
+              Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day))),
+              List(Step.Chart())
+            ),
+            `type` = SlotType.TextRaw
+          )
         )
       ),
       id = id
@@ -73,7 +79,7 @@ class PullReadsSuite extends munit.FunSuite {
       ),
       card = LayoutNode.Component(
         "col",
-        regions = LayoutNode.kids(
+        slots = Slots.kids(
           plain("plain"),
           chart("sensor.main", Some("chart")),
           host("charted")

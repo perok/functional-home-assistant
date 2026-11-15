@@ -35,6 +35,9 @@ class TabButton extends nodeMod.Node {
 
 const local labelSlot: slotMod.Slot = slotMod.slot("label")
 
+/// The panel a tab's surface is baked into.
+const local panelSlot: slotMod.NodesSlot = slotMod.nodes("panel").baked()
+
 /// The tab choosing `choice` for `v`, lit while `v` holds it: every button bar
 /// over a node variable — a [[Tabs]], `c.select(v)`. Lit for the viewer in the
 /// first HTML, and live off the variable's own signals, the ask while one is
@@ -56,19 +59,18 @@ class Tabs extends nodeMod.Node {
   // selection arrives as a signal frame. A live header goes beside the buttons
   // as a node of its own.
   cardDef = new nodeMod.CardDef {
-    regions = new Mapping {
-      [nodeMod.defaultRegion] = new nodeMod.Region {}
-      ["panel"] = new nodeMod.Region { fill = "baked" }
-    }
     classes = "fh-col"
     template = """
-      <div class="fh-tabs">{{{children}}}</div><div id="{{hostId}}" class="fh-tab-panel">{{{panel}}}</div>
+      <div class="fh-tabs">\(slotMod.childrenSlot)</div><div id="{{hostId}}" class="fh-tab-panel">\(panelSlot)</div>
       """
     // A patch target that must not be a box, so the tab's own layout reaches
     // the surrounding column.
     css = ".fh-tab-panel{display:contents}"
   }
   layoutClasses { "fh-cols-full" }
+  slots {
+    panelSlot
+  }
   /// label -> that tab's cards, in bar order. A tab amends into existence:
   ///   (c.tabs) { tabs { ["Lights"] { c.entityCard(e) c.entitySlider(l) } } }
   /// A tab's cards sit in a [[Row]]; nest another container as its one card
@@ -105,6 +107,8 @@ const tabVar: varMod.Variable = new { name = "tab" }
 const local function stateActivation(p: slotMod.Expr?): surfaceMod.StateActivation =
   new { condition = p }
 
+const local branchSlot: slotMod.NodesSlot = slotMod.nodes("branch").baked()
+
 /// A conditional section: `then` while `condition` holds, the optional `else`
 /// while it does not. The tabs machinery, and the inactive branch is neither
 /// rendered nor updated. Over live state the choice is shared by every viewer;
@@ -121,9 +125,9 @@ class If extends nodeMod.Node {
   // `fh-ifhost` lets the base stylesheet collapse a cell whose branches all
   // failed.
   cardDef = new nodeMod.CardDef {
-    regions = new Mapping { ["branch"] = new nodeMod.Region { fill = "baked" } }
-    template = #"<div class="fh-ifhost" id="{{hostId}}">{{{branch}}}</div>"#
+    template = #"<div class="fh-ifhost" id="{{hostId}}">\#(branchSlot)</div>"#
   }
+  slots { branchSlot }
   layoutClasses { "fh-cols-full" }
   hidden condition: slotMod.Expr|varMod.ValueIs
   hidden `then`: Listing<nodeMod.LayoutNode> = new {}

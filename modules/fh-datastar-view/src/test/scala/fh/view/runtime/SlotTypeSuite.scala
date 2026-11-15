@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.history.{ChartStyle, Windows}
@@ -32,7 +34,7 @@ class SlotTypeSuite extends munit.FunSuite {
       cards = Map("c" -> TestCard(s"""<div id="{{id}}">$hole</div>""")),
       card = LayoutNode.Component(
         card = "c",
-        templateSlots = Map("x" -> slot)
+        slots = Slots.values(Map("x" -> slot))
       )
     ).validate()
 
@@ -184,9 +186,11 @@ class SlotTypeSuite extends munit.FunSuite {
       cards = Map("c" -> TestCard("""<div id="{{id}}">{{x}}</div>""")),
       card = LayoutNode.Component(
         card = "c",
-        templateSlots = Map(
-          "x" -> TemplateSlot(
-            ValueExpr(Value.Fetch(fetch), List(Step.Json, Step.JsonText))
+        slots = Slots.values(
+          Map(
+            "x" -> TemplateSlot(
+              ValueExpr(Value.Fetch(fetch), List(Step.Json, Step.JsonText))
+            )
           )
         )
       )

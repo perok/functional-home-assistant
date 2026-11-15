@@ -25,6 +25,10 @@ const local fillColorSlot: slotMod.Slot = slotMod.slot("fillColor")
 const local stateSlot: slotMod.Slot = slotMod.slot("state")
 const local labelSlot: slotMod.Slot = slotMod.slot("label")
 const local secondarySlot: slotMod.Slot = slotMod.slot("secondary")
+const local textNodesSlot: slotMod.NodesSlot = slotMod.nodes("text")
+const local actionsNodesSlot: slotMod.NodesSlot = slotMod.nodes("actions")
+const local headNodesSlot: slotMod.NodesSlot = slotMod.nodes("head")
+const local panelNodesSlot: slotMod.NodesSlot = slotMod.nodes("panel").baked()
 const local dragPercent: slotMod.Slot = slotMod.bool("dragPercent")
 const local hueTrackSlot: slotMod.Slot = slotMod.bool("hueTrack")
 const local kelvinTrackSlot: slotMod.Slot = slotMod.bool("kelvinTrack")
@@ -139,19 +143,15 @@ class SliderHead extends nodeMod.ActiveNode {
   cardDef = new nodeMod.CardDef {
     // Everything else on this row that moves is a signal (ADR 0017), which is
     // what lets the head be structure.
-    regions = new Mapping {
-      ["text"] = new nodeMod.Region {}
-      ["actions"] = new nodeMod.Region {}
-    }
     // `display:contents` (`.fh-slider-body`): the label line and the track are
     // the card's own rows, or a member's one grid cell.
     classes = "fh-slider-body"
     template = """
       <div class="fh-slider-head \(greyedSlot.ifSet("fh-slider-greyed"))">
         \(badgeMod.seat("fh-slider-icon", "mdi \(badgeMod.icon)", tapMod.busyVisual.ifSet(" \(tapMod.busyClassChange) \(tapMod.busyShapeClassChange)")))
-        {{{text}}}
+        \(textNodesSlot)
         \(stateSlot.ifSet(#"<span class="fh-reading" \#(stateSlot.bind)>\#(stateSlot)</span>"#))
-        <div class="fh-slider-actions">{{{actions}}}</div>
+        <div class="fh-slider-actions">\(actionsNodesSlot)</div>
       </div>
       <div class="fh-slider \(trackClasses)" \(restoreOnRefusal)\(tapMod.busyVisual.ifSetElse(" \(tapMod.busyClassChange)", tapMod.refusedClass))>
         \(toggleSlot.ifUnset(rangeInput))
@@ -161,6 +161,12 @@ class SliderHead extends nodeMod.ActiveNode {
       """
     // `state` is not declared: a grouped head omits it. `label` is the toggle
     // button's `aria-label`.
+  }
+  hidden textNodes: Listing<nodeMod.LayoutNode> = new {}
+  hidden actionNodes: Listing<nodeMod.LayoutNode> = new {}
+  slots {
+    textNodesSlot.of(textNodes)
+    actionsNodesSlot.of(actionNodes)
   }
 }
 
@@ -222,15 +228,14 @@ const local function controlPanels(ms: List<ControlHead>): Mapping<String, surfa
 class SliderPill extends nodeMod.Node {
   card = "sliderPill"
   cardDef = new nodeMod.CardDef {
-    regions = new Mapping { [nodeMod.defaultRegion] = new nodeMod.Region {} }
     // A box inside the controls' row, not a container's cell: the inherited
     // `--fh-cell-width` would stretch it.
     layoutCell = false
     classes = "fh-slider-pill"
-    template = "{{{children}}}"
+    template = "\(slotMod.childrenSlot)"
   }
   hidden buttons: List<SliderButton?>
-  children = new Mapping { [nodeMod.defaultRegion] = pillsOf(buttons) }
+  slots { slotMod.childrenSlot.of(pillsOf(buttons)) }
 }
 
 /// A slider's head as one of several, chosen by [[controlVar]], with the pill
@@ -239,14 +244,13 @@ class SliderPill extends nodeMod.Node {
 class SliderControls extends nodeMod.Node {
   card = "sliderControls"
   cardDef = new nodeMod.CardDef {
-    regions = new Mapping {
-      [nodeMod.defaultRegion] = new nodeMod.Region {}
-      ["panel"] = new nodeMod.Region { fill = "baked" }
-    }
     // A row of the slider card, not a container's cell, as [[SliderPill]].
     layoutCell = false
     classes = "fh-slider-controls"
-    template = #"<div id="{{hostId}}" class="fh-slider-controls-panel">{{{panel}}}</div>{{{children}}}"#
+    template = #"<div id="{{hostId}}" class="fh-slider-controls-panel">\#(panelNodesSlot)</div>\#(slotMod.childrenSlot)"#
+  }
+  slots {
+    panelNodesSlot
   }
   hidden controls: List<ControlHead>
   inlineSurfaces = controlPanels(controls)
@@ -319,7 +323,7 @@ open class Slider extends nodeMod.Node {
   /// [[buttons]] as shown, its [[nodeMod.SubjectButton]]s filled in by a
   /// subclass that knows an entity.
   hidden shownButtons: List<SliderButton?> = buttons
-  /// Not `children`: this card has two regions, and these fill one.
+  /// The member rows, in the default nodes slot beside the head's.
   hidden members: Listing<nodeMod.LayoutNode> = new {}
   /// The entity a reading that names none reads — see `Button.subject`.
   hidden subject: String? = null
@@ -381,9 +385,6 @@ open class Slider extends nodeMod.Node {
   vars {
     when (declaresControl) { controlDeclaration }
   }
-  slots {
-    groupSlot.setIf(!members.isEmpty)
-  }
   // An author's inputs go on the slider, but its readings are on the head and
   // the text, so each takes the ones it reads. One nothing here reads stays on
   // the slider, where the build names it.
@@ -400,13 +401,12 @@ open class Slider extends nodeMod.Node {
       active = headActive
       slots { ...headSlots }
       inputs = headInputs.toMapping()
-      children = new Mapping {
-        ["text"] = new Listing { (new SliderText {}) { slots { ...textSlots }; inputs = textInputs.toMapping() } }
-        ["actions"] = pillsOf(shownButtons)
-      }
+      textNodes = new Listing { (new SliderText {}) { slots { ...textSlots }; inputs = textInputs.toMapping() } }
+      actionNodes = pillsOf(shownButtons)
     }
-  children = new Mapping {
-    ["head"] = new Listing {
+  slots {
+    groupSlot.setIf(!members.isEmpty)
+    headNodesSlot.of(new Listing {
       when (controls.length > 1) {
         let (cs = controls) let (bs = shownButtons) let (pill = declaresControl)
           new SliderControls {
@@ -420,8 +420,8 @@ open class Slider extends nodeMod.Node {
       } else {
         headNode
       }
-    }
-    ["children"] = members
+    })
+    slotMod.childrenSlot.of(members)
   }
 
   /// `.buttons(List(c.tap.toggle(l), c.view.colourWheel(l.colour!!)))`.
@@ -443,13 +443,9 @@ open class Slider extends nodeMod.Node {
   // A member-less slider still renders an empty `.fh-slider-members`: a card is
   // one shape, its optional pieces absent rather than different.
   cardDef = new nodeMod.CardDef {
-    regions = new Mapping {
-      ["head"] = new nodeMod.Region {}
-      [nodeMod.defaultRegion] = new nodeMod.Region {}
-    }
     tag = "article"
     classes = "fh-card fh-slider-card \(groupSlot.ifSet("fh-slider-group"))"
-    template = #"{{{head}}}<div class="fh-slider-members">{{{children}}}</div>"#
+    template = #"\#(headNodesSlot)<div class="fh-slider-members">\#(slotMod.childrenSlot)</div>"#
     css = sliderCss
     script = sliderTouchScript
   }

@@ -14,10 +14,12 @@ import fh.view.model.{
   LayoutNode,
   Choice,
   FetchTemplate,
+  Fill,
   Lit,
   Op,
   Part,
   SignalBind,
+  Slot,
   Step,
   Value,
   ValueExpr,
@@ -166,16 +168,17 @@ class WireShapeSuite extends munit.FunSuite {
   }
 
   test("the component node agrees on both sides") {
-    // `regions` is emitted and decoded, while the authored `children` is
-    // `hidden`. If only one side moved, every container's children would decode
-    // to `Map.empty`. `inlineSurfaces` is Pkl-only: a build-phase marker
+    // `wireSlots` is emitted and decoded, while the authored `children` and
+    // `slots` are `hidden`. If only one side moved, every container's children
+    // would decode to `Map.empty`. `inlineSurfaces` is Pkl-only: a build-phase marker
     // `DashboardBuild.hoistInlineSurfaces` lifts and removes. Scala's `inputs`
-    // is Pkl's `wireInputs`, since Pkl's `inputs` is the author's hidden one.
+    // is Pkl's `wireInputs`, since Pkl's `inputs` is the author's hidden one,
+    // and `slots` is `wireSlots` for the same reason.
     check(
       "Node",
       LayoutNode.Component("card"),
-      scalaOnly = Set("inputs"),
-      pklOnly = Set("inlineSurfaces", "wireInputs")
+      scalaOnly = Set("inputs", "slots"),
+      pklOnly = Set("inlineSurfaces", "wireInputs", "wireSlots")
     )
   }
 
@@ -223,6 +226,12 @@ class WireShapeSuite extends munit.FunSuite {
       scalaOnly = Set("expr", "valueWhile"),
       pklOnly = Set("name", "value", "raw", "bind", "jsValue", "signalName")
     )
+    check(
+      "NodesSlot",
+      Slot.Nodes(Fill.Nodes(Choice.Fixed(Nil))),
+      pklOnly = Set("name")
+    )
+    check("NodesFill", Fill.Nodes(Choice.Fixed(Nil)))
     // `provider` picks the decoder rather than filling a field.
     check(
       "HistoryFetch",
@@ -318,6 +327,8 @@ class WireShapeSuite extends munit.FunSuite {
     // fallback (`SiteAccessSuite`); its literals are pinned by decoding below.
     val families: List[(Set[String], Set[String])] = List(
       caseNames[LayoutNode] -> Set("Node", "SetNode"),
+      caseNames[Slot] -> Set("Slot", "NodesSlot"),
+      caseNames[Fill] -> Set("NodesFill"),
       caseNames[Activation] ->
         Set("UserActivation", "VarActivation", "StateActivation"),
       caseNames[VarAt] -> Set("AtValue", "AtIndex", "AtOtherwise"),

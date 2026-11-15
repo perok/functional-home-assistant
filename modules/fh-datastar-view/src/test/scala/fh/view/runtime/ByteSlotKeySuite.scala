@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -68,14 +70,16 @@ class ByteSlotKeySuite extends munit.FunSuite {
 
   private def bound(entity: String) = LayoutNode.Component(
     "card",
-    templateSlots = Map(
-      "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(entity)))),
-      "unit" -> TemplateSlot(
-        ValueExpr(
-          Value.Entity(Some(entity), Part.Whole),
-          List(
-            Step.Cel(
-              "('unit_of_measurement' in value.attr ? value.attr['unit_of_measurement'] : '')"
+    slots = Slots.values(
+      Map(
+        "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(entity)))),
+        "unit" -> TemplateSlot(
+          ValueExpr(
+            Value.Entity(Some(entity), Part.Whole),
+            List(
+              Step.Cel(
+                "('unit_of_measurement' in value.attr ? value.attr['unit_of_measurement'] : '')"
+              )
             )
           )
         )
@@ -105,13 +109,17 @@ class ByteSlotKeySuite extends munit.FunSuite {
       bound("sensor.other"),
       LayoutNode.Component(
         "banner",
-        regions = Map(
-          "bar" -> List(
-            LayoutNode.Component(
-              "bannerBar",
-              templateSlots = Map(
-                "title" -> TemplateSlot(
-                  ValueExpr(Value.Entity(Some("sensor.t")))
+        slots = Slots.nodes(
+          Map(
+            "bar" -> List(
+              LayoutNode.Component(
+                "bannerBar",
+                slots = Slots.values(
+                  Map(
+                    "title" -> TemplateSlot(
+                      ValueExpr(Value.Entity(Some("sensor.t")))
+                    )
+                  )
                 )
               )
             )
@@ -127,12 +135,14 @@ class ByteSlotKeySuite extends munit.FunSuite {
                 Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode.Component(
                   "btn",
-                  Map(
-                    "entity_id" -> lit(id),
-                    "label" -> TemplateSlot(
-                      ValueExpr(
-                        Value.Entity(None, Part.Whole),
-                        List(Step.Cel("value.state"))
+                  Slots.values(
+                    Map(
+                      "entity_id" -> lit(id),
+                      "label" -> TemplateSlot(
+                        ValueExpr(
+                          Value.Entity(None, Part.Whole),
+                          List(Step.Cel("value.state"))
+                        )
                       )
                     )
                   )
@@ -142,7 +152,9 @@ class ByteSlotKeySuite extends munit.FunSuite {
                 None,
                 LayoutNode.Component(
                   "btn",
-                  Map("entity_id" -> lit(id), "label" -> lit("off"))
+                  Slots.values(
+                    Map("entity_id" -> lit(id), "label" -> lit("off"))
+                  )
                 )
               )
             )
@@ -151,13 +163,15 @@ class ByteSlotKeySuite extends munit.FunSuite {
       ),
       LayoutNode.Component(
         "gauge",
-        templateSlots = Map(
-          "state" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some("sensor.t")))
-          ),
-          "live" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some("sensor.other"))),
-            signal = Some(SignalBind.Text)
+        slots = Slots.values(
+          Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.t")))
+            ),
+            "live" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.other"))),
+              signal = Some(SignalBind.Text)
+            )
           )
         )
       )
@@ -374,14 +388,20 @@ class ByteSlotKeySuite extends munit.FunSuite {
       )),
       LayoutNode.Component(
         "signalBanner",
-        templateSlots = Map(
-          "title" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some("sensor.t"))),
-            signal = Some(SignalBind.Text)
+        slots = Slots.values(
+          Map(
+            "title" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.t"))),
+              signal = Some(SignalBind.Text)
+            )
           )
-        ),
-        regions = Map(
-          "bar" -> List(LayoutNode.Component("btn", Map("label" -> lit("A"))))
+        ) ++ Slots.nodes(
+          Map(
+            "bar" -> List(
+              LayoutNode
+                .Component("btn", Slots.values(Map("label" -> lit("A"))))
+            )
+          )
         )
       ),
       surfaces = dashboard.surfaces.map { case (sid, s) =>
@@ -471,11 +491,15 @@ class ByteSlotKeySuite extends munit.FunSuite {
             List(
               LayoutNode.SetClause(
                 Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
-                LayoutNode.Component("btn", Map("label" -> lit("A")))
+                LayoutNode
+                  .Component("btn", Slots.values(Map("label" -> lit("A"))))
               ),
               LayoutNode.SetClause(
                 None,
-                LayoutNode.Component("bannerBar", Map("title" -> lit("A")))
+                LayoutNode.Component(
+                  "bannerBar",
+                  Slots.values(Map("title" -> lit("A")))
+                )
               )
             )
           )
@@ -508,9 +532,11 @@ class ByteSlotKeySuite extends munit.FunSuite {
         Map("card" -> TestCard("<b>{{#v}}set{{/v}}</b>")),
         LayoutNode.Component(
           "card",
-          Map(
-            "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
-            "v" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+          Slots.values(
+            Map(
+              "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
+              "v" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+            )
           )
         )
       )

@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.*
 import fh.view.testkit.DashboardBuilders.declared
@@ -37,13 +39,13 @@ class VarSourceSuite extends munit.FunSuite {
   private def plain(e: ValueExpr) =
     LayoutNode.Component(
       "plain",
-      templateSlots = Map("name" -> TemplateSlot(e))
+      slots = Slots.values(Map("name" -> TemplateSlot(e)))
     )
 
   private def panel(kids: LayoutNode*) =
     LayoutNode.Component(
       "box",
-      regions = LayoutNode.kids(kids*),
+      slots = Slots.kids(kids*),
       vars = declared("window" -> "24h"),
       id = Some("panel")
     )
@@ -74,8 +76,9 @@ class VarSourceSuite extends munit.FunSuite {
   test("valueIs is a bool reading, true only at its value") {
     val flag = LayoutNode.Component(
       "flag",
-      templateSlots =
+      slots = Slots.values(
         Map("on" -> TemplateSlot(isWindow("7d"), `type` = SlotType.Bool))
+      )
     )
     val r = Renderer.create(dash(panel(flag)))
     assert(body(r, Map.empty).contains("<i>off</i>"), body(r, Map.empty))
@@ -145,7 +148,7 @@ class VarSourceSuite extends munit.FunSuite {
   test("a class lit by valueIs on a card holding regions: lit for the viewer") {
     val held = LayoutNode.Component(
       "box",
-      regions = LayoutNode.kids(plain(ValueExpr.literal("y"))),
+      slots = Slots.kids(plain(ValueExpr.literal("y"))),
       cell = litCell
     )
     val d = dash(panel(held))
@@ -171,8 +174,9 @@ class VarSourceSuite extends munit.FunSuite {
   test("a signal slot refuses one: a signal is shared by every viewer") {
     val live = LayoutNode.Component(
       "live",
-      templateSlots =
+      slots = Slots.values(
         Map("name" -> TemplateSlot(window, signal = Some(SignalBind.Text)))
+      )
     )
     refused(dash(panel(live)), "signal, which every viewer shares")
   }
@@ -190,8 +194,9 @@ class VarSourceSuite extends munit.FunSuite {
   test("a card holding regions refuses one in its own bytes") {
     val titled = LayoutNode.Component(
       "titled",
-      templateSlots = Map("name" -> TemplateSlot(window)),
-      regions = LayoutNode.kids(plain(ValueExpr.literal("x")))
+      slots = Slots.values(Map("name" -> TemplateSlot(window))) ++ Slots.kids(
+        plain(ValueExpr.literal("x"))
+      )
     )
     refused(dash(panel(titled)), "holds regions")
   }
@@ -199,10 +204,12 @@ class VarSourceSuite extends munit.FunSuite {
   test("a valueWhile refuses one: it is decided for every viewer") {
     val gated = LayoutNode.Component(
       "plain",
-      templateSlots = Map(
-        "name" -> TemplateSlot(
-          ValueExpr(Value.Cel("'x'")),
-          valueWhile = Some(isWindow("7d"))
+      slots = Slots.values(
+        Map(
+          "name" -> TemplateSlot(
+            ValueExpr(Value.Cel("'x'")),
+            valueWhile = Some(isWindow("7d"))
+          )
         )
       )
     )
