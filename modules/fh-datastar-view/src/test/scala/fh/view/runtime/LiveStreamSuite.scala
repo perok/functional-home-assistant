@@ -5,11 +5,16 @@ import fh.view.testkit.Slots
 import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
+  Case,
   CardDef,
+  Choice,
   Dashboard,
+  Fill,
   LayoutNode,
+  Lit,
   NodeId,
   Region,
+  Slot,
   Value,
   ValueExpr,
   TemplateSlot,
@@ -380,7 +385,7 @@ class LiveStreamSuite extends ServerHarness {
       holds,
       states,
       1L,
-      Set("t1"),
+      Set("c_0_t1"),
       mine
     )
 
@@ -394,7 +399,7 @@ class LiveStreamSuite extends ServerHarness {
     // Owed per viewer because it is a different surface, not because one node
     // has two renderings.
     assert(
-      owed.exists(_.patch.toSse.render.contains("s_t1__c")),
+      owed.exists(_.patch.toSse.render.contains("s_c_0_t1__c")),
       clue = owed.map(_.patch.toSse.render)
     )
     assert(
@@ -557,21 +562,19 @@ class LiveStreamSuite extends ServerHarness {
                 )
               )
             )
-          ),
+          ) + ("panel" -> Slot.Nodes(
+            Fill.Nodes(
+              Choice.Chosen(
+                ValueExpr(Value.Var("tab")),
+                List(
+                  Case(Lit.Text("0"), List(branchCard("sensor.a"))),
+                  Case(Lit.Text("1"), List(branchCard("sensor.b")))
+                )
+              )
+            )
+          )),
           vars = TabDeclared
         )
-      )
-    ),
-    surfaces = Map(
-      "t0" -> tabMember(
-        branchCard("sensor.a"),
-        "c_0",
-        0
-      ),
-      "t1" -> tabMember(
-        branchCard("sensor.b"),
-        "c_0",
-        1
       )
     )
   )

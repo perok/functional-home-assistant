@@ -15,205 +15,6 @@
                   "fh-cols-full"
                 ]
               },
-              "inlineSurfaces" : {
-                "t0" : {
-                  "activation" : {
-                    "at" : {
-                      "kind" : "Value",
-                      "value" : "0"
-                    },
-                    "kind" : "Var",
-                    "name" : "tab"
-                  },
-                  "bakeAs" : "panel",
-                  "bakeIndex" : 0,
-                  "bakeInto" : "@@NODE_ID@@",
-                  "content" : {
-                    "card" : "fhrow",
-                    "kind" : "Component",
-                    "vars" : [
-                    ],
-                    "wireSlots" : {
-                      "children" : {
-                        "fill" : {
-                          "choice" : [
-                            {
-                              "calls" : {
-                                "tap" : {
-                                  "kind" : "Service",
-                                  "service" : "light/toggle",
-                                  "target" : {
-                                    "entity_id" : [
-                                      "light.kitchen"
-                                    ]
-                                  }
-                                }
-                              },
-                              "card" : "switch",
-                              "cell" : {
-                                "classes" : {
-                                  "fh-active" : {
-                                    "source" : {
-                                      "kind" : "Entity"
-                                    },
-                                    "steps" : [
-                                      {
-                                        "cases" : {
-                                          "on" : true
-                                        },
-                                        "kind" : "Match",
-                                        "otherwise" : false
-                                      }
-                                    ]
-                                  }
-                                }
-                              },
-                              "kind" : "Component",
-                              "vars" : [
-                              ],
-                              "wireSlots" : {
-                                "busy" : {
-                                  "kind" : "Value",
-                                  "source" : true,
-                                  "type" : "bool"
-                                },
-                                "busyVisual" : {
-                                  "kind" : "Value",
-                                  "source" : true,
-                                  "type" : "bool"
-                                },
-                                "checked" : {
-                                  "default" : "",
-                                  "kind" : "Value",
-                                  "signal" : {
-                                    "kind" : "Bind"
-                                  },
-                                  "source" : {
-                                    "kind" : "Entity"
-                                  },
-                                  "steps" : [
-                                    {
-                                      "cases" : {
-                                        "on" : "on"
-                                      },
-                                      "kind" : "Match",
-                                      "otherwise" : ""
-                                    }
-                                  ]
-                                },
-                                "entity_id" : {
-                                  "kind" : "Value",
-                                  "source" : "light.kitchen"
-                                },
-                                "icon" : {
-                                  "kind" : "Value",
-                                  "source" : "mdi mdi-lightbulb",
-                                  "steps" : [
-                                    {
-                                      "kind" : "ThemeClasses"
-                                    }
-                                  ]
-                                },
-                                "label" : {
-                                  "kind" : "Value",
-                                  "source" : "Kitchen"
-                                },
-                                "onoff" : {
-                                  "kind" : "Value",
-                                  "source" : true,
-                                  "type" : "bool"
-                                },
-                                "switched" : {
-                                  "default" : "",
-                                  "kind" : "Value",
-                                  "signal" : {
-                                    "kind" : "Attr",
-                                    "name" : "data-switched"
-                                  },
-                                  "source" : {
-                                    "kind" : "Entity"
-                                  },
-                                  "steps" : [
-                                    {
-                                      "cases" : {
-                                        "on" : "on"
-                                      },
-                                      "kind" : "Match",
-                                      "otherwise" : ""
-                                    }
-                                  ]
-                                },
-                                "tapDisabled" : {
-                                  "kind" : "Value",
-                                  "signal" : {
-                                    "kind" : "Handler"
-                                  },
-                                  "source" : {
-                                    "kind" : "Entity"
-                                  },
-                                  "steps" : [
-                                    {
-                                      "cases" : {
-                                        "unavailable" : true
-                                      },
-                                      "kind" : "Match",
-                                      "otherwise" : false
-                                    }
-                                  ],
-                                  "type" : "bool"
-                                }
-                              }
-                            }
-                          ],
-                          "kind" : "Nodes"
-                        },
-                        "kind" : "Nodes"
-                      }
-                    }
-                  }
-                },
-                "t1" : {
-                  "activation" : {
-                    "at" : {
-                      "kind" : "Value",
-                      "value" : "1"
-                    },
-                    "kind" : "Var",
-                    "name" : "tab"
-                  },
-                  "bakeAs" : "panel",
-                  "bakeIndex" : 1,
-                  "bakeInto" : "@@NODE_ID@@",
-                  "content" : {
-                    "card" : "fhrow",
-                    "kind" : "Component",
-                    "vars" : [
-                    ],
-                    "wireSlots" : {
-                      "children" : {
-                        "fill" : {
-                          "choice" : [
-                            {
-                              "card" : "sectionTitle",
-                              "kind" : "Component",
-                              "vars" : [
-                              ],
-                              "wireSlots" : {
-                                "label" : {
-                                  "kind" : "Value",
-                                  "source" : "Text"
-                                }
-                              }
-                            }
-                          ],
-                          "kind" : "Nodes"
-                        },
-                        "kind" : "Nodes"
-                      }
-                    }
-                  }
-                }
-              },
               "kind" : "Component",
               "vars" : [
                 {
@@ -322,6 +123,206 @@
                     "kind" : "Nodes"
                   },
                   "kind" : "Nodes"
+                },
+                "panel" : {
+                  "fill" : {
+                    "choice" : {
+                      "by" : {
+                        "source" : {
+                          "kind" : "Var",
+                          "name" : "tab"
+                        },
+                        "steps" : [
+                        ]
+                      },
+                      "cases" : [
+                        {
+                          "is" : "0",
+                          "value" : [
+                            {
+                              "card" : "fhrow",
+                              "kind" : "Component",
+                              "vars" : [
+                              ],
+                              "wireSlots" : {
+                                "children" : {
+                                  "fill" : {
+                                    "choice" : [
+                                      {
+                                        "calls" : {
+                                          "tap" : {
+                                            "kind" : "Service",
+                                            "service" : "light/toggle",
+                                            "target" : {
+                                              "entity_id" : [
+                                                "light.kitchen"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "card" : "switch",
+                                        "cell" : {
+                                          "classes" : {
+                                            "fh-active" : {
+                                              "source" : {
+                                                "kind" : "Entity"
+                                              },
+                                              "steps" : [
+                                                {
+                                                  "cases" : {
+                                                    "on" : true
+                                                  },
+                                                  "kind" : "Match",
+                                                  "otherwise" : false
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "kind" : "Component",
+                                        "vars" : [
+                                        ],
+                                        "wireSlots" : {
+                                          "busy" : {
+                                            "kind" : "Value",
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "busyVisual" : {
+                                            "kind" : "Value",
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "checked" : {
+                                            "default" : "",
+                                            "kind" : "Value",
+                                            "signal" : {
+                                              "kind" : "Bind"
+                                            },
+                                            "source" : {
+                                              "kind" : "Entity"
+                                            },
+                                            "steps" : [
+                                              {
+                                                "cases" : {
+                                                  "on" : "on"
+                                                },
+                                                "kind" : "Match",
+                                                "otherwise" : ""
+                                              }
+                                            ]
+                                          },
+                                          "entity_id" : {
+                                            "kind" : "Value",
+                                            "source" : "light.kitchen"
+                                          },
+                                          "icon" : {
+                                            "kind" : "Value",
+                                            "source" : "mdi mdi-lightbulb",
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
+                                          },
+                                          "label" : {
+                                            "kind" : "Value",
+                                            "source" : "Kitchen"
+                                          },
+                                          "onoff" : {
+                                            "kind" : "Value",
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "switched" : {
+                                            "default" : "",
+                                            "kind" : "Value",
+                                            "signal" : {
+                                              "kind" : "Attr",
+                                              "name" : "data-switched"
+                                            },
+                                            "source" : {
+                                              "kind" : "Entity"
+                                            },
+                                            "steps" : [
+                                              {
+                                                "cases" : {
+                                                  "on" : "on"
+                                                },
+                                                "kind" : "Match",
+                                                "otherwise" : ""
+                                              }
+                                            ]
+                                          },
+                                          "tapDisabled" : {
+                                            "kind" : "Value",
+                                            "signal" : {
+                                              "kind" : "Handler"
+                                            },
+                                            "source" : {
+                                              "kind" : "Entity"
+                                            },
+                                            "steps" : [
+                                              {
+                                                "cases" : {
+                                                  "unavailable" : true
+                                                },
+                                                "kind" : "Match",
+                                                "otherwise" : false
+                                              }
+                                            ],
+                                            "type" : "bool"
+                                          }
+                                        }
+                                      }
+                                    ],
+                                    "kind" : "Nodes"
+                                  },
+                                  "kind" : "Nodes"
+                                }
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "is" : "1",
+                          "value" : [
+                            {
+                              "card" : "fhrow",
+                              "kind" : "Component",
+                              "vars" : [
+                              ],
+                              "wireSlots" : {
+                                "children" : {
+                                  "fill" : {
+                                    "choice" : [
+                                      {
+                                        "card" : "sectionTitle",
+                                        "kind" : "Component",
+                                        "vars" : [
+                                        ],
+                                        "wireSlots" : {
+                                          "label" : {
+                                            "kind" : "Value",
+                                            "source" : "Text"
+                                          }
+                                        }
+                                      }
+                                    ],
+                                    "kind" : "Nodes"
+                                  },
+                                  "kind" : "Nodes"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "kind" : "Chosen"
+                    },
+                    "kind" : "Nodes"
+                  },
+                  "kind" : "Nodes"
                 }
               }
             },
@@ -332,213 +333,212 @@
                   "fh-cols-full"
                 ]
               },
-              "inlineSurfaces" : {
-                "else" : {
-                  "activation" : {
-                    "kind" : "State"
-                  },
-                  "bakeAs" : "branch",
-                  "bakeIndex" : 1,
-                  "bakeInto" : "@@NODE_ID@@",
-                  "content" : {
-                    "card" : "fhrow",
-                    "kind" : "Component",
-                    "vars" : [
-                    ],
-                    "wireSlots" : {
-                      "children" : {
-                        "fill" : {
-                          "choice" : [
-                            {
-                              "card" : "sectionTitle",
-                              "kind" : "Component",
-                              "vars" : [
-                              ],
-                              "wireSlots" : {
-                                "label" : {
-                                  "kind" : "Value",
-                                  "source" : "Off"
-                                }
-                              }
-                            }
-                          ],
-                          "kind" : "Nodes"
-                        },
-                        "kind" : "Nodes"
-                      }
-                    }
-                  }
-                },
-                "then" : {
-                  "activation" : {
-                    "condition" : {
-                      "source" : {
-                        "kind" : "Entity",
-                        "of" : "light.kitchen"
-                      },
-                      "steps" : [
-                        {
-                          "kind" : "Compare",
-                          "op" : "eq",
-                          "to" : "on"
-                        }
-                      ]
-                    },
-                    "kind" : "State"
-                  },
-                  "bakeAs" : "branch",
-                  "bakeIndex" : 0,
-                  "bakeInto" : "@@NODE_ID@@",
-                  "content" : {
-                    "card" : "fhrow",
-                    "kind" : "Component",
-                    "vars" : [
-                    ],
-                    "wireSlots" : {
-                      "children" : {
-                        "fill" : {
-                          "choice" : [
-                            {
-                              "calls" : {
-                                "tap" : {
-                                  "kind" : "Service",
-                                  "service" : "light/toggle",
-                                  "target" : {
-                                    "entity_id" : [
-                                      "light.kitchen"
-                                    ]
-                                  }
-                                }
-                              },
-                              "card" : "switch",
-                              "cell" : {
-                                "classes" : {
-                                  "fh-active" : {
-                                    "source" : {
-                                      "kind" : "Entity"
-                                    },
-                                    "steps" : [
-                                      {
-                                        "cases" : {
-                                          "on" : true
-                                        },
-                                        "kind" : "Match",
-                                        "otherwise" : false
-                                      }
-                                    ]
-                                  }
-                                }
-                              },
-                              "kind" : "Component",
-                              "vars" : [
-                              ],
-                              "wireSlots" : {
-                                "busy" : {
-                                  "kind" : "Value",
-                                  "source" : true,
-                                  "type" : "bool"
-                                },
-                                "busyVisual" : {
-                                  "kind" : "Value",
-                                  "source" : true,
-                                  "type" : "bool"
-                                },
-                                "checked" : {
-                                  "default" : "",
-                                  "kind" : "Value",
-                                  "signal" : {
-                                    "kind" : "Bind"
-                                  },
-                                  "source" : {
-                                    "kind" : "Entity"
-                                  },
-                                  "steps" : [
-                                    {
-                                      "cases" : {
-                                        "on" : "on"
-                                      },
-                                      "kind" : "Match",
-                                      "otherwise" : ""
-                                    }
-                                  ]
-                                },
-                                "entity_id" : {
-                                  "kind" : "Value",
-                                  "source" : "light.kitchen"
-                                },
-                                "icon" : {
-                                  "kind" : "Value",
-                                  "source" : "mdi mdi-lightbulb",
-                                  "steps" : [
-                                    {
-                                      "kind" : "ThemeClasses"
-                                    }
-                                  ]
-                                },
-                                "label" : {
-                                  "kind" : "Value",
-                                  "source" : "Kitchen"
-                                },
-                                "onoff" : {
-                                  "kind" : "Value",
-                                  "source" : true,
-                                  "type" : "bool"
-                                },
-                                "switched" : {
-                                  "default" : "",
-                                  "kind" : "Value",
-                                  "signal" : {
-                                    "kind" : "Attr",
-                                    "name" : "data-switched"
-                                  },
-                                  "source" : {
-                                    "kind" : "Entity"
-                                  },
-                                  "steps" : [
-                                    {
-                                      "cases" : {
-                                        "on" : "on"
-                                      },
-                                      "kind" : "Match",
-                                      "otherwise" : ""
-                                    }
-                                  ]
-                                },
-                                "tapDisabled" : {
-                                  "kind" : "Value",
-                                  "signal" : {
-                                    "kind" : "Handler"
-                                  },
-                                  "source" : {
-                                    "kind" : "Entity"
-                                  },
-                                  "steps" : [
-                                    {
-                                      "cases" : {
-                                        "unavailable" : true
-                                      },
-                                      "kind" : "Match",
-                                      "otherwise" : false
-                                    }
-                                  ],
-                                  "type" : "bool"
-                                }
-                              }
-                            }
-                          ],
-                          "kind" : "Nodes"
-                        },
-                        "kind" : "Nodes"
-                      }
-                    }
-                  }
-                }
-              },
               "kind" : "Component",
               "vars" : [
               ],
               "wireSlots" : {
-                
+                "branch" : {
+                  "fill" : {
+                    "choice" : {
+                      "by" : {
+                        "source" : {
+                          "kind" : "Entity",
+                          "of" : "light.kitchen"
+                        },
+                        "steps" : [
+                          {
+                            "kind" : "Compare",
+                            "op" : "eq",
+                            "to" : "on"
+                          }
+                        ]
+                      },
+                      "cases" : [
+                        {
+                          "is" : true,
+                          "value" : [
+                            {
+                              "card" : "fhrow",
+                              "kind" : "Component",
+                              "vars" : [
+                              ],
+                              "wireSlots" : {
+                                "children" : {
+                                  "fill" : {
+                                    "choice" : [
+                                      {
+                                        "calls" : {
+                                          "tap" : {
+                                            "kind" : "Service",
+                                            "service" : "light/toggle",
+                                            "target" : {
+                                              "entity_id" : [
+                                                "light.kitchen"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "card" : "switch",
+                                        "cell" : {
+                                          "classes" : {
+                                            "fh-active" : {
+                                              "source" : {
+                                                "kind" : "Entity"
+                                              },
+                                              "steps" : [
+                                                {
+                                                  "cases" : {
+                                                    "on" : true
+                                                  },
+                                                  "kind" : "Match",
+                                                  "otherwise" : false
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "kind" : "Component",
+                                        "vars" : [
+                                        ],
+                                        "wireSlots" : {
+                                          "busy" : {
+                                            "kind" : "Value",
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "busyVisual" : {
+                                            "kind" : "Value",
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "checked" : {
+                                            "default" : "",
+                                            "kind" : "Value",
+                                            "signal" : {
+                                              "kind" : "Bind"
+                                            },
+                                            "source" : {
+                                              "kind" : "Entity"
+                                            },
+                                            "steps" : [
+                                              {
+                                                "cases" : {
+                                                  "on" : "on"
+                                                },
+                                                "kind" : "Match",
+                                                "otherwise" : ""
+                                              }
+                                            ]
+                                          },
+                                          "entity_id" : {
+                                            "kind" : "Value",
+                                            "source" : "light.kitchen"
+                                          },
+                                          "icon" : {
+                                            "kind" : "Value",
+                                            "source" : "mdi mdi-lightbulb",
+                                            "steps" : [
+                                              {
+                                                "kind" : "ThemeClasses"
+                                              }
+                                            ]
+                                          },
+                                          "label" : {
+                                            "kind" : "Value",
+                                            "source" : "Kitchen"
+                                          },
+                                          "onoff" : {
+                                            "kind" : "Value",
+                                            "source" : true,
+                                            "type" : "bool"
+                                          },
+                                          "switched" : {
+                                            "default" : "",
+                                            "kind" : "Value",
+                                            "signal" : {
+                                              "kind" : "Attr",
+                                              "name" : "data-switched"
+                                            },
+                                            "source" : {
+                                              "kind" : "Entity"
+                                            },
+                                            "steps" : [
+                                              {
+                                                "cases" : {
+                                                  "on" : "on"
+                                                },
+                                                "kind" : "Match",
+                                                "otherwise" : ""
+                                              }
+                                            ]
+                                          },
+                                          "tapDisabled" : {
+                                            "kind" : "Value",
+                                            "signal" : {
+                                              "kind" : "Handler"
+                                            },
+                                            "source" : {
+                                              "kind" : "Entity"
+                                            },
+                                            "steps" : [
+                                              {
+                                                "cases" : {
+                                                  "unavailable" : true
+                                                },
+                                                "kind" : "Match",
+                                                "otherwise" : false
+                                              }
+                                            ],
+                                            "type" : "bool"
+                                          }
+                                        }
+                                      }
+                                    ],
+                                    "kind" : "Nodes"
+                                  },
+                                  "kind" : "Nodes"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "kind" : "Chosen",
+                      "otherwise" : [
+                        {
+                          "card" : "fhrow",
+                          "kind" : "Component",
+                          "vars" : [
+                          ],
+                          "wireSlots" : {
+                            "children" : {
+                              "fill" : {
+                                "choice" : [
+                                  {
+                                    "card" : "sectionTitle",
+                                    "kind" : "Component",
+                                    "vars" : [
+                                    ],
+                                    "wireSlots" : {
+                                      "label" : {
+                                        "kind" : "Value",
+                                        "source" : "Off"
+                                      }
+                                    }
+                                  }
+                                ],
+                                "kind" : "Nodes"
+                              },
+                              "kind" : "Nodes"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "kind" : "Nodes"
+                  },
+                  "kind" : "Nodes"
+                }
               }
             },
             {
@@ -683,94 +683,92 @@
                             "fh-cols-full"
                           ]
                         },
-                        "inlineSurfaces" : {
-                          "else" : {
-                            "activation" : {
-                              "at" : {
-                                "kind" : "Otherwise"
-                              },
-                              "kind" : "Var",
-                              "name" : "view"
-                            },
-                            "bakeAs" : "branch",
-                            "bakeIndex" : 1,
-                            "bakeInto" : "@@NODE_ID@@",
-                            "content" : {
-                              "card" : "fhrow",
-                              "kind" : "Component",
-                              "vars" : [
-                              ],
-                              "wireSlots" : {
-                                "children" : {
-                                  "fill" : {
-                                    "choice" : [
-                                      {
-                                        "card" : "sectionTitle",
-                                        "kind" : "Component",
-                                        "vars" : [
-                                        ],
-                                        "wireSlots" : {
-                                          "label" : {
-                                            "kind" : "Value",
-                                            "source" : "Simple"
-                                          }
-                                        }
-                                      }
-                                    ],
-                                    "kind" : "Nodes"
-                                  },
-                                  "kind" : "Nodes"
-                                }
-                              }
-                            }
-                          },
-                          "then" : {
-                            "activation" : {
-                              "at" : {
-                                "kind" : "Value",
-                                "value" : "detail"
-                              },
-                              "kind" : "Var",
-                              "name" : "view"
-                            },
-                            "bakeAs" : "branch",
-                            "bakeIndex" : 0,
-                            "bakeInto" : "@@NODE_ID@@",
-                            "content" : {
-                              "card" : "fhrow",
-                              "kind" : "Component",
-                              "vars" : [
-                              ],
-                              "wireSlots" : {
-                                "children" : {
-                                  "fill" : {
-                                    "choice" : [
-                                      {
-                                        "card" : "sectionTitle",
-                                        "kind" : "Component",
-                                        "vars" : [
-                                        ],
-                                        "wireSlots" : {
-                                          "label" : {
-                                            "kind" : "Value",
-                                            "source" : "Detail"
-                                          }
-                                        }
-                                      }
-                                    ],
-                                    "kind" : "Nodes"
-                                  },
-                                  "kind" : "Nodes"
-                                }
-                              }
-                            }
-                          }
-                        },
                         "kind" : "Component",
                         "vars" : [
                         ],
                         "wireSlots" : {
-                          
+                          "branch" : {
+                            "fill" : {
+                              "choice" : {
+                                "by" : {
+                                  "source" : {
+                                    "kind" : "Var",
+                                    "name" : "view"
+                                  },
+                                  "steps" : [
+                                  ]
+                                },
+                                "cases" : [
+                                  {
+                                    "is" : "detail",
+                                    "value" : [
+                                      {
+                                        "card" : "fhrow",
+                                        "kind" : "Component",
+                                        "vars" : [
+                                        ],
+                                        "wireSlots" : {
+                                          "children" : {
+                                            "fill" : {
+                                              "choice" : [
+                                                {
+                                                  "card" : "sectionTitle",
+                                                  "kind" : "Component",
+                                                  "vars" : [
+                                                  ],
+                                                  "wireSlots" : {
+                                                    "label" : {
+                                                      "kind" : "Value",
+                                                      "source" : "Detail"
+                                                    }
+                                                  }
+                                                }
+                                              ],
+                                              "kind" : "Nodes"
+                                            },
+                                            "kind" : "Nodes"
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                ],
+                                "kind" : "Chosen",
+                                "otherwise" : [
+                                  {
+                                    "card" : "fhrow",
+                                    "kind" : "Component",
+                                    "vars" : [
+                                    ],
+                                    "wireSlots" : {
+                                      "children" : {
+                                        "fill" : {
+                                          "choice" : [
+                                            {
+                                              "card" : "sectionTitle",
+                                              "kind" : "Component",
+                                              "vars" : [
+                                              ],
+                                              "wireSlots" : {
+                                                "label" : {
+                                                  "kind" : "Value",
+                                                  "source" : "Simple"
+                                                }
+                                              }
+                                            }
+                                          ],
+                                          "kind" : "Nodes"
+                                        },
+                                        "kind" : "Nodes"
+                                      }
+                                    }
+                                  }
+                                ]
+                              },
+                              "kind" : "Nodes"
+                            },
+                            "kind" : "Nodes"
+                          }
                         }
                       }
                     ],

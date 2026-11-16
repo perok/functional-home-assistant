@@ -23,7 +23,6 @@
 module core.variable
 
 import "tap.pkl" as tapMod
-import "surface.pkl" as surfaceMod
 import "slot.pkl" as slotMod
 import "simple.pkl" as simpleMod
 import "../hass.pkl"
@@ -39,19 +38,6 @@ typealias Value = String(matches(Regex("[A-Za-z0-9_.:-]+")))
 /// declarer reads and writes.
 class Variable {
   name: Name
-
-  /// The activation of a bake group whose member this variable chooses by
-  /// index. The library's choices select by value ([[selecting]]).
-  fixed selects: surfaceMod.VarActivation = let (n = name) new { name = n }
-
-  /// The activation of the bake member this variable shows at `at`.
-  function selecting(at: Value): surfaceMod.VarActivation =
-    let (n = name) let (v = at) new { name = n; at = new surfaceMod.AtValue { value = v } }
-
-  /// The activation of the bake member it shows at every value no other member
-  /// names.
-  fixed selectingAnyOther: surfaceMod.VarActivation =
-    let (n = name) new { name = n; at = new surfaceMod.AtOtherwise {} }
 
   /// Its value as this viewer holds it, a text reading: `label.of(window.value)`.
   /// The viewer's own, so only a leaf's value slot reads it; the build refuses it

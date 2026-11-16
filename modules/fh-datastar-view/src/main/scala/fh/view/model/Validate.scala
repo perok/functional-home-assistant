@@ -176,10 +176,8 @@ private[model] object Validate:
             .flatten
       }
 
-    /** A chosen window's `by` reads only variables declared above it, is a key
-      * a case can spell, never a fetch, and decides a case at its declared
-      * values where it reads no state; every window it could pick is one HA
-      * answers. A viewer's value is checked at the write.
+    /** A chosen window's `by` ([[chosenErrors]]); every window it could pick is
+      * one HA answers. A viewer's value is checked at the write.
       */
     def askErrors(
         nodeId: String,
@@ -193,65 +191,80 @@ private[model] object Validate:
         .distinct
         .map(p => s"$at $p")
       template.window match
-        case Choice.Fixed(_)                         => problems
-        case c @ Choice.Chosen(by, cases, otherwise) =>
-          val refErrors = by.variables.sorted
-            .filterNot(scope.contains)
-            .map(v =>
-              s"$at reads the variable '$v', which no ancestor declares — " +
-                "declare it on the node that owns the choice, or write the " +
-                "value down"
-            )
-          val keyType = by.typed(Nil) match
-            case Left(m) =>
-              Left(
-                s"$at chooses its window by a value that does not type: ${m.message}"
-              )
-            case Right(t) if Choice.KeyTypes(t.out) => Right(t.out)
-            case Right(t)                           =>
-              Left(
-                s"$at chooses its window by a ${t.out.name}, which no case " +
-                  "can spell — text, a bool or a whole number"
-              )
-          def shown(l: Lit) = Steps.text(l.raw)
-          val caseErrors = keyType.fold(
-            List(_),
-            t =>
-              cases.collect {
-                case k if ValueType.of(k.is) != t =>
-                  s"$at has the case '${shown(k.is)}', a " +
-                    s"${ValueType.of(k.is).name}, where its window is chosen by " +
-                    s"a ${t.name}"
-              }
-          ) ++ cases
-            .groupBy(k => Lit.key(k.is))
-            .collect { case (_, ks) if ks.sizeIs > 1 => shown(ks.head.is) }
-            .toList
-            .sorted
-            .map(k => s"$at has the case '$k' twice")
-          val fetchErrors = Option
-            .when(by.fetches.nonEmpty)(
-              s"$at chooses its window by a fetch, whose answer could only be " +
-                "read once the window is chosen"
-            )
-            .toList
-          val declared =
-            if (refErrors.nonEmpty || keyType.isLeft || !c.refusesUntaken) Nil
+        case Choice.Fixed(_)     => problems
+        case c: Choice.Chosen[?] =>
+          chosenErrors(at, "its window", "the window", c, scope) ++ problems
+
+    /** What a `Chosen` holds wherever it is: its `by` reads only variables
+      * declared above it, is a key a case can spell, never a fetch, and decides
+      * a case at its declared values where it reads no state. `what` and `the`
+      * name what it picks, for the message.
+      */
+    def chosenErrors(
+        at: String,
+        what: String,
+        the: String,
+        c: Choice.Chosen[?],
+        scope: Map[String, String]
+    ): List[String] =
+      val Choice.Chosen(by, cases, _) = c
+      val refErrors = by.variables.sorted
+        .filterNot(scope.contains)
+        .map(v =>
+          s"$at reads the variable '$v', which no ancestor declares — " +
+            "declare it on the node that owns the choice, or write the " +
+            "value down"
+        )
+      val keyType = by.typed(Nil) match
+        case Left(m) =>
+          Left(
+            s"$at chooses $what by a value that does not type: ${m.message}"
+          )
+        case Right(t) if Choice.KeyTypes(t.out) => Right(t.out)
+        case Right(t)                           =>
+          Left(
+            s"$at chooses $what by a ${t.out.name}, which no case " +
+              "can spell — text, a bool or a whole number"
+          )
+      def shown(l: Lit) = Steps.text(l.raw)
+      val caseErrors = keyType.fold(
+        List(_),
+        t =>
+          cases.collect {
+            case k if ValueType.of(k.is) != t =>
+              s"$at has the case '${shown(k.is)}', a " +
+                s"${ValueType.of(k.is).name}, where $what is chosen by " +
+                s"a ${t.name}"
+          }
+      ) ++ cases
+        .groupBy(k => Lit.key(k.is))
+        .collect { case (_, ks) if ks.sizeIs > 1 => shown(ks.head.is) }
+        .toList
+        .sorted
+        .map(k => s"$at has the case '$k' twice")
+      val fetchErrors = Option
+        .when(by.fetches.nonEmpty)(
+          s"$at chooses $what by a fetch, whose answer could only be " +
+            s"read once $the is chosen"
+        )
+        .toList
+      val declared =
+        if (refErrors.nonEmpty || keyType.isLeft || !c.refusesUntaken) Nil
+        else
+          val read = FetchTemplate.atDeclared(scope)(by)
+          val reads =
+            if (by.variables.isEmpty)
+              s"chooses $what by a value no case takes"
             else
-              val read = FetchTemplate.atDeclared(scope)(by)
-              val reads =
-                if (by.variables.isEmpty)
-                  "chooses its window by a value no case takes"
-                else
-                  s"reads the variable '${by.variables.mkString(", ")}' at " +
-                    "its declared value"
-              Option
-                .unless(c.takes(read))(
-                  s"$at $reads: '${Steps.text(read)}' is not one of " +
-                    cases.map(k => shown(k.is)).sorted.mkString(", ")
-                )
-                .toList
-          refErrors ++ caseErrors ++ fetchErrors ++ declared ++ problems
+              s"reads the variable '${by.variables.mkString(", ")}' at " +
+                "its declared value"
+          Option
+            .unless(c.takes(read))(
+              s"$at $reads: '${Steps.text(read)}' is not one of " +
+                cases.map(k => shown(k.is)).sorted.mkString(", ")
+            )
+            .toList
+      refErrors ++ caseErrors ++ fetchErrors ++ declared
 
     /** Otherwise a bad fetch renders blank forever with nothing saying why. A
       * fetch slot's value is its stage's bytes, so a step after the stage would
@@ -615,15 +628,52 @@ private[model] object Validate:
         .sorted
         .map(n => s"$nodeId: '$n' is both a slot and a call — rename one")
 
-    // Only fixed nodes are placed so far; a choice would be dropped silently.
-    def unplacedFillErrors(
+    /** A nodes slot's choice: keys typed by `by`, one node per case, one choice
+      * to a node, and a `by` the bake group can decide
+      * ([[Dashboard.choiceSurfaces]]): a viewer's variable read alone, or state
+      * alone.
+      */
+    def choiceFillErrors(
         nodeId: String,
-        c: LayoutNode.Component
+        c: LayoutNode.Component,
+        scope: Map[String, String]
     ): List[String] =
-      c.fills.toList.sortBy(_._1).collect {
-        case (n, Fill.Nodes(_: Choice.Chosen[?])) =>
-          s"$nodeId: nodes slot '$n' is filled with a choice, which nothing " +
-            "places yet"
+      val chosen = c.fills.toList.sortBy(_._1).collect {
+        case (n, Fill.Nodes(k: Choice.Chosen[List[LayoutNode]] @unchecked)) =>
+          n -> k
+      }
+      val two = Option
+        .when(chosen.sizeIs > 1)(
+          s"$nodeId: nodes slots ${chosen.map(n => s"'${n._1}'").mkString(", ")} " +
+            "are each filled with a choice; a node holds one until the pick " +
+            "(R4b of docs/plan-regions.md)"
+        )
+        .toList
+      two ++ chosen.flatMap { (n, k) =>
+        val at = s"$nodeId: nodes slot '$n'"
+        val nodes = k.cases.map(_.value) ++ k.otherwise
+        val lengths = nodes
+          .filter(_.sizeIs != 1)
+          .map(_ =>
+            s"$at has a case that is not exactly one node (several go in a " +
+              "row; R4c of docs/plan-regions.md lets a case hold a list)"
+          )
+          .distinct
+        val reads =
+          if (k.by.variables.nonEmpty && k.by.entities.nonEmpty)
+            List(
+              s"$at is chosen by a viewer's variable and by state together, " +
+                "which is not built yet (R4b of docs/plan-regions.md)"
+            )
+          else if (
+            k.by.variables.nonEmpty && Choice.plainVariable(k.by).isEmpty
+          )
+            List(
+              s"$at is chosen by a computed read of a variable; until R4b it " +
+                "is the variable's own value (`v.value`)"
+            )
+          else Nil
+        chosenErrors(at, "its nodes", "its nodes", k, scope) ++ lengths ++ reads
       }
 
     /** A choice is of the variable as this node reads it. */
@@ -806,7 +856,8 @@ private[model] object Validate:
             card,
             c.valueSlots.keySet ++ c.calls.keySet,
             c.regions.keySet
-          ) ++ placedCallErrors(nodeId, c) ++ unplacedFillErrors(nodeId, c) ++
+          ) ++ placedCallErrors(nodeId, c) ++
+            choiceFillErrors(nodeId, c, here) ++
             choiceErrors(nodeId, c, here) ++
             slotErrors(nodeId, card, checked, here) ++
             varErrors(nodeId, vars) ++

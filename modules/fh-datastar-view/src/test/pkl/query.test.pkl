@@ -71,6 +71,10 @@ local function clausesOfMember(m: pred.Member): List<Clause> =
       else List(new Clause { `when` = chosen.by; node = chosen.cases.toList()[0].value })
   else List(new Clause { `when` = null; node = m })
 
+// What an `If`'s one nodes slot writes: a lone condition is its `by`.
+local function chosenOf(n: Any): Any =
+  (n.nodesSlots.findOrNull((s) -> s.choice != null)!!.fill as slotMod.NodesFill).choice
+
 local clausesOf = (s) -> s.members.toMap().values.flatMap((m) -> clausesOfMember(m))
 local guards = (s) -> clausesOf.apply(s).map((cl) -> cl.`when`)
 local ids = (s) -> s.candidates.toList()
@@ -610,7 +614,7 @@ facts {
 
   ["an `If` over one entity names it, so the runtime looks it up"] {
     local branch = c.iff(q.entity(taklys).stateIs("on")).then(c.title("on"))
-    local cond = branch.inlineSurfaces["then"].activation.condition
+    local cond = chosenOf(branch).by
     cond.part == null
     cond.entity == "light.taklys"
   }
@@ -618,29 +622,29 @@ facts {
   ["an `If` over a SET is a count — no quantifier, and no card"] {
     local branch = c.iff(q.from(stue).where(q.eq(q.stateProp, "on")).any())
       .then(c.title("some light is on"))
-    local cond = branch.inlineSurfaces["then"].activation.condition
+    local cond = chosenOf(branch).by
     cond is pred.Count
     cond.op == "gt"
     cond.value == 0
     cond.candidates.toList() == List("light.taklys", "light.lampe")
   }
 
-  ["the `else` member's condition is vacuously true and reads nothing"] {
+  ["the `else` is the otherwise: no condition of its own"] {
     local branch = c.iff(q.entity(taklys).stateIs("on"))
       .then(c.title("on"))
       .`else`(c.title("off"))
-    local cond = branch.inlineSurfaces["else"].activation.condition
-    // None at all: a state surface with no condition always holds.
-    cond == null
+    // It holds where no case does, so only the `then`'s condition is read.
+    chosenOf(branch).by.entity == "light.taklys"
+    chosenOf(branch).otherwise != null
   }
 
   ["a condition the BUILD settled is still an ordinary condition"] {
     // `any()` over a set no candidate can join folds to `false` before anything
     // runs, so the branch it guards simply never shows.
     local never = c.iff(q.from(stue).where(false).any()).then(c.title("x"))
-    never.inlineSurfaces["then"].activation.condition == pred.neverHolds
+    chosenOf(never).by == pred.neverHolds
     // ...and the mirror.
-    c.iff(true).then(c.title("x")).inlineSurfaces["then"].activation.condition == pred.alwaysHolds
+    chosenOf(c.iff(true).then(c.title("x"))).by == pred.alwaysHolds
   }
 
   ["the emitted fill is a `set`, and every candidate has a member"] {

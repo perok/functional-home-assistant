@@ -88,6 +88,8 @@ object PklFixture {
       .as[Dashboard]
       .fold(
         err => sys.error(s"decoding $slug as Dashboard failed: $err"),
-        _.copy(slug = slug)
+        // Lowered, as `validated` reads it: a test of the bake group looks
+        // in `surfaces`.
+        _.copy(slug = slug).lowered
       )
 }

@@ -758,7 +758,7 @@ A region declares HOW it is filled, and the two are not interchangeable:
 | `fill` | Filled by | Element id | Rendered |
 |---|---|---|---|
 | `eager` | the node's own `regions[name]` children | none — they arrive nested | with the parent, in one pass |
-| `baked` | a SURFACE from the bake group, per viewer | `hostId` = `<nodeId>_<bakeAs>` | only the selected member, lazily |
+| `baked` | a SURFACE from the bake group, per viewer; a node's `Fill.Nodes(Chosen)` slot is served this way, its group derived in Scala (`Dashboard.choiceSurfaces`: case `i` is `<host>_t<i>`, the otherwise `<host>_else`) | `hostId` = `<nodeId>_<bakeAs>` | only the selected member, lazily |
 
 Laid over one slider and one tabs card:
 
