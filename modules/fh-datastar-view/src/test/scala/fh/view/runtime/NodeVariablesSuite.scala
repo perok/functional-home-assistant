@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.DashboardBuilders
@@ -71,7 +73,11 @@ class NodeVariablesSuite extends munit.FunSuite {
       surfaces: Map[String, Surface] = Map.empty
   ) =
     Dashboard(
-      cards = Map("chart" -> chartCard, "plain" -> plainCard, "box" -> boxCard),
+      cards = Sets.cards ++ Map(
+        "chart" -> chartCard,
+        "plain" -> plainCard,
+        "box" -> boxCard
+      ),
       card = root,
       surfaces = surfaces
     )
@@ -181,11 +187,11 @@ class NodeVariablesSuite extends munit.FunSuite {
     assert(errs.exists(_.contains("'4h' is not one of")), clue = errs)
   }
 
-  private def setOf(clause: LayoutNode) = LayoutNode.SetNode(
+  private def setOf(clause: LayoutNode) = Sets.node(
     candidates = List("sensor.t"),
     members = Map(
-      "sensor.t" -> LayoutNode.SetMember(
-        List(LayoutNode.SetClause(node = clause))
+      "sensor.t" -> Sets.Member(
+        List(Sets.Clause(node = clause))
       )
     )
   )
@@ -465,9 +471,8 @@ class NodeVariablesSuite extends munit.FunSuite {
 
   test("a node with no declaration carries none on the wire") {
     val d = decode[LayoutNode]("""{"kind":"Component","card":"plain"}""")
-      .map {
-        case c: LayoutNode.Component => c.vars
-        case other                   => fail(s"expected a component: $other")
+      .map { case c: LayoutNode.Component =>
+        c.vars
       }
     assertEquals(d, Right(Nil), clue = d)
   }

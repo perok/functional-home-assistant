@@ -22,7 +22,8 @@ object Ready:
       authoredId: Option[String],
       vars: List[fh.view.model.Dashboard.Declaration],
       subjectEntity: Option[String],
-      calls: Map[String, Placed] = Map.empty
+      calls: Map[String, Placed] = Map.empty,
+      set: Option[SetFill] = None
   ) extends Node:
 
     /** Name order, for a reproducible walk; ids do not come from this. */
@@ -65,23 +66,32 @@ object Ready:
         .flatMap(_.bound.variables)
         .toSet
 
-  /** A set: `order` is `None` where the candidates are already in order. Not a
-    * case class: `MemberGraph`'s sources hold it, and hashing one walked every
-    * clause (`publishSet` 11 µs -> 1.4 ms).
+  /** A node's set, filling its nodes slot `region`: `order` is `None` where the
+    * candidates are already in order. Not a case class: `MemberGraph`'s sources
+    * hold it, and hashing one walked every member (`publishSet` 11 µs -> 1.4
+    * ms).
     */
-  final class SetNode(
+  final class SetFill(
+      val region: String,
       val candidates: List[String],
-      val members: Map[String, SetMember],
+      val members: Map[String, MemberChoice],
       val order: Option[Evaluator.Keys],
       val limit: Option[Int],
-      val cell: Option[Cell],
       val of: IdKind = IdKind.Entity
-  ) extends Node:
-    def authoredId: Option[String] = None
+  )
 
-  final case class SetMember(clauses: List[SetClause])
-
-  final case class SetClause(when: Option[Condition], node: Node)
+  /** What renders for one candidate: `guard` read for it, and the case it reads
+    * as, else nothing. `byKey` is each case's key ([[Lit.key]]) to its index in
+    * `nodes`; an unguarded member is its one node.
+    */
+  final case class MemberChoice(
+      guard: Option[Condition],
+      nodes: Vector[Component],
+      byKey: Map[String, Int]
+  ):
+    /** The index of the node `read` picks. */
+    def pick(read: Any): Option[Int] =
+      Choice.keyOf(read).flatMap(byKey.get)
 
   /** A guard or a state surface's condition, and the entities and fetches it
     * reads.
@@ -210,9 +220,8 @@ object Ready:
         )
       )
 
-    def node(n: LayoutNode): Built[Node] = n match
+    def node(n: LayoutNode): Built[Component] = n match
       case c: LayoutNode.Component => component(c)
-      case s: LayoutNode.SetNode   => set(s)
 
     def component(c: LayoutNode.Component): Built[Component] =
       val placed = placedCalls(c)
@@ -221,8 +230,9 @@ object Ready:
       )
       (
         (c.bound.toList ++ seenSlots).traverse((k, b) => slot(b).map(k -> _)),
-        c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _))
-      ).mapN((slots, regions) =>
+        c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _)),
+        c.set.traverse((region, s) => set(region, s))
+      ).mapN((slots, regions, filled) =>
         Component(
           c.card,
           slots.toMap,
@@ -236,7 +246,8 @@ object Ready:
               c.calls(name).id,
               seen.map((field, _) => field -> Ready.seenSlot(name, field))
             )
-          )
+          ),
+          filled
         )
       )
 
@@ -273,29 +284,30 @@ object Ready:
             }
         }
 
-    def set(s: LayoutNode.SetNode): Built[SetNode] =
+    def set(region: String, s: Fill.Set): Built[SetFill] =
       (
-        s.members.toList.traverse((e, m) =>
-          m.clauses
-            .traverse(cl =>
-              (cl.when.traverse(condition), node(cl.node)).mapN(SetClause(_, _))
-            )
-            .map(e -> SetMember(_))
-        ),
+        s.members.toList.traverse((e, m) => member(m).map(e -> _)),
         s.orderBy match
           case Nil   => Right(None)
           case terms => Evaluator.Keys.of(terms, scope).map(Some(_))
       ).mapN((members, order) =>
-        SetNode(
-          s.candidates,
-          members.toMap,
-          order,
-          s.limit,
-          s.cell.map(_.ready),
-          s.of
-        )
+        SetFill(region, s.candidates, members.toMap, order, s.limit, s.of)
       )
 
+    private def member(m: Choice[LayoutNode]): Built[MemberChoice] = m match
+      case Choice.Fixed(n) =>
+        node(n).map(c => MemberChoice(None, Vector(c), Map.empty))
+      case Choice.Chosen(by, cases, _) =>
+        (
+          condition(by),
+          cases.traverse(k => node(k.value))
+        ).mapN((guard, nodes) =>
+          MemberChoice(
+            Some(guard),
+            nodes.toVector,
+            cases.zipWithIndex.map((k, i) => Lit.key(k.is) -> i).toMap
+          )
+        )
     def surface(s: fh.view.model.Surface): Built[Surface] =
       (node(s.content), activation(s.activation)).mapN((content, a) =>
         Surface(content, s.bakeInto, s.bakeAs, s.bakeIndex, a, s.clause)

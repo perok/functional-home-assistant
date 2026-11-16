@@ -126,7 +126,7 @@ same commit; ADRs that change the pipeline update it too.
 
 | File | Role |
 |---|---|
-| `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode` (incl. `SetNode`), a component's `slots` one map of `Slot`, a value or a nodes slot by `kind`; `validate`'s rules are `model/Validate.scala`; what a slot or a condition reads is `model/ValueExpr.scala` (`ValueExpr`, `Value`, `Step`), run by the one evaluator `runtime/Evaluator.scala`; `validated` walks the wire model into the compiled one the runtime reads, `model/Ready.scala`, every expression beside its run; the language's rules are ADR 0035 |
+| `fh/view/model/Dashboard.scala` | Wire model `{cards, card}`, `LayoutNode`, a component's `slots` one map of `Slot`, a value or a nodes slot by `kind` (`Fill`: fixed nodes or a `Fill.Set`); `validate`'s rules are `model/Validate.scala`; what a slot or a condition reads is `model/ValueExpr.scala` (`ValueExpr`, `Value`, `Step`), run by the one evaluator `runtime/Evaluator.scala`; `validated` walks the wire model into the compiled one the runtime reads, `model/Ready.scala`, every expression beside its run; the language's rules are ADR 0035 |
 | `fh/view/build/SourceEval.scala` | The authoring-language seam: `.pkl` → `PklBuild` (Pkl is the only evaluated language) |
 | `fh/view/build/PklBuild.scala` / `PklDump.scala` | Pkl evaluation (pkl-core 0.33.0) + typed dump generation — rendered to text and packaged, never written as a loose file. **Touching how the dump is TYPED** — capability classes, a modelled domain's value groups, the codegen `warnings` pass, adding a domain — **read ADR 0013 first**: it owns that design, the per-domain coverage table and the add-a-domain recipe |
 | `fh/view/build/LibPackage.scala` / `AddonBootstrap.scala` | The server boot path: `@fh-dashboard` packaged into a persistent cache, then the workspace seeded — on EVERY start, add-on and local `sbt dashboardServe` alike (repo resources as the bundled lib, pkl's own `~/.cache/pkl`, and whichever workspace dir the run was given). **Touching seeding, module resolution or the workspace scaffold — read ADR 0010 first**: it owns the write-once rule for user files, package-form as the ONE resolution mode, and why the two per-reader values (`FH_PKL_CACHE_DIR`, `FH_INSTANCE_URL`) come from the reader's ENVIRONMENT — the instance writes no `.fh/machine.json` at all — so one workspace serves an HA device, a laptop and a dev container at once |
@@ -297,7 +297,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
 - **Every node is a cell (ADR 0008)**: every card's root is an id'd `.fh-cell` the LIBRARY writes
   (`core/node.pkl`, from `CardDef.tag`/`classes`/`attrs` around the template, a `div` by default),
   the real flex/grid item and Datastar morph target; the renderer fills its two writer holes,
-  `{{{cellClasses}}}` and `{{{cell}}}`, and wraps nothing but a set's root. `layoutCell = false`
+  `{{{cellClasses}}}` and `{{{cell}}}`, and wraps nothing. `layoutCell = false`
   is the rare opt-out from being a layout box — the tab anchors, the slider's pill and controls row — and keeps the id. `Grid` (`.fh-grid`, 12 columns, cells default to a third (4 of 12) — HA
   `grid_options` semantics) is the default container; per-node sizing rides in the wire-level
   `cell.layout` (`columns`/`fullWidth`/`hug`/`grow`/`stick`) and `cell.classes` via the HA-flavored builders `columns(n)`/`fullWidth()`/`hug()`/`grow()`/`stick(edge)`/`textOverflow(…)`/`cellClass`
@@ -305,9 +305,10 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   `fillScreen()` a `Column`'s; `c.spacer` is an empty column that grows). Every container sets all three inherited
   `--fh-cell-*` properties, or its cells take the parent container's (`layout.test.pkl` checks every rule). Candidate sets flow
   their members the same way (`.fh-group`).
-- Candidate sets: a `LayoutNode.SetNode` carries a STATIC candidate list (decided at build time
-  from the dump) plus per-candidate guarded renderings; the runtime decides only PRESENCE (the
-  first clause whose `when` holds; none = not rendered) and ORDER. Authored through
+- Candidate sets: a `Fill.Set` fills a card's nodes slot (the card's whole template; `.build()`
+  is a `group` holding it, `core/group.pkl`) and carries a STATIC candidate list (decided at build
+  time from the dump) plus per-candidate `Choice`s of a node; the runtime decides only PRESENCE (the
+  case whose guard holds, a chain of clauses by `IndexOfTrue`; none = not rendered) and ORDER. Authored through
   `@fh-dashboard/query.pkl`. The query-driven `LayoutNode.Dynamic` it replaced is deleted — see
   ADR 0003 for why, and `docs/adr/0003-candidate-sets.md` for the derivation.
 - **Pkl authoring (ADR 0006)** — the authoring language: dashboards are [Pkl](https://pkl-lang.org),

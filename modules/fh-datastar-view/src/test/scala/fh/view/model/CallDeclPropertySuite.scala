@@ -1,5 +1,7 @@
 package fh.view.model
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.history.Windows
@@ -51,7 +53,6 @@ class CallDeclPropertySuite extends HedgehogSuite {
           v.ready.card match
             case c: Ready.Component =>
               c.calls("tap").seen.map(_._1).toSet ==== expected
-            case _ => Result.failure.log("the root is not a component")
     }
   }
 }
@@ -66,7 +67,7 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
       slots: Map[String, TemplateSlot] = Map.empty
   ): List[String] =
     Dashboard(
-      cards = Map(
+      cards = Sets.cards ++ Map(
         "t" -> TestCard(
           slots.keys.map(s => s"{{$s}}").mkString +
             """<b data-call="{{{tap.callId}}}"></b>"""
@@ -163,7 +164,7 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
     )
     def built(card: LayoutNode, slots: Map[String, TemplateSlot] = Map.empty) =
       Dashboard(
-        cards = Map(
+        cards = Sets.cards ++ Map(
           "t" -> TestCard(
             slots.keys.map(s => s"{{$s}}").mkString +
               """<b data-call="{{{tap.callId}}}"></b>"""
@@ -189,11 +190,11 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
       val errors = built(tapped(slots), slots)
       assert(errors.exists(_.contains(refused)), clue = (where, errors))
     }
-    val clause = LayoutNode.SetNode(
+    val clause = Sets.node(
       candidates = List("light.a"),
       members = Map(
-        "light.a" -> LayoutNode.SetMember(
-          List(LayoutNode.SetClause(Some(asked), tapped(Map.empty)))
+        "light.a" -> Sets.Member(
+          List(Sets.Clause(Some(asked), tapped(Map.empty)))
         )
       )
     )
@@ -308,7 +309,7 @@ object CallDeclPropertySuite {
       }.mkString
 
     def dashboard: Dashboard = Dashboard(
-      cards = Map(
+      cards = Sets.cards ++ Map(
         "parent" -> TestCard(
           placed("s", own) +
             """<b data-call="{{{tap.callId}}}"></b>{{{children}}}""",
@@ -333,9 +334,8 @@ object CallDeclPropertySuite {
       .list(Range.linear(0, max))
 
   val genDecl: Gen[CallDecl.Service] =
-    genNode.map(_.dashboard.card).map {
-      case c: LayoutNode.Component => c.calls("tap").asService
-      case _                       => sys.error("a component")
+    genNode.map(_.dashboard.card).map { case c: LayoutNode.Component =>
+      c.calls("tap").asService
     }
 
   // A node with regions is structure, which may not hold a live slot as bytes.

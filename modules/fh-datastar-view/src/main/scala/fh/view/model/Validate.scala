@@ -734,20 +734,6 @@ private[model] object Validate:
               "is never bound"
         })
 
-    // A set has no slots to bind a reading with; Pkl's builders refuse one too.
-    def setCellErrors(setId: String, cell: Option[Cell]): List[String] =
-      cellErrors(setId, cell) ++ cell.toList
-        .flatMap(c =>
-          c.live.map {
-            case (CellKey.Class(cls), _) => s"cell class '$cls'"
-            case (CellKey.Style(p), _)   => s"cell style '$p'"
-          }
-        )
-        .map(what =>
-          s"$setId: a set's $what reads state, which only a card node can " +
-            "bind — put it on the clause's node"
-        )
-
     // The renderer places the binding itself, so only the shape can be wrong —
     // and each wrong shape is a class that silently never moves.
     def cellClassErrors(
@@ -829,58 +815,115 @@ private[model] object Validate:
             valueWhileErrors(nodeId, c.bound) ++
             typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++
-            layoutErrors ++ childErrors(c.regions, prefix, nodeId, here)
-        // Clauses carry complete nodes, validated as ordinary ones.
-        case s: LayoutNode.SetNode =>
-          val setId = nodeId
-          setCellErrors(setId, s.cell) ++
-            s.orderBy
-              .flatMap(t =>
-                t.by.typed(Nil).left.toOption.map(_.message) orElse
-                  t.by.bypassError(ownMay = false)
-              )
-              .map(e => s"$setId: an order term cannot be read: $e") ++
-            s.members.toList.sortBy(_._1).flatMap { (candidate, m) =>
-              m.clauses
-                .flatMap(_.when)
-                .flatMap(conditionError)
+            layoutErrors ++ childErrors(c.regions, prefix, nodeId, here) ++
+            setErrors(nodeId, c, prefix, scope)
+
+    // A set's members are complete nodes, validated as ordinary ones.
+    def setErrors(
+        setId: NodeId,
+        c: LayoutNode.Component,
+        prefix: String,
+        scope: Map[String, String]
+    ): List[String] =
+      val sets = c.fills.toList.sortBy(_._1).collect { case (n, s: Fill.Set) =>
+        n -> s
+      }
+      sets.flatMap { (region, s) =>
+        val whole =
+          Option
+            .when(
+              sets.size > 1 || cards
+                .get(c.card)
+                .exists(_.regions.keySet != Set(region))
+            )(
+              s"$setId: the set in '$region' is not its card's whole " +
+                "template — members are placed relative to each other, so " +
+                "a fixed sibling in the same element would need anchors"
+            )
+            .toList
+        val order = s.orderBy
+          .flatMap(t =>
+            t.by.typed(Nil).left.toOption.map(_.message) orElse
+              t.by.bypassError(ownMay = false)
+          )
+          .map(e => s"$setId: an order term cannot be read: $e")
+        val members = s.members.toList.sortBy(_._1).flatMap { (candidate, m) =>
+          m match
+            case Choice.Fixed(_)                     => Nil
+            case Choice.Chosen(by, cases, otherwise) =>
+              // A chain's items are the conditions; its own type is the key's.
+              val guards = by match
+                case ValueExpr(
+                      Value.List(_, items),
+                      List(Step.IndexOfTrue),
+                      _,
+                      _
+                    ) =>
+                  items.map(conditionError)
+                case single => List(conditionError(single))
+              val keyed = by.typed(Nil) match
+                case Right(t) if Choice.KeyTypes(t.out) =>
+                  cases.collect {
+                    case k if ValueType.of(k.is) != t.out =>
+                      s"$setId: a case of '$candidate' is a " +
+                        s"${ValueType.of(k.is).name}, where its guard is a " +
+                        s"${t.out.name}"
+                  }
+                case _ => Nil
+              guards.flatten
                 .map(e =>
                   s"$setId: a clause of '$candidate' does not decide: $e"
-                )
-            } ++
-            s.candidates.filterNot(s.members.contains).map { c =>
-              s"$setId: candidate '$c' has no member entry — it could never " +
-                "render, so the build dropped it inconsistently"
-            } ++
-            Option
-              .when(
-                s.of != IdKind.Entity && (
-                  s.members.values
-                    .flatMap(_.clauses)
-                    .flatMap(_.when)
-                    .exists(_.readsMissingSubject) ||
-                    s.orderBy.exists(_.by.readsMissingSubject)
-                )
-              )(
-                s"$setId: a set of ${s.of.word}s reads its member, which has " +
-                  "no state — name the entity a guard or an order term reads"
-              )
-              .toList ++
-            s.members.toList.sortBy(_._1).flatMap { case (_, m) =>
-              m.clauses.zipWithIndex.flatMap { case (clause, i) =>
-                walk(
-                  clause.node,
-                  prefix,
-                  LayoutNode.childId(
-                    prefix,
-                    nodeId,
-                    LayoutNode.Step(LayoutNode.DefaultRegion, i),
-                    clause.node
-                  ),
-                  scope
-                )
-              }
-            }
+                ) ++
+                keyed ++
+                otherwise.map(_ =>
+                  s"$setId: '$candidate' has an otherwise, which a set's " +
+                    "member does not take"
+                ) ++
+                cases
+                  .groupBy(k => Lit.key(k.is))
+                  .collect { case (_, ks) if ks.sizeIs > 1 => ks.head }
+                  .map(k =>
+                    s"$setId: '$candidate' has the case " +
+                      s"'${Steps.text(k.is.raw)}' twice"
+                  )
+        }
+        val unmembered = s.candidates.filterNot(s.members.contains).map { cd =>
+          s"$setId: candidate '$cd' has no member entry — it could never " +
+            "render, so the build dropped it inconsistently"
+        }
+        val readsMember = Option
+          .when(
+            s.of != IdKind.Entity && (
+              s.members.values.exists {
+                case Choice.Chosen(by, _, _) => by.readsMissingSubject
+                case Choice.Fixed(_)         => false
+              } || s.orderBy.exists(_.by.readsMissingSubject)
+            )
+          )(
+            s"$setId: a set of ${s.of.word}s reads its member, which has " +
+              "no state — name the entity a guard or an order term reads"
+          )
+          .toList
+        val bare = s.nodes.collect {
+          case n: LayoutNode.Component if n.set.isDefined =>
+            s"$setId: a member is a set, which has no element of its own to " +
+              "be a member — put it in a card"
+        }.distinct
+        val inside = s.clauseNodes.flatMap { (_, i, n) =>
+          walk(
+            n,
+            prefix,
+            LayoutNode.childId(
+              prefix,
+              setId,
+              LayoutNode.Step(LayoutNode.DefaultRegion, i),
+              n
+            ),
+            scope
+          )
+        }
+        whole ++ order ++ members ++ unmembered ++ readsMember ++ bare ++ inside
+      }
 
     // Structure is never a patch target, so a live bytes slot on it never
     // reaches the DOM; a signal slot needs no patch target (ADR 0017). The Pkl
@@ -901,12 +944,8 @@ private[model] object Validate:
                 "never reach the DOM. Put the live markup in a region as a " +
                 "node, or make the slot a signal slot"
             )
-          here ++ c.allChildren.flatMap(walk)
-        case s: LayoutNode.SetNode =>
-          s.members.toList
-            .sortBy(_._1)
-            .flatMap(_._2.clauses)
-            .flatMap(cl => walk(cl.node))
+          here ++ c.allChildren.flatMap(walk) ++
+            c.set.toList.flatMap((_, s) => s.nodes.flatMap(walk))
       }
       (walk(card) ++ surfaces.toList
         .sortBy(_._1)
@@ -1018,13 +1057,12 @@ private[model] object Validate:
                 LayoutNode.childId(prefix, id, step, ch),
                 inSet
               )
-            }
-          // A clause node renders once per member, so every member would
-          // claim its id.
-          case s: LayoutNode.SetNode =>
-            s.members.toList.sortBy(_._1).flatMap { case (_, m) =>
-              m.clauses.flatMap(cl => walkIds(cl.node, prefix, id, true))
-            }
+            } ++
+              // A member node renders once per candidate, so every one would
+              // claim its id.
+              c.set.toList.flatMap((_, s) =>
+                s.nodes.flatMap(walkIds(_, prefix, id, true))
+              )
         })
 
       val all =
@@ -1097,14 +1135,14 @@ private[model] object Validate:
                 LayoutNode.childIdWithin(prefix, id, step, ch, within),
                 within.map((m, cl, path) => (m, cl, path :+ step))
               )
-            }
-          case set: LayoutNode.SetNode =>
-            set.members.toList.flatMap { (entityId, m) =>
-              val member =
-                NodeId.derived(LayoutNode.memberSegment(id, entityId))
-              m.clauses.zipWithIndex.flatMap((clause, ci) =>
-                nodesIn(clause.node, prefix, member, Some((member, ci, Nil)))
-              )
+            } ++ c.set.toList.flatMap { (_, s) =>
+              s.members.toList.flatMap { (entityId, m) =>
+                val member =
+                  NodeId.derived(LayoutNode.memberSegment(id, entityId))
+                m.indexed.flatMap((ci, n) =>
+                  nodesIn(n, prefix, member, Some((member, ci, Nil)))
+                )
+              }
             }
         })
       val walked =

@@ -1,5 +1,7 @@
 package fh.view.model
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -40,13 +42,13 @@ class WatchedEntitiesSuite extends munit.FunSuite {
     // candidate and appears in no slot, so nothing that is RENDERED names it.
     val hall = "binary_sensor.hall"
     val dash = Dashboard(
-      cards = tile,
-      card = LayoutNode.SetNode(
+      cards = Sets.cards ++ tile,
+      card = Sets.node(
         candidates = List("light.banner"),
         members = Map(
-          "light.banner" -> LayoutNode.SetMember(
+          "light.banner" -> Sets.Member(
             List(
-              LayoutNode.SetClause(
+              Sets.Clause(
                 Some(onEntity(hall)),
                 tileNode("light.banner")
               )
@@ -70,13 +72,13 @@ class WatchedEntitiesSuite extends munit.FunSuite {
   test("the entities a Count reads are watched") {
     val counted = List("light.x", "light.y", "light.z")
     val dash = Dashboard(
-      cards = tile,
-      card = LayoutNode.SetNode(
+      cards = Sets.cards ++ tile,
+      card = Sets.node(
         candidates = List("light.banner"),
         members = Map(
-          "light.banner" -> LayoutNode.SetMember(
+          "light.banner" -> Sets.Member(
             List(
-              LayoutNode.SetClause(
+              Sets.Clause(
                 Some(
                   Conds.count(
                     candidates = counted,
@@ -103,7 +105,7 @@ class WatchedEntitiesSuite extends munit.FunSuite {
     // rendered by nothing at all.
     val alarm = "alarm_control_panel.house"
     val dash = Dashboard(
-      cards = tile,
+      cards = Sets.cards ++ tile,
       card = tileNode("light.a"),
       surfaces = Map(
         "armed" -> Surface(
@@ -125,16 +127,16 @@ class WatchedEntitiesSuite extends munit.FunSuite {
 
   test("watchedEntities is a superset of referencedEntities") {
     val dash = Dashboard(
-      cards = tile,
-      card = LayoutNode.SetNode(
+      cards = Sets.cards ++ tile,
+      card = Sets.node(
         candidates = List("light.a", "light.b"),
         members = Map(
-          "light.a" -> LayoutNode.SetMember(
-            List(LayoutNode.SetClause(Some(whileOn), tileNode("light.a")))
+          "light.a" -> Sets.Member(
+            List(Sets.Clause(Some(whileOn), tileNode("light.a")))
           ),
-          "light.b" -> LayoutNode.SetMember(
+          "light.b" -> Sets.Member(
             List(
-              LayoutNode.SetClause(
+              Sets.Clause(
                 Some(onEntity("binary_sensor.h")),
                 tileNode("light.b")
               )

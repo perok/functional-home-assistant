@@ -1,5 +1,7 @@
 package fh.view.build
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 import fh.view.testkit.asService
@@ -10,8 +12,10 @@ import fh.view.model.{
   CardDef,
   CellKey,
   Dashboard,
+  Fill,
   LayoutNode,
   Lit,
+  Slot,
   Op,
   Part,
   Step,
@@ -19,7 +23,8 @@ import fh.view.model.{
   ValueExpr
 }
 import scala.collection.immutable.ListMap
-import fh.view.testkit.DashboardBuilders.{asComponent, asSetNode}
+import fh.view.testkit.DashboardBuilders.{asComponent, asSet}
+import fh.view.testkit.Sets.clausesOf
 import fh.view.testkit.{
   FixtureEntity,
   FixtureEntries,
@@ -34,13 +39,11 @@ import io.circe.Json
 class PklBuildSuite extends munit.FunSuite {
 
   /** Nested sets included. */
-  private def sets(node: LayoutNode): List[LayoutNode.SetNode] =
+  private def sets(node: LayoutNode): List[Fill.Set] =
     node match {
-      case c: LayoutNode.Component => c.allChildren.flatMap(sets)
-      case s: LayoutNode.SetNode   =>
-        s :: s.members.values.toList
-          .flatMap(_.clauses)
-          .flatMap(cl => sets(cl.node))
+      case c: LayoutNode.Component =>
+        c.allChildren.flatMap(sets) ++
+          c.set.toList.flatMap((_, s) => s :: s.nodes.flatMap(sets))
     }
 
   /** A slider's row: the `sliderHead` node in its `head` region. */
@@ -75,11 +78,8 @@ class PklBuildSuite extends munit.FunSuite {
   private def cardNames(node: LayoutNode): List[String] =
     node match {
       case c: LayoutNode.Component =>
-        c.card :: c.allChildren.flatMap(cardNames)
-      case s: LayoutNode.SetNode =>
-        s.members.values.toList
-          .flatMap(_.clauses)
-          .flatMap(cl => cardNames(cl.node))
+        c.card :: c.allChildren.flatMap(cardNames) ++
+          c.set.toList.flatMap((_, s) => s.nodes.flatMap(cardNames))
     }
 
   test("PklBuild evaluates a pkl module to JSON via SourceEval dispatch") {
@@ -1307,9 +1307,9 @@ class PklBuildSuite extends munit.FunSuite {
     )
 
     val sets = {
-      def walk(n: LayoutNode): List[LayoutNode.SetNode] = n match {
-        case s: LayoutNode.SetNode   => List(s)
-        case c: LayoutNode.Component => c.allChildren.flatMap(walk)
+      def walk(n: LayoutNode): List[Fill.Set] = n match {
+        case c: LayoutNode.Component =>
+          c.set.map(_._2).toList ++ c.allChildren.flatMap(walk)
       }
       walk(d.card)
     }
@@ -1320,7 +1320,7 @@ class PklBuildSuite extends munit.FunSuite {
       lights.candidates.sorted,
       List("light.kitchen", "light.living_room")
     )
-    assertEquals(lights.members("light.kitchen").clauses.length, 2)
+    assertEquals(lights.clausesOf("light.kitchen").length, 2)
     // No candidates builds; it is not an error.
     assertEquals(sets(1).candidates, Nil)
     // `device_class` is registry data, so the temperature sensor is selected
@@ -1442,8 +1442,7 @@ class PklBuildSuite extends munit.FunSuite {
       """node = q.from(hass.lights(dump.areas.stue.all)).render((e) -> c.entityCard(e)).build()"""
     )
     val node = set
-      .members("light.taklys")
-      .clauses
+      .clausesOf("light.taklys")
       .head
       .node
       .asComponent
@@ -1451,8 +1450,11 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(node.valueSlots("label").literal, Some("Taklys"))
   }
 
-  /** Over the real dump: the Pkl-to-model path `SetNodeSuite` picks up from. */
-  private def probeSet(body: String): LayoutNode.SetNode = {
+  /** Over the real dump: the Pkl-to-model path `SetSuite` picks up from. */
+  private def probeSet(body: String): Fill.Set = probeNode(body).asSet
+
+  /** The node holding the set: its `group`. */
+  private def probeNode(body: String): LayoutNode.Component = {
     val tmp = os.temp.dir()
     copyLib(tmp)
     writeDump(tmp, PklDump.render(setDump))
@@ -1475,7 +1477,7 @@ class PklBuildSuite extends munit.FunSuite {
       .as[LayoutNode]
       .toOption
       .get
-      .asSetNode
+      .asComponent
   }
 
   // Two lights in `stue`, one in `bad`, plus a motion sensor to gate them on.
@@ -1519,7 +1521,7 @@ class PklBuildSuite extends munit.FunSuite {
         |  .build()""".stripMargin
     )
     assertEquals(set.candidates.sorted, List("light.lampe", "light.taklys"))
-    val clause = set.members("light.taklys").clauses.head
+    val clause = set.clausesOf("light.taklys").head
     assertEquals(
       clause.when,
       Some(Conds.cmp("state", Op.Eq, Json.fromString("on")))
@@ -1538,7 +1540,7 @@ class PklBuildSuite extends munit.FunSuite {
         |  .render((e) -> c.entityCard(e))
         |  .build()""".stripMargin
     )
-    val guard = set.members("light.taklys").clauses.head.when.get
+    val guard = set.clausesOf("light.taklys").head.when.get
     assertEquals(
       guard,
       Conds.cmp(
@@ -1559,12 +1561,13 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test("a set validates as a dashboard, clause nodes included") {
-    val set = probeSet(
+    val set = probeNode(
       """node = q.from(hass.lights(dump.areas.stue.all) + hass.lights(dump.areas.bad.all))
         |  .render((e) -> c.entityCard(e))
         |  .build()""".stripMargin
     )
     val cards = Map(
+      set.card -> Sets.card,
       "tile" -> TestCard(
         // `tile` marks `value` and `tapDisabled` as signal slots, and
         // `validate` rejects a card that declares one without placing its
@@ -1577,7 +1580,11 @@ class PklBuildSuite extends munit.FunSuite {
       )
     )
     assertEquals(Dashboard(cards = cards, card = set).validate(), Nil)
-    val broken = set.copy(candidates = set.candidates :+ "light.ghost")
+    val broken = set.copy(slots = set.slots.map {
+      case (n, Slot.Nodes(s: Fill.Set)) =>
+        n -> Slot.Nodes(s.copy(candidates = s.candidates :+ "light.ghost"))
+      case other => other
+    })
     assert(
       Dashboard(cards = cards, card = broken)
         .validate()
@@ -1758,22 +1765,20 @@ class PklBuildSuite extends munit.FunSuite {
         |  .build()""".stripMargin
     )
     val node = set
-      .members("light.taklys")
-      .clauses
+      .clausesOf("light.taklys")
       .head
       .node
       .asComponent
     assertEquals(node.cell.map(_.layout), Some(List("fh-cols-full")))
-    val sized = probeSet(
+    val sized = probeNode(
       """node = (q.from(hass.lights(dump.areas.stue.all))
         |  .render((e) -> c.entityCard(e))
         |  .build()).fullWidth()""".stripMargin
     )
     assertEquals(sized.cell.map(_.layout), Some(List("fh-cols-full")))
     assertEquals(
-      sized
-        .members("light.taklys")
-        .clauses
+      sized.asSet
+        .clausesOf("light.taklys")
         .head
         .node
         .asComponent
@@ -1977,8 +1982,7 @@ class PklBuildSuite extends munit.FunSuite {
     )
     val row = rowOf(
       set
-        .members("light.taklys")
-        .clauses
+        .clausesOf("light.taklys")
         .head
         .node
         .asComponent

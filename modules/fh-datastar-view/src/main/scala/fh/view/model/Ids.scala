@@ -26,7 +26,7 @@ object NodeId {
   * for an arbitrary id is [[fh.view.runtime.MemberGraph.setContainer]]: asking
   * the static index instead missed nested sets and silently emitted no patches.
   *
-  * Consumers are protected; the mint is a guardrail, not a proof — a `SetNode`
+  * Consumers are protected; the mint is a guardrail, not a proof — a `Fill.Set`
   * is an ordinary case class, and `TestIds.setId` fabricates one on purpose.
   */
 opaque type SetId <: NodeId = String
@@ -36,7 +36,7 @@ object SetId {
   /** `set` is not read: it is evidence the caller has a reason to mint. */
   private[view] def of(
       id: NodeId,
-      @annotation.unused set: LayoutNode.SetNode | Ready.SetNode
+      @annotation.unused set: Fill.Set | Ready.SetFill
   ): SetId = id
 }
 

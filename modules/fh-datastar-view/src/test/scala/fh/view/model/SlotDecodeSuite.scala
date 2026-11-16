@@ -23,6 +23,38 @@ class SlotDecodeSuite extends munit.FunSuite {
     )
   }
 
+  test("a set fill is picked by its kind, a member a node or a choice of one") {
+    val decoded = decode[Fill](
+      """{"kind": "Set", "candidates": ["light.a", "light.b"],
+        | "members": {
+        |   "light.a": {"kind": "Component", "card": "tile"},
+        |   "light.b": {"kind": "Chosen", "by": {"source": true},
+        |     "cases": [{"is": true, "value": {"kind": "Component", "card": "tile"}}]}
+        | },
+        | "limit": 3, "of": "entity"}""".stripMargin
+    )
+    val tile = LayoutNode.Component("tile")
+    assertEquals(
+      decoded,
+      Right(
+        Fill.Set(
+          candidates = List("light.a", "light.b"),
+          members = Map(
+            "light.a" -> Choice.Fixed(tile),
+            "light.b" -> Choice.Chosen(
+              ValueExpr
+                .literal("true")
+                .copy(source = Value.Literal(Lit.Bool(true))),
+              List(Case(Lit.Bool(true), tile))
+            )
+          ),
+          limit = Some(3)
+        )
+      )
+    )
+    assert(decode[Fill]("""{"kind": "Set", "candidate": []}""").isLeft)
+  }
+
   test("a field the slot's kind does not have is refused, in either kind") {
     assert(decode[Slot]("""{"kind": "Value", "sourc": "hi"}""").isLeft)
     assert(

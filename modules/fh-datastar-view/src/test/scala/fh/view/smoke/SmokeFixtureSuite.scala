@@ -13,7 +13,7 @@ class SmokeFixtureSuite extends munit.FunSuite {
   private def walk(node: LayoutNode): List[LayoutNode.Component] =
     node match {
       case c: LayoutNode.Component => c :: c.allChildren.flatMap(walk)
-      case _: LayoutNode.SetNode   => Nil
+
     }
 
   private lazy val nodes: List[LayoutNode.Component] =

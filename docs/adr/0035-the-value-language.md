@@ -30,7 +30,10 @@ until something has built the entity's whole attribute map (`EntityState.attribu
 **A list source declares its item type** (`itemType`: `bool` for the and/or of conditions, the
 literals' own type for a call's list value), and each item is held to it. The type is the list's own, never read off its items or
 the step after it, so an empty list is typed as any other. Its size is the runtime's: `AllOf`
-over none holds, `AnyOf` over none does not, `Count` is 0.
+over none holds, `AnyOf` over none does not, `Count` is 0, `IndexOfTrue` is no value. `IndexOfTrue`
+is the position of the first item that holds, stopping there: an item with no value does not hold
+and the chain goes on, so a clause reading an attribute its entity does not report falls to the next
+(ADR 0003, a set's member is picked by it).
 
 **A node variable's value is text** (`Value.Var`, ADR 0033): the viewer's, so a reading of one is
 decided per viewer, where every other source is decided once per state version.
@@ -159,7 +162,7 @@ unavailable switch.
   decoder would make a decoder fail on what is not a decoding error, outside the errors
   `validated` collects for the whole dashboard.
 - **Early stops are picked at compile time:** `Present |> Count |> Compare(op, n)` counts until
-  the answer is settled, `List |> AllOf/AnyOf` stops at the item that decides it, `First` is one
+  the answer is settled, `List |> AllOf/AnyOf/IndexOfTrue` stops at the item that decides it, `First` is one
   pass with no sorted list.
 - **One implementation per step.** The match on `Step` is exhaustive, so a step the evaluator does
   not run fails to compile. `Stage` steps are the renderer's, applied after the run.

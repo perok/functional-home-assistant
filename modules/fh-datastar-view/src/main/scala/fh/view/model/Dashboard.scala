@@ -11,7 +11,7 @@ import io.circe.derivation.{Configuration, ConfiguredDecoder}
 import scala.collection.immutable.ListMap
 
 // The wire names each case exactly as here (`WireShapeSuite` checks Pkl's
-// literals), `SetNode` included: `LayoutNode.Set` would shadow `scala.Set`.
+// literals).
 given Configuration =
   Configuration.default.withDefaults
     .withDiscriminator("kind")
@@ -71,12 +71,45 @@ object Slot:
 
   given Decoder[Slot] = ConfiguredDecoder.derived(using Strict.configuration)
 
-/** What fills a nodes slot. */
+/** What fills a nodes slot: nodes, or a set of them.
+  *
+  * A set is placed straight into its card's root, one node per present
+  * candidate (ADR 0003). The runtime decides only presence and order: each
+  * member is a [[Choice]] of its node, whose `by` is read for that candidate,
+  * an unnamed read in it reading the candidate. A member's case index is the
+  * clause that rendered it, which a nested set's id carries. No case holding is
+  * not rendered. An empty `orderBy` means `candidates` is already in order;
+  * `limit` applies after ordering.
+  */
 enum Fill derives CanEqual:
   case Nodes(choice: Choice[List[LayoutNode]])
+  case Set(
+      candidates: List[String] = Nil,
+      members: Map[String, Choice[LayoutNode]] = Map.empty,
+      orderBy: List[SortTerm] = Nil,
+      limit: Option[Int] = None,
+      of: IdKind = IdKind.Entity
+  )
 
 object Fill:
   given Decoder[Fill] = ConfiguredDecoder.derived(using Strict.configuration)
+
+  extension (s: Fill.Set)
+    /** The candidates that are entities: an area or a floor has no state. */
+    def candidateEntities: List[String] =
+      if (s.of == IdKind.Entity) s.candidates else Nil
+
+    /** Candidates plus any entity a guard names. */
+    def liveEntities: List[String] =
+      (candidateEntities ++ s.members.values.flatMap(_.entities)).distinct
+
+    /** Every node a member can be, with the case index that picks it. */
+    def clauseNodes: List[(String, Int, LayoutNode)] =
+      s.members.toList.sortBy(_._1).flatMap { (candidate, m) =>
+        m.indexed.map((i, n) => (candidate, i, n))
+      }
+
+    def nodes: List[LayoutNode] = clauseNodes.map(_._3)
 
 /** How a card places a slot: the signal it is bound as, and what it reads the
   * value as. A template slot's comes off the wire, a cell slot's from its key
@@ -307,6 +340,11 @@ enum Choice[+A] derives CanEqual:
   def all: List[A] = this match
     case Fixed(a)                    => List(a)
     case Chosen(_, cases, otherwise) => cases.map(_.value) ++ otherwise
+
+  /** The values with their case's position, which a fixed one has at 0. */
+  def indexed: List[(Int, A)] = this match
+    case Fixed(a)         => List(0 -> a)
+    case Chosen(_, cs, _) => cs.zipWithIndex.map((c, i) => i -> c.value)
 
   /** Each case's value by its key's [[Lit.key]], the first of a repeated key
     * winning; `validate` refuses one.
@@ -709,7 +747,6 @@ sealed trait LayoutNode extends LayoutNode.Identified
 
   def authoredId: Option[String] = this match {
     case c: LayoutNode.Component => c.id
-    case _: LayoutNode.SetNode   => None
   }
 }
 
@@ -759,6 +796,12 @@ object LayoutNode:
 
     lazy val fills: Map[String, Fill] = byKind._2
 
+    /** The nodes slot holding a set, by name: the card's whole template, so a
+      * card holds one at most (`validate`).
+      */
+    lazy val set: Option[(String, Fill.Set)] =
+      fills.toList.sortBy(_._1).collectFirst { case (n, s: Fill.Set) => n -> s }
+
     /** The nodes each nodes slot holds, where it is filled with nodes written
       * down; `validate` refuses a choice, which nothing places yet.
       */
@@ -791,39 +834,6 @@ object LayoutNode:
     /** `validate` holds `entity_id` to a literal. */
     lazy val subjectEntity: Option[String] =
       valueSlots.get(Dashboard.SubjectSlot).flatMap(_.literal)
-
-  /** A set over a static candidate list: the runtime decides only presence and
-    * order (ADR 0003). An empty `orderBy` means `candidates` is already in
-    * order. `limit` applies after ordering.
-    */
-  case class SetNode(
-      candidates: List[String] = Nil,
-      members: Map[String, SetMember] = Map.empty,
-      orderBy: List[SortTerm] = Nil,
-      limit: Option[Int] = None,
-      cell: Option[Cell] = None,
-      of: IdKind = IdKind.Entity
-  ) extends LayoutNode:
-    /** The candidates that are entities: an area or a floor has no state. */
-    def candidateEntities: List[String] =
-      if (of == IdKind.Entity) candidates else Nil
-
-    /** Candidates plus any entity a guard names. */
-    def liveEntities: List[String] =
-      (candidateEntities ++ members.values
-        .flatMap(_.clauses)
-        .flatMap(_.when.toList.flatMap(_.entities))).distinct
-
-  /** The first clause whose `when` holds decides; none means not rendered. */
-  case class SetMember(clauses: List[SetClause] = Nil) derives ConfiguredDecoder
-
-  /** A guard and the complete node it renders; nothing is shared between
-    * clauses. An unnamed read in the guard reads the member; none holds.
-    */
-  case class SetClause(
-      when: Option[ValueExpr] = None,
-      node: LayoutNode
-  ) derives ConfiguredDecoder
 
   case class Step(region: String, index: Int)
 
@@ -907,13 +917,13 @@ object LayoutNode:
       (c >= '0' && c <= '9') || c == '_'
 
   /** Also spelled by the build's inline-surface hoist, which sees JSON; no
-    * clause index, since one clause of a member renders.
+    * clause index, since one case of a member renders.
     */
   def memberSegment(setId: String, key: String): String =
     s"${setId}_${sanitize(key)}"
 
-  /** A set nested below a set member: `<member>_<clause>_<path>`. The clause
-    * keeps two clauses' sets apart, since their member ids are one. Read by the
+  /** A set nested below a set member: `<member>_<case>_<path>`. The case keeps
+    * two cases' sets apart, since their member ids are one. Read by the
     * runtime's member graph and walk, and the model's scope walk.
     */
   def innerSetId(member: NodeId, clause: Int, path: List[Step]): NodeId =
@@ -930,7 +940,7 @@ object LayoutNode:
       within: Option[(NodeId, Int, List[Step])]
   ): NodeId =
     (child, within) match {
-      case (_: SetNode, Some((member, clause, path))) =>
+      case (c: Component, Some((member, clause, path))) if c.set.isDefined =>
         innerSetId(member, clause, path :+ step)
       case _ => childId(prefix, parent, step, child)
     }
@@ -1102,11 +1112,10 @@ case class Dashboard(
 
     def walk(n: LayoutNode): List[String] = n match {
       case c: LayoutNode.Component =>
-        fromSlots(c.bound, c.subjectEntity) ++ c.allChildren.flatMap(walk)
-      case set: LayoutNode.SetNode =>
-        set.candidateEntities ++ set.members.values.toList
-          .flatMap(_.clauses)
-          .flatMap(cl => walk(cl.node))
+        fromSlots(c.bound, c.subjectEntity) ++ c.allChildren.flatMap(walk) ++
+          c.set.toList.flatMap((_, s) =>
+            s.candidateEntities ++ s.nodes.flatMap(walk)
+          )
     }
 
     (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
@@ -1118,11 +1127,8 @@ case class Dashboard(
   lazy val calls: Map[CallId, CallDecl] = {
     def walk(n: LayoutNode): List[CallDecl] = n match {
       case c: LayoutNode.Component =>
-        c.calls.values.toList ++ c.allChildren.flatMap(walk)
-      case set: LayoutNode.SetNode =>
-        set.members.values.toList
-          .flatMap(_.clauses)
-          .flatMap(cl => walk(cl.node))
+        c.calls.values.toList ++ c.allChildren.flatMap(walk) ++
+          c.set.toList.flatMap((_, s) => s.nodes.flatMap(walk))
     }
 
     (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content)))
@@ -1138,16 +1144,11 @@ case class Dashboard(
   lazy val watchedEntities: Set[String] = {
     def deciders(n: LayoutNode): List[String] = n match {
       case c: LayoutNode.Component =>
-        c.vars.flatMap(_.initialTransform).map(_.entityId) ++ c.allChildren
-          .flatMap(
-            deciders
-          )
-      case set: LayoutNode.SetNode =>
-        set.members.values.toList
-          .flatMap(_.clauses)
-          .flatMap(cl =>
-            cl.when.toList.flatMap(_.entities) ++
-              deciders(cl.node)
+        c.vars.flatMap(_.initialTransform).map(_.entityId) ++
+          c.allChildren.flatMap(deciders) ++
+          c.set.toList.flatMap((_, s) =>
+            s.members.values.toList.flatMap(_.entities) ++
+              s.nodes.flatMap(deciders)
           )
     }
 
@@ -1227,12 +1228,14 @@ case class Dashboard(
           s.valueWhile.toList
             .flatMap(w => w.expr :: w.inputs.values.toList)
             .map(s"slot '${SlotKey.label(k)}''s valueWhile" -> _)
-        } ++ c.allChildren.flatMap(walk)
-      case s: LayoutNode.SetNode =>
-        s.orderBy.map("a set's order" -> _.by) ++
-          s.members.values.toList.flatMap(_.clauses).flatMap { cl =>
-            cl.when.toList.map("a set's clause" -> _) ++ walk(cl.node)
-          }
+        } ++ c.allChildren.flatMap(walk) ++ c.set.toList.flatMap { (_, s) =>
+          s.orderBy.map("a set's order" -> _.by) ++
+            s.members.toList.sortBy(_._1).flatMap { (_, m) =>
+              m match
+                case Choice.Chosen(by, _, _) => List("a set's clause" -> by)
+                case Choice.Fixed(_)         => Nil
+            } ++ s.nodes.flatMap(walk)
+        }
 
     walk(card) ++ surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
       (s.activation match
@@ -1275,7 +1278,7 @@ case class Dashboard(
           val here = scope ++ c.vars.map { d =>
             d.name -> Dashboard.InScope(id, d)
           }
-          (id -> here) :: LayoutNode.steps(c.regions).flatMap {
+          (id -> here) :: (LayoutNode.steps(c.regions).flatMap {
             case (step, ch) =>
               walk(
                 ch,
@@ -1284,14 +1287,15 @@ case class Dashboard(
                 here,
                 within.map((m, cl, path) => (m, cl, path :+ step))
               )
-          }
-        case s: LayoutNode.SetNode =>
-          (id -> scope) :: s.members.toList.flatMap { (entityId, m) =>
-            val member = NodeId.derived(LayoutNode.memberSegment(id, entityId))
-            m.clauses.zipWithIndex.flatMap((clause, ci) =>
-              walk(clause.node, prefix, member, scope, Some((member, ci, Nil)))
-            )
-          }
+          } ++ c.set.toList.flatMap { (_, s) =>
+            s.members.toList.flatMap { (entityId, m) =>
+              val member =
+                NodeId.derived(LayoutNode.memberSegment(id, entityId))
+              m.indexed.flatMap((ci, n) =>
+                walk(n, prefix, member, here, Some((member, ci, Nil)))
+              )
+            }
+          })
     def merged(xs: List[(NodeId, Scope)]): Map[NodeId, Scope] =
       xs.groupMapReduce(_._1)(_._2)(_ ++ _)
     def tree(sid: String, s: Surface, start: Scope): List[(NodeId, Scope)] = {
@@ -1361,11 +1365,8 @@ case class Dashboard(
     case c: LayoutNode.Component =>
       val here = scope ++ c.defaults
       c.bound.values.toList.map(_ -> here) ++
-        c.allChildren.flatMap(scopedSlots(_, here))
-    case s: LayoutNode.SetNode =>
-      s.members.values.toList
-        .flatMap(_.clauses)
-        .flatMap(c => scopedSlots(c.node, scope))
+        c.allChildren.flatMap(scopedSlots(_, here)) ++
+        c.set.toList.flatMap((_, s) => s.nodes.flatMap(scopedSlots(_, here)))
 
   /** [[validate]] plus the compiled tree and templates, so the renderer never
     * recompiles or defends against a bad expression.

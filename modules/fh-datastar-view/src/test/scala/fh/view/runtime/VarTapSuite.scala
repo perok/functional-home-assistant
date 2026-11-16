@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.DashboardBuilders
@@ -68,7 +70,7 @@ class VarTapSuite extends ServerHarness {
   )
 
   private val dash = Dashboard(
-    cards = Map("chart" -> chartCard, "panel" -> panelCard),
+    cards = Sets.cards ++ Map("chart" -> chartCard, "panel" -> panelCard),
     card = LayoutNode.Component(
       "panel",
       slots = Slots.kids(chartNode),
@@ -79,7 +81,7 @@ class VarTapSuite extends ServerHarness {
 
   /** Two variables, each read by its own chart. */
   private val twoVarDash = Dashboard(
-    cards = Map("chart" -> chartCard, "panel" -> panelCard),
+    cards = Sets.cards ++ Map("chart" -> chartCard, "panel" -> panelCard),
     card = LayoutNode.Component(
       "panel",
       slots = Slots.kids(
@@ -156,7 +158,6 @@ class VarTapSuite extends ServerHarness {
           )
         )
       )
-    case _ => d
 
   private def choose(
       ts: TestServer,
@@ -300,9 +301,9 @@ class VarTapSuite extends ServerHarness {
     * through the set's scope (ADR 0033).
     */
   private val setDash = {
-    def chartOf(entity: String) = LayoutNode.SetMember(
+    def chartOf(entity: String) = Sets.Member(
       List(
-        LayoutNode.SetClause(node =
+        Sets.Clause(node =
           chartNode.copy(slots =
             Slots.values(
               Map(
@@ -327,7 +328,7 @@ class VarTapSuite extends ServerHarness {
       LayoutNode.Component(
         "panel",
         slots = Slots.kids(
-          LayoutNode.SetNode(
+          Sets.node(
             candidates = List("sensor.a", "sensor.b"),
             members = Map(
               "sensor.a" -> chartOf("sensor.a"),
@@ -407,7 +408,6 @@ class VarTapSuite extends ServerHarness {
             )
           )
         )
-      case _ => fail("a panel")
     val errors = stray.validate()
     assert(
       errors.exists(_.contains("chooses the variable 'nosuch', which no node")),

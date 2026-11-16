@@ -215,6 +215,8 @@ private[view] object Evaluator {
         runs(items, scope, named).map(rs => (junction(rs, decides = false), r))
       case (Value.List(_, items), Step.AnyOf :: r) =>
         runs(items, scope, named).map(rs => (junction(rs, decides = true), r))
+      case (Value.List(_, items), Step.IndexOfTrue :: r) =>
+        runs(items, scope, named).map(rs => (firstTrue(rs), r))
       case (source, steps) =>
         read(source, programs, scope, named).map(_ -> steps)
     start.flatMap((run, rest) =>
@@ -562,6 +564,18 @@ private[view] object Evaluator {
     (subject, states, fetched) =>
       var rest = items
       Steps.kleene(decides)(rest.nonEmpty) {
+        val v = rest.head(subject, states, fetched)
+        rest = rest.tail
+        v
+      }
+
+  /** The position of the first of a list source's items that holds, each run
+    * only until one does.
+    */
+  private def firstTrue(items: List[Run]): Run =
+    (subject, states, fetched) =>
+      var rest = items
+      Steps.indexOfTrue(rest.nonEmpty) {
         val v = rest.head(subject, states, fetched)
         rest = rest.tail
         v

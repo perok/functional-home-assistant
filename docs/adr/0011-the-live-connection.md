@@ -186,8 +186,8 @@ nor morph targets**:
 
 - **structure** (`Column`/`Row`/`Grid`/`If`/`Tabs`/`Slider` — any card declaring a region),
   whose element contains what it holds;
-- a **candidate set root**, which composes its members and whose members are keyed
-  individually.
+- a **candidate set root**, a card whose one region is the set, which composes its members and
+  whose members are keyed individually.
 
 Excluding them loses nothing, because what they hold is addressable in its own right. It is
 also not a separate rule: `validate` rejects a live BYTES slot on structure *because it has

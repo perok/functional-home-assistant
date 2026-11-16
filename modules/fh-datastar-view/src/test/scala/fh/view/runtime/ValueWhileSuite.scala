@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -59,7 +61,7 @@ class ValueWhileSuite extends munit.FunSuite {
   )
 
   private def dashboard(nodes: LayoutNode.Component*) = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "bar" -> bar,
       "col" -> TestCard(
         """<div>{{{children}}}</div>""",
@@ -137,20 +139,19 @@ class ValueWhileSuite extends munit.FunSuite {
       )
     )
     val on = Some(Conds.cmp("state", Op.Eq, Json.fromString("on")))
-    def clauses(cs: LayoutNode.SetClause*) = LayoutNode.SetMember(cs.toList)
+    def clauses(cs: Sets.Clause*) = Sets.Member(cs.toList)
     val d = Dashboard(
-      cards = Map("chart" -> TestCard("<div>{{chart}}</div>")),
-      card = LayoutNode.SetNode(
+      cards = Sets.cards ++ Map("chart" -> TestCard("<div>{{chart}}</div>")),
+      card = Sets.node(
         candidates = List("light.a", "light.b"),
-        members =
-          Map(
-            "light.a" -> clauses(
-              LayoutNode.SetClause(on, chart("sensor.a_on")),
-              LayoutNode.SetClause(None, chart("sensor.a_off"))
-            ),
-            // No clause matches while it is off: not a member.
-            "light.b" -> clauses(LayoutNode.SetClause(on, chart("sensor.b_on")))
-          )
+        members = Map(
+          "light.a" -> clauses(
+            Sets.Clause(on, chart("sensor.a_on")),
+            Sets.Clause(None, chart("sensor.a_off"))
+          ),
+          // No clause matches while it is off: not a member.
+          "light.b" -> clauses(Sets.Clause(on, chart("sensor.b_on")))
+        )
       )
     )
     val r = Renderer.create(d)

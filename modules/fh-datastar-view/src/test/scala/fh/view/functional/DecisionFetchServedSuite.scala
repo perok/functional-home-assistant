@@ -1,5 +1,7 @@
 package fh.view.functional
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -22,7 +24,7 @@ class DecisionFetchServedSuite extends CatsEffectSuite {
 
   // A member while the washer has any history in the last hour.
   private val dashboard = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "item" -> TestCard("<i>{{label}}</i>"),
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
@@ -32,12 +34,12 @@ class DecisionFetchServedSuite extends CatsEffectSuite {
     card = LayoutNode.Component(
       "col",
       slots = Slots.kids(
-        LayoutNode.SetNode(
+        Sets.node(
           candidates = List(left.entityId),
           members = Map(
-            left.entityId -> LayoutNode.SetMember(
+            left.entityId -> Sets.Member(
               List(
-                LayoutNode.SetClause(
+                Sets.Clause(
                   Some(
                     ValueExpr(
                       Value.Cel(

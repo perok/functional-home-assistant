@@ -1,0 +1,34 @@
+/// The card whose template is one nodes slot: an element holding what fills it,
+/// and nothing beside it. A set (`q.from(…).render(…)`) must be a card's whole
+/// template, and this is the card to put it in when it sits among other content.
+module core.group
+
+import "node.pkl" as nodeMod
+import "predicate.pkl" as predMod
+import "slot.pkl" as slotMod
+
+const local members: slotMod.NodesSlot = slotMod.childrenSlot
+
+/// An element of `tag` with `classes` on its root, holding [[fill]]: a set, or
+/// fixed nodes. It is a layout cell like any card, so `.columns(n)` and the
+/// rest apply to it.
+class Group extends nodeMod.Node {
+  hidden tag: String = "div"
+  hidden classes: String = ""
+  /// The card's name, one per root it can write: the wire holds one template
+  /// per name.
+  card = "group_\(tag)_\(classes.replaceAll(Regex("[^A-Za-z0-9]+"), "_"))_\(layoutCell)"
+  hidden layoutCell: Boolean = true
+  cardDef = let (g = this) new nodeMod.CardDef {
+    tag = g.tag
+    classes = g.classes
+    layoutCell = g.layoutCell
+    template = members.toString()
+  }
+  hidden fill: Listing<nodeMod.LayoutNode>|predMod.TallyOf|predMod.SetFill = new Listing {}
+  slots { members.of(fill) }
+}
+
+/// A `<tag class="classes">` holding `fill`.
+const function group(tagName: String, cls: String, content: Listing<nodeMod.LayoutNode>|predMod.TallyOf|predMod.SetFill): Group =
+  new { tag = tagName; classes = cls; fill = content }

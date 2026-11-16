@@ -122,12 +122,6 @@ local class OwnSlots extends nodeMod.Node {
   slots = new { slotMod.slot("label").of("x") }
 }
 
-// D1 helpers: there are no shared tables any more, so "how many distinct shapes
-// / conditions" is a question you ask of the members.
-local allClauses = (s) -> s.members.values.flatMap((m) -> m.clauses)
-local cards = (s) -> allClauses.apply(s).map((c) -> c.node.card).distinct
-local conds = (s) -> allClauses.apply(s).map((c) -> c.`when`).distinct
-local firstNode = (s) -> s.members.values.first.clauses.first.node
 
 
 /// The bar a progress card shows, inside the `c.iff` that shows it only while
@@ -1160,14 +1154,14 @@ facts {
     c.button("x", tap).active(true).columns(3).cell.layout.toList() == List("fh-cols-3")
   }
 
-  ["a live cell class rides the cell: replacing a card's slots cannot drop it, and a set has none"] {
+  ["a live cell class rides the cell: replacing a card's slots cannot drop it, a set's group included"] {
     local lit = c.button("x", c.tap.toggle(kitchen)).cellClassWhen("warm", c.isOn(kitchen))
     liveOn.apply(lit, "warm")
     lit.cellStyle("--x", c.expr("'1'")).cell.styles["--x"] is Map
     liveOn.apply(new OwnSlots {}.cellClassWhen("warm", c.isOn(kitchen)), "warm")
     local set = q.from(List(kitchen)).render((e) -> c.entityCard(e)).build()
-    module.catch(() -> set.cellClassWhen("warm", c.isOn(kitchen))).contains("only a card node has")
-    module.catch(() -> set.cellStyle("--x", c.expr("'1'"))).contains("only a card node has")
+    liveOn.apply(set.cellClassWhen("warm", c.isOn(kitchen)), "warm")
+    set.cellStyle("--x", c.expr("'1'")).cell.styles["--x"] is Map
   }
 
   ["an entity button is a base button with its inputs filled, and nothing more"] {
@@ -1621,8 +1615,8 @@ facts {
       .contains("c.entitySlider(light.lamp) has 2 main control switches")
     // Rendered once per member of a set, each member declares its own
     // `control` (#556).
-    local inSet = q.from(List(lamp)).render((e) -> c.entitySlider(e)).build()
-    (inSet.members["light.lamp"].clauses[0].node as c.EntitySlider).declaresControl
+    local inSet = q.from(List(lamp)).render((e) -> c.entitySlider(e)).fill()
+    (inSet.members["light.lamp"] as c.EntitySlider).declaresControl
     // A light with none of them keeps its plain row: one list serves mixed lights.
     local narrowed = c.entitySlider(dimmer).buttons(List(c.its.mainControl.options(List("colour"))))
     !narrowed.declaresControl
