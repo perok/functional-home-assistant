@@ -49,7 +49,7 @@ class AtValue {
   value: String
 }
 
-/// The member's `bakeIndex`, as a number: a tab bar's panel.
+/// The member's `bakeIndex`, as a number.
 class AtIndex {
   kind: "Index" = "Index"
 }

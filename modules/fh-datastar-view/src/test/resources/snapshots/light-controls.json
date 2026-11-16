@@ -29,7 +29,7 @@
                       {
                         "card" : "sliderControls",
                         "inlineSurfaces" : {
-                          "m0" : {
+                          "t0" : {
                             "activation" : {
                               "at" : {
                                 "kind" : "Value",
@@ -259,7 +259,7 @@
                               }
                             }
                           },
-                          "m1" : {
+                          "t1" : {
                             "activation" : {
                               "at" : {
                                 "kind" : "Value",
@@ -494,7 +494,7 @@
                               }
                             }
                           },
-                          "m2" : {
+                          "t2" : {
                             "activation" : {
                               "at" : {
                                 "kind" : "Value",
@@ -746,7 +746,7 @@
                                           {
                                             "card" : "selectVarCycle",
                                             "inlineSurfaces" : {
-                                              "o0" : {
+                                              "t0" : {
                                                 "activation" : {
                                                   "at" : {
                                                     "kind" : "Value",
@@ -806,7 +806,7 @@
                                                   }
                                                 }
                                               },
-                                              "o1" : {
+                                              "t1" : {
                                                 "activation" : {
                                                   "at" : {
                                                     "kind" : "Value",
@@ -866,7 +866,7 @@
                                                   }
                                                 }
                                               },
-                                              "o2" : {
+                                              "t2" : {
                                                 "activation" : {
                                                   "at" : {
                                                     "kind" : "Value",
@@ -972,7 +972,7 @@
                       {
                         "card" : "sliderControls",
                         "inlineSurfaces" : {
-                          "m0" : {
+                          "t0" : {
                             "activation" : {
                               "at" : {
                                 "kind" : "Value",
@@ -1202,7 +1202,7 @@
                               }
                             }
                           },
-                          "m1" : {
+                          "t1" : {
                             "activation" : {
                               "at" : {
                                 "kind" : "Value",
@@ -1437,7 +1437,7 @@
                               }
                             }
                           },
-                          "m2" : {
+                          "t2" : {
                             "activation" : {
                               "at" : {
                                 "kind" : "Value",
@@ -1784,7 +1784,7 @@
                                           {
                                             "card" : "selectVarDropdown",
                                             "inlineSurfaces" : {
-                                              "o0" : {
+                                              "t0" : {
                                                 "activation" : {
                                                   "at" : {
                                                     "kind" : "Value",
@@ -1818,7 +1818,7 @@
                                                   }
                                                 }
                                               },
-                                              "o1" : {
+                                              "t1" : {
                                                 "activation" : {
                                                   "at" : {
                                                     "kind" : "Value",
@@ -1852,7 +1852,7 @@
                                                   }
                                                 }
                                               },
-                                              "o2" : {
+                                              "t2" : {
                                                 "activation" : {
                                                   "at" : {
                                                     "kind" : "Value",

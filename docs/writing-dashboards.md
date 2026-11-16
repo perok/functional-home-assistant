@@ -332,6 +332,9 @@ Each is a *variable*:
   and place `c.select(view)` where you want it.
   `c.iff(view.valueIs(…))` shows its `then` at that value and its `else` at
   any other; with no `else` it shows nothing there.
+  `c.iff(p).then(a).elif(q).then(b).`else`(x)` shows the first branch whose
+  condition holds; every condition in one chain reads live state, or all read
+  the same variable.
 - **Any button can choose:** `c.button("Detail", view.choose("detail"))`, on a
   card at or below the one that declares `view`. `view.choose(null)` forgets
   the viewer's choice, so the variable is back where it started and leaves the

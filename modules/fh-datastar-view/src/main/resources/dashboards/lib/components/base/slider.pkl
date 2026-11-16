@@ -9,7 +9,6 @@ import "../../core/icon.pkl" as icons
 import "../../core/node.pkl" as nodeMod
 import "../../core/shell.pkl"
 import "../../core/slot.pkl" as slotMod
-import "../../core/surface.pkl" as surfaceMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
 import "../../core/variable.pkl" as varMod
@@ -28,7 +27,7 @@ const local secondarySlot: slotMod.Slot = slotMod.slot("secondary")
 const local textNodesSlot: slotMod.NodesSlot = slotMod.nodes("text")
 const local actionsNodesSlot: slotMod.NodesSlot = slotMod.nodes("actions")
 const local headNodesSlot: slotMod.NodesSlot = slotMod.nodes("head")
-const local panelNodesSlot: slotMod.NodesSlot = slotMod.nodes("panel").baked()
+const local panelNodesSlot: slotMod.NodesSlot = slotMod.nodes("panel")
 const local dragPercent: slotMod.Slot = slotMod.bool("dragPercent")
 const local hueTrackSlot: slotMod.Slot = slotMod.bool("hueTrack")
 const local kelvinTrackSlot: slotMod.Slot = slotMod.bool("kelvinTrack")
@@ -208,20 +207,6 @@ const local function pillsOf(bs: List<SliderButton?>): Listing<nodeMod.LayoutNod
       else b as nodeMod.LayoutNode)
     .toListing()
 
-// One panel per main control, baked into the node: the shown one is in the first HTML,
-// so nothing waits on a script to pick it.
-const local function controlPanels(ms: List<ControlHead>): Mapping<String, surfaceMod.SurfaceDef> =
-  new Mapping {
-    for (i, m in ms) {
-      ["m\(i)"] = new surfaceMod.SurfaceDef {
-        content = m.head
-        bakeInto = nodeMod.NODE_ID
-        bakeAs = "panel"
-        bakeIndex = i
-        activation = controlVar.selecting(m.value)
-      }
-    }
-  }
 
 /// The buttons at the track's end, the switch between the main controls among
 /// them: one pill over every head, so it stays put while they swap.
@@ -249,11 +234,14 @@ class SliderControls extends nodeMod.Node {
     classes = "fh-slider-controls"
     template = #"<div id="{{hostId}}" class="fh-slider-controls-panel">\#(panelNodesSlot)</div>\#(slotMod.childrenSlot)"#
   }
-  slots {
-    panelNodesSlot
-  }
   hidden controls: List<ControlHead>
-  inlineSurfaces = controlPanels(controls)
+  /// One head per main control, baked into the node: the shown one is in the
+  /// first HTML, so nothing waits on a script to pick it.
+  hidden heads: Mapping<varMod.Value, nodeMod.LayoutNode> =
+    new { for (m in controls) { [m.value] = m.head } }
+  slots {
+    panelNodesSlot.of(nodeMod.match(controlVar.value, heads))
+  }
 }
 
 /// The slider. `position`, `fill` and `reading` are three readings rather than

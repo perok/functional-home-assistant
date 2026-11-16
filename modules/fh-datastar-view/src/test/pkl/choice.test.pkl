@@ -1,0 +1,116 @@
+/// Choices in a nodes slot (`nodeMod.iff`, `nodeMod.match`, `c.iff(…).elif`):
+/// what each lowers to, the bake group the runtime reads.
+///
+/// Outside `lib/` deliberately — see `components.test.pkl`.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/hass.pkl" as hass
+import "../../main/resources/dashboards/lib/query.pkl" as q
+import "../../main/resources/dashboards/lib/core/node.pkl" as nodeMod
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+import "../../main/resources/dashboards/lib/core/surface.pkl" as surfaceMod
+import "../../main/resources/dashboards/lib/layout.pkl" as layout
+
+local lamp: hass.LightEntity = new {
+  entity_id = "light.lamp"
+  colourModes { "brightness" }
+}
+local fan: hass.LightEntity = new {
+  entity_id = "light.fan"
+  colourModes { "brightness" }
+}
+local mode = c.variable("mode")
+local other = c.variable("other")
+
+const local branch = slotMod.nodes("branch")
+
+local class Host extends nodeMod.Node {
+  card = "host"
+  cardDef = new nodeMod.CardDef { template = "<div id=\"{{hostId}}\">\(branch)</div>" }
+  hidden choice: Any
+  slots { branch.of(choice) }
+}
+
+local function members(n: nodeMod.Node): List<surfaceMod.SurfaceDef> =
+  n.inlineSurfaces.toMap().values.toList().sortBy((m) -> m.bakeIndex!!)
+
+local function isOn(e: hass.LightEntity) = q.entity(e).stateIs("on")
+
+facts {
+  ["an elif chain is one bake group in order, each member a state activation, the else last"] {
+    local h = new Host {
+      choice = nodeMod.iff(isOn(lamp)).then(c.title("a")).elif(isOn(fan)).then(c.title("b")).`else`(c.title("x"))
+    }
+    local ms = members(h)
+    ms.map((m) -> m.bakeIndex) == List(0, 1, 2)
+    ms.every((m) -> m.bakeInto == nodeMod.NODE_ID && m.bakeAs == "branch" && m.activation is surfaceMod.StateActivation)
+    (ms[0].activation as surfaceMod.StateActivation).condition.entity == "light.lamp"
+    (ms[1].activation as surfaceMod.StateActivation).condition.entity == "light.fan"
+    (ms[2].activation as surfaceMod.StateActivation).condition == null
+    h.inlineSurfaces!!.keys.toList() == List("then", "elif1", "else")
+    // The slot is baked, so its card places the host and declares it.
+    h.nodesDeclared == Map("branch", true)
+  }
+  ["a then after an elif fills that elif, not the first branch"] {
+    local i = nodeMod.iff(isOn(lamp)).then(c.title("a")).elif(isOn(fan)).then(c.title("b"))
+    i.`then`.length == 1
+    i.elifs.length == 1
+    i.elifs[0].nodes.length == 1
+  }
+  ["c.iff takes elif the same way, and keeps then and else as properties"] {
+    local i = c.iff(isOn(lamp)).then(c.title("a")).elif(isOn(fan)).then(c.title("b")).`else`(c.title("x"))
+    i.`then`.length == 1 && i.`else`.length == 1 && i.elifs.length == 1
+    i.inlineSurfaces!!.keys.toList() == List("then", "elif1", "else")
+    // Each branch is a row of its nodes, as an If's always was.
+    i.inlineSurfaces!!["elif1"].content is layout.Row
+  }
+  ["an elif chain over one variable has a member per value and the else at any other"] {
+    local h = new Host {
+      choice = nodeMod.iff(mode.valueIs("a")).then(c.title("a")).elif(mode.valueIs("b")).then(c.title("b"))
+    }
+    local ms = members(h)
+    ms.length == 3
+    (ms[0].activation as surfaceMod.VarActivation).at is surfaceMod.AtValue
+    ((ms[1].activation as surfaceMod.VarActivation).at as surfaceMod.AtValue).value == "b"
+    (ms[2].activation as surfaceMod.VarActivation).at is surfaceMod.AtOtherwise
+  }
+  ["a chain reading a variable and live state is an error naming R4"] {
+    module.catch(() -> members(new Host {
+      choice = nodeMod.iff(mode.valueIs("a")).then(c.title("a")).elif(isOn(fan)).then(c.title("b"))
+    })).contains("R4")
+    module.catch(() -> members(new Host {
+      choice = nodeMod.iff(mode.valueIs("a")).then(c.title("a")).elif(other.valueIs("b")).then(c.title("b"))
+    })).contains("R4")
+  }
+  ["a match over a variable has a member per key, in order, and the otherwise at any other"] {
+    local h = new Host {
+      choice = nodeMod.match(mode.value, new Mapping { ["heat"] = c.title("h"); ["cool"] = c.title("k") }).otherwise(c.title("off"))
+    }
+    local ms = members(h)
+    ms.map((m) -> m.bakeIndex) == List(0, 1, 2)
+    ms.every((m) -> m.bakeInto == nodeMod.NODE_ID && m.bakeAs == "branch")
+    ms.take(2).map((m) -> ((m.activation as surfaceMod.VarActivation).at as surfaceMod.AtValue).value) == List("heat", "cool")
+    (ms[2].activation as surfaceMod.VarActivation).at is surfaceMod.AtOtherwise
+    // One node is its own member; the group's name is the variable's.
+    ms.every((m) -> (m.activation as surfaceMod.VarActivation).name == "mode")
+    !(ms[0].content is layout.Row)
+  }
+  ["a match without an otherwise has none, and several nodes in a case sit in a row"] {
+    local h = new Host {
+      choice = nodeMod.match(mode.value, new Mapping { ["a"] = new Listing { c.title("x"); c.title("y") } })
+    }
+    members(h).length == 1
+    members(h)[0].content is layout.Row
+  }
+  ["a match over entity state is an error naming R4"] {
+    module.catch(() -> nodeMod.match(c.isOn(lamp), new Mapping { ["on"] = c.title("x") })).contains("R4")
+  }
+  ["a tab bar is a match over its variable, and its card places the host the panel is patched into"] {
+    local t = (c.tabs) { tabs { ["A"] { c.title("a") }; ["B"] { c.title("b") } } }
+    t.inlineSurfaces!!.keys.toList() == List("t0", "t1")
+    t.nodesDeclared == Map("panel", true, "children", false)
+    t.cardDef.template.contains("{{hostId}}")
+    (t.inlineSurfaces!!["t1"].activation as surfaceMod.VarActivation).name == "tab"
+  }
+}
