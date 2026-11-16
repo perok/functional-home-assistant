@@ -800,7 +800,7 @@ object LayoutNode:
       * card holds one at most (`validate`).
       */
     lazy val set: Option[(String, Fill.Set)] =
-      fills.toList.sortBy(_._1).collectFirst { case (n, s: Fill.Set) => n -> s }
+      fills.collectFirst { case (n, s: Fill.Set) => n -> s }
 
     /** The nodes each nodes slot holds, where it is filled with nodes written
       * down; `validate` refuses a choice, which nothing places yet.
