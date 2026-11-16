@@ -47,9 +47,7 @@ A state-selected group takes the **first member in `bakeIndex` order whose
 condition holds**; no member holding bakes empty content (the host renders its
 wrapper empty — the same stable morph target). An `else` branch is just the last
 member with no condition, which always holds and reads nothing; `else if` is one
-more member in between (the authoring layer
-currently expresses that by nesting an `If` in `else`; a flat `.elseIf` needs no
-wire change).
+more member in between, which `.elif(q).then(b)` writes (no wire change).
 
 **The condition is SUBJECT-FREE**, and that is what removed the quantifier. A
 condition (ADR 0004) normally reads whichever entity supplies its subject — a
@@ -144,10 +142,15 @@ to prevent it because nothing tested two clients on different tabs across a flip
 
 ### Authoring (Pkl)
 
-`c.iff(cond)` returns an `If` node supporting both a builder and an amend form
-(both set the same hidden properties; the derived `inlineSurfaces` is
-late-bound, so either path re-derives it). The condition comes from `query.pkl`,
-which is what makes it name its entities:
+A choice is the fill of a nodes slot (`slot.of(nodeMod.iff(cond)…)`,
+`slot.of(nodeMod.match(v.value, cases))`, `core/choice.pkl`), and the node whose
+slot it fills lowers it to the bake group below: one surface per branch, each
+`bakeInto` that node and `bakeAs` the slot's name, so the card's template places
+one element carrying `id="{{hostId}}"` around the slot. `c.iff(cond)` returns an
+`If` node, which is such a card and supports both a builder and an amend form
+(both set the same hidden properties; the choice and so the derived
+`inlineSurfaces` are late-bound, so either path re-derives them). The condition
+comes from `query.pkl`, which is what makes it name its entities:
 
 ```pkl
 c.iff(q.entity(dump.e_alarm).stateIs("armed_away"))          // one entity
@@ -159,7 +162,16 @@ c.iff(q.from(hass.lights(dump.areas.stue.all))                // a named set
   .then(c.title("Someone is up"))
 
 (c.iff(...)) { `then` { c.title("…") c.entityCard(e) } `else` { c.title("…") } }
+
+c.iff(p).then(a).elif(q).then(b).`else`(x)                     // first to hold wins
 ```
+
+Each step returns `this`, `.then` filling the branch last begun. The members are
+`then`, `elif1`, … in `bakeIndex` order, and `else` last (not a member while
+empty, over state). A chain whose conditions all read one variable
+(`valueIs`) is a variable group, one member per value; one mixing a variable
+with live state, or two variables, is a Pkl error naming R4 of
+`docs/plan-regions.md`, where a decision reading both arrives.
 
 `iff` also takes a node variable at one value, `c.iff(window.valueIs("30d"))`
 (#510). Then the group is variable-selected like a `c.select`'s panels, so the
@@ -169,6 +181,13 @@ variable's group shows a member at every value and a write no member takes is
 refused for the whole variable. `valueIs` is not a predicate, so a condition
 cannot mix a variable with entity state; that would need the flip machinery to
 know which viewers a flip reaches, and stays undesigned until a dashboard asks.
+
+A choice over a node variable that is not an `If` is `nodeMod.match(v.value,
+cases)`: one member per key (`t0`, `t1`, … in the cases' order, selected at the
+key's value) and `.otherwise(x)` as the member at every other value. Tabs, a
+select's cycle and dropdown label, and a slider's main controls are such
+matches. A key holding several nodes puts them in a row; one node is its own
+member.
 
 `iff` also accepts a `Boolean`, because the fold can settle a count before
 anything runs (`q.from(emptyRoom).any()` is `false`); it becomes an

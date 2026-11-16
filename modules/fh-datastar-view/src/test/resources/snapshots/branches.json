@@ -19,7 +19,8 @@
                 "t0" : {
                   "activation" : {
                     "at" : {
-                      "kind" : "Index"
+                      "kind" : "Value",
+                      "value" : "0"
                     },
                     "kind" : "Var",
                     "name" : "tab"
@@ -174,7 +175,8 @@
                 "t1" : {
                   "activation" : {
                     "at" : {
-                      "kind" : "Index"
+                      "kind" : "Value",
+                      "value" : "1"
                     },
                     "kind" : "Var",
                     "name" : "tab"

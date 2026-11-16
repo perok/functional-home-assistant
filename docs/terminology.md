@@ -367,7 +367,8 @@ fixed choice); a node's fills are the nodes slots it sets, and the card's own li
 
 **Region** — a nodes slot, in the words the runtime and the ids still use (`c_1_head_0`, the
 `regions` of a wire card). `fill = "baked"` on a card's region marks one a surface fills instead of
-the node (see **bake**); the author writes it as `slotMod.nodes("panel").baked()`.
+the node (see **bake**); a slot filled with a choice (`nodeMod.iff`, `nodeMod.match`) is marked so
+by the choice itself.
 
 `children` is the default nodes slot (`slotMod.childrenSlot`). `Grid { children { … } }` is the
 sugar for filling it, and a card whose template places `{{{children}}}` needs nothing in its
