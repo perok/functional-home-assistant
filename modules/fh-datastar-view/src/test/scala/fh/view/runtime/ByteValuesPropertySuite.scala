@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.*
@@ -63,9 +65,11 @@ class ByteValuesPropertySuite extends HedgehogSuite {
       Map("card" -> card(signal)),
       LayoutNode.Component(
         "card",
-        Map(
-          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
-          "v" -> valueSlot(signal)
+        Slots.values(
+          Map(
+            "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
+            "v" -> valueSlot(signal)
+          )
         )
       )
     )
@@ -77,9 +81,11 @@ class ByteValuesPropertySuite extends HedgehogSuite {
           LayoutNode.SetClause(
             node = LayoutNode.Component(
               "card",
-              Map(
-                "entity_id" -> TemplateSlot(ValueExpr.literal(e)),
-                "v" -> valueSlot(signal)
+              Slots.values(
+                Map(
+                  "entity_id" -> TemplateSlot(ValueExpr.literal(e)),
+                  "v" -> valueSlot(signal)
+                )
               )
             )
           )

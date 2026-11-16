@@ -55,7 +55,7 @@ class Variable {
 
   /// Its value as this viewer holds it, a text reading: `label.of(window.value)`.
   /// The viewer's own, so only a leaf's value slot reads it; the build refuses it
-  /// in a signal, on a card holding regions, and in anything decided once for
+  /// in a signal, on a card holding a nodes slot, and in anything decided once for
   /// every viewer (a clause, a condition, a `valueWhile`, an order). [[valueIs]]
   /// may also light a class (`cellClassWhen`).
   fixed value: slotMod.Reading =

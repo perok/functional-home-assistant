@@ -11,7 +11,7 @@ import "../hass.pkl"
 import "../hass/active.pkl" as activeTables
 import "predicate.pkl" as predMod
 import "simple.pkl" as simpleMod
-import "node.pkl" as nodes
+import "node.pkl" as nodeMod
 
 /// A value read from its [[source]], then each of its [[steps]] run on it
 /// (`fh.view.model.ValueExpr`): a [[Reading]], or a condition
@@ -73,11 +73,11 @@ open class Reading extends Expr {
   ///
   /// A constant, or a value expression of a bool (a condition, a reading, CEL),
   /// over the card's subject when it names none; none may read a fetch.
-  hidden valueWhile: nodes.BooleanInput = true
+  hidden valueWhile: nodeMod.BooleanInput = true
   valueWhileSlot: Reading? =
     if (valueWhile == true) null
-    else if (valueWhile == false) nodes.booleanReading(predMod.neverHolds)
-    else nodes.booleanReading(valueWhile as Expr)
+    else if (valueWhile == false) nodeMod.booleanReading(predMod.neverHolds)
+    else nodeMod.booleanReading(valueWhile as Expr)
 }
 
 /// A step's operand: a literal, or a part of an entity.
@@ -178,7 +178,7 @@ class CelRead extends Value {
   kind: "Cel" = "Cel"
   src: String
   /// As [[simpleMod.Cel.inputs]].
-  hidden inputs: Mapping<String, nodes.Input>? = null
+  hidden inputs: Mapping<String, nodeMod.Input>? = null
   wireInputs: Map<String, Any>? = inputs?.toMap()?.mapValues((_, v) -> wireInput(v))
 }
 
@@ -186,7 +186,7 @@ class CelRead extends Value {
 /// as itself, anything else as the source it reads. An entity is the whole
 /// entity (`kitchen.attr.brightness`), and a tally its count unless it is a
 /// [[predMod.PresentList]].
-const function wireInput(v: nodes.Input): Any =
+const function wireInput(v: nodeMod.Input): Any =
   if (v is hass.Entity)
     Map("source", new EntityRead { of = v.entity_id; part = new simpleMod.Whole {} })
   else if (v is predMod.PresentList) Map("source", v)
@@ -196,6 +196,12 @@ const function wireInput(v: nodes.Input): Any =
     Map("source", new FetchRead { fetch = v })
       + (if (v.dependsOn.isEmpty) Map() else Map("dependsOn", v.dependsOn))
   else v
+
+/// What a card's template places by name: a [[Slot]] (a value) or a
+/// [[NodesSlot]] (nodes). A node's `slots` lists both.
+abstract class AnySlot {
+  name: String(!contains("."))
+}
 
 /// One named value a card's template places, filled per node. The template
 /// reaches it through this object, so its name is written once:
@@ -209,8 +215,8 @@ const function wireInput(v: nodes.Input): Any =
 /// Interpolated, it is the plain hole: `\(label)` is `{{label}}`. A slot with
 /// no value is not set, which [[ifSet]] tests; one with only a name is what a
 /// template piece shared across cards places (`core/tap.pkl`'s).
-open class Slot {
-  name: String(!contains("."))
+open class Slot extends AnySlot {
+  kind: "Value" = "Value"
   /// A literal, a [[Reading]], or null: not set.
   value: (String|Boolean|Number|Reading)? = null
   /// Carry the value as a Datastar signal rather than bytes, so a change costs a
@@ -277,6 +283,44 @@ open class Slot {
 }
 
 const function slot(n: String): Slot = new { name = n }
+
+/// A slot whose value is nodes: the card places `\(handle)` (a raw hole,
+/// `{{{name}}}`) once, outside every section, and each node fills it with
+/// `of`. Its nodes keep ids of their own, so a card holding one is structure
+/// (ADR 0012).
+///
+/// ```
+/// const local features = slotMod.nodes("features")
+/// template = "<div>…</div>\(features)"
+/// slots { features.of(featureNodes) }
+/// ```
+class NodesSlot extends AnySlot {
+  kind: "Nodes" = "Nodes"
+  /// The nodes written down.
+  hidden nodes: Listing<nodeMod.LayoutNode> = new {}
+  /// Filled per viewer by a surface (a tab panel, an `If` branch) rather than
+  /// by [[nodes]]; its host carries `id="{{hostId}}"`.
+  hidden bakedBy: Boolean = false
+  /// What the wire holds of it, [[nodes]] being a fixed fill.
+  fixed fill: NodesFill = new { choice = nodes }
+
+  function of(ns: Listing<nodeMod.LayoutNode>): this = (this) { nodes = ns }
+  /// A slot a surface fills: its [[nodes]] are none.
+  function baked(): this = (this) { bakedBy = true }
+
+  function toString(): String = "{{{" + name + "}}}"
+}
+
+/// A [[NodesSlot]]'s fill as the wire holds it (`fh.view.model.Fill`).
+class NodesFill {
+  kind: "Nodes" = "Nodes"
+  choice: Listing<nodeMod.LayoutNode>
+}
+
+const function nodes(n: String): NodesSlot = new { name = n }
+
+/// The nodes slot `children { … }` fills.
+const childrenSlot: NodesSlot = nodes("children")
 
 /// A slot the template reads as on or off, where the string `"false"` would
 /// be truthy: a Boolean, or a reading the build checks yields one.

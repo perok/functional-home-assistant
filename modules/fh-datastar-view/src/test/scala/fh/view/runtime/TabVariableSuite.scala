@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.syntax.all.*
@@ -34,7 +36,8 @@ class TabVariableSuite extends ServerHarness {
 
   private def panel(i: Int, text: String) =
     Surface(
-      LayoutNode.Component("text", templateSlots = Map("text" -> lit(text))),
+      LayoutNode
+        .Component("text", slots = Slots.values(Map("text" -> lit(text)))),
       bakeInto = Some("bar"),
       bakeAs = Some("panel"),
       bakeIndex = Some(i),
@@ -50,10 +53,11 @@ class TabVariableSuite extends ServerHarness {
       "bar",
       id = Some("bar"),
       vars = declared(vars.toList*),
-      regions =
+      slots = Slots.nodes(
         if (vars.contains("tab"))
           Map("buttons" -> DashboardBuilders.choices("tab", "0", "1", "5"))
         else Map.empty
+      )
     )
 
   private val dash = Dashboard(

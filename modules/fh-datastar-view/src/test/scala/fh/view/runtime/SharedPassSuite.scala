@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.effect.kernel.Ref
@@ -36,12 +38,14 @@ class SharedPassSuite extends ServerHarness {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         List("sensor.a", "sensor.b").map(e =>
           LayoutNode.Component(
             "card",
-            templateSlots = Map(
-              "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e))))
+            slots = Slots.values(
+              Map(
+                "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e))))
+              )
             )
           )
         )*

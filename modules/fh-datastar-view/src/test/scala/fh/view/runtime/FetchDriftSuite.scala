@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -74,13 +76,15 @@ class FetchDriftSuite extends munit.FunSuite {
   private val shapes: Case = {
     def chart(e: String) = LayoutNode.Component(
       "chart",
-      Map(
-        "chart" -> TemplateSlot(
-          ValueExpr(
-            Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day))),
-            List(Step.Chart())
-          ),
-          `type` = SlotType.TextRaw
+      Slots.values(
+        Map(
+          "chart" -> TemplateSlot(
+            ValueExpr(
+              Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day))),
+              List(Step.Chart())
+            ),
+            `type` = SlotType.TextRaw
+          )
         )
       )
     )
@@ -88,7 +92,7 @@ class FetchDriftSuite extends munit.FunSuite {
     def host(id: String) =
       LayoutNode.Component("host", id = Some(id), vars = declared("tab" -> "0"))
     def col(kids: LayoutNode*) =
-      LayoutNode.Component("col", regions = LayoutNode.kids(kids*))
+      LayoutNode.Component("col", slots = Slots.kids(kids*))
     def baked(into: String, idx: Int, content: LayoutNode, a: Activation) =
       Surface(
         content,
@@ -101,9 +105,11 @@ class FetchDriftSuite extends munit.FunSuite {
       Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
     val plain = LayoutNode.Component(
       "dot",
-      Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
-        "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
+          "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+        )
       )
     )
     val d = Dashboard(

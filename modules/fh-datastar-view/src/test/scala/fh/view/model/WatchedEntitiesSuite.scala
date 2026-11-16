@@ -1,5 +1,7 @@
 package fh.view.model
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -19,9 +21,11 @@ class WatchedEntitiesSuite extends munit.FunSuite {
   private def tileNode(id: String): LayoutNode.Component =
     LayoutNode.Component(
       "tile",
-      Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
-        "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+          "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+        )
       )
     )
 

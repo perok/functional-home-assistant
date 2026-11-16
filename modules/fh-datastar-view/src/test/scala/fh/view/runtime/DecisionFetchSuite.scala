@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.DashboardBuilders
 
 import fh.view.testkit.TestCard
@@ -55,7 +57,7 @@ class DecisionFetchSuite extends munit.FunSuite {
 
   private def col(kids: LayoutNode*) = LayoutNode.Component(
     "col",
-    regions = Map(LayoutNode.DefaultRegion -> kids.toList)
+    slots = Slots.nodes(Map(LayoutNode.DefaultRegion -> kids.toList))
   )
 
   /** `inside`, shown while `when` holds. */
@@ -74,7 +76,7 @@ class DecisionFetchSuite extends munit.FunSuite {
 
   private def item(label: String) = LayoutNode.Component(
     "item",
-    templateSlots = Map("label" -> TemplateSlot(ValueExpr.literal(label)))
+    slots = Slots.values(Map("label" -> TemplateSlot(ValueExpr.literal(label))))
   )
 
   private def dashboard(kids: LayoutNode*) = Dashboard(
@@ -88,7 +90,7 @@ class DecisionFetchSuite extends munit.FunSuite {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = Map(LayoutNode.DefaultRegion -> kids.toList)
+      slots = Slots.nodes(Map(LayoutNode.DefaultRegion -> kids.toList))
     )
   )
 

@@ -5,7 +5,7 @@ import fh.view.FHError
 import fh.view.fetch.FetchRequest
 import fh.view.history.Window
 import fh.view.runtime.{Cel, Evaluator, Templates}
-import io.circe.{Decoder, DecodingFailure}
+import io.circe.{Decoder, DecodingFailure, HCursor}
 import io.circe.derivation.{Configuration, ConfiguredDecoder}
 
 import scala.collection.immutable.ListMap
@@ -18,8 +18,7 @@ given Configuration =
     .withTransformMemberNames(Strict.wireName)
 
 /** A template slot: what it shows, and how the card places it (Pkl's `Slot`).
-  * The wire is flat, the [[ValueExpr]]'s fields beside these, or a bare
-  * literal.
+  * The wire is flat, the [[ValueExpr]]'s fields beside these.
   *
   *   - `valueWhile`: a bool over the same subject; while it is not `true` the
   *     slot is `""`, decided before its steps run or any of its fetches is
@@ -41,19 +40,43 @@ final case class TemplateSlot(
   def placement: Placement = Placement(signal, `type`)
 
 object TemplateSlot:
-  private val Fields =
+  val Fields: Set[String] =
     ValueExpr.fieldNames ++ Set("valueWhile", "signal", "type")
 
-  given Decoder[TemplateSlot] = Decoder.instance(c =>
-    if (!c.value.isObject) c.as[ValueExpr].map(TemplateSlot(_))
-    else
-      Strict.only(c, Fields) *> (
-        ValueExpr.fields(c),
-        c.getOrElse[Option[ValueExpr]]("valueWhile")(None),
-        c.getOrElse[Option[SignalBind]]("signal")(None),
-        c.getOrElse[SlotType]("type")(SlotType.Text)
-      ).mapN(TemplateSlot.apply)
+  given Decoder[TemplateSlot] =
+    Decoder.instance(c => Strict.only(c, Fields) *> fromFields(c))
+
+  private[model] def fromFields(c: HCursor): Decoder.Result[TemplateSlot] =
+    (
+      ValueExpr.fields(c),
+      c.getOrElse[Option[ValueExpr]]("valueWhile")(None),
+      c.getOrElse[Option[SignalBind]]("signal")(None),
+      c.getOrElse[SlotType]("type")(SlotType.Text)
+    ).mapN(TemplateSlot.apply)
+
+/** A node's slot, by the name its card's template places: a value (Pkl's
+  * `Slot`) or nodes (`NodesSlot`). One map is one namespace, as a template's
+  * names are. On the wire a value's fields sit beside its `kind`.
+  */
+enum Slot derives CanEqual:
+  case Value(slot: TemplateSlot)
+  case Nodes(fill: Fill)
+
+object Slot:
+  // Flat, so not derived: the discriminator leaves `kind` beside the fields.
+  given Decoder[Value] = Decoder.instance(c =>
+    Strict.only(c, TemplateSlot.Fields + "kind") *>
+      TemplateSlot.fromFields(c).map(Value(_))
   )
+
+  given Decoder[Slot] = ConfiguredDecoder.derived(using Strict.configuration)
+
+/** What fills a nodes slot. */
+enum Fill derives CanEqual:
+  case Nodes(choice: Choice[List[LayoutNode]])
+
+object Fill:
+  given Decoder[Fill] = ConfiguredDecoder.derived(using Strict.configuration)
 
 /** How a card places a slot: the signal it is bound as, and what it reads the
   * value as. A template slot's comes off the wire, a cell slot's from its key
@@ -528,11 +551,12 @@ object SignalBind:
   *   - `layoutCell`: off for a root that must not be a layout box (the tab
   *     anchors under `.fh-tabs`): it has no `fh-cell` class, and `validate`
   *     refuses a node's `cell.layout` on it.
-  *   - `regions`: a card is a leaf (none) or structure (some). Every region is
-  *     filled by nodes with ids of their own, so a node's patch never carries a
-  *     region's contents and a host changing cannot re-render what it hosts
-  *     (ADR 0012). Markup that should move goes in a region as a node; a live
-  *     bytes slot on structure is a build error, a signal slot is fine.
+  *   - `regions`: the card's nodes slots, which its Pkl class lists in `slots`;
+  *     a card is a leaf (none) or structure (some). Every region is filled by
+  *     nodes with ids of their own, so a node's patch never carries a region's
+  *     contents and a host changing cannot re-render what it hosts (ADR 0012).
+  *     Markup that should move goes in a region as a node; a live bytes slot on
+  *     structure is a build error, a signal slot is fine.
   *   - `css`: the card's own structure, after [[Dashboard.css]] and before
   *     `theme.styles` in the cascade (ADR 0020).
   *   - `script`: a classic script the card's markup needs, inlined once per
@@ -697,14 +721,10 @@ object LayoutNode:
   trait Identified:
     def authoredId: Option[String]
 
-  /** Pkl's bare `children { … }` normalises to this before emitting, so no
-    * region is nameless downstream. Same string as `core/node.pkl`'s
-    * `defaultRegion`.
+  /** The nodes slot Pkl's `children { … }` fills. Same string as
+    * `core/node.pkl`'s `childrenSlot`.
     */
   val DefaultRegion: String = "children"
-
-  def kids(cs: LayoutNode*): Map[String, List[LayoutNode]] =
-    if cs.isEmpty then Map.empty else Map(DefaultRegion -> cs.toList)
 
   /** Leaves and containers alike: a container is a template splicing its
     * regions, so a new kind needs no Scala. The injected vars are `id`,
@@ -712,8 +732,7 @@ object LayoutNode:
     */
   case class Component(
       card: String,
-      templateSlots: Map[String, TemplateSlot] = Map.empty,
-      regions: Map[String, List[LayoutNode]] = Map.empty,
+      slots: Map[String, Slot] = Map.empty,
       cell: Option[Cell] = None,
       // Replaces the position-derived id and roots its descendants' — see
       // `authoredIdErrors` for why it is checked.
@@ -729,11 +748,28 @@ object LayoutNode:
       calls: Map[String, CallDecl] = Map.empty
   ) extends LayoutNode:
 
-    /** [[templateSlots]] and the [[cell]]'s live ones, each with the inputs its
+    /** [[slots]] split by kind, once: what every consumer reads. */
+    private lazy val byKind: (Map[String, TemplateSlot], Map[String, Fill]) =
+      (
+        slots.collect { case (n, Slot.Value(s)) => n -> s },
+        slots.collect { case (n, Slot.Nodes(f)) => n -> f }
+      )
+
+    lazy val valueSlots: Map[String, TemplateSlot] = byKind._1
+
+    lazy val fills: Map[String, Fill] = byKind._2
+
+    /** The nodes each nodes slot holds, where it is filled with nodes written
+      * down; `validate` refuses a choice, which nothing places yet.
+      */
+    lazy val regions: Map[String, List[LayoutNode]] =
+      fills.collect { case (n, Fill.Nodes(Choice.Fixed(ns))) => n -> ns }
+
+    /** [[valueSlots]] and the [[cell]]'s live ones, each with the inputs its
       * CEL names; a cell slot is placed by its key.
       */
     lazy val bound: Map[SlotKey, BoundSlot] =
-      templateSlots.map((n, s) =>
+      valueSlots.map((n, s) =>
         (n: SlotKey) -> BoundSlot.bind(inputs, subjectEntity)(s)
       ) ++
         cell.toList
@@ -754,7 +790,7 @@ object LayoutNode:
 
     /** `validate` holds `entity_id` to a literal. */
     lazy val subjectEntity: Option[String] =
-      templateSlots.get(Dashboard.SubjectSlot).flatMap(_.literal)
+      valueSlots.get(Dashboard.SubjectSlot).flatMap(_.literal)
 
   /** A set over a static candidate list: the runtime decides only presence and
     * order (ADR 0003). An empty `orderBy` means `candidates` is already in

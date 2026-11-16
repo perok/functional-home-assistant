@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -176,9 +178,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
         "card",
-        templateSlots = Map(
-          "state" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some(s"sensor.$name")))
+        slots = Slots.values(
+          Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some(s"sensor.$name")))
+            )
           )
         )
       )
@@ -186,15 +190,15 @@ trait ServerHarness extends munit.CatsEffectSuite {
       cards,
       LayoutNode.Component(
         "tabs",
-        regions = LayoutNode.kids(
+        slots = Slots.kids(
           LayoutNode.Component(
             "btn",
-            Map("label" -> TemplateSlot(ValueExpr.literal("A")))
+            Slots.values(Map("label" -> TemplateSlot(ValueExpr.literal("A"))))
           ),
           LayoutNode
             .Component(
               "btn",
-              Map("label" -> TemplateSlot(ValueExpr.literal("B")))
+              Slots.values(Map("label" -> TemplateSlot(ValueExpr.literal("B"))))
             )
         ),
         vars = TabDeclared
@@ -250,12 +254,14 @@ trait ServerHarness extends munit.CatsEffectSuite {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.a")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.a")))
+              )
             )
           )
         )
@@ -284,7 +290,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
             ),
             node = LayoutNode.Component(
               card,
-              slots.updated("entity_id", TemplateSlot(ValueExpr.literal(id)))
+              Slots.values(
+                slots.updated("entity_id", TemplateSlot(ValueExpr.literal(id)))
+              )
             )
           )
         })
@@ -340,8 +348,10 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def branchCard(entity: String): LayoutNode.Component =
     LayoutNode.Component(
       "card",
-      templateSlots = Map(
-        "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(entity))))
+      slots = Slots.values(
+        Map(
+          "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(entity))))
+        )
       )
     )
 
@@ -371,7 +381,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       card = LayoutNode
         .Component(
           "col",
-          regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
+          slots = Slots.kids(LayoutNode.Component("ifhost"))
         ),
       surfaces = Map(
         "then" -> stateMember(thenContent, "c_0", 0, armedCond),
@@ -402,12 +412,14 @@ trait ServerHarness extends munit.CatsEffectSuite {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.shared")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.shared")))
+              )
             )
           )
         ),
@@ -418,9 +430,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "t0" -> tabMember(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.a")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.a")))
+              )
             )
           )
         ),
@@ -686,12 +700,14 @@ trait ServerHarness extends munit.CatsEffectSuite {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.shared")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.shared")))
+              )
             )
           )
         ),
@@ -702,9 +718,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "t0" -> tabMember(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.a")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.a")))
+              )
             )
           )
         ),
@@ -714,9 +732,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "t1" -> tabMember(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.b")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.b")))
+              )
             )
           )
         ),

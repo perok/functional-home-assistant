@@ -20,7 +20,7 @@ module query
 import "core/predicate.pkl" as pred
 import "core/simple.pkl" as simpleMod
 import "core/slot.pkl" as slotMod
-import "core/node.pkl" as nodes
+import "core/node.pkl" as nodeMod
 import "hass.pkl"
 
 typealias Scalar = String|Int|Float|Boolean
@@ -368,7 +368,7 @@ const local function liveTerm(
 
 class Branch {
   key: (Member) -> Boolean|slotMod.Expr
-  render: (Member) -> nodes.Node
+  render: (Member) -> nodeMod.Node
 }
 
 /// What a set holds: entities, areas or floors ([[from]]).
@@ -408,7 +408,7 @@ class EntitySet extends pred.TallyOf {
   function limit(n: Int(this > 0)): this = let (l = this) (l) { cap = n }
 
   /// One guarded rendering; the guard folds like [[where]]'s.
-  function caseOf(g: Filter, r: (Member) -> nodes.Node): this =
+  function caseOf(g: Filter, r: (Member) -> nodeMod.Node): this =
     let (l = this)
       let (prepared = ready(l.items, g))
         (l) {
@@ -419,7 +419,7 @@ class EntitySet extends pred.TallyOf {
         }
 
   /// Several guarded renderings, in match order.
-  function cases(m: Mapping<Filter, (Member) -> nodes.Node>): this =
+  function cases(m: Mapping<Filter, (Member) -> nodeMod.Node>): this =
     let (l = this)
       (l) {
         branches = l.branches + m.toMap().entries.map((p) ->
@@ -429,9 +429,9 @@ class EntitySet extends pred.TallyOf {
 
   /// The unconditional last clause. Optional: a candidate matching no clause is
   /// not rendered, which is how "show it only while on" is written.
-  function `else`(r: (Member) -> nodes.Node): this = caseOf(true, r)
+  function `else`(r: (Member) -> nodeMod.Node): this = caseOf(true, r)
 
-  function render(r: (Member) -> nodes.Node): this = caseOf(true, r)
+  function render(r: (Member) -> nodeMod.Node): this = caseOf(true, r)
 
   /// How many candidates are present: `.count().gt(2)`. Reads only `where`, so
   /// a set can be counted without a card.

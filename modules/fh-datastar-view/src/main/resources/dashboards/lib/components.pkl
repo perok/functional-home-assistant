@@ -16,7 +16,7 @@ module components
 
 import "pkl:reflect"
 import "hass.pkl"
-import "core/node.pkl" as nodes
+import "core/node.pkl" as nodeMod
 import "core/slot.pkl" as slotMod
 import "core/simple.pkl" as simpleMod
 import "core/text.pkl" as coreTextMod
@@ -112,15 +112,15 @@ hidden access: accessMod = accessMod
 
 // ---- classes an author names ----
 
-typealias LayoutNode = nodes.LayoutNode
-typealias Node = nodes.Node
+typealias LayoutNode = nodeMod.LayoutNode
+typealias Node = nodeMod.Node
 /// For the rare `cell = new c.Cell { … }` the builders do not cover.
-typealias Cell = nodes.Cell
+typealias Cell = nodeMod.Cell
 typealias Row = layoutMod.Row
 typealias Column = layoutMod.Column
 typealias Grid = layoutMod.Grid
 /// `"top"` or `"bottom"`: where `.stick(…)` keeps a card.
-typealias Edge = nodes.Edge
+typealias Edge = nodeMod.Edge
 typealias SurfaceDef = surfaceMod.SurfaceDef
 typealias PopupSurface = surfaceMod.PopupSurface
 typealias Popup = surfaceMod.Popup
@@ -154,7 +154,7 @@ hidden column: layoutMod.Column = layoutMod.column
 /// The 12-column grid, the default top-level container.
 hidden grid: layoutMod.Grid = layoutMod.grid
 /// Space that takes what its row or column leaves: `(c.row) { children { a; c.spacer; b } }`.
-hidden spacer: nodes.LayoutNode = layoutMod.spacer
+hidden spacer: nodeMod.LayoutNode = layoutMod.spacer
 /// The popup dialog; rarely written by hand (see `c.view.openPopupInline`).
 hidden popup: surfaceMod.Popup = surfaceMod.popup
 /// `(c.tabs) { tabs { ["Lights"] { ... } } }`.
@@ -270,22 +270,22 @@ const modules: List<Module> = List(
 /// `variants` under each of its names. A class that extends a card without
 /// naming its own IS that card (`EntityButton` is a `button`), so it is not
 /// listed twice.
-cards: Mapping<String, nodes.CardDef> = new {
+cards: Mapping<String, nodeMod.CardDef> = new {
   for (m in modules) {
     for (_, cls in reflect.Module(m).classes) {
       when (cls.isSubclassOf(nodeClass) && !cls.modifiers.contains("abstract")
         && cls.properties.containsKey("card")) {
         when (cls.properties.containsKey("variants")) {
-          for (name, d in cls.properties["variants"].defaultValue as Mapping<String, nodes.CardDef>) {
+          for (name, d in cls.properties["variants"].defaultValue as Mapping<String, nodeMod.CardDef>) {
             [name] = d
           }
         } else {
           [cls.properties["card"].defaultValue as String] =
-            cls.properties["cardDef"].defaultValue as nodes.CardDef
+            cls.properties["cardDef"].defaultValue as nodeMod.CardDef
         }
       }
     }
   }
 }
 
-const local nodeClass = reflect.Class(nodes.Node)
+const local nodeClass = reflect.Class(nodeMod.Node)

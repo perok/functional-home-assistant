@@ -92,20 +92,22 @@ object FixtureDashboard {
               when = guard,
               node = LayoutNode.Component(
                 "member",
-                templateSlots = Map(
-                  "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
-                  "name" -> TemplateSlot(
-                    ValueExpr(
-                      Value.Entity(Some(id), Part.Whole),
-                      List(
-                        Step.Cel(
-                          "('friendly_name' in value.attr ? value.attr['friendly_name'] : value.entity_id)"
+                slots = Slots.values(
+                  Map(
+                    "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+                    "name" -> TemplateSlot(
+                      ValueExpr(
+                        Value.Entity(Some(id), Part.Whole),
+                        List(
+                          Step.Cel(
+                            "('friendly_name' in value.attr ? value.attr['friendly_name'] : value.entity_id)"
+                          )
                         )
                       )
+                    ),
+                    "state" -> TemplateSlot(
+                      ValueExpr(Value.Entity(Some(id)))
                     )
-                  ),
-                  "state" -> TemplateSlot(
-                    ValueExpr(Value.Entity(Some(id)))
                   )
                 )
               )

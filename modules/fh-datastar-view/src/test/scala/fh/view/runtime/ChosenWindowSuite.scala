@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.history.{ChartStyle, Window, Windows}
 import fh.view.model.*
@@ -29,14 +31,16 @@ class ChosenWindowSuite extends munit.FunSuite {
   private def chart(window: Choice[Window]) =
     LayoutNode.Component(
       "chart",
-      templateSlots = Map(
-        "chart" -> TemplateSlot(
-          ValueExpr(
-            Value.Fetch(FetchTemplate("sensor.t", window)),
-            List(style),
-            default = Some(Lit.Text("no window"))
-          ),
-          `type` = SlotType.TextRaw
+      slots = Slots.values(
+        Map(
+          "chart" -> TemplateSlot(
+            ValueExpr(
+              Value.Fetch(FetchTemplate("sensor.t", window)),
+              List(style),
+              default = Some(Lit.Text("no window"))
+            ),
+            `type` = SlotType.TextRaw
+          )
         )
       )
     )
@@ -153,7 +157,7 @@ class ChosenWindowSuite extends munit.FunSuite {
     val box = (default: String, kid: LayoutNode) =>
       LayoutNode.Component(
         "box",
-        regions = LayoutNode.kids(kid),
+        slots = Slots.kids(kid),
         vars = declared("window" -> default)
       )
     val one = chosenBy(window, Case(Lit.Text("24h"), Windows.day))

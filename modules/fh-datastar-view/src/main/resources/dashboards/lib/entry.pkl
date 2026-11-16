@@ -9,7 +9,7 @@ module entry
 import "components.pkl" as c
 import "core/access.pkl" as accessMod
 import "core/css.pkl" as cssMod
-import "core/node.pkl" as nodes
+import "core/node.pkl" as nodeMod
 import "core/text.pkl" as textMod
 import "theme-beer.pkl" as themeMod
 
@@ -18,7 +18,7 @@ import "theme-beer.pkl" as themeMod
 ///
 ///   import "mycards.pkl" as mine
 ///   card = (c.column) { children { mine.gauge(...) } }
-cards = nodes.cardsIn(List(card) + surfaces.toMap().values.map((s) -> s.content))
+cards = nodeMod.cardsIn(List(card) + surfaces.toMap().values.map((s) -> s.content))
 
 /// What every card here does with a label longer than its box: `wrap`, `clip`
 /// (the default) or `scroll` (`core/text.pkl`). One card differs with
@@ -64,4 +64,4 @@ access: accessMod.Access? = null
 /// the trailing "rendering path `dashboards[<slug>].card`" names the dashboard.
 card: c.Node
 
-output { renderer = nodes.wireRenderer }
+output { renderer = nodeMod.wireRenderer }

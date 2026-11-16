@@ -4,7 +4,7 @@
 /// What is not modelled is listed on [[hass.LockEntity]].
 module components.lock
 
-import "../core/node.pkl" as nodes
+import "../core/node.pkl" as nodeMod
 import "../layout.pkl" as layout
 import "../core/tap.pkl" as tapMod
 import "../core/slot.pkl" as slotMod
@@ -55,12 +55,12 @@ function lockButtons(l: hass.LockEntity): layout.Row = new layout.Row {
 /// features sit outside the tile's tappable row; the tile opens more-info,
 /// which shows [[moreInfoCard]]. Read off the entity: a one-bit capability has
 /// no group to pass (ADR 0013).
-function controls(l: hass.LockEntity): nodes.LayoutNode = withControls(entityMod.entityCard(l), l)
+function controls(l: hass.LockEntity): nodeMod.LayoutNode = withControls(entityMod.entityCard(l), l)
 
 /// [[controls]] for the more-info popup: the same buttons, and a tile that
 /// opens nothing, since it would only open the popup it is in.
-function moreInfoCard(l: hass.LockEntity): nodes.LayoutNode =
+function moreInfoCard(l: hass.LockEntity): nodeMod.LayoutNode =
   withControls((entityMod.entityCard(l)) { tapAction = null }, l)
 
-local function withControls(card: entityMod.EntityCard, l: hass.LockEntity): nodes.LayoutNode =
+local function withControls(card: entityMod.EntityCard, l: hass.LockEntity): nodeMod.LayoutNode =
   card.features(List(lockButtons(l)) + (if (l.supportsOpen) List(openLatch(l)) else List()))

@@ -9,7 +9,7 @@
 /// picks it.
 module components.progress
 
-import "../core/node.pkl" as nodes
+import "../core/node.pkl" as nodeMod
 import "../core/predicate.pkl" as pred
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
@@ -75,7 +75,7 @@ class ProgressCard extends entityMod.EntityCard {
     else null
   // A bar that is gone reads no history, and its empty cell collapses.
   features =
-    let (bar: nodes.LayoutNode? =
+    let (bar: nodeMod.LayoutNode? =
       if (percent != null) barMod.percent(percent!!)
       else if (total != null && barMod.canCount(entity, total!!)) barMod.remaining(entity, total!!)
       else if (scale != null) barMod.remainingOfPeak(entity)

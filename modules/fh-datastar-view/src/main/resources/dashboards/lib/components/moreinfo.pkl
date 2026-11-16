@@ -3,7 +3,7 @@
 /// with no action opens (#106).
 module components.moreinfo
 
-import "../core/node.pkl" as nodes
+import "../core/node.pkl" as nodeMod
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
@@ -19,9 +19,9 @@ import "../hass/actions.pkl" as hassActions
 /// An entity's id, and every attribute it reports as `name: value` lines. One
 /// live slot, because which attributes exist is a runtime fact and a template
 /// has no loop.
-class EntityInfo extends nodes.Node {
+class EntityInfo extends nodeMod.Node {
   card = "entityInfo"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     classes = "fh-card fh-entity-info"
     template = """
         <code class="fh-entity-info-id">\(slotMod.subject)</code>\(attributes.ifTrue(#"\#n  <pre class="fh-entity-info-attrs">\#(attributes)</pre>"#))

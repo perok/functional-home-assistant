@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.model.{
   Dashboard,
   LayoutNode,
@@ -233,14 +235,14 @@ class StateSurfaceSuite extends ServerHarness {
     val innerHost =
       LayoutNode.Component(
         "col",
-        regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
+        slots = Slots.kids(LayoutNode.Component("ifhost"))
       )
     val d = Dashboard(
       cards = ifCards,
       card = LayoutNode
         .Component(
           "col",
-          regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
+          slots = Slots.kids(LayoutNode.Component("ifhost"))
         ),
       surfaces = Map(
         "then" -> stateMember(innerHost, "c_0", 0, armedCond),
@@ -306,7 +308,7 @@ class StateSurfaceSuite extends ServerHarness {
           LayoutNode
             .Component(
               "col",
-              regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
+              slots = Slots.kids(LayoutNode.Component("ifhost"))
             )
         ),
         "d_then" -> stateMember(

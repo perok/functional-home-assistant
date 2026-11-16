@@ -26,14 +26,14 @@ Here is the smallest component that works:
 ```pkl
 module mycards
 
-import "@fh-dashboard/core/node.pkl" as nodes
+import "@fh-dashboard/core/node.pkl" as nodeMod
 import "@fh-dashboard/core/slot.pkl" as slotMod
 
 const local message = slotMod.slot("message")
 
-class Banner extends nodes.Node {
+class Banner extends nodeMod.Node {
   card = "banner"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     template = """
       <div class="banner">\(message)</div>
       """
@@ -107,7 +107,7 @@ your template, so the banner above is two elements. To make your own element
 the outer one, say what it is instead of writing it in the template:
 
 ```pkl
-cardDef = new nodes.CardDef {
+cardDef = new nodeMod.CardDef {
   tag = "article"
   classes = "banner"
   attrs = #"data-on:click="$open = true""#
@@ -457,23 +457,39 @@ it: `.postingChecked("brightness", dragged, simpleMod.within(0, 255))`, or
 
 ## Cards that hold other cards
 
-A container declares **regions** instead of slots:
+A container has a slot whose value is nodes, a **nodes slot**, where a
+plain slot holds text. The default one is `children`, and a template that
+places it needs nothing else:
 
 ```pkl
-cardDef = new nodes.CardDef {
+cardDef = new nodeMod.CardDef {
   template = """
-    <div class="panel">{{{children}}}</div>
+    <div class="panel">\(slotMod.childrenSlot)</div>
     """
-  regions = new Mapping {
-    ["children"] = new nodes.Region {}
-  }
 }
 ```
 
 Anything the author puts in `children` is rendered and dropped in at
-`{{{children}}}`. Place each region exactly once, with three braces, and not
-inside a `{{#…}}` section; the build says so if you don't. A slot cannot share
-a region's name.
+`{{{children}}}`. For a second place to put cards, declare a handle with
+`slotMod.nodes("name")`, place it in the template, and fill it in `slots`:
+
+```pkl
+const local features = slotMod.nodes("features")
+
+class Panel extends nodeMod.Node {
+  card = "panel"
+  hidden extras: Listing<nodeMod.LayoutNode> = new {}
+  cardDef = new nodeMod.CardDef {
+    template = "<div class=\"panel\">\(slotMod.childrenSlot)</div>\(features)"
+  }
+  slots { features.of(extras) }
+}
+```
+
+Place each nodes slot exactly once, outside any `{{#…}}` section; the build
+says so if you don't, and it names a slot a card lists but its template never
+places. A nodes slot has no `.bind` or `.raw`: those belong to the plain
+slots. A plain slot cannot share a nodes slot's name.
 
 ---
 
@@ -482,7 +498,7 @@ a region's name.
 Put your card's CSS on the card itself:
 
 ```pkl
-cardDef = new nodes.CardDef {
+cardDef = new nodeMod.CardDef {
   template = "..."
   css = """
     .banner { padding: 8px; background: var(--fh-surface); }
@@ -513,7 +529,7 @@ you place inside `class="…"`, and put a whole class name in it
   meant to be markup or code, such as a click expression, and
   declare that slot with `slotMod.textRaw("name")` instead of
   `slotMod.slot(…)`: the build refuses a plain slot in a raw hole, and a raw
-  one in an escaped hole. A region is always placed this way.
+  one in an escaped hole. A nodes slot is always placed this way.
 
 A number or a yes/no value shows as text in either hole (`true` or `false`).
 A history answer does not: give its reading the steps

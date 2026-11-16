@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.DashboardBuilders
 
 import fh.view.testkit.TestCard
@@ -50,15 +52,17 @@ class FetchValueSuite extends munit.FunSuite {
     ),
     card = LayoutNode.Component(
       card = "bar",
-      templateSlots = Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
-        "value" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some("sensor.left"), Part.Whole),
-            List(Step.Cel("value.state"))
-          )
-        ),
-        "of" -> ofSlot
+      slots = Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
+          "value" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("sensor.left"), Part.Whole),
+              List(Step.Cel("value.state"))
+            )
+          ),
+          "of" -> ofSlot
+        )
       ),
       inputs = nodeInputs
     )
@@ -180,9 +184,11 @@ class FetchValueSuite extends munit.FunSuite {
     cards = Map("bar" -> TestCard("<div>{{value}}</div>")),
     card = LayoutNode.Component(
       card = "bar",
-      templateSlots = Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
-        "value" -> TemplateSlot(value)
+      slots = Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
+          "value" -> TemplateSlot(value)
+        )
       ),
       inputs = nodeInputs
     )

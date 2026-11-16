@@ -1,5 +1,7 @@
 package fh.view.fetch
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -84,13 +86,15 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
   private def chartNode(window: String = "24h") =
     LayoutNode.Component(
       card = "historyChart",
-      templateSlots = Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
-        "chart" -> chartSource(window),
-        "name" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some("sensor.t"), Part.Whole),
-            List(Step.Cel("value.state"))
+      slots = Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
+          "chart" -> chartSource(window),
+          "name" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("sensor.t"), Part.Whole),
+              List(Step.Cel("value.state"))
+            )
           )
         )
       )
@@ -110,9 +114,11 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
         .component(
           LayoutNode.Component(
             card = "historyChart",
-            templateSlots = Map(
-              "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
-              "chart" -> chartSource()
+            slots = Slots.values(
+              Map(
+                "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
+                "chart" -> chartSource()
+              )
             )
           )
         )
@@ -132,7 +138,8 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
     assertEquals(
       compile
         .component(
-          LayoutNode.Component(card = "c", templateSlots = Map("chart" -> src))
+          LayoutNode
+            .Component(card = "c", slots = Slots.values(Map("chart" -> src)))
         )
         .liveEntitiesAsBytes,
       Nil
@@ -144,10 +151,12 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
     val two = compile.component(
       LayoutNode.Component(
         card = "twoCharts",
-        templateSlots = Map(
-          "a" -> chartSource("1h"),
-          "b" -> chartSource("1h"),
-          "c" -> chartSource("30d")
+        slots = Slots.values(
+          Map(
+            "a" -> chartSource("1h"),
+            "b" -> chartSource("1h"),
+            "c" -> chartSource("30d")
+          )
         )
       )
     )
@@ -330,17 +339,21 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
         "popup" -> Surface(
           content = LayoutNode.Component(
             card = "col",
-            regions = Map(
-              "children" -> List(
-                LayoutNode.Component(
-                  card = "chart",
-                  templateSlots = Map(
-                    "chart" -> TemplateSlot(
-                      ValueExpr(
-                        Value.Fetch(chart()),
-                        List(drawnStep())
-                      ),
-                      `type` = SlotType.TextRaw
+            slots = Slots.nodes(
+              Map(
+                "children" -> List(
+                  LayoutNode.Component(
+                    card = "chart",
+                    slots = Slots.values(
+                      Map(
+                        "chart" -> TemplateSlot(
+                          ValueExpr(
+                            Value.Fetch(chart()),
+                            List(drawnStep())
+                          ),
+                          `type` = SlotType.TextRaw
+                        )
+                      )
                     )
                   )
                 )
@@ -377,7 +390,7 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
     def panel(w: String) =
       LayoutNode.Component(
         card = "chart",
-        templateSlots = Map("chart" -> chartSource(w))
+        slots = Slots.values(Map("chart" -> chartSource(w)))
       )
     def host(id: String) = LayoutNode.Component(card = "host", id = Some(id))
     def baked(into: String, idx: Int, w: String, activation: Activation) =
@@ -407,7 +420,7 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
         ),
         card = LayoutNode.Component(
           card = "col",
-          regions = LayoutNode.kids(
+          slots = Slots.kids(
             host("tabs").copy(vars = declared("tab" -> "0")),
             host("branch")
           )
@@ -447,7 +460,7 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
         Map("chart" -> TestCard("""<div id="{{id}}">{{{chart}}}</div>""")),
       card = LayoutNode.Component(
         card = "chart",
-        templateSlots = Map("chart" -> src)
+        slots = Slots.values(Map("chart" -> src))
       )
     )
 
@@ -468,8 +481,10 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
         cards = Map("chart" -> TestCard(s"""<div id="{{id}}">$hole</div>""")),
         card = LayoutNode.Component(
           card = "chart",
-          templateSlots = Map(
-            "chart" -> chartSource()
+          slots = Slots.values(
+            Map(
+              "chart" -> chartSource()
+            )
           )
         )
       ).validate()
