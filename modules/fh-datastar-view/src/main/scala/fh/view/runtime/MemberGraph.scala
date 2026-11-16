@@ -211,9 +211,9 @@ private[runtime] final class MemberGraph(
     /** Every member each candidate can be, one per case, built once: a snapshot
       * only picks which.
       */
-    private val cases: Map[String, (Option[Evaluator.Run], Vector[Member])] =
+    private val cases: Map[String, (Ready.MemberChoice, Vector[Member])] =
       src.s.members.map { case (e, m) =>
-        e -> (m.guard.map(_.run) -> m.nodes.zipWithIndex.map { (node, i) =>
+        e -> (m -> m.nodes.zipWithIndex.map { (node, i) =>
           member(this, e, node, i)
         })
       }
@@ -231,12 +231,11 @@ private[runtime] final class MemberGraph(
         fetched: Shared.Fetched
     ): Option[Member] = {
       val subject = states.getOrElse(entityId, null)
-      for {
-        (guard, members) <- cases.get(entityId)
-        picked <- guard.fold(Some(0))(g =>
-          src.s.members(entityId).pick(g(subject, states, fetched))
-        )
-      } yield members(picked)
+      cases.get(entityId).flatMap { (m, members) =>
+        val picked =
+          m.guard.fold(0)(g => m.pick(g.run(subject, states, fetched)))
+        Option.when(picked >= 0)(members(picked))
+      }
     }
 
     def materialise(

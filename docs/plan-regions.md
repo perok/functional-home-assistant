@@ -21,7 +21,8 @@ slots, a bool signal slot and a fetch window's `Choice.Chosen.by`, but a bake me
 it as `Activation.Var`.
 
 **State:** direction agreed in chat (2026-11-10); the prework is on main (below); R1 is built
-(`slot-classes`), R2 onward not. The opening describes the shape before R1.
+(`slot-classes`), R2 is built (`set-fill`), R3 onward not. The opening describes the shape before
+R1.
 
 ## What this builds on
 
@@ -221,9 +222,15 @@ each refusal below is a stopgap, not a rule to keep:
 
 - `.of(set)` places the members straight into its card's root, with no wrapper of its own. A
   member is its card's root, so `tag = "ul"` over members with `tag = "li"` is valid HTML.
-- `.build()` is sugar for a `group` with `fh-group` among its classes: one slot, filled with
-  `.of(set)`, and today's bytes (`<div class="fh-cell fh-group" id="…">`), so it keeps working for a
-  set among fixed siblings.
+- `.build()` is sugar for a `group` with `fh-group` among its classes: its one slot is the
+  default `children`, filled with `.of(set)` (`.fill()` is the unbuilt chain's `Fill.Set`), and
+  today's bytes (`<div class="fh-cell fh-group" id="…">`), so it keeps working for a set among
+  fixed siblings. A group's card name is derived from its tag, classes and `layoutCell`
+  (`group_<tag>_<classes>_<layoutCell>`), one template per root it writes.
+- Compiled, a set is `Ready.Component.set: Option[SetFill]`, each member a `MemberChoice` picked
+  by the raw value its guard reads (a `Lit.key` string per decide cost `publishSetNamedGuard` 17%
+  more allocation). `validate` refuses a member that is itself a set (its root and its inner set
+  would share an id), and an `otherwise` on a member.
 - A wrapper of the author's own is any card whose template is one nodes slot.
 - **A set of areas or floors** (#704) is a `Fill.Set` with its `of`: its members render like any
   other, keyed by the area's id; its guards read no member, so only the entities they name move
@@ -362,7 +369,10 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      which nothing places yet. Wire snapshots changed once; goldens byte-identical.
    - Completion on a nodes-slot handle works at expression level only (inside `slots { … }` it
      returns nothing; `docs/pkl-editor-support.md`).
-2. **R2, a set is a fill.**
+2. **R2, a set is a fill**, branch `set-fill` on `slot-classes`. **Built.** Goldens
+   byte-identical; set benches within 1% allocation of R1. `Choice` for nodes is documented in
+   ADR 0033, `IndexOfTrue` in 0035. R4 can drop `MemberGraph`'s special case for set components
+   in `Member.subtree` and `setsIn`, there only because a nested set's root id is `innerSetId`.
    - `Fill.Set` with members as `Choice[LayoutNode]` and its `of`, `IndexOfTrue`, `.of(set)`, the
      `group` card; `SetNode` goes from Pkl, the wire, `Ready`, `Validate` and `Renderer`, and
      `groupOpen` goes.

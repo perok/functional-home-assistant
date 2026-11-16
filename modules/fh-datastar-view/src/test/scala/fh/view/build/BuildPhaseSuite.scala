@@ -11,14 +11,18 @@ import fh.view.model.{
   Part,
   Activation,
   CardDef,
+  Case,
   Cell,
+  Choice,
   Dashboard,
+  Fill,
   IdKind,
   LayoutNode,
   Lit,
   Op,
   Region,
   SignalBind,
+  Slot,
   SlotType,
   Step,
   Value,
@@ -346,6 +350,62 @@ class BuildPhaseSuite extends munit.FunSuite {
       card = Sets.node(cell = Some(cell))
     ).validate()
     assertEquals(errs, Nil)
+  }
+
+  test(
+    "validate refuses a set beside other content, a set as a member, an otherwise"
+  ) {
+    val tile = LayoutNode.Component("card")
+    val beside = Dashboard(
+      cards = Map(
+        Sets.Card -> CardDef(
+          "<div{{{cell}}}>{{{children}}}{{{more}}}</div>",
+          regions = Map(Sets.SlotName -> Region(), "more" -> Region())
+        ),
+        "card" -> TestCard("<i></i>")
+      ),
+      card = Sets.node(
+        List("light.a"),
+        Map("light.a" -> Sets.Member(List(Sets.Clause(None, tile))))
+      )
+    ).validate()
+    assert(beside.exists(_.contains("not its card's whole template")), beside)
+
+    val inner = Sets.node(List("light.b"))
+    val nested = Dashboard(
+      cards = Sets.withCard(Map("card" -> TestCard("<i></i>"))),
+      card = Sets.node(
+        List("light.a"),
+        Map("light.a" -> Sets.Member(List(Sets.Clause(None, inner))))
+      )
+    ).validate()
+    assert(nested.exists(_.contains("is itself a set")), nested)
+
+    val on = ValueExpr(
+      Value.Entity(Some("light.a")),
+      List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("on"))))
+    )
+    val otherwise = Dashboard(
+      cards = Sets.withCard(Map("card" -> TestCard("<i></i>"))),
+      card = LayoutNode.Component(
+        Sets.Card,
+        Map(
+          Sets.SlotName -> Slot.Nodes(
+            Fill.Set(
+              List("light.a"),
+              Map(
+                "light.a" -> Choice.Chosen(
+                  on,
+                  List(Case(Lit.Bool(true), tile)),
+                  Some(tile)
+                )
+              )
+            )
+          )
+        )
+      )
+    ).validate()
+    assert(otherwise.exists(_.contains("has an otherwise")), otherwise)
   }
 
   test("validate refuses a literal cell style, which nothing would write") {

@@ -81,17 +81,23 @@ object Ready:
   )
 
   /** What renders for one candidate: `guard` read for it, and the case it reads
-    * as, else nothing. `byKey` is each case's key ([[Lit.key]]) to its index in
-    * `nodes`; an unguarded member is its one node.
+    * as, else nothing. `byKey` is each case's key as the evaluator reads it
+    * ([[Lit.raw]]) to its index in `nodes`; an unguarded member is its one
+    * node.
     */
   final case class MemberChoice(
       guard: Option[Condition],
       nodes: Vector[Component],
-      byKey: Map[String, Int]
+      byKey: Map[Any, Int]
   ):
-    /** The index of the node `read` picks. */
-    def pick(read: Any): Option[Int] =
-      Choice.keyOf(read).flatMap(byKey.get)
+    /** The index of the node `read` picks, else -1. Keyed by the raw value, not
+      * [[Lit.key]]'s string: a member is decided on every change its guard
+      * reads, and the string cost `publishSetNamedGuard` 17% more allocation.
+      */
+    def pick(read: Any): Int = read match
+      case i: java.lang.Integer =>
+        byKey.getOrElse(java.lang.Long.valueOf(i.longValue), -1)
+      case _ => byKey.getOrElse(read, -1)
 
   /** A guard or a state surface's condition, and the entities and fetches it
     * reads.
@@ -305,7 +311,7 @@ object Ready:
           MemberChoice(
             Some(guard),
             nodes.toVector,
-            cases.zipWithIndex.map((k, i) => Lit.key(k.is) -> i).toMap
+            cases.zipWithIndex.map((k, i) => k.is.raw -> i).toMap
           )
         )
     def surface(s: fh.view.model.Surface): Built[Surface] =

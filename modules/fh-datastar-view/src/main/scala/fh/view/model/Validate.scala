@@ -904,10 +904,12 @@ private[model] object Validate:
               "no state — name the entity a guard or an order term reads"
           )
           .toList
+        // Such a member's root and its inner set would share one id
+        // (`innerSetId(member, clause, Nil)`).
         val bare = s.nodes.collect {
           case n: LayoutNode.Component if n.set.isDefined =>
-            s"$setId: a member is a set, which has no element of its own to " +
-              "be a member — put it in a card"
+            s"$setId: a member is itself a set — put the set inside a card " +
+              "the member renders"
         }.distinct
         val inside = s.clauseNodes.flatMap { (_, i, n) =>
           walk(
