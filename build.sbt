@@ -5,7 +5,7 @@ val http4sVersion = "0.23.37"
 // log4cats already arrives transitively (http4s logs through it); named here
 // so the version the app logs on is chosen rather than inherited.
 val log4catsVersion = "2.8.0"
-val otel4sVersion = "1.1.0"
+val otel4sVersion = "1.2.0"
 val hedgehodVersion = "0.15.0"
 // Pinned to what otel4s-oteljava resolves, so the exporter cannot drift from
 // the SDK it plugs into. otel4s' own SDK modules are NOT used: they moved to a
