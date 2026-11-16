@@ -121,7 +121,8 @@ slots {
   one slot, taking a tag, classes and `layoutCell`. Tabs, the slider's controls and the select
   menu build one internally; their authors write what they write today.
 - The If's root hosts its branch (`classes = "fh-ifhost"; template = "\(branch)"`): one element
-  where today there are two. `.fh-cell:has(>.fh-ifhost:empty)` becomes `.fh-ifhost:empty`.
+  where today there are two. `.fh-cell:has(>.fh-ifhost:empty)` becomes `.fh-ifhost:empty`. From
+  R4: until the pick, a baked branch is patched into an inner `#<node>_<slot>` element.
 - Nothing about hosts reaches the wire, and "host" leaves the API: it stays the runtime's word for
   the element a patch goes into (`docs/terminology.md`).
 
@@ -384,10 +385,11 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    - `nodeMod.iff`/`elif`/`else`, `nodeMod.match` over a variable, `c.iff(…).elif`; Tabs, If, select
      and the slider's controls on it, the three that host beside other content through a `group`.
    - The builders write today's bake fields (`inlineSurfaces`, `bakeInto`/`bakeAs`/`bakeIndex`,
-     the baked marker), each choice baked into its card's root, so the runtime is untouched and no
-     Scala is written for R4 to delete.
-   - Ids move: the If loses a `div`, and everything in a panel sits one path step deeper, under its
-     `group`. The view tests are the check, and `dashboardGoldensVs` shows nothing but ids moved. A
+     the baked marker), so the runtime is untouched and no Scala is written for R4 to delete.
+     A baked branch is patched into `#<bakeInto>_<bakeAs>` (`Surface.hostId`), never a card's
+     root, so each choice keeps today's inner host element (`<div class="fh-ifhost"
+     id="{{hostId}}">`); the root hosting it is R4's (agreed 2026-11-16).
+   - Ids move: everything in a panel sits one path step deeper, under its `group`. The view tests are the check, and `dashboardGoldensVs` shows nothing but ids moved. A
      URL naming a variable declared inside a panel (`v.<id>.x`) stops matching.
 4. **R4, one runtime path.**
    - `Fill.Nodes(Chosen)` replaces the bake fields on the wire, `inlineSurfaces` staying only for
@@ -409,6 +411,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        the members that changed and no set repaint (`FragmentLogSuite`'s refill assertions are
        rewritten to this);
      - A → B → A sends A whole.
+   - A live fill is hosted at its card's root (§2): the inner host elements R3 kept go, the If
+     loses a `div` and `.fh-cell:has(>.fh-ifhost:empty)` becomes `.fh-ifhost:empty`.
    - Ids move again; the same normalised comparison, then the goldens are regenerated.
    - Bench everything R2 measured, `publishSetOrdered` also with many sessions, and the size of
      one session's `holds`. Then look at `validated`'s allocation: R2 left it ~6% above R1 on the
