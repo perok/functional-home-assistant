@@ -58,6 +58,40 @@ class DiagnosticsSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("every memory.stat key is reported, so a gap in current can be placed") {
+    // The Pi's current was 300 MB above anon + file; only the rest of the
+    // stat file can say whether that is kernel, sock, shmem or swap.
+    val dir = cgroupDir(
+      "900",
+      Some("max"),
+      "anon 300\nfile 200\nkernel 250\nsock 90\nshmem 60\n"
+    )
+    Diagnostics.report(dir).map { json =>
+      val stat = field(json, "container", "stat")
+      List("anon" -> 300L, "file" -> 200L, "kernel" -> 250L, "sock" -> 90L)
+        .foreach((k, v) => assertEquals(field(stat, k), Json.fromLong(v), k))
+      assertEquals(field(stat, "shmem"), Json.fromLong(60L))
+    }
+  }
+
+  test("the process half splits its own RSS into anon and file, in bytes") {
+    val status =
+      "Name:\tjava\nVmRSS:\t  745808 kB\nRssAnon:\t  664984 kB\n" +
+        "RssFile:\t   80824 kB\nRssShmem:\t       0 kB\nThreads:\t28\n"
+    val json = Diagnostics.parseStatus(status)
+    assertEquals(field(json, "VmRSS"), Json.fromLong(745808L * 1024))
+    assertEquals(field(json, "RssAnon"), Json.fromLong(664984L * 1024))
+    assertEquals(field(json, "RssFile"), Json.fromLong(80824L * 1024))
+    assertEquals(field(json, "Threads"), Json.Null)
+  }
+
+  test("on Linux the report carries the process's own RSS") {
+    Diagnostics.report(os.temp.dir() / "absent").map { json =>
+      if (os.exists(os.root / "proc" / "self" / "status"))
+        assert(field(json, "process", "VmRSS").asNumber.isDefined, s"$json")
+    }
+  }
+
   test("a missing memory.max is absent, not a fabricated limit") {
     val dir = cgroupDir("500", None, "anon 300\nfile 200\n")
     Diagnostics
