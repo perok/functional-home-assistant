@@ -688,11 +688,11 @@ def unauthorizedHelp(what: String, status: Status, hadToken: Boolean): String =
   if !hadToken then
     s"""$what failed — the instance requires a Home Assistant admin ($status).
        |Create a long-lived access token in Home Assistant (Profile -> Security)
-       |and save it as:
-       |  $userSecret   {"token": "<the token>"}""".stripMargin
+       |and run `fh login`: it asks for the token and saves it as $userSecret.""".stripMargin
   else s"""$what failed — the instance did not accept this token ($status).
        |The token in $userSecret must belong to a Home Assistant ADMIN, and must
-       |not have been revoked (Profile -> Security).""".stripMargin
+       |not have been revoked (Profile -> Security). Run `fh login` again with
+       |an admin's token.""".stripMargin
 
 /** Send one body to the instance, failing with the response status (and its
   * body, which is where the server puts the validation message a pushing author
