@@ -390,11 +390,15 @@ object FhScriptSuite extends SimpleIOSuite:
       fh.unauthorizedHelp("push", org.http4s.Status.Unauthorized, false)
     val wrongUser =
       fh.unauthorizedHelp("push", org.http4s.Status.Forbidden, true)
+    // Both name the command that writes the credential (#348), so neither
+    // invites a hand-written token file.
     expect.all(
       clue(noToken).contains(".fh/user_secret.json"),
       noToken.contains("Profile -> Security"),
+      noToken.contains("fh login"),
       clue(wrongUser).contains("did not accept this token"),
-      wrongUser.contains("ADMIN")
+      wrongUser.contains("ADMIN"),
+      wrongUser.contains("fh login")
     )
   }
 
