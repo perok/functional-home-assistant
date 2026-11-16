@@ -73,10 +73,10 @@ above is not reachable by accident. This is where nearly all the value is, and
 it is a genuine impossibility rather than a convention.
 
 **The mint is a guardrail, not a proof.** `SetId.of` asks for the
-`LayoutNode.SetNode` the id names as evidence, which narrows minting to callers
-that have a real reason to be minting — all four production sites hold one
-already, so it costs nothing. But `SetNode` is an ordinary case class with
-all-default parameters, so anything in `fh.view` can fabricate one; `TestIds`
+`Fill.Set` (or its compiled `Ready.SetFill`) the id names as evidence, which narrows
+minting to callers that have a real reason to be minting — all four production
+sites hold one already, so it costs nothing. But `Fill.Set` is an ordinary case
+class with all-default parameters, so anything in `fh.view` can fabricate one; `TestIds`
 does, deliberately. Closing that would mean no public constructor here at all,
 with minting folded into `MemberGraph`. Worth doing only if a wrong mint ever
 actually happens.

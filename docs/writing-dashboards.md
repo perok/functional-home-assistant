@@ -131,8 +131,11 @@ q.from(dump.lights.all)
   ```
 - `.orderBy(q.asc(q.prop("friendly_name")))` orders them and `.limit(n)` caps
   how many show.
-- `.build()` ends the chain. The result is a card like any other, so
-  `.fullWidth()` and the rest apply.
+- `.build()` ends the chain. The result is a card like any other (a `group`
+  holding the members), so `.fullWidth()` and `.cellClassWhen(…)` and the rest
+  apply. Your own card whose whole template is one slot takes the chain
+  without `.build()`: `members.of(q.from(…).render(…))`
+  ([writing components](writing-components.md)).
 
 When a member changes, only its own card is redrawn.
 

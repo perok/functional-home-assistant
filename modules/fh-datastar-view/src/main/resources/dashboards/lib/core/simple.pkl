@@ -66,6 +66,12 @@ class AnyOfStep extends Simple {
   kind: "AnyOf" = "AnyOf"
 }
 
+/// The position of the first bool of a list that holds, and no value when none
+/// does: a chain of conditions as one key a choice picks its case by.
+class IndexOfTrueStep extends Simple {
+  kind: "IndexOfTrue" = "IndexOfTrue"
+}
+
 /// The backend's `Op` decoder accepts exactly these.
 typealias CompareOp = "eq"|"ne"|"lt"|"lte"|"gt"|"gte"
 

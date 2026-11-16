@@ -30,7 +30,7 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.traverse.*
 import io.circe.Json
-import fh.view.testkit.Slots
+import fh.view.testkit.{Sets, Slots}
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -1954,7 +1954,7 @@ object RenderBench {
     * only on the slot — which is what keeps [[RenderBench.page]] and
     * [[RenderBench.pageSignals]] a comparison of one variable.
     */
-  def cards: Map[String, CardDef] = Map(
+  def cards: Map[String, CardDef] = Sets.cards ++ Map(
     "entity" -> TestCard(
       template = """<div class="fh-entity {{cls}}">""" +
         """<i class="fh-icon">{{icon}}</i>""" +
@@ -2161,13 +2161,13 @@ object RenderBench {
     LayoutNode.Component(
       "col",
       slots = Slots.kids(
-        LayoutNode.SetNode(
+        Sets.node(
           candidates = List.tabulate(leaves)(entityId),
           orderBy = orderBy,
           members = List
             .tabulate(leaves)(i =>
-              entityId(i) -> LayoutNode.SetMember(
-                List(LayoutNode.SetClause(guard, leaf(signals)(i)))
+              entityId(i) -> Sets.Member(
+                List(Sets.Clause(guard, leaf(signals)(i)))
               )
             )
             .toMap
@@ -2189,13 +2189,13 @@ object RenderBench {
     LayoutNode.Component(
       "col",
       slots = Slots.kids(
-        LayoutNode.SetNode(
+        Sets.node(
           candidates = List.tabulate(leaves)(entityId),
           members = List
             .tabulate(leaves)(i =>
-              entityId(i) -> LayoutNode.SetMember(
+              entityId(i) -> Sets.Member(
                 List(
-                  LayoutNode.SetClause(node =
+                  Sets.Clause(node =
                     LayoutNode.Component(
                       "col",
                       slots = Slots.kids(leaf(false)(i), leaf(false)(i))
@@ -2221,19 +2221,19 @@ object RenderBench {
     LayoutNode.Component(
       "col",
       slots = Slots.kids(
-        LayoutNode.SetNode(
+        Sets.node(
           candidates = List.tabulate(leaves)(entityId),
           members = List
             .tabulate(leaves)(i =>
-              entityId(i) -> LayoutNode.SetMember(
+              entityId(i) -> Sets.Member(
                 List(
-                  LayoutNode.SetClause(
+                  Sets.Clause(
                     when = Some(
                       Conds.cmp("state", Op.Eq, Json.fromString("on"))
                     ),
                     node = tile(i)
                   ),
-                  LayoutNode.SetClause(node = tile(i))
+                  Sets.Clause(node = tile(i))
                 )
               )
             )
@@ -2253,12 +2253,12 @@ object RenderBench {
           .grouped(leaves / ManySets)
           .toList
           .map(is =>
-            LayoutNode.SetNode(
+            Sets.node(
               candidates = is.map(entityId),
               members = is
                 .map(i =>
-                  entityId(i) -> LayoutNode.SetMember(
-                    List(LayoutNode.SetClause(node = leaf(true)(i)))
+                  entityId(i) -> Sets.Member(
+                    List(Sets.Clause(node = leaf(true)(i)))
                   )
                 )
                 .toMap
@@ -2284,13 +2284,13 @@ object RenderBench {
       LayoutNode.Component(
         "col",
         slots = Slots.kids(
-          LayoutNode.SetNode(
+          Sets.node(
             candidates = List.tabulate(leaves)(entityId),
             members = List
               .tabulate(leaves)(i =>
-                entityId(i) -> LayoutNode.SetMember(
+                entityId(i) -> Sets.Member(
                   List(
-                    LayoutNode.SetClause(node =
+                    Sets.Clause(node =
                       LayoutNode.Component(
                         "col",
                         slots = Slots.kids(

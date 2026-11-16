@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -32,13 +34,13 @@ class ResumePatchesSuite extends munit.FunSuite {
   // One set at the root, so members are `c_<sanitized entity>`.
   private val renderer = Renderer.create(
     Dashboard(
-      cards = Map("dot" -> TestCard("<span>{{state}}</span>")),
-      card = LayoutNode.SetNode(
+      cards = Sets.cards ++ Map("dot" -> TestCard("<span>{{state}}</span>")),
+      card = Sets.node(
         candidates = List("light.a", "light.b", "light.c", "light.d"),
         members = List("light.a", "light.b", "light.c", "light.d").map { id =>
-          id -> LayoutNode.SetMember(
+          id -> Sets.Member(
             List(
-              LayoutNode.SetClause(
+              Sets.Clause(
                 Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode.Component(
                   "dot",

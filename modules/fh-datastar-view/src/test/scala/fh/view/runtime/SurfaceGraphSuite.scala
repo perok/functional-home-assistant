@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.Conds
@@ -74,7 +76,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
   private object compile:
     private val walk = Ready.Compile(Evaluator.Scope(""))
     def surface(s: Surface): Ready.Surface = Conds.compiled(walk.surface(s))
-    def set(s: LayoutNode.SetNode): Ready.SetNode = Conds.compiled(walk.set(s))
+    def set(s: LayoutNode.Component): Ready.SetFill =
+      Conds.compiled(walk.node(s)).set.get
 
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap
@@ -377,12 +380,12 @@ class SurfaceGraphSuite extends munit.FunSuite {
   test("rootOf answers for the static index first, then the member graph") {
     // A materialised member and a nested set container, which the static index
     // cannot place, both leaked a surface's patches to every client before.
-    val setNode = LayoutNode.SetNode(
+    val setNode = Sets.node(
       candidates = List("light.a"),
       members = Map(
-        "light.a" -> LayoutNode.SetMember(
+        "light.a" -> Sets.Member(
           List(
-            LayoutNode.SetClause(
+            Sets.Clause(
               None,
               LayoutNode.Component(
                 "tile",
@@ -408,7 +411,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
       member.id,
       0,
       List(LayoutNode.Step(LayoutNode.DefaultRegion, 0)),
-      nestedSet
+      Sets.of(nestedSet).get
     )
 
     assertEquals(g.rootOf("c"), Some(""), "static index")
@@ -419,12 +422,12 @@ class SurfaceGraphSuite extends munit.FunSuite {
 
   test("rootOf places a member that is not present") {
     // A departing member's patch names it after the frame that removed it.
-    val setNode = LayoutNode.SetNode(
+    val setNode = Sets.node(
       candidates = List("light.a"),
       members = Map(
-        "light.a" -> LayoutNode.SetMember(
+        "light.a" -> Sets.Member(
           List(
-            LayoutNode.SetClause(
+            Sets.Clause(
               Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
               LayoutNode.Component("tile")
             )
@@ -446,7 +449,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
   }
 
-  private def nestedSet = LayoutNode.SetNode(candidates = List("light.b"))
+  private def nestedSet = Sets.node(candidates = List("light.b"))
 
   test("a committed selection round-trips through the state that reads it") {
     // Whatever `committedSelection` says after a swap must be what `openPopup`

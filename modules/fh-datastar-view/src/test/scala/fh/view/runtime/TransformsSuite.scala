@@ -158,7 +158,6 @@ class TransformsSuite extends munit.CatsEffectSuite {
             c.valueSlots("v").expr.steps,
             List(Step.Suffix(Value.Literal(Lit.Text(" W"))))
           )
-        case other => fail(s"unexpected node: $other")
       }
       assertEquals(
         Conds.run(
@@ -424,7 +423,6 @@ class TransformsSuite extends munit.CatsEffectSuite {
       .fold(errs => fail(errs.mkString("\n")), _.ready.card) match
       case c: Ready.Component =>
         Steps.text(c.slots("v").run(null, Map.empty, Evaluator.unanswered))
-      case other => fail(s"not a component: $other")
 
   private def whole(n: Long) = ValueExpr(Value.Literal(Lit.Whole(n)))
 

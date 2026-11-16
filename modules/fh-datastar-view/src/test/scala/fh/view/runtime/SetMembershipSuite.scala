@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -27,7 +29,7 @@ import io.circe.Json
 /** Candidate sets on the recording pass (ADR 0003): a member switching case,
   * the churn rule choosing between a per-member delta and a whole-host fill,
   * and what reaches a viewer by what it has open. Arrival, departure and a tick
-  * in place are `SetNodeSuite`'s and `DashboardBehaviourSuite`'s.
+  * in place are `SetSuite`'s and `DashboardBehaviourSuite`'s.
   */
 class SetMembershipSuite extends ServerHarness {
 
@@ -47,7 +49,7 @@ class SetMembershipSuite extends ServerHarness {
     */
 
   private def caseDash = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "bright" -> TestCard("<b>{{state}}</b>"),
       "dim" -> TestCard("<i>{{state}}</i>")
     ),
@@ -71,7 +73,7 @@ class SetMembershipSuite extends ServerHarness {
   /** A case binding an entity the group's query does not match. */
 
   private def crossDash = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "dot" -> TestCard(
         "<span>{{state}}/{{extra}}</span>"
       )
@@ -98,7 +100,7 @@ class SetMembershipSuite extends ServerHarness {
     */
 
   private def literalCaseDash = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "live" -> TestCard("<b>{{state}}</b>"),
       "plain" -> TestCard("<i>{{label}}</i>")
     ),
@@ -267,7 +269,7 @@ class SetMembershipSuite extends ServerHarness {
     * the set.
     */
   private def surfaceDynDash = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
@@ -335,7 +337,7 @@ class SetMembershipSuite extends ServerHarness {
     * client. `MemberGraphSuite` pins `Member.root`; this pins the property.
     */
   private def nestedSurfaceDash = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
@@ -345,12 +347,12 @@ class SetMembershipSuite extends ServerHarness {
     card = LayoutNode.Component("col"),
     surfaces = Map(
       "det" -> Surface(
-        LayoutNode.SetNode(
+        Sets.node(
           candidates = List("area.stue"),
           members = Map(
-            "area.stue" -> LayoutNode.SetMember(
+            "area.stue" -> Sets.Member(
               List(
-                LayoutNode.SetClause(
+                Sets.Clause(
                   None,
                   LayoutNode.Component(
                     "col",

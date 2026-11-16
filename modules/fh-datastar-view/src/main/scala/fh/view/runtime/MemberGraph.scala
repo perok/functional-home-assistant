@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import fh.view.model.{
   Fetching,
+  Fill,
   IdKind,
   LayoutNode,
   MemberId,
@@ -17,19 +18,19 @@ import fh.view.model.{
   */
 private[runtime] object Member {
 
-  /** The whole subtree's entities, the set membership index's edges. */
+  /** The whole subtree's entities, the set membership index's edges. A nested
+    * set's members patch themselves, so its root has none of theirs: descending
+    * would wake the whole tile on any bulb inside it.
+    */
   def entitiesOf(node: Ready.Node): List[String] = node match {
     case c: Ready.Component =>
       (c.liveEntities ++ c.allChildren.flatMap(entitiesOf)).distinct
-    // Not into a nested set, whose members patch themselves; descending would
-    // wake the whole tile on any bulb inside it.
-    case _ => Nil
   }
 
   /** A member's components under the ids the render walk mints below its own
-    * (`LayoutNode.childId`), each with its parent. Not into a nested set, whose
-    * members are its own. No prefix: `validate` refuses an authored id in a
-    * clause.
+    * (`LayoutNode.childId`), each with its parent. Not a nested set's root,
+    * which is minted by [[MemberGraph.innerSetId]], nor its members, which are
+    * its own. No prefix: `validate` refuses an authored id in a clause.
     */
   def subtree(
       id: NodeId,
@@ -41,7 +42,7 @@ private[runtime] object Member {
         parent: Option[NodeId]
     ): List[(NodeId, Ready.Component, Option[NodeId])] =
       (at, n, parent) :: LayoutNode.steps(n.regions).flatMap {
-        case (step, c: Ready.Component) =>
+        case (step, c: Ready.Component) if c.set.isEmpty =>
           walk(c, LayoutNode.childId("", at, step, c), Some(at))
         case _ => Nil
       }
@@ -125,18 +126,18 @@ private object GroupMembers {
   *   static node id -> its layout tree (`""` for the main page).
   */
 private[runtime] final class MemberGraph(
-    setNodes: Map[NodeId, Ready.SetNode],
+    setNodes: Map[NodeId, Ready.SetFill],
     rootOfIndexed: Map[NodeId, String]
 ) {
 
-  private case class MemberSource(s: Ready.SetNode) {
+  private case class MemberSource(s: Ready.SetFill) {
 
     private val position: Map[String, Int] = s.candidates.zipWithIndex.toMap
 
-    /** What its clauses and order read: the set's decision and each member's.
+    /** What its guards and order read: the set's decision and each member's.
       */
     val reads: Set[SlotRead] =
-      s.members.values.flatMap(_.clauses).flatMap(_.when).flatMap(_.reads).toSet
+      s.members.values.flatMap(_.guard).flatMap(_.reads).toSet
         ++ s.order.fold(Set.empty[SlotRead])(_.reads)
 
     /** entity -> the candidates it can decide, so a frame costs its changes,
@@ -148,8 +149,7 @@ private[runtime] final class MemberGraph(
           val named = s.members
             .get(cid)
             .toList
-            .flatMap(_.clauses)
-            .flatMap(_.when.toList)
+            .flatMap(_.guard)
             .flatMap(_.entities)
           // An area or a floor has no state, so only its guard moves it.
           val own = if (s.of == IdKind.Entity) List(cid) else Nil
@@ -196,7 +196,7 @@ private[runtime] final class MemberGraph(
     * page, else the surface its patches may reach.
     *
     * Not a case class: a frame dedups these, and structural hashing walks the
-    * whole `SetNode` (`publishSet` 11 µs -> 1.4 ms).
+    * whole `SetFill` (`publishSet` 11 µs -> 1.4 ms).
     */
   private final class Source(
       val at: NodeId,
@@ -208,28 +208,22 @@ private[runtime] final class MemberGraph(
   ) {
     val gid: SetId = src.setId(at)
 
-    /** Every member each candidate can be, one per clause, built once: a
-      * snapshot only picks which. `None` for a bare set clause, which has no
-      * rendering to be; a set nested inside a component clause is the supported
-      * shape.
+    /** Every member each candidate can be, one per case, built once: a snapshot
+      * only picks which.
       */
-    private val clauses
-        : Map[String, List[(Option[Evaluator.Run], Option[Member])]] =
+    private val cases: Map[String, (Ready.MemberChoice, Vector[Member])] =
       src.s.members.map { case (e, m) =>
-        e -> m.clauses.zipWithIndex.map { case (c, i) =>
-          c.when.map(_.run) -> (c.node match {
-            case comp: Ready.Component => Some(member(this, e, comp, i))
-            case _                     => None
-          })
-        }
+        e -> (m -> m.nodes.zipWithIndex.map { (node, i) =>
+          member(this, e, node, i)
+        })
       }
 
-    /** Every member `entityId` can be, one per component clause. */
+    /** Every member `entityId` can be, one per case. */
     def clauseMembers(entityId: String): List[Member] =
-      clauses.getOrElse(entityId, Nil).flatMap(_._2)
+      cases.get(entityId).toList.flatMap(_._2)
 
     /** An entity HA does not know is evaluated against an empty state, so a
-      * clause guarded only on another entity still decides.
+      * guard on another entity alone still decides.
       */
     def memberOf(
         entityId: String,
@@ -237,14 +231,11 @@ private[runtime] final class MemberGraph(
         fetched: Shared.Fetched
     ): Option[Member] = {
       val subject = states.getOrElse(entityId, null)
-      clauses
-        .get(entityId)
-        .flatMap(
-          _.find(
-            _._1.forall(g => Evaluator.holds(g(subject, states, fetched)))
-          )
-        )
-        .flatMap(_._2)
+      cases.get(entityId).flatMap { (m, members) =>
+        val picked =
+          m.guard.fold(0)(g => m.pick(g.run(subject, states, fetched)))
+        Option.when(picked >= 0)(members(picked))
+      }
     }
 
     def materialise(
@@ -289,7 +280,7 @@ private[runtime] final class MemberGraph(
       member: MemberId,
       clauseIdx: Int,
       path: List[LayoutNode.Step],
-      set: LayoutNode.SetNode | Ready.SetNode
+      set: Fill.Set | Ready.SetFill
   ): SetId =
     SetId.of(LayoutNode.innerSetId(member, clauseIdx, path), set)
 
@@ -301,15 +292,14 @@ private[runtime] final class MemberGraph(
     def nested(outer: Source): List[Source] =
       for {
         candidate <- outer.src.s.candidates
-        (clause, ci) <- outer.src.s.members
+        (node, ci) <- outer.src.s.members
           .get(candidate)
           .toList
-          .flatMap(_.clauses)
-          .zipWithIndex
+          .flatMap(_.nodes.zipWithIndex)
         found <- setsIn(
           memberId(outer.gid, MemberKey.Entity(candidate)),
           ci,
-          clause.node,
+          node,
           Nil,
           outer.root
         )
@@ -323,19 +313,22 @@ private[runtime] final class MemberGraph(
         root: String
     ): List[Source] = node match {
       case c: Ready.Component =>
-        LayoutNode.steps(c.regions).flatMap { case (step, child) =>
-          setsIn(member, clauseIdx, child, path :+ step, root)
+        c.set match {
+          case Some(inner) =>
+            val id = innerSetId(member, clauseIdx, path, inner)
+            val found = Source(
+              id,
+              MemberSource(inner),
+              Some(NodeId.derived(member)),
+              root,
+              clauseIdx
+            )
+            found :: nested(found)
+          case None =>
+            LayoutNode.steps(c.regions).flatMap { case (step, child) =>
+              setsIn(member, clauseIdx, child, path :+ step, root)
+            }
         }
-      case inner: Ready.SetNode =>
-        val id = innerSetId(member, clauseIdx, path, inner)
-        val found = Source(
-          id,
-          MemberSource(inner),
-          Some(NodeId.derived(member)),
-          root,
-          clauseIdx
-        )
-        found :: nested(found)
     }
 
     val roots = setNodes.toList.map { case (id, s) =>
@@ -524,7 +517,7 @@ private[runtime] final class MemberGraph(
   /** What a member may render, one node per clause. */
   def clauseNodesOf(member: NodeId): List[Ready.Node] =
     memberSlot.get(member).toList.flatMap { case (s, e) =>
-      s.src.s.members.get(e).toList.flatMap(_.clauses).map(_.node)
+      s.src.s.members.get(e).toList.flatMap(_.nodes)
     }
 
   /** The only way to get a [[SetId]] for an arbitrary id. Off [[sources]], not

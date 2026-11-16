@@ -127,7 +127,7 @@ the renderer runs where the viewer is.
 
 **A fragment is a node's OWN html, never the composed html.** The composed form welds a
 host to its children, which is what the leaf/structure split exists to prevent (ADR 0008).
-STRUCTURAL nodes — any card holding regions, and a set root — are neither log keys nor
+STRUCTURAL nodes — any card holding regions, a set's root among them — are neither log keys nor
 patch targets; what they hold is addressable in its own right. It is also why structure is
 the one thing NOT cached: its bytes carry its children, so it has no sound key.
 

@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -161,7 +163,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def tabsRenderer: Renderer = Renderer.create(tabsDash)
 
   def tabsDash: Dashboard = {
-    val cards = Map(
+    val cards = Sets.cards ++ Map(
       "btn" ->
         TestCard("<button>{{label}}</button>"),
       "card" ->
@@ -245,7 +247,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   // No bake groups, so its live patches belong entirely to the shared pass.
   def liveLeafDash = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
@@ -279,12 +281,12 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def onSet(
       candidates: List[String],
       clauses: List[(Option[ValueExpr], String, Map[String, TemplateSlot])]
-  ): LayoutNode.SetNode =
-    LayoutNode.SetNode(
+  ): LayoutNode.Component =
+    Sets.node(
       candidates = candidates,
       members = candidates.map { id =>
-        id -> LayoutNode.SetMember(clauses.map { case (extra, card, slots) =>
-          LayoutNode.SetClause(
+        id -> Sets.Member(clauses.map { case (extra, card, slots) =>
+          Sets.Clause(
             when = Some(
               extra.fold[ValueExpr](isOn)(e => Conds.and(List(isOn, e)))
             ),
@@ -302,7 +304,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
   val isOn: ValueExpr = Conds.cmp("state", Op.Eq, Json.fromString("on"))
 
   def dynDash = Dashboard(
-    cards = Map("dot" -> TestCard("<span>{{state}}</span>")),
+    cards = Sets.cards ++ Map("dot" -> TestCard("<span>{{state}}</span>")),
     // Sorted, which the placement assertions were written against; a set places
     // by authored order.
     card = onSet(
@@ -377,7 +379,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       elseContent: LayoutNode = branchCard("sensor.b")
   ): Dashboard =
     Dashboard(
-      cards = ifCards,
+      cards = Sets.cards ++ ifCards,
       card = LayoutNode
         .Component(
           "col",
@@ -399,7 +401,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
   val BodyRepaint = "selector #dashboard"
 
   def mixedTabsDash = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())
@@ -687,7 +689,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
     } yield ()).timeout(30.seconds)
 
   def twoTabsDash = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Map("children" -> Region())

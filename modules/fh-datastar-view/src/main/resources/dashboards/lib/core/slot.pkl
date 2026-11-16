@@ -298,13 +298,23 @@ class NodesSlot extends AnySlot {
   kind: "Nodes" = "Nodes"
   /// The nodes written down.
   hidden nodes: Listing<nodeMod.LayoutNode> = new {}
+  /// The set filling it, in place of [[nodes]]: the card's whole template, the
+  /// members placed straight into its root.
+  hidden set: predMod.SetFill? = null
   /// Filled per viewer by a surface (a tab panel, an `If` branch) rather than
   /// by [[nodes]]; its host carries `id="{{hostId}}"`.
   hidden bakedBy: Boolean = false
   /// What the wire holds of it, [[nodes]] being a fixed fill.
-  fixed fill: NodesFill = new { choice = nodes }
+  fixed fill: NodesFill|predMod.SetFill = if (set != null) set!! else new NodesFill { choice = nodes }
+  /// Whether anything fills it.
+  hidden filled: Boolean = set != null || !nodes.isEmpty
 
-  function of(ns: Listing<nodeMod.LayoutNode>): this = (this) { nodes = ns }
+  /// Fixed nodes, or a set: `q.from(…).where(…).render(…)`, which is the one
+  /// fill of its card.
+  function of(f: Listing<nodeMod.LayoutNode>|predMod.TallyOf|predMod.SetFill): this =
+    if (f is predMod.TallyOf) of((f as predMod.TallyOf).fill())
+    else if (f is predMod.SetFill) (this) { set = f as predMod.SetFill }
+    else (this) { nodes = f as Listing<nodeMod.LayoutNode> }
   /// A slot a surface fills: its [[nodes]] are none.
   function baked(): this = (this) { bakedBy = true }
 

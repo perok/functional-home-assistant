@@ -75,10 +75,10 @@ object DashboardBuild {
 
   val ContentKey: String = "content"
 
-  // A candidate set's edges: it holds no slots.
+  // A set fill's edges: each member a node, or a choice of one by case.
   val MembersKey: String = "members"
-  val ClausesKey: String = "clauses"
-  val NodeKey: String = "node"
+  val CasesKey: String = "cases"
+  val ValueKey: String = "value"
 
   /** Stands for the node's own id, which only this pass can mint; the
     * `c.openPopup`/`c.tabs` builders embed it.
@@ -200,8 +200,8 @@ object DashboardBuild {
     (rs.map(_._1).toList, rs.toList.flatMap(_._2))
   }
 
-  /** A nodes slot's fixed nodes, under the slot's name as their region; a value
-    * slot, or a fill that is not a list, passes through.
+  /** A nodes slot's fixed nodes, under the slot's name as their region, or a
+    * set's members; a value slot passes through.
     */
   private def walkSlot(
       name: String,
@@ -213,60 +213,73 @@ object DashboardBuild {
     (for {
       obj <- slot.asObject
       fill <- obj(FillKey).flatMap(_.asObject)
-      choice <- fill(ChoiceKey).filter(_.isArray)
-    } yield {
-      val (js, ss) = walkRegion(name, choice, idBase, prefix, clause)
-      (
-        Json.fromJsonObject(
-          obj.add(
-            FillKey,
-            Json.fromJsonObject(fill.add(ChoiceKey, Json.fromValues(js)))
-          )
-        ),
-        ss
-      )
+    } yield fill(ChoiceKey).filter(_.isArray) match {
+      case Some(choice) =>
+        val (js, ss) = walkRegion(name, choice, idBase, prefix, clause)
+        (
+          Json.fromJsonObject(
+            obj.add(
+              FillKey,
+              Json.fromJsonObject(fill.add(ChoiceKey, Json.fromValues(js)))
+            )
+          ),
+          ss
+        )
+      case None =>
+        val (walked, ss) = walkMembers(fill, idBase, prefix)
+        (Json.fromJsonObject(obj.add(FillKey, Json.fromJsonObject(walked))), ss)
     }).getOrElse((slot, Nil))
 
-  /** Clause nodes under [[LayoutNode.memberSegment]], as `MemberGraph` mints
-    * them. Both clauses of a candidate get the same id, since one is ever
-    * rendered, so a surface baked inside one carries its clause
-    * (`Surface.group`); two clauses' popups collide, which
-    * [[hoistInlineSurfaces]] refuses.
+  /** A set's member nodes under [[LayoutNode.memberSegment]], as `MemberGraph`
+    * mints them. Every case of a candidate gets the same id, since one is ever
+    * rendered, so a surface baked inside one carries its case
+    * (`Surface.group`); two cases' popups collide, which
+    * [[hoistInlineSurfaces]] refuses. A member that is a node alone is case 0.
     */
   private def walkMembers(
-      obj: JsonObject,
+      fill: JsonObject,
       idBase: String,
       prefix: String
   ): (JsonObject, List[(String, Json)]) =
-    obj(MembersKey).flatMap(_.asObject) match {
-      case None          => (obj, Nil)
+    fill(MembersKey).flatMap(_.asObject) match {
+      case None          => (fill, Nil)
       case Some(members) =>
         val rs = members.toList.map { case (entityId, m) =>
-          val mObj = m.asObject.getOrElse(JsonObject.empty)
           val memberBase = LayoutNode.memberSegment(idBase, entityId)
-          val walked = mObj(ClausesKey)
-            .flatMap(_.asArray)
-            .getOrElse(Vector.empty)
-            .zipWithIndex
-            .map { (clause, ci) =>
-              val cObj = clause.asObject.getOrElse(JsonObject.empty)
-              cObj(NodeKey) match {
-                case None    => (clause, Nil)
-                case Some(n) =>
-                  val (walkedNode, surfaces) =
-                    walk(n, memberBase, prefix, Some(ci))
-                  (Json.fromJsonObject(cObj.add(NodeKey, walkedNode)), surfaces)
-              }
-            }
-          (
-            entityId -> Json.fromJsonObject(
-              mObj.add(ClausesKey, Json.fromValues(walked.map(_._1)))
-            ),
-            walked.toList.flatMap(_._2)
-          )
+          m.asObject.filter(
+            _("kind").flatMap(_.asString).contains("Chosen")
+          ) match {
+            case Some(chosen) =>
+              val walked = chosen(CasesKey)
+                .flatMap(_.asArray)
+                .getOrElse(Vector.empty)
+                .zipWithIndex
+                .map { (kase, ci) =>
+                  val kObj = kase.asObject.getOrElse(JsonObject.empty)
+                  kObj(ValueKey) match {
+                    case None    => (kase, Nil)
+                    case Some(n) =>
+                      val (walkedNode, surfaces) =
+                        walk(n, memberBase, prefix, Some(ci))
+                      (
+                        Json.fromJsonObject(kObj.add(ValueKey, walkedNode)),
+                        surfaces
+                      )
+                  }
+                }
+              (
+                entityId -> Json.fromJsonObject(
+                  chosen.add(CasesKey, Json.fromValues(walked.map(_._1)))
+                ),
+                walked.toList.flatMap(_._2)
+              )
+            case None =>
+              val (walkedNode, surfaces) = walk(m, memberBase, prefix, Some(0))
+              (entityId -> walkedNode, surfaces)
+          }
         }
         (
-          obj.add(
+          fill.add(
             MembersKey,
             Json.fromJsonObject(JsonObject.fromIterable(rs.map(_._1)))
           ),
@@ -299,7 +312,7 @@ object DashboardBuild {
       case None           => (node, Nil)
       case Some(authored) =>
         // Children first.
-        val (obj1, childSurfaces) =
+        val (obj2, childSurfaces) =
           authored(SlotsKey).flatMap(_.asObject) match {
             case None        => (authored, Nil)
             case Some(slots) =>
@@ -315,12 +328,12 @@ object DashboardBuild {
                 rs.flatMap(_._2)
               )
           }
-        // Sets too: the starter's "Low battery" set gives each sensor an
-        // inline more-info popup (ADR 0016), and was once never hoisted.
-        val (obj2, setSurfaces) = walkMembers(obj1, idBase, prefix)
+        // A set is a slot's fill, so its members are walked above: the
+        // starter's "Low battery" set gives each sensor an inline more-info
+        // popup (ADR 0016), and was once never hoisted.
         obj2(InlineSurfacesKey).flatMap(_.asObject) match {
           case None =>
-            (Json.fromJsonObject(obj2), childSurfaces ++ setSurfaces)
+            (Json.fromJsonObject(obj2), childSurfaces)
           case Some(marker) =>
             // A baked surface inside a clause is its clause's, so two clauses'
             // sliders do not claim one id. A popup keeps `<idBase>_<key>`: its
@@ -367,7 +380,7 @@ object DashboardBuild {
               }
             (
               Json.fromJsonObject(splicedObj.remove(InlineSurfacesKey)),
-              childSurfaces ++ setSurfaces ++ resolved.flatMap(_._3) ++ lifted
+              childSurfaces ++ resolved.flatMap(_._3) ++ lifted
             )
         }
     }

@@ -24,29 +24,39 @@ live state. It is authored as **data** the renderer evaluates against live
 The question this ADR answers is *which* data. It first answered it with a
 runtime query, and that turned out to be the wrong half to make dynamic.
 
-## The design: `LayoutNode.SetNode`
+## The design: `Fill.Set`
 
 **The candidates are decided at BUILD time; the runtime decides only presence
-and order.** A set carries:
+and order.** A set is what fills a card's nodes slot (`Fill.Set`; ADR 0007's
+fills), and carries:
 
 - `candidates` — entity ids, in render order, or area or floor ids (`of`, one kind
   per set). An area or a floor has no state, so its guards and order terms name
   every entity they read, and only those wake it;
-- `members` — per candidate, a list of guarded renderings (`SetClause`);
+- `members` — per candidate, a `Choice` of its node (ADR 0034);
 - `orderBy` / `limit` — present only when they need live state.
 
-A member is a `cond` expression: clauses are tried in order and the first whose
-`when` holds decides; a `when` is a condition (ADR 0004) whose unnamed reads read
-the member, and a clause with none always holds. **Falling off the end means the
-member is not rendered** —
-which is why there is no separate presence field, and why omitting the fallback
-is how "only while on" is written.
+A member is the node alone, or a choice of it by what `by` reads for that
+candidate. Written as clauses, `when₁ → n₁, when₂ → n₂`, it is `by` = the
+position of the first `when` that holds (`IndexOfTrue` over the list of them,
+ADR 0035) with one case per clause; a lone guard is `by = when` with the one case
+`true`. A `when` is a condition (ADR 0004) whose unnamed reads read the member,
+and a clause with none always holds. **No case holding means the member is not
+rendered** — which is why there is no separate presence field, and why omitting
+the fallback is how "only while on" is written. The case's position is the
+clause that rendered, which a nested set's id carries.
 
-A clause carries a COMPLETE node — card, cell, slots, children, inline. Nothing
-is shared between clauses or members, so a clause cannot be wrong about which
+A case carries a COMPLETE node — card, cell, slots, children, inline. Nothing
+is shared between cases or members, so a case cannot be wrong about which
 member it belongs to, and rendering one needs no lookup or merge. A set nested
 inside a member's node is an ordinary child with an ordinary id, so "a tile per
 room, each holding that room's lights" needs no new concept.
+
+**A set is a card's whole template**, and its root is that card's root,
+written by the library like any card root (ADR 0008): `.build()` is a `group`
+(`core/group.pkl`), a card whose template is its one nodes slot, with `fh-group`
+among its classes. The members are placed straight into it, so a `ul` of `li`
+members is valid HTML.
 
 The derivation that produced this shape — including the compressed wire format
 that was built, measured at ~2.5×, and reverted — lived in
@@ -281,6 +291,6 @@ measured at ~2.5×, and reverted.
 - Every entity a dashboard can show has ONE typed, build-time identity. That is
   the property this rewrite existed to get.
 - Verified by `PklBuildSuite` (Pkl → wire, including the shipped starter entry),
-  `query.test.pkl` (the fold, the authoring surface), `SetNodeSuite` (presence,
+  `query.test.pkl` (the fold, the authoring surface), `SetSuite` (presence,
   order, limit, nesting, cross-entity guards end-to-end through the real
   `Server`) and `SetMembershipSuite` (the per-member patch machinery).

@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.DashboardBuilders
@@ -62,11 +64,11 @@ class DecisionFetchSuite extends munit.FunSuite {
 
   /** `inside`, shown while `when` holds. */
   private def guarded(when: ValueExpr, inside: LayoutNode) =
-    LayoutNode.SetNode(
+    Sets.node(
       candidates = List("sensor.a"),
       members = Map(
-        "sensor.a" -> LayoutNode.SetMember(
-          List(LayoutNode.SetClause(Some(when), inside))
+        "sensor.a" -> Sets.Member(
+          List(Sets.Clause(Some(when), inside))
         )
       )
     )
@@ -80,7 +82,7 @@ class DecisionFetchSuite extends munit.FunSuite {
   )
 
   private def dashboard(kids: LayoutNode*) = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "item" -> TestCard("<i>{{label}}</i>"),
       "call" -> TestCard("""<button data-call="{{{tap.callId}}}"></button>"""),
       "col" -> TestCard(
@@ -97,14 +99,14 @@ class DecisionFetchSuite extends munit.FunSuite {
   private def set(
       when: Option[ValueExpr],
       orderBy: List[SortTerm] = Nil
-  ) = LayoutNode.SetNode(
+  ) = Sets.node(
     candidates = List("sensor.a", "sensor.b"),
     members = Map(
-      "sensor.a" -> LayoutNode.SetMember(
-        List(LayoutNode.SetClause(when, item("member-a")))
+      "sensor.a" -> Sets.Member(
+        List(Sets.Clause(when, item("member-a")))
       ),
-      "sensor.b" -> LayoutNode.SetMember(
-        List(LayoutNode.SetClause(when, item("member-b")))
+      "sensor.b" -> Sets.Member(
+        List(Sets.Clause(when, item("member-b")))
       )
     ),
     orderBy = orderBy
@@ -283,7 +285,6 @@ class DecisionFetchSuite extends munit.FunSuite {
         col.regions(LayoutNode.DefaultRegion) match
           case List(c: Ready.Component) => c
           case _                        => fail("one call node")
-      case _ => fail("a column")
     val r = Renderer.create(d)
     def pressed(json: String) =
       r.decide(answering(json))(run =>

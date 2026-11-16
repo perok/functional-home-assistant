@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.fetch.FetchSnapshot
@@ -22,7 +24,7 @@ class VarSourceSuite extends munit.FunSuite {
       List(Step.Compare(Op.Eq, Value.Literal(Lit.Text(v))))
     )
 
-  private val cards = Map(
+  private val cards = Sets.cards ++ Map(
     "plain" -> TestCard("<span>{{name}}</span>"),
     "flag" -> TestCard("<i>{{#on}}ON{{/on}}{{^on}}off{{/on}}</i>"),
     "live" -> TestCard("<span {{{name.bind}}}>{{name}}</span>"),
@@ -217,12 +219,12 @@ class VarSourceSuite extends munit.FunSuite {
   }
 
   test("a set's clause and order refuse one") {
-    val set = LayoutNode.SetNode(
+    val set = Sets.node(
       candidates = List("light.a"),
       members = Map(
-        "light.a" -> LayoutNode.SetMember(
+        "light.a" -> Sets.Member(
           List(
-            LayoutNode.SetClause(
+            Sets.Clause(
               Some(isWindow("7d")),
               plain(ValueExpr.literal("x"))
             )

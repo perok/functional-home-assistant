@@ -278,7 +278,15 @@ or the server refused. ADR 0025.
 possible entities known at build time from the dump. ADR 0003.
 
 **Clause** — inside a candidate set, one `when` branch carrying a complete node. A matched entity
-gets the first clause whose condition holds; a clause with none always holds.
+gets the first clause whose condition holds; a clause with none always holds. On the wire a member
+is a `Choice` of its node, and a clause is one of its cases, the clause's index the case's position:
+`by` is a lone `when`, or `IndexOfTrue` over the list of them.
+
+**Group** — a card whose template is its one nodes slot: an element (a tag, classes, a layout cell)
+holding what fills it, and nothing beside it (`core/group.pkl`). A set must be its card's whole
+template, because its members are placed relative to each other, so a set among other content goes
+in a group; `q.from(…).render(…).build()` is one, with `fh-group` among its classes. Not a bake
+group (below), which is the surfaces competing for one host.
 
 **Present** — a set's candidate ids whose guard holds now, a candidate with no guard always
 (`Value.Present`, `pred.Tally` in Pkl). It is what a `List` of the candidates' reads filtered by
@@ -289,7 +297,8 @@ state, so its guard names every entity it reads, and only those move it.
 
 **Member** — one materialised entity inside a candidate set, or one row inside a grouped slider.
 Members are addressable nodes in their own right, and so is every node below a member, under an id
-below the member's.
+below the member's. A set's member is its node's own root, placed straight into the set's card
+root, so a `ul` of `li` members is valid HTML.
 
 **Presence / order** — the two things about a set's membership that can move: whether an entity is in
 it, and where it sits. Tracked separately because reordering re-sends nothing.

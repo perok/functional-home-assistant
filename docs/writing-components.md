@@ -491,6 +491,16 @@ says so if you don't, and it names a slot a card lists but its template never
 places. A nodes slot has no `.bind` or `.raw`: those belong to the plain
 slots. A plain slot cannot share a nodes slot's name.
 
+A nodes slot can hold a candidate set instead of cards you list:
+`features.of(q.from(…).where(…).render(…))`, the chain as it is. The members
+are placed straight into your card's root, which is why a set must be its
+card's **whole** template (`template = features.toString()`; the root, a `ul`
+if you set `tag = "ul"`, is the card's own, and `li` members are then valid
+HTML). A set beside other content in the template is a build error. When it
+sits among other content, put it in a `group` (`core/group.pkl`), a card that
+is just such a slot: `groupMod.group("ul", "list", set)`. `.build()` on a set
+is a `group` of its own.
+
 ---
 
 ## Styling

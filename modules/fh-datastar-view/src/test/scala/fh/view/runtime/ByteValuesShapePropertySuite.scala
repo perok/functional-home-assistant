@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
@@ -191,7 +193,7 @@ object ByteValuesShapePropertySuite {
     )
 
     def dashboard: Dashboard = Dashboard(
-      cards = Map(
+      cards = Sets.cards ++ Map(
         "box" -> TestCard(
           "<div>{{{children}}}</div>",
           regions = Map("children" -> Region())
@@ -201,13 +203,13 @@ object ByteValuesShapePropertySuite {
       ),
       card =
         if member then
-          LayoutNode.SetNode(
+          Sets.node(
             candidates = List("sensor.a", "sensor.b"),
             members = List("sensor.a", "sensor.b").map { e =>
-              e -> LayoutNode.SetMember(
+              e -> Sets.Member(
                 List(
-                  LayoutNode.SetClause(Some(isOn(None)), leaf("one")),
-                  LayoutNode.SetClause(node = leaf("two"))
+                  Sets.Clause(Some(isOn(None)), leaf("one")),
+                  Sets.Clause(node = leaf("two"))
                 )
               )
             }.toMap

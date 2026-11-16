@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -32,7 +34,7 @@ import org.http4s.Status
   */
 class MemberNodesSuite extends ServerHarness {
 
-  private val cards = Map(
+  private val cards = Sets.cards ++ Map(
     DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard,
     "tile" -> TestCard("<b>{{state}}</b>"),
     "col" -> TestCard(
@@ -68,12 +70,12 @@ class MemberNodesSuite extends ServerHarness {
   // Each light a column of itself and a shared sensor: a member holding nodes.
   private val columns = Dashboard(
     cards = cards,
-    card = LayoutNode.SetNode(
+    card = Sets.node(
       candidates = lights,
       members = lights.map { id =>
-        id -> LayoutNode.SetMember(
+        id -> Sets.Member(
           List(
-            LayoutNode.SetClause(Some(whileOn), col(tile(id), tile("sensor.t")))
+            Sets.Clause(Some(whileOn), col(tile(id), tile("sensor.t")))
           )
         )
       }.toMap
@@ -155,16 +157,16 @@ class MemberNodesSuite extends ServerHarness {
     // Off a tile, on a column: the column has no one element to morph.
     val switching = Dashboard(
       cards = cards,
-      card = LayoutNode.SetNode(
+      card = Sets.node(
         candidates = lights,
         members = lights.map { id =>
-          id -> LayoutNode.SetMember(
+          id -> Sets.Member(
             List(
-              LayoutNode.SetClause(
+              Sets.Clause(
                 Some(whileOn),
                 col(tile(id), tile("sensor.t"))
               ),
-              LayoutNode.SetClause(None, tile(id))
+              Sets.Clause(None, tile(id))
             )
           )
         }.toMap
@@ -208,12 +210,12 @@ class MemberNodesSuite extends ServerHarness {
         "col",
         vars = declared("tab" -> "0"),
         slots = Slots.kids(
-          LayoutNode.SetNode(
+          Sets.node(
             candidates = ids,
             members = ids.map { id =>
-              id -> LayoutNode.SetMember(
+              id -> Sets.Member(
                 List(
-                  LayoutNode.SetClause(
+                  Sets.Clause(
                     None,
                     LayoutNode.Component(
                       "host",

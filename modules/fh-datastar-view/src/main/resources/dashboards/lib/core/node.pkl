@@ -86,8 +86,7 @@ abstract class LayoutNode {
   /// from [[cellClasses]], which a builder replaces whole, so an input set
   /// after `.columns(3)` still lands.
   hidden stateClasses: Listing<String> = new {}
-  /// The live cell classes and styles ([[cellClassWhen]], [[cellStyle]]). A set has
-  /// no slots to bind them with, so the builders refuse them there.
+  /// The live cell classes and styles ([[cellClassWhen]], [[cellStyle]]).
   hidden liveClasses: Mapping<String, slotMod.Reading> = new {}
   hidden liveStyles: Mapping<String, slotMod.Reading> = new {}
   /// Derived from the inputs above. Setting it directly replaces whatever the
@@ -237,6 +236,8 @@ abstract class Node extends LayoutNode {
   fixed wireSlots: Mapping<String, Any> =
     if (!children.isEmpty && !nodesDeclared.containsKey(slotMod.childrenSlot.name))
       throw("card '\(card)' places no `children` nodes slot, so the children given to it would never render")
+    else if (nodesSlots.any((s) -> s.set != null && cardDef.template != s.toString()))
+      throw("card '\(card)': a set must be its card's whole template (`\(nodesSlots.findOrNull((s) -> s.set != null))` and nothing else): its members are placed relative to each other, so a fixed sibling in the same element would need anchors — put the set in a `group` of its own")
     else wireSlotMap(slots, nodesSlots, subjectOf(slots))
   /// The calls [[slots]] place ([[slotMod.CallSlot]]), by name.
   hidden declared: Map<String, slotMod.CallDecl> =
@@ -468,7 +469,7 @@ const local function wireValue(v: Any): Any =
 // slot's value takes the theme's swap as its last step.
 const local function wireSlotMap(slots: Listing<slotMod.AnySlot>, nodesSlots: List<slotMod.NodesSlot>, subject: String?): Mapping<String, Any> = new {
   for (a in nodesSlots) {
-    when (!a.nodes.isEmpty) {
+    when (a.filled) {
       [a.name] = Map("kind", a.kind, "fill", a.fill)
     }
   }
@@ -516,8 +517,7 @@ const local function nodesUnder(n: LayoutNode): List<Node> =
     List(n)
       + n.regions.toMap().values.flatMap((l) -> l.toList()).flatMap((k) -> nodesUnder(k))
       + (n.inlineSurfaces?.toMap()?.values ?? List()).flatMap((s) -> nodesUnder(s.content))
-  else if (n is predMod.SetNode)
-    n.members.toMap().values.flatMap((m) -> m.clauses.toList()).flatMap((c) -> nodesUnder(c.node))
+      + n.nodesSlots.flatMap((s) -> s.set?.nodes ?? List()).flatMap((k) -> nodesUnder(k))
   else throw("unknown node kind '\(n.kind)'")
 
 // A node's own backend-minted id, spliced in by the build's hoist. Must equal

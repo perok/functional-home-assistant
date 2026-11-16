@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -254,13 +256,13 @@ class ResumeSuite extends ServerHarness {
   test("a page read ahead of the recorder shows the store's members") {
     val off = Map("light.a" -> es("light.a", "off"))
     val dash = Dashboard(
-      cards = Map("pill" -> TestCard("<b>{{state}}</b>")),
-      card = LayoutNode.SetNode(
+      cards = Sets.cards ++ Map("pill" -> TestCard("<b>{{state}}</b>")),
+      card = Sets.node(
         candidates = List("light.a"),
         members = Map(
-          "light.a" -> LayoutNode.SetMember(
+          "light.a" -> Sets.Member(
             List(
-              LayoutNode.SetClause(
+              Sets.Clause(
                 Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode.Component(
                   "pill",
@@ -584,7 +586,6 @@ class ResumeSuite extends ServerHarness {
             )
           )
         )
-      case other => other
     def twoTabs(card: String) = mixedTabsDash.copy(
       cards = mixedTabsDash.cards
         .updated("card", TestCard(card))

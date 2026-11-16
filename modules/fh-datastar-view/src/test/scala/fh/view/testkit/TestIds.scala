@@ -1,6 +1,6 @@
 package fh.view.testkit
 
-import fh.view.model.{DomId, LayoutNode, NodeId, SetId}
+import fh.view.model.{DomId, NodeId, SetId}
 
 /** Node ids as literals, a blanket conversion rather than a wrapper at ~130
   * call sites. [[NodeId]] stops a DOM id being stored as a log key in the
@@ -21,9 +21,9 @@ object TestIds {
 
   /** Named helpers, not a conversion: a `SetId` asserts the graph knows this
     * container, a runtime fact a suite can be wrong about, and a conversion
-    * would make every `String` silently claim it. The `SetNode()` below is a
+    * would make every `String` silently claim it. The `Fill.Set()` below is a
     * stand-in.
     */
   def setId(s: String): SetId =
-    SetId.of(NodeId.derived(s), LayoutNode.SetNode())
+    SetId.of(NodeId.derived(s), Sets.fill())
 }

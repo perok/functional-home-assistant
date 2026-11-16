@@ -1,5 +1,7 @@
 package fh.view.build
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -9,14 +11,18 @@ import fh.view.model.{
   Part,
   Activation,
   CardDef,
+  Case,
   Cell,
+  Choice,
   Dashboard,
+  Fill,
   IdKind,
   LayoutNode,
   Lit,
   Op,
   Region,
   SignalBind,
+  Slot,
   SlotType,
   Step,
   Value,
@@ -328,20 +334,78 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(!errs.exists(_.contains("'fh-cols-3'")), clue = errs)
   }
 
-  test("validate takes a set's literal cell classes and refuses any reading") {
-    // A set has no slots to bind a reading with, so the wire alone could ask.
+  test("validate takes a set's cell as any card's: classes, and readings") {
+    // A set is a card's slot, so its root binds a reading as any root does.
     val reading = ValueExpr(Value.Entity(Some("light.a")))
+    val on = ValueExpr(
+      Value.Entity(Some("light.a")),
+      List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("on"))))
+    )
     val cell = Cell(
-      classes = classes("fh-cols-3").classes + ("fh-on" -> reading),
+      classes = classes("fh-cols-3").classes + ("fh-on" -> on),
       styles = ListMap("--x" -> reading)
     )
     val errs = Dashboard(
-      cards = Map("card" -> TestCard("<i></i>")),
-      card = LayoutNode.SetNode(cell = Some(cell))
+      cards = Sets.withCard(Map("card" -> TestCard("<i></i>"))),
+      card = Sets.node(cell = Some(cell))
     ).validate()
-    assert(errs.exists(_.contains("cell class 'fh-on' reads state")), errs)
-    assert(errs.exists(_.contains("cell style '--x' reads state")), errs)
-    assert(!errs.exists(_.contains("fh-cols-3")), errs)
+    assertEquals(errs, Nil)
+  }
+
+  test(
+    "validate refuses a set beside other content, a set as a member, an otherwise"
+  ) {
+    val tile = LayoutNode.Component("card")
+    val beside = Dashboard(
+      cards = Map(
+        Sets.Card -> CardDef(
+          "<div{{{cell}}}>{{{children}}}{{{more}}}</div>",
+          regions = Map(Sets.SlotName -> Region(), "more" -> Region())
+        ),
+        "card" -> TestCard("<i></i>")
+      ),
+      card = Sets.node(
+        List("light.a"),
+        Map("light.a" -> Sets.Member(List(Sets.Clause(None, tile))))
+      )
+    ).validate()
+    assert(beside.exists(_.contains("not its card's whole template")), beside)
+
+    val inner = Sets.node(List("light.b"))
+    val nested = Dashboard(
+      cards = Sets.withCard(Map("card" -> TestCard("<i></i>"))),
+      card = Sets.node(
+        List("light.a"),
+        Map("light.a" -> Sets.Member(List(Sets.Clause(None, inner))))
+      )
+    ).validate()
+    assert(nested.exists(_.contains("is itself a set")), nested)
+
+    val on = ValueExpr(
+      Value.Entity(Some("light.a")),
+      List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("on"))))
+    )
+    val otherwise = Dashboard(
+      cards = Sets.withCard(Map("card" -> TestCard("<i></i>"))),
+      card = LayoutNode.Component(
+        Sets.Card,
+        Map(
+          Sets.SlotName -> Slot.Nodes(
+            Fill.Set(
+              List("light.a"),
+              Map(
+                "light.a" -> Choice.Chosen(
+                  on,
+                  List(Case(Lit.Bool(true), tile)),
+                  Some(tile)
+                )
+              )
+            )
+          )
+        )
+      )
+    ).validate()
+    assert(otherwise.exists(_.contains("has an otherwise")), otherwise)
   }
 
   test("validate refuses a literal cell style, which nothing would write") {
@@ -396,29 +460,28 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(DashboardBuild.unresolvedTokens(named), Nil)
   }
 
-  /** A set holds its nodes under `members[…].clauses[…].node`, which this pass
-    * did not walk, so an inline surface in a set kept its `@@NODE_ID@@`. The
-    * shipped starter's "Low battery" section does exactly that (a sensor's
-    * default tap is an inline popup, ADR 0016), so any house with a battery
-    * under 20 % got a refused dashboard.
+  /** A set holds its nodes under its fill's `members`, a node or a choice of
+    * one by case, which this pass did not walk, so an inline surface in a set
+    * kept its `@@NODE_ID@@`. The shipped starter's "Low battery" section does
+    * exactly that (a sensor's default tap is an inline popup, ADR 0016), so any
+    * house with a battery under 20 % got a refused dashboard.
     *
-    * A member id has no clause index (only a set nested in a clause needs one),
-    * so both clauses hoist under one id; see the duplicate-key test.
+    * A member id has no case index (only a set nested in a case needs one), so
+    * both cases hoist under one id; see the duplicate-key test.
     */
-  test("hoistInlineSurfaces descends a candidate set's clauses") {
+  test("hoistInlineSurfaces descends a candidate set's members") {
     val json = parser
       .parse("""
         { "cards": {}, "card": {
             "kind": "Component", "card": "fhcol",
             "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
-              { "kind": "SetNode",
-                "candidates": ["sensor.batt"],
-                "members": { "sensor.batt": { "clauses": [
-                  { "node": { "kind": "Component", "card": "tile",
+              { "kind": "Component", "card": "group",
+                "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Set",
+                  "candidates": ["sensor.batt"],
+                  "members": { "sensor.batt": { "kind": "Component", "card": "tile",
                       "wireSlots": { "onclick": { "kind": "Value", "source": "open @@NODE_ID@@_self" } },
                       "inlineSurfaces": { "self": {
-                        "content": { "kind": "Component", "card": "card" } } } } }
-                ] } } }
+                        "content": { "kind": "Component", "card": "card" } } } } } } } } }
             ] } } } } }
       """)
       .toOption
@@ -437,24 +500,27 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
   }
 
-  test("two clauses of one candidate cannot both own a popup") {
+  test("two cases of one candidate cannot both own a popup") {
     // Merging keeps the last repeated key, so quietly this is a popup showing
-    // another clause's content.
+    // another case's content.
     val json = parser
       .parse("""
         { "cards": {}, "card": {
             "kind": "Component", "card": "fhcol",
             "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
-              { "kind": "SetNode",
-                "candidates": ["sensor.batt"],
-                "members": { "sensor.batt": { "clauses": [
-                  { "node": { "kind": "Component", "card": "a",
-                      "inlineSurfaces": { "self": {
-                        "content": { "kind": "Component", "card": "card" } } } } },
-                  { "node": { "kind": "Component", "card": "b",
-                      "inlineSurfaces": { "self": {
-                        "content": { "kind": "Component", "card": "card" } } } } }
-                ] } } }
+              { "kind": "Component", "card": "group",
+                "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Set",
+                  "candidates": ["sensor.batt"],
+                  "members": { "sensor.batt": { "kind": "Chosen",
+                    "by": { "source": true },
+                    "cases": [
+                      { "is": 0, "value": { "kind": "Component", "card": "a",
+                          "inlineSurfaces": { "self": {
+                            "content": { "kind": "Component", "card": "card" } } } } },
+                      { "is": 1, "value": { "kind": "Component", "card": "b",
+                          "inlineSurfaces": { "self": {
+                            "content": { "kind": "Component", "card": "card" } } } } }
+                    ] } } } } } }
             ] } } } } }
       """)
       .toOption
@@ -911,14 +977,14 @@ class BuildPhaseSuite extends munit.FunSuite {
   }
 
   test("validate refuses a set of areas whose guard reads the area itself") {
-    val card = Map("t" -> TestCard("<i>t</i>"))
+    val card = Sets.withCard(Map("t" -> TestCard("<i>t</i>")))
     def rooms(guard: ValueExpr) = Dashboard(
       cards = card,
-      card = LayoutNode.SetNode(
+      card = Sets.node(
         candidates = List("soverom"),
         members = Map(
-          "soverom" -> LayoutNode.SetMember(
-            List(LayoutNode.SetClause(Some(guard), LayoutNode.Component("t")))
+          "soverom" -> Sets.Member(
+            List(Sets.Clause(Some(guard), LayoutNode.Component("t")))
           )
         ),
         of = IdKind.Area
@@ -943,33 +1009,24 @@ class BuildPhaseSuite extends munit.FunSuite {
         regions = Map("branch" -> Region(Region.Baked))
       )
     )
-    val set = Dashboard(
-      cards = ok,
-      card = LayoutNode.SetNode(
+    def clause(when: ValueExpr) = Dashboard(
+      cards = Sets.withCard(ok),
+      card = Sets.node(
         candidates = List("light.a"),
         members = Map(
-          "light.a" -> LayoutNode.SetMember(
-            List(LayoutNode.SetClause(Some(text), LayoutNode.Component("ok")))
+          "light.a" -> Sets.Member(
+            List(Sets.Clause(Some(when), LayoutNode.Component("ok")))
           )
         )
       )
     )
+    val set = clause(text)
     assert(
       set
         .validate()
         .exists(_.contains("a clause of 'light.a' does not decide")),
       clue = set.validate()
     )
-    def clause(when: ValueExpr) = set.copy(card = set.card match
-      case s: LayoutNode.SetNode =>
-        s.copy(members =
-          s.members.view
-            .mapValues(m =>
-              m.copy(clauses = m.clauses.map(_.copy(when = Some(when))))
-            )
-            .toMap
-        )
-      case other => other)
     val celClause =
       ValueExpr(Value.Entity(Some("light.a")), List(Step.Cel("value == 'on'")))
     assertEquals(clause(celClause).validate(), Nil)

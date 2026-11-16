@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
@@ -47,7 +49,7 @@ class ChosenWindowSuite extends munit.FunSuite {
 
   private def dash(root: LayoutNode) =
     Dashboard(
-      cards = Map(
+      cards = Sets.cards ++ Map(
         "chart" -> TestCard("<div>{{{chart}}}</div>"),
         "box" -> TestCard(
           "<div>{{{children}}}</div>",
@@ -136,12 +138,12 @@ class ChosenWindowSuite extends munit.FunSuite {
   test("a decision's window is written down, even one state would pick") {
     val past = ValueExpr(Value.Fetch(FetchTemplate("sensor.t", byState())))
     val guard = ValueExpr(Value.Cel("size(past) > 0", Map("past" -> past)))
-    val set = LayoutNode.SetNode(
+    val set = Sets.node(
       candidates = List("sensor.t"),
       members = Map(
-        "sensor.t" -> LayoutNode.SetMember(
+        "sensor.t" -> Sets.Member(
           List(
-            LayoutNode.SetClause(Some(guard), chart(Choice.Fixed(Windows.day)))
+            Sets.Clause(Some(guard), chart(Choice.Fixed(Windows.day)))
           )
         )
       )

@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -76,9 +78,9 @@ class ByteValuesPropertySuite extends HedgehogSuite {
 
   private def setDashboard(signal: Boolean): Dashboard = {
     val members = List("alpha", "beta").map { e =>
-      e -> LayoutNode.SetMember(
+      e -> Sets.Member(
         List(
-          LayoutNode.SetClause(
+          Sets.Clause(
             node = LayoutNode.Component(
               "card",
               Slots.values(
@@ -93,8 +95,8 @@ class ByteValuesPropertySuite extends HedgehogSuite {
       )
     }.toMap
     Dashboard(
-      Map("card" -> card(signal)),
-      LayoutNode.SetNode(candidates = List("alpha", "beta"), members = members)
+      Sets.cards ++ Map("card" -> card(signal)),
+      Sets.node(candidates = List("alpha", "beta"), members = members)
     )
   }
 

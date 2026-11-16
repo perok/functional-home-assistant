@@ -79,12 +79,9 @@ object Scene {
       case c: LayoutNode.Component =>
         fromSlots(c.valueSlots, c.subjectEntity) ++ c.allChildren.flatMap(
           walk
-        )
-      case set: LayoutNode.SetNode =>
-        // A clause node is an ordinary component, reached by the same walk.
-        set.candidates ++ set.members.values.toList
-          .flatMap(_.clauses)
-          .flatMap(cl => walk(cl.node))
+        ) ++
+          // A member node is an ordinary component, reached by the same walk.
+          c.set.toList.flatMap((_, s) => s.candidates ++ s.nodes.flatMap(walk))
     }
 
     (walk(d.card) ++ d.surfaces.values.toList.flatMap(s =>

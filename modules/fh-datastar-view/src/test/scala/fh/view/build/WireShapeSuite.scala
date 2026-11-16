@@ -1,5 +1,7 @@
 package fh.view.build
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Conds
 
 import fh.view.model.{
@@ -76,13 +78,13 @@ class WireShapeSuite extends munit.FunSuite {
         |// sees only what a module DECLARES — the facade declares no classes at
         |// all. So merge every module that owns wire classes; that also keeps
         |// "does this module own the ancestor" true across a module boundary
-        |// (`SetNode extends LayoutNode` now spans two files).
+        |// (`Node extends LayoutNode` spans two files).
         |local mods: List<Module> =
         |  List(nodeMod, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, varMod, historyProv, chartMod, themeMod) + c.modules
         |local own: Map<String, reflect.Class> =
         |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
-        |// INHERITED properties count: `SetNode extends LayoutNode`, and `cell`
+        |// INHERITED properties count: `Node extends LayoutNode`, and `cell`
         |// is declared on the base. `reflect.Class.properties` reports only what
         |// a class declares, so walk up — stopping at the first ancestor this
         |// module does not own, which is where Pkl's own builtins begin.
@@ -187,10 +189,19 @@ class WireShapeSuite extends munit.FunSuite {
     check("InitialTransform", Dashboard.InitialTransform("light.a", "'x'"))
   }
 
-  test("SetNode / SetMember / SetClause agree on both sides") {
-    check("SetNode", LayoutNode.SetNode())
-    check("SetMember", LayoutNode.SetMember())
-    check("SetClause", LayoutNode.SetClause(node = LayoutNode.SetNode()))
+  test("a set fill and its members' choice agree on both sides") {
+    check("SetFill", Fill.Set())
+    // A member is a node, or a choice of one whose cases are positions; Pkl
+    // writes no `otherwise`, which a set's member does not take.
+    check(
+      "MemberChosen",
+      Choice.Chosen(
+        ValueExpr(Value.Var("x")),
+        List(Case(Lit.Bool(true), Sets.node()))
+      ),
+      scalaOnly = Set("otherwise")
+    )
+    check("MemberCase", Case(Lit.Bool(true), Sets.node()))
   }
 
   test("every condition class writes a reading") {
@@ -302,6 +313,7 @@ class WireShapeSuite extends munit.FunSuite {
     check("CountStep", Step.Count)
     check("AllOfStep", Step.AllOf)
     check("AnyOfStep", Step.AnyOf)
+    check("IndexOfTrueStep", Step.IndexOfTrue)
     check("CompareStep", Step.Compare(Op.Eq, lit))
     check("NotStep", Step.Not)
     check("CheckStep", Step.Check(Nil))
@@ -326,9 +338,9 @@ class WireShapeSuite extends munit.FunSuite {
     // `Access` assigns a plain String, so a bad site rule reaches the decoder's
     // fallback (`SiteAccessSuite`); its literals are pinned by decoding below.
     val families: List[(Set[String], Set[String])] = List(
-      caseNames[LayoutNode] -> Set("Node", "SetNode"),
+      caseNames[LayoutNode] -> Set("Node"),
       caseNames[Slot] -> Set("Slot", "NodesSlot"),
-      caseNames[Fill] -> Set("NodesFill"),
+      caseNames[Fill] -> Set("NodesFill", "SetFill"),
       caseNames[Activation] ->
         Set("UserActivation", "VarActivation", "StateActivation"),
       caseNames[VarAt] -> Set("AtValue", "AtIndex", "AtOtherwise"),
@@ -359,6 +371,7 @@ class WireShapeSuite extends munit.FunSuite {
         "CountStep",
         "AllOfStep",
         "AnyOfStep",
+        "IndexOfTrueStep",
         "CompareStep",
         "NotStep",
         "CheckStep",
@@ -377,7 +390,7 @@ class WireShapeSuite extends munit.FunSuite {
         "BindClass"
       ),
       caseNames[Window] -> Set("Raw", "Statistics"),
-      caseNames[Choice[Window]] - "Fixed" -> Set("Chosen"),
+      caseNames[Choice[Window]] - "Fixed" -> Set("Chosen", "MemberChosen"),
       caseNames[CallDecl] -> Set("ServiceCall", "SetVarCall")
     )
     families.foreach { (scalaNames, pklClasses) =>
