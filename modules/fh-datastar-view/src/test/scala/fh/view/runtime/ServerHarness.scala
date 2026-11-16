@@ -500,9 +500,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
       .map(e => (e.mode, e.selector, e.elements))
 
   /** A booted server and several clients, in-process through `routes.run`, over
-    * a caller's [[Renderer]]. Kept for `RenderCacheContentionSuite` alone,
-    * which counts renders through a subclass that [[TestServer]] cannot take;
-    * everything else goes through [[TestServer]].
+    * a caller's [[Renderer]]. For what [[TestServer]] cannot do: a renderer
+    * subclass (`RenderCacheContentionSuite` counts renders) and simulated time
+    * (`ActionTimeoutSuite`); everything else goes through [[TestServer]].
     */
   class LiveWorld(
       routes: org.http4s.HttpApp[IO],
@@ -546,6 +546,21 @@ trait ServerHarness extends munit.CatsEffectSuite {
           .timeout(15.seconds)
         _ <- clients.update(_ :+ client)
       } yield client
+
+    /** An action POST: its status and body, where a refusal's signals are. */
+    def post(path: String, body: String = ""): IO[(Status, String)] =
+      routes
+        .run(
+          Request[IO](Method.POST, Uri.unsafeFromString("/" + path))
+            .withEntity(body)
+        )
+        .flatMap(resp =>
+          resp.body
+            .through(fs2.text.utf8.decode)
+            .compile
+            .string
+            .map(resp.status -> _)
+        )
 
     /** Two gates: [[served]] proves every session pulled this version, then
       * [[TestServer.LiveClient.arrived]] that the bytes landed. A client owed
@@ -625,7 +640,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def liveWorldOf(
       renderer: Renderer,
-      initial: Map[String, EntityState]
+      initial: Map[String, EntityState],
+      calls: Option[ServiceCalls] = None
   )(use: LiveWorld => IO[Unit]): IO[Unit] =
     (for {
       store <- StateStore.inMemory(initial)
@@ -640,7 +656,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
       )
       _ <- Server
         .withSite(
-          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
+          calls.getOrElse(
+            ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake))
+          ),
           store,
           site,
           sessions,

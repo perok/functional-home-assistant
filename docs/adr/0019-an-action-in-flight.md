@@ -141,9 +141,13 @@ drops the mask for a static disc), and `.shape>i{filter:invert(1)}` — an
 unconditional BeerCSS rule — is why the classes must be *absent* at rest rather
 than styled inert.
 
-**A hung call has no floor.** The guard clears when the fetch settles, and a
-dead network means it never settles, so a control can sit inert until reload.
-Tracked with the rest of the action lifecycle work.
+**A call HA does not answer is refused at `Server.CallTimeout` (10 s).** The
+guard clears when the fetch settles, so the server answers every press within
+that bound: a call still running then is reported through the ordinary refusal
+(200, `_toast`, the node's `__error`), saying the action may still happen, since
+it was sent and is not undone. A network dead between browser and server still
+never settles, and a control can sit inert until reload; that is part of the
+rest of the action lifecycle work (#152).
 
 **Verification of the outcome is not in scope here.** HA's `call_service` result
 says the service ran without raising, not that the entity reached the state the

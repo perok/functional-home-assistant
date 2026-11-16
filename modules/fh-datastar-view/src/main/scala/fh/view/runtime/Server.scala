@@ -1455,9 +1455,15 @@ class Server(
   ): IO[Response[IO]] =
     actions
       .call(req, domain, service, target, serviceData)
+      // Neither transport bounds one call (the WS ping bounds only the socket,
+      // the JDK client sets no request timeout), so a hung HA would leave the
+      // control busy until reload (#152).
+      .timeout(Server.CallTimeout)
       .attempt
       .flatMap {
-        case Right(_)  => NoContent()
+        case Right(_)                                       => NoContent()
+        case Left(_: java.util.concurrent.TimeoutException) =>
+          actionRefused(req, Server.CallTimeoutMessage)
         case Left(err) =>
           // Not retried: a toggle run twice is back where it started, and a
           // failure here cannot say whether HA ran it.
@@ -2615,6 +2621,14 @@ object Server {
     */
   private[runtime] val NotConnectedMessage: String =
     "Not connected — press again once the page has reconnected"
+
+  /** How long an action call may take before its press is answered as refused.
+    * The call is not cancelled at HA, so the message cannot say it failed.
+    */
+  private[runtime] val CallTimeout: FiniteDuration = 10.seconds
+
+  private[runtime] val CallTimeoutMessage: String =
+    "Home Assistant did not answer in time; the action may still happen"
 
   /** What an action says about itself: the pressed control, filled at click
     * time (`core/tap.pkl`).
