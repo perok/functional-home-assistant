@@ -18,8 +18,7 @@ given Configuration =
     .withTransformMemberNames(Strict.wireName)
 
 /** A template slot: what it shows, and how the card places it (Pkl's `Slot`).
-  * The wire is flat, the [[ValueExpr]]'s fields beside these, or a bare
-  * literal.
+  * The wire is flat, the [[ValueExpr]]'s fields beside these.
   *
   *   - `valueWhile`: a bool over the same subject; while it is not `true` the
   *     slot is `""`, decided before its steps run or any of its fetches is
@@ -47,8 +46,7 @@ object TemplateSlot:
   given Decoder[TemplateSlot] =
     Decoder.instance(c => Strict.only(c, Fields) *> fromFields(c))
 
-  /** The fields of a slot object, `kind` aside ([[Slot]] has read it). */
-  def fromFields(c: HCursor): Decoder.Result[TemplateSlot] =
+  private[model] def fromFields(c: HCursor): Decoder.Result[TemplateSlot] =
     (
       ValueExpr.fields(c),
       c.getOrElse[Option[ValueExpr]]("valueWhile")(None),
@@ -65,40 +63,20 @@ enum Slot derives CanEqual:
   case Nodes(fill: Fill)
 
 object Slot:
-  given Decoder[Slot] = Decoder.instance(c =>
-    c.get[String]("kind").flatMap {
-      case "Value" =>
-        Strict.only(c, TemplateSlot.Fields + "kind") *>
-          TemplateSlot.fromFields(c).map(Value(_))
-      case "Nodes" =>
-        Strict.only(c, Set("kind", "fill")) *>
-          c.get[Fill]("fill").map(Nodes(_))
-      case other =>
-        Left(
-          DecodingFailure(
-            s"unknown slot kind '$other' — one of Value, Nodes",
-            c.history
-          )
-        )
-    }
+  // Flat, so not derived: the discriminator leaves `kind` beside the fields.
+  given Decoder[Value] = Decoder.instance(c =>
+    Strict.only(c, TemplateSlot.Fields + "kind") *>
+      TemplateSlot.fromFields(c).map(Value(_))
   )
+
+  given Decoder[Slot] = ConfiguredDecoder.derived(using Strict.configuration)
 
 /** What fills a nodes slot. */
 enum Fill derives CanEqual:
   case Nodes(choice: Choice[List[LayoutNode]])
 
 object Fill:
-  given Decoder[Fill] = Decoder.instance(c =>
-    c.get[String]("kind").flatMap {
-      case "Nodes" =>
-        Strict.only(c, Set("kind", "choice")) *>
-          c.get[Choice[List[LayoutNode]]]("choice").map(Nodes(_))
-      case other =>
-        Left(
-          DecodingFailure(s"unknown fill kind '$other' — Nodes", c.history)
-        )
-    }
-  )
+  given Decoder[Fill] = ConfiguredDecoder.derived(using Strict.configuration)
 
 /** How a card places a slot: the signal it is bound as, and what it reads the
   * value as. A template slot's comes off the wire, a cell slot's from its key
