@@ -411,7 +411,9 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      - A → B → A sends A whole.
    - Ids move again; the same normalised comparison, then the goldens are regenerated.
    - Bench everything R2 measured, `publishSetOrdered` also with many sessions, and the size of
-     one session's `holds`.
+     one session's `holds`. Then look at `validated`'s allocation: R2 left it ~6% above R1 on the
+     starter (1.56 → 1.66 MB/op), the `group` card's template and each set validated as a card;
+     build-time only, so left until the model stops moving.
 5. **R5, popups on the pick.**
    - Popups as §7 has them, their taps `SetVar` calls on `popups`: the root's `popups`, its name
      reserved, a popup
