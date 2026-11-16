@@ -410,7 +410,11 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    - **R4b, the pick.** Deciding per send replaces the bake group: a state-only `by` once per
      version in `Shared`, a variable-reading one per session; the shared decisions' variable
      refusals (§4) and the mixed-guard refusal go; `MemberGraph`'s nesting cases go. The
-     hand-built bake surfaces and their suites are rewritten here, once, onto `Chosen` fills.
+     hand-built bake surfaces and their suites (~20, `RendererSuite` and `ServerHarness`
+     among them) are rewritten here, once, onto `Chosen` fills, and `Region.fill`, `.baked()`
+     and `Dashboard.choiceSurfaces` go with the bake group. R4a left `validated` on `branches`
+     6.5% above R3 in allocation (deriving the surfaces) and a state group running `by` once
+     per member; the pick removes both.
    - **R4c, the root hosts.** The group, the If losing a `div`, and the id move (below).
    - **R4d, the planner.** `holds` keeps each host's keys; the log down to `fragments` (below).
    - `Fill.Nodes(Chosen)` replaces the bake fields on the wire, `inlineSurfaces` staying only for
