@@ -57,10 +57,13 @@ object Ready:
     lazy val fetches: List[SlotAsk] = fetching.flatMap(_.asks).distinct
 
     /** The node variables its slots read: a write re-renders it for that
-      * viewer.
+      * viewer. Not a `chosenSignal`'s, which the browser follows itself.
       */
     lazy val variables: Set[String] =
-      slots.values.flatMap(_.bound.variables).toSet
+      slots.values
+        .filter(_.chosenSignal.isEmpty)
+        .flatMap(_.bound.variables)
+        .toSet
 
   /** A set: `order` is `None` where the candidates are already in order. Not a
     * case class: `MemberGraph`'s sources hold it, and hashing one walked every
@@ -108,6 +111,7 @@ object Ready:
     val valueKey: String = bound.valueKey
     val signal: Option[SignalBind] = bound.signal
     val isBool: Boolean = bound.isBool
+    val chosenSignal: Option[(String, String)] = bound.chosenSignal
     val isNumber: Boolean = bound.`type` == SlotType.Number
     val bypassUnavailable: Boolean = bound.bypassUnavailable
     val gate: Option[Fetching.Gate] =
@@ -118,12 +122,8 @@ object Ready:
     */
   final case class Cell(
       classSlots: List[fh.view.model.Cell.Entry],
-      styleSlots: List[fh.view.model.Cell.Entry],
-      atRender: List[AtRender] = Nil
+      styleSlots: List[fh.view.model.Cell.Entry]
   )
-
-  /** A class the document form writes while `run` holds for the viewer. */
-  final case class AtRender(name: String, run: Evaluator.Run)
 
   enum Activation:
     case User(defaultOpen: Boolean)
@@ -221,22 +221,13 @@ object Ready:
       )
       (
         (c.bound.toList ++ seenSlots).traverse((k, b) => slot(b).map(k -> _)),
-        c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _)),
-        c.cell.traverse(cell =>
-          cell.atRender.toList
-            .traverse((n, e) =>
-              Evaluator
-                .compile(e.about(c.subjectEntity), scope)
-                .map(r => AtRender(n, r.run))
-            )
-            .map(at => cell.ready.copy(atRender = at))
-        )
-      ).mapN((slots, regions, cell) =>
+        c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _))
+      ).mapN((slots, regions) =>
         Component(
           c.card,
           slots.toMap,
           regions.toMap,
-          cell,
+          c.cell.map(_.ready),
           c.id,
           c.vars,
           c.subjectEntity,

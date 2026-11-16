@@ -94,54 +94,70 @@ class VarSourceSuite extends munit.FunSuite {
     assertEquals(r.refusals(Map(key -> "anything")), Nil)
   }
 
-  /** A leaf lit at render while the viewer's `window` is 7d. */
-  private val lit = plain(ValueExpr.literal("x"))
-    .copy(cell = Some(Cell(atRender = ListMap("fh-chosen" -> isWindow("7d")))))
+  private val litCell =
+    Some(Cell(classes = ListMap("fh-chosen" -> isWindow("7d"))))
+
+  /** Lit while the viewer's `window` is 7d. */
+  private val lit = plain(ValueExpr.literal("x")).copy(cell = litCell)
+
+  private val classAttr = """class="[^"]*fh-chosen""".r
+
+  // The ask while one is out, else the commit (ADR 0025).
+  private val bind =
+    s"""data-class:fh-chosen="String(($$${key.pendingSignal} || """ +
+      s"""$$${key.committedSignal})) === '7d'""""
 
   test(
-    "a class decided at render: in the document for the viewer, never in a patch"
+    "a class lit by valueIs: for the viewer in the document, never in a " +
+      "patch, live off the variable's own signals"
   ) {
-    val r = Renderer.create(dash(panel(lit)))
+    val d = dash(panel(lit))
+    assertEquals(d.validate(), Nil)
+    val r = Renderer.create(d)
     val id = LayoutNode.childId(
       "",
       NodeId.derived("panel"),
       LayoutNode.Step(LayoutNode.DefaultRegion, 0),
       lit
     )
-    assert(!body(r, Map.empty).contains("fh-chosen"), body(r, Map.empty))
-    assert(body(r, Map(key -> "7d")).contains("fh-chosen"))
-    val patched = r.renderNodeById(
-      id,
-      Shared.of(Map.empty),
-      Viewing(
-        Selections.none,
-        FetchSnapshot.of(Map.empty, r.vars.env(Map(key -> "7d")))
-      )
-    )
-    assert(patched.exists(!_.contains("fh-chosen")), patched)
-    // Not a reader, so a write re-renders nothing for it, and not in its key.
-    assertEquals(r.vars.readersOf(key), Nil)
-    assertEquals(
-      r.byteSlotValues(
+    val seven = FetchSnapshot.of(Map.empty, r.vars.env(Map(key -> "7d")))
+    assert(classAttr.findFirstIn(body(r, Map.empty)).isEmpty)
+    assert(classAttr.findFirstIn(body(r, Map(key -> "7d"))).isDefined)
+    assert(body(r, Map.empty).contains(bind), body(r, Map.empty))
+    val patched =
+      r.renderNodeById(
         id,
         Shared.of(Map.empty),
-        FetchSnapshot.of(Map.empty, r.vars.env(Map(key -> "7d")))
-      ),
+        Viewing(Selections.none, seven)
+      )
+    assert(patched.exists(p => classAttr.findFirstIn(p).isEmpty), patched)
+    assert(patched.exists(_.contains(bind)), patched)
+    // No signal of its own to seed or send, not a reader a write re-renders,
+    // and not in the patch's key.
+    assertEquals(r.signalsFor(id, Shared.of(Map.empty), seven), Map.empty)
+    assertEquals(r.vars.readersOf(key), Nil)
+    assertEquals(
+      r.byteSlotValues(id, Shared.of(Map.empty), seven),
       r.byteSlotValues(id, Shared.of(Map.empty), FetchSnapshot.empty)
     )
   }
 
-  test("a class decided at render is a bool over declared variables") {
-    val notBool = plain(ValueExpr.literal("x"))
-      .copy(cell = Some(Cell(atRender = ListMap("fh-chosen" -> window))))
-    refused(
-      dash(panel(notBool)),
-      "cell class 'fh-chosen' at render: a condition is a bool"
+  test("a class lit by valueIs on a card holding regions: lit for the viewer") {
+    val held = LayoutNode.Component(
+      "box",
+      regions = LayoutNode.kids(plain(ValueExpr.literal("y"))),
+      cell = litCell
     )
-    refused(
-      dash(lit),
-      "at render reads the variable 'window', which no ancestor declares"
-    )
+    val d = dash(panel(held))
+    assertEquals(d.validate(), Nil)
+    val r = Renderer.create(d)
+    assert(classAttr.findFirstIn(body(r, Map.empty)).isEmpty)
+    assert(classAttr.findFirstIn(body(r, Map(key -> "7d"))).isDefined)
+    assert(body(r, Map.empty).contains(bind), body(r, Map.empty))
+  }
+
+  test("a class lit by valueIs needs a declarer above") {
+    refused(dash(lit), "which no ancestor declares")
   }
 
   private def refused(d: Dashboard, fragment: String): Unit =
@@ -161,9 +177,13 @@ class VarSourceSuite extends munit.FunSuite {
     refused(dash(panel(live)), "signal, which every viewer shares")
   }
 
-  test("a live cell class refuses one: it is a signal too") {
+  test("a live cell class refuses any other read: it is a signal too") {
+    val notEquals = ValueExpr(
+      Value.Var("window"),
+      List(Step.Compare(Op.Ne, Value.Literal(Lit.Text("7d"))))
+    )
     val classed = plain(ValueExpr.literal("x"))
-      .copy(cell = Some(Cell(classes = ListMap("fh-chosen" -> isWindow("7d")))))
+      .copy(cell = Some(Cell(classes = ListMap("fh-chosen" -> notEquals))))
     refused(dash(panel(classed)), "signal, which every viewer shares")
   }
 

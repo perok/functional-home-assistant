@@ -27,9 +27,9 @@ The tier is each step's own form; nothing infers one from expression spelling.
 `type`). A card names each one once, as a handle (`const local label = slotMod.slot("label")`), and
 places it through the handle (`\(label)`, `label.bind`, `label.ifSet(…)`). That is a **template
 slot**; a **cell slot** is placed by the renderer on the node's **cell** instead, keyed by the class
-or the CSS custom property it sets (`cell.classes`, `cell.styles`; ADR 0008). A class decided at
-render (`cell.atRender`, `cellClassAtRender`) is not a cell slot: it is written once, in the
-document form, for the viewer, with no signal and no binding (ADR 0033).
+or the CSS custom property it sets (`cell.classes`, `cell.styles`; ADR 0008). A class lit by a
+node variable (`cellClassWhen(cls, v.valueIs(x))`) is a cell slot too, written for the viewer in
+the document form and bound to the variable's own signals (ADR 0033).
 
 **Signal slot** — a slot whose value is pushed to the browser as a Datastar signal instead of being
 baked into re-rendered HTML, so it can change without the card being re-rendered at all. ADR 0017.
@@ -322,10 +322,9 @@ owns, and the build replaces it with that node's real id — bottom-up, so the i
 Note this is authorship, not tree position: it means "the card that wrote this", which is why the
 renderer cannot derive it from the parent link.
 
-`@@VAR:<name>@@` (`varMod.Variable.declarer`) is the other token, and it IS tree position: the nearest
-node above declaring the node variable `name`, spliced node by node so a shadow holds (ADR 0033). A
-highlight reading the declarer's signal from below spells it; a choice names only the variable,
-and the server resolves the same declarer at the pressing node.
+A node variable's declarer needs no token: it IS tree position, the nearest node above declaring
+the name, and the server resolves it where the node sits, for a choice, a read and a highlight
+alike (ADR 0033).
 
 ---
 

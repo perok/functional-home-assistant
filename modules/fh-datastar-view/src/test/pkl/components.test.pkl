@@ -412,7 +412,7 @@ facts {
     // A window names the variable, never the chooser's id, which it cannot know.
     let (week = bar[2] as nodes.Node)
       week.declared["tap"] == new slotMod.SetVarCall { variable = "window"; value = "7d" }
-      && (week.slotsByName["active"].value as String).endsWith("=== '7d'")
+      && week.liveClasses["fh-chosen"] == nodes.booleanReading(historyMod.windowVar.valueIs("7d"))
   }
 
   ["a variable choice is guarded, and takes only plain tokens"] {
@@ -423,15 +423,11 @@ facts {
     module.catch(() -> historyMod.windowVar.choose("7 d")).contains("matches")
     module.catch(() -> historyMod.windowVar.choose("it's")).contains("matches")
     // The name is spelled into signals and the URL, so it is a token too.
-    module.catch(() -> new varMod.Variable { name = "my window" }.declarer).contains("matches")
+    module.catch(() -> new varMod.Variable { name = "my window" }.name).contains("matches")
   }
 
-  ["a variable spells its declarer one way from its own template, another from below"] {
+  ["a variable is its name: its reads, its declaration and what it selects"] {
     local tab = new varMod.Variable { name = "tab" }
-    tab.own.committed == "_var_{{id}}__tab"
-    tab.own.urlParam == "v.{{id}}.tab"
-    tab.below.group == "var_@@VAR:tab@@__tab"
-    tab.below.pending == "_var_@@VAR:tab@@__tab__pending"
     (tab.value.source as slotMod.VarRead).name == "tab"
     tab.defaultingTo("0").variable == tab
     tab.defaultingTo("0").default == "0"
@@ -597,12 +593,11 @@ facts {
     f.regions!!["features"].toList().map((n) -> (n as nodes.Node).card) == List("fhrow", "button")
   }
 
-  ["a tab highlights by STRICT string comparison, so an unseeded '' lights no tab"] {
-    // Loose `==` makes `'' == 0` true: an unset selection would look like tab 0.
+  ["a tab is lit while the bar's variable holds its index"] {
+    // The renderer spells it, as strings (`VarSourceSuite`).
     local tab = ((c.tabs) { tabs { ["A"] { c.title("a") } ["B"] { c.title("b") } } })
       .children.toList()[1] as nodes.Node
-    (tab.slotsByName["active"].value as String).endsWith(") === '1'")
-    (tab.slotsByName["active"].value as String).startsWith("String(")
+    tab.liveClasses["fh-chosen"] == nodes.booleanReading(new varMod.Variable { name = "tab" }.valueIs("1"))
   }
 
   ["an If whose branches all fail collapses its cell, rather than leaving a blank band"] {

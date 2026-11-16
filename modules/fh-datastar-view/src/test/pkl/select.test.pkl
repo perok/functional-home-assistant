@@ -46,7 +46,7 @@ facts {
     after.card == "selectVarDropdown"
     // A field Node gains must be named here: carried by `style`, or computed by
     // the card. Otherwise it is dropped by `.style(…)` without a word.
-    local carried = Set("cellClasses", "layoutClasses", "stateClasses", "liveClasses", "liveStyles", "renderClasses", "id", "vars", "inputs")
+    local carried = Set("cellClasses", "layoutClasses", "stateClasses", "liveClasses", "liveStyles", "id", "vars", "inputs")
     local cards = Set("kind", "cell", "card", "cardDef", "variants", "slots", "templateSlots", "slotsByName", "declared", "calls", "children", "regions", "wireInputs", "inlineSurfaces")
     reflect.Class(nodes.LayoutNode).properties.keys + reflect.Class(nodes.Node).properties.keys == carried + cards
   }
@@ -57,9 +57,8 @@ facts {
     local opts = s.children.toList()
     opts.length == 2
     route(opts[0]) == "shade=pale" && route(opts[1]) == "shade=deep"
-    // Lit by the ask while one is out, else the commit.
-    (opts[1].slotsByName["active"].value as String).endsWith("=== 'deep'")
-    (opts[1].slotsByName["active"].value as String).contains("__pending")
+    // Lit while `shade` holds it; the renderer reads the ask while one is out.
+    opts[1].liveClasses["fh-chosen"] == nodes.booleanReading(shade.valueIs("deep"))
   }
 
   ["a style is the same choice in another card, a variable's baked"] {

@@ -38,6 +38,17 @@ final case class ValueExpr(
   /** A [[constant]] that is text. */
   def literal: Option[String] = constant.collect { case s: String => s }
 
+  /** `v.valueIs(x)` as `(v, x)`: the one variable read a signal slot may hold,
+    * since the browser can read it off the variable's own signals (ADR 0033).
+    */
+  def chosenAt: Option[(String, String)] = (source, steps) match
+    case (
+          Value.Var(name),
+          List(Step.Compare(Op.Eq, Value.Literal(Lit.Text(at))))
+        ) =>
+      Some((name, at))
+    case _ => None
+
   /** The subject resolved: a source [[Value.Entity]] that names none reads
     * `subject`, and a step's operand that names none its source's entity, else
     * `subject`. `None` leaves one unnamed, which `validate` refuses.
