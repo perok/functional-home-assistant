@@ -21,7 +21,7 @@ slots, a bool signal slot and a fetch window's `Choice.Chosen.by`, but a bake me
 it as `Activation.Var`.
 
 **State:** direction agreed in chat (2026-11-10); the prework is on main (below); R1 is built
-(`slot-classes`), R2 is built (`set-fill`), R3 onward not. The opening describes the shape before
+(`slot-classes`), R2 is built (`set-fill`), R3 is built (`choices-in-pkl`), R4 onward not. The opening describes the shape before
 R1.
 
 ## What this builds on
@@ -189,7 +189,7 @@ slots {
 - **A set** is the slot's whole fill: members are placed relative to each other, so a fixed
   sibling in the same host would need anchors.
 - `choose`/`each` and the separate `fills` block do not exist; `inlineSurfaces`, `bakeInto`,
-  `bakeAs`, `bakeIndex` and `Region.fill` go once nothing builds them by hand (step R3).
+  `bakeAs`, `bakeIndex` and `Region.fill` go in R4: since R3 only the choices write them.
 
 ### 4. Variables in decisions (R4)
 
@@ -381,16 +381,19 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      `publishSetOrdered`, `publishSetGuarded`, `publishSetNamedGuard`, `leaderRow`, `tickRender`,
      and `validated` timing. Pkl fact: a set beside other content is an error. A test that a
      member whose first clause reads an attribute its entity does not report shows its second.
-3. **R3, choices in Pkl.**
-   - `nodeMod.iff`/`elif`/`else`, `nodeMod.match` over a variable, `c.iff(…).elif`; Tabs, If, select
-     and the slider's controls on it, the three that host beside other content through a `group`.
-   - The builders write today's bake fields (`inlineSurfaces`, `bakeInto`/`bakeAs`/`bakeIndex`,
-     the baked marker), so the runtime is untouched and no Scala is written for R4 to delete.
-     A baked branch is patched into `#<bakeInto>_<bakeAs>` (`Surface.hostId`), never a card's
-     root, so each choice keeps today's inner host element (`<div class="fh-ifhost"
-     id="{{hostId}}">`); the root hosting it is R4's (agreed 2026-11-16).
-   - Ids move: everything in a panel sits one path step deeper, under its `group`. The view tests are the check, and `dashboardGoldensVs` shows nothing but ids moved. A
-     URL naming a variable declared inside a panel (`v.<id>.x`) stops matching.
+3. **R3, choices in Pkl.** Built.
+   - `core/choice.pkl`: `nodeMod.iff`/`elif`/`else`, `nodeMod.match` over a variable (with
+     `.otherwise(x)`, Pkl having no default arguments), `c.iff(…).elif`; Tabs, If, the select's
+     label and cycle and the slider's controls on it. A chain mixing a variable and state, and a
+     match over state, are Pkl errors naming R4.
+   - The builders write today's bake fields (a node derives `inlineSurfaces` from its nodes
+     slots' choices), so the runtime is untouched. A baked branch is patched into
+     `#<bakeInto>_<bakeAs>` (`Surface.hostId`), never a card's root, so each choice keeps its
+     card's inner host element; no `group` (agreed 2026-11-16).
+   - What moved: Tabs select by value (`"0"`, `"1"`) rather than index, and the select's and
+     slider's surface keys are `t<n>`. No node id moved (`dashboardGoldensVs set-fill` passes).
+   - `Variable.selects` and `AtIndex` are now used only by a `components.test.pkl` fact; they
+     go in R4 with `Activation.Var`.
 4. **R4, one runtime path.**
    - `Fill.Nodes(Chosen)` replaces the bake fields on the wire, `inlineSurfaces` staying only for
      popups; `nodeMod.match` over a state reading. The four suites building on `{{bakeIndex}}`
@@ -412,8 +415,13 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        rewritten to this);
      - A → B → A sends A whole.
    - A live fill is hosted at its card's root (§2): the inner host elements R3 kept go, the If
-     loses a `div` and `.fh-cell:has(>.fh-ifhost:empty)` becomes `.fh-ifhost:empty`.
-   - Ids move again; the same normalised comparison, then the goldens are regenerated.
+     loses a `div` and `.fh-cell:has(>.fh-ifhost:empty)` becomes `.fh-ifhost:empty`. Tabs, the
+     select and the slider's controls host their choice beside other content through a `group`,
+     and Pkl facts for that hosting are added.
+   - Ids move: everything in a panel sits one path step deeper, under its `group`. The view
+     tests are the check, and `dashboardGoldensVs` shows nothing but ids moved before the goldens
+     are regenerated. A URL naming a variable declared inside a panel (`v.<id>.x`) stops
+     matching.
    - Bench everything R2 measured, `publishSetOrdered` also with many sessions, and the size of
      one session's `holds`. Then look at `validated`'s allocation: R2 left it ~6% above R1 on the
      starter (1.56 → 1.66 MB/op), the `group` card's template and each set validated as a card;
@@ -484,7 +492,8 @@ variables and the tap routes. This plan is deleted when the work lands.
    `.inHistory()`.
 2. **The select's dropdown label over a variable** is a bake group only so the first HTML shows the
    chosen option (`select.pkl:15`). A value slot reading the variable could show it, but it sits
-   on a structure card, which refuses a live slot written as bytes; settle it in R3.
+   on a structure card, which refuses a live slot written as bytes. R3 kept it a bake group (a
+   `nodeMod.match`); settle it in R4, when it becomes a pick.
 3. **Not built until a card needs it:** a cell class whose name an expression computes
    (`cellClassFrom(state.match(…))`, expanded in Pkl to one bool per literal arm), and `Step.Match`
    with typed keys like `Case.is`.
