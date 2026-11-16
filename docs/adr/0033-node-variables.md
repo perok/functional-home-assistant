@@ -364,3 +364,9 @@ instead.
   `Server.popupOf` and `Selections.popup`, the one selection a request still carries (ADR 0005).
 - **A global namespace**, if the root declaration ever reads badly, is Pkl sugar over it — never a
   second resolution rule.
+- **Naming the root's declaration from below a nearer one** (`root.popups`). Resolution is
+  nearest-first, so a nested declaration hides an outer one of the same name. An author who hides
+  their own variable can rename it, and a name the library declares on the author's behalf is
+  reserved instead, so nothing can hide it. A reference resolved at the root is for the day an
+  author must reach past a nearer declaration they cannot rename: Pkl sugar spelling the root's
+  id, like the global namespace above, not a second resolution rule.
