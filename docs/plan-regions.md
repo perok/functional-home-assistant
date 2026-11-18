@@ -423,7 +423,10 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      scopes and the renderer's surface indexes walk them as before; R4c, which hosts a case at
      its card's root, removes that. `Selections.none` now shows no tab, so a test standing for a
      fresh viewer asks `surfaces.selections(None, vars.env(Map.empty))`, as a page load does
-     (`RenderGoldenSuite.fresh`).
+     (`RenderGoldenSuite.fresh`). So that nothing in production reaches "shows nothing", a
+     session's values are re-checked once against each new renderer they meet
+     (`Renderer.recheck`; agreed 2026-11-18): before, an edit removing a viewer's open tab left
+     the value stale, and the group fell back to its first member.
    - **R4c, the root hosts.** The group, the If losing a `div`, and the id move (below).
    - **R4d, the planner.** `holds` keeps each host's keys; the log down to `fragments` (below);
      the variable-read refusals of §4 go, the mixed `by` and set guards included, with a test of

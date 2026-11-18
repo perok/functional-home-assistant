@@ -1251,7 +1251,9 @@ path that renders a panel takes the bar's case from the session's variables: `Su
 pairs them with the request's popup at each entry (the page, an action, a minted session, a
 connect after adopting the carried values, a renderer swap), narrowing the popup to one this
 dashboard hosts and dropping a value no case of the choice takes, which shows nothing. A pull reads `session.open` instead
-(`SurfaceGraph.selectionsIn`), which the write keeps in step. `Selections` is what all of them
+(`SurfaceGraph.selectionsIn`), which the write keeps in step. A session's values are checked against
+each renderer they meet once (`Renderer.recheck`), so a value an edit refuses (a removed tab)
+falls back to its declaration rather than showing nothing. `Selections` is what all of them
 hand the renderer: the popup's surface id and each pick's case index, which
 `SurfaceGraph.memberAt` finds from the variable's value (`Ready.Pick.decide`: the case keyed by
 it, else the otherwise, an If over a variable's `else`).

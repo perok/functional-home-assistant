@@ -169,7 +169,10 @@ declared value. Each is adopted on its own, so one stale value costs only its ow
 session's own choices win over them, since a commit can be lost with its stream. They are read by exact signal name per declaration (`Server.carriedVars`), never by
 parsing `_var_<declarer>__<name>`: a declarer's id can itself contain `__` (`s_<sid>__c`). All go through
 `Renderer.refusals`: every declared reader must still take it — a fetch with no `otherwise` must
-find a case for it, a panel must have a member for it. ADR 0023's bound on the read side holds by
+find a case for it, a panel a case. A dashboard edit can refuse what the old dashboard took (a
+removed tab), so a session's values are checked again the first time they meet a new renderer,
+at whichever of the swap repaint, a reconnect, a pull or a press comes first
+(`Renderer.recheck`, `SessionState.checkedBy`); a refused one falls back to its declaration. ADR 0023's bound on the read side holds by
 construction: a fetch's entity is written down, so no value can move a chart to the lock on a
 `Public` dashboard. A refused write is ADR 0024's 200 of
 signals; a refused URL value or carry is dropped with a warning, each on its own

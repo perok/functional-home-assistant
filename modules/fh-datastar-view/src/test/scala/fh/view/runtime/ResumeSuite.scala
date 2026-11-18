@@ -623,6 +623,58 @@ class ResumeSuite extends ServerHarness {
     }
   }
 
+  private val abStates = Map(
+    "sensor.shared" -> es("sensor.shared", "S0"),
+    "sensor.a" -> es("sensor.a", "A0"),
+    "sensor.b" -> es("sensor.b", "B0")
+  )
+
+  private def swapTo(ts: TestServer, d: Dashboard) =
+    ts.server
+      .liveSlug(ts.slug)
+      .flatMap(_.renderer.set(Server.RendererState.Ready(Renderer.create(d))))
+
+  test("an edit removing the open tab moves its viewer to the declared one") {
+    live(twoTabsDash, abStates) { ts =>
+      for {
+        client <- ts.connect(onTabs("c_1" -> 1))
+        opened <- client.drain.map(_.flatMap(_.data).mkString("\n"))
+        _ = assert(opened.contains("<span>B0</span>"), clue = opened)
+        _ <- swapTo(ts, mixedTabsDash)
+        _ <- client.arrived
+        sent <- client.drain.map(_.flatMap(_.data).mkString("\n"))
+      } yield {
+        assert(sent.contains("<span>A0</span>"), clue = sent)
+        // The page's committed value follows, so its URL mirror does too.
+        assert(sent.contains(""""_var_c_1__tab":"0""""), clue = sent)
+      }
+    }
+  }
+
+  test(
+    "an edit while the stream is down is checked where the session next meets it"
+  ) {
+    // No stream, so no swap repaint: whichever entry point meets the new
+    // dashboard first (here a pull) checks the session's values.
+    live(twoTabsDash, abStates) { ts =>
+      val tab = VarKey(NodeId.derived("c_1"), "tab")
+      for {
+        v <- ts.viewer("?v.c_1.tab=1")
+        before <- v.session.state.map(_.vars.get(tab))
+        _ <- swapTo(ts, mixedTabsDash)
+        // A pull is one entry point; a recorded change would race the swap.
+        live <- ts.server.liveSlug(ts.slug)
+        at <- v.session.state.map(_.position + 1)
+        _ <- ts.server.pull(live, v.session, at)
+        after <- v.session.state.map(_.vars.get(tab))
+      } yield {
+        assertEquals(before, Some("1"))
+        // Back to the declared tab, which a reconnect then renders.
+        assertEquals(after, None)
+      }
+    }
+  }
+
   test("the popup selection is committed as it moves: open, switch, close") {
     // The client asks; the swap commits `ui_popups` (ADR 0025), so each move
     // lands in order and the last leaves nothing open.
