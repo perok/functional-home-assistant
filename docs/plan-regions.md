@@ -427,13 +427,42 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      session's values are re-checked once against each new renderer they meet
      (`Renderer.recheck`; agreed 2026-11-18): before, an edit removing a viewer's open tab left
      the value stale, and the group fell back to its first member.
-   - **R4c, the root hosts.** The group, the If losing a `div`, and the id move (below).
+   - **R4c, the root hosts**, branch `root-hosts` on `the-pick`. Agreed 2026-11-18, in this
+     order:
+     1. `RenderGoldenSuite` becomes one test per fixture, both of its loops over
+        `FixtureEntries.all`, before the goldens move: under the full parallel run it sits near
+        its 30 s timeout.
+     2. A live fill is hosted at its card's root (§2), and the inner host elements R3 kept go.
+        Tabs' panel, the slider's controls and the select's cycles (`div`s) and menu label
+        (`span`) each become a `group` with `layoutCell = false`, carrying today's tag and
+        classes. The If's root hosts its branch (`classes = "fh-ifhost"; template =
+        "\(branch)"`), and `.fh-cell:has(>.fh-ifhost:empty)` becomes `.fh-ifhost:empty`. A pick's
+        host is its card's node id (`Pick.hostId` goes). The build refuses a live fill that is not
+        its card's whole template; Pkl facts for the hosting.
+     3. A case is a node, not a surface. Case `i` of a choice in slot `s` has the id a fixed node
+        at index `i` of `s` would have, `<host>_<segment(s, i)>`, the otherwise index `n` after
+        the cases: a slot holds one fill, so the two never meet, where a `t<i>` marker meets a slot
+        named `t0`. Under a `group` that is `<group>_<i>`, so everything in a panel sits one path
+        step deeper. Nodes in a case take `childId`. The node index records each node's pick and
+        case, which the `s_…__` prefix said before; the duplicate-id check covers authored ids
+        in cases. `Surface.InPick`, `lowered`, the build's case surface ids and
+        `renderSurfaceTraced` for cases go; the surface indexes keep popups. A pick in a set
+        member's clause keeps the clause in the pick's id (`<host>_k<c>`, #556), not in node ids.
+        `dashboardGoldensVs the-pick` shows only ids and the goldens' case sections moved before
+        the goldens are regenerated. A URL naming a variable declared inside a case (`v.<id>.x`)
+        stops matching; no alias (Later, `.urlName(…)`).
+     4. The costs-nothing test (below): cases becoming tree nodes is where a walk could start
+        rendering one nobody chose.
+     5. `nodeMod.match` over a state reading: the pick decides one already. A match reading a
+        variable and state together waits for R4d.
+
+     The select's label stays a `nodeMod.match`, in a `span` group: a value slot showing the
+     variable would sit on a structure card, which refuses a live slot written as bytes.
    - **R4d, the planner.** `holds` keeps each host's keys; the log down to `fragments` (below);
      the variable-read refusals of §4 go, the mixed `by` and set guards included, with a test of
      one guard reading a variable and a state, two viewers on different values.
-   - Left for R4c/R4d: `nodeMod.match` over a state reading (a Pkl error naming R4 today; the
-     pick decides one already); the planner and its ids (§7); `MemberGraph`'s nesting cases; the
-     shared decisions' variable refusals (§4). Popups stay on today's swap.
+   - Left for R4d: the planner (§7); `MemberGraph`'s nesting cases; the shared decisions'
+     variable refusals (§4). Popups stay on today's swap.
    - A test that a case no viewer shows costs nothing: a state change that only an unchosen tab
      panel or If branch reads renders and sends nothing.
    - The planner as §7 has it, the log down to `fragments`. Tests:
@@ -443,14 +472,6 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        the members that changed and no set repaint (`FragmentLogSuite`'s refill assertions are
        rewritten to this);
      - A → B → A sends A whole.
-   - A live fill is hosted at its card's root (§2): the inner host elements R3 kept go, the If
-     loses a `div` and `.fh-cell:has(>.fh-ifhost:empty)` becomes `.fh-ifhost:empty`. Tabs, the
-     select and the slider's controls host their choice beside other content through a `group`,
-     and Pkl facts for that hosting are added.
-   - Ids move: everything in a panel sits one path step deeper, under its `group`. The view
-     tests are the check, and `dashboardGoldensVs` shows nothing but ids moved before the goldens
-     are regenerated. A URL naming a variable declared inside a panel (`v.<id>.x`) stops
-     matching.
    - Bench everything R2 measured, `publishSetOrdered` also with many sessions, and the size of
      one session's `holds`. Then look at `validated`'s allocation: R2 left it ~6% above R1 on the
      starter (1.56 → 1.66 MB/op), the `group` card's template and each set validated as a card;
@@ -518,10 +539,6 @@ variables and the tap routes. This plan is deleted when the work lands.
 
 1. **Names**, free to change while v0: `group`, `pick`, `IndexOfTrue`, the slot kinds and their base (`AnySlot`),
    `.inHistory()`.
-2. **The select's dropdown label over a variable** is a choice only so the first HTML shows the
-   chosen option (`select.pkl:15`). A value slot reading the variable could show it, but it sits
-   on a structure card, which refuses a live slot written as bytes. It is a `nodeMod.match`,
-   decided by a pick since R4b; settle whether it stays one in R4c.
-3. **Not built until a card needs it:** a cell class whose name an expression computes
+2. **Not built until a card needs it:** a cell class whose name an expression computes
    (`cellClassFrom(state.match(…))`, expanded in Pkl to one bool per literal arm), and `Step.Match`
    with typed keys like `Case.is`.
