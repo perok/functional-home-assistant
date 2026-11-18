@@ -196,7 +196,7 @@ object ByteValuesShapePropertySuite {
       cards = Sets.cards ++ Map(
         "box" -> TestCard(
           "<div>{{{children}}}</div>",
-          regions = Map("children" -> Region())
+          regions = Set("children")
         ),
         "one" -> TestCard(template("A")),
         "two" -> TestCard(template("B"))

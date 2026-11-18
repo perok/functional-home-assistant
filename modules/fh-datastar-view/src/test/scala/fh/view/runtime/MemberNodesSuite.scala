@@ -10,17 +10,15 @@ import fh.view.testkit.Conds
 import fh.view.runtime.RendererTestOps.*
 
 import fh.view.model.{
-  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
   Op,
-  Region,
   Value,
   ValueExpr,
   TemplateSlot,
-  Surface
+  Slot
 }
 import fh.view.fetch.FetchSnapshot
 import fh.view.testkit.DashboardBuilders
@@ -30,7 +28,7 @@ import io.circe.Json
 import org.http4s.Status
 
 /** A set member's children are nodes of their own (#556): ids the static walk
-  * would give them, patched as leaves, baking a viewer's selection.
+  * would give them, patched as leaves, showing a viewer's choice.
   */
 class MemberNodesSuite extends ServerHarness {
 
@@ -39,11 +37,11 @@ class MemberNodesSuite extends ServerHarness {
     "tile" -> TestCard("<b>{{state}}</b>"),
     "col" -> TestCard(
       """<div>{{{children}}}</div>""",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     ),
     "host" -> TestCard(
       """<div id="{{hostId}}">{{{panel}}}</div>""",
-      regions = Map("panel" -> Region(Region.Baked))
+      regions = Set("panel")
     ),
     "text" -> TestCard("<p>{{text}}</p>")
   )
@@ -188,22 +186,14 @@ class MemberNodesSuite extends ServerHarness {
     }
   }
 
-  // Each member hosts a baked panel chosen by `tab`, declared above the set.
-  private val panels = {
+  private def text(t: String) = LayoutNode.Component(
+    "text",
+    Slots.values(Map("text" -> TemplateSlot(ValueExpr.literal(t))))
+  )
+
+  // Each member hosts a panel chosen by `tab`, declared above the set.
+  private def panels(panel: String => Slot) = {
     val ids = List("light.a", "light.b")
-    def panel(member: String, i: Int, text: String) = Surface(
-      LayoutNode
-        .Component(
-          "text",
-          Slots.values(Map("text" -> TemplateSlot(ValueExpr.literal(text))))
-        ),
-      bakeInto = Some(member),
-      bakeAs = Some("panel"),
-      bakeIndex = Some(i),
-      activation = Activation.Var("tab"),
-      // As the build tags a surface baked inside a clause.
-      clause = Some(0)
-    )
     Dashboard(
       cards = cards,
       card = LayoutNode.Component(
@@ -225,7 +215,7 @@ class MemberNodesSuite extends ServerHarness {
                             ValueExpr.literal(id)
                           )
                         )
-                      )
+                      ) + ("panel" -> panel(id))
                     )
                   )
                 )
@@ -233,30 +223,30 @@ class MemberNodesSuite extends ServerHarness {
             }.toMap
           ) :: DashboardBuilders.choices("tab", "1")*
         )
-      ),
-      surfaces = Map(
-        "a0" -> panel("c_0_light_a", 0, "A first"),
-        "a1" -> panel("c_0_light_a", 1, "A second"),
-        "b0" -> panel("c_0_light_b", 0, "B first"),
-        "b1" -> panel("c_0_light_b", 1, "B second")
       )
     )
+  }
+
+  private val tabbed = panels { id =>
+    val n = if (id == "light.a") "A" else "B"
+    Slots.tabs("tab", text(s"$n first"), text(s"$n second"))
   }
 
   private val twoOn =
     Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
 
-  test("a baked region inside a member shows this viewer's member") {
-    assertEquals(panels.validate(), Nil)
-    val r = Renderer.create(panels)
-    val html = r.renderBody(twoOn, picking("c_0_light_a_k0" -> 1))
+  test("a choice inside a member shows this viewer's member") {
+    assertEquals(tabbed.validate(), Nil)
+    val r = Renderer.create(tabbed)
+    val html =
+      r.renderBody(twoOn, picking("c_0_light_a_k0" -> 1, "c_0_light_b_k0" -> 0))
     assert(html.contains("A second") && !html.contains("A first"), clue = html)
     assert(html.contains("B first") && !html.contains("B second"), clue = html)
     assert(html.contains("""id="c_0_light_a_panel""""), clue = html)
   }
 
   test("a write swaps each member's panel, not the member") {
-    live(panels, twoOn) { ts =>
+    live(tabbed, twoOn) { ts =>
       for {
         v <- ts.viewer()
         wrote <- ts.choose(
@@ -280,22 +270,10 @@ class MemberNodesSuite extends ServerHarness {
   }
 
   test("a branch chosen by live state inside a clause builds") {
-    val flipping = panels.copy(surfaces =
-      Map(
-        "a0" -> panels
-          .surfaces("a0")
-          .copy(activation =
-            Activation.State(
-              Some(
-                Conds.cmp(
-                  "state",
-                  Op.Eq,
-                  Json.fromString("on"),
-                  entity = Some("light.a")
-                )
-              )
-            )
-          )
+    val flipping = panels(_ =>
+      Slots.iff(
+        Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a")),
+        text("A first")
       )
     )
     assertEquals(flipping.validate(), Nil)

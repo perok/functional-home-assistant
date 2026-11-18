@@ -30,11 +30,11 @@ private[model] object Validate:
         case None =>
           List(s"$nodeId: references unknown card '$cardName'")
         case Some(cd) =>
-          val undeclared = (filled -- cd.regions.keySet).toList.sorted.map(r =>
+          val undeclared = (filled -- cd.regions).toList.sorted.map(r =>
             s"$nodeId: fills region '$r', which card '$cardName' does not " +
               "declare — its children would never render"
           ) ++ slotNames
-            .intersect(cd.regions.keySet)
+            .intersect(cd.regions)
             .toList
             .sorted
             .map(r =>
@@ -43,8 +43,7 @@ private[model] object Validate:
             )
           val names = cardReads.get(cardName).flatMap(_.toOption)
           val known = slotNames ++ Dashboard.injectedStatic ++
-            cd.regions.keySet ++
-            Option.when(cd.bakedRegions.nonEmpty)(Dashboard.BakeIndexVar)
+            cd.regions
           val unset = names.toList
             .flatMap(_.required)
             .filterNot(known)
@@ -629,9 +628,10 @@ private[model] object Validate:
         .map(n => s"$nodeId: '$n' is both a slot and a call — rename one")
 
     /** A nodes slot's choice: keys typed by `by`, one node per case, one choice
-      * to a node, and a `by` the bake group can decide
-      * ([[Dashboard.choiceSurfaces]]): a viewer's variable read alone, or state
-      * alone.
+      * to a node (its cases' ids name the node, not the slot), and a `by` a
+      * pick can decide: a viewer's variable read alone, or state alone. A
+      * variable's declared value no case takes would show nothing before anyone
+      * chooses.
       */
     def choiceFillErrors(
         nodeId: String,
@@ -645,8 +645,8 @@ private[model] object Validate:
       val two = Option
         .when(chosen.sizeIs > 1)(
           s"$nodeId: nodes slots ${chosen.map(n => s"'${n._1}'").mkString(", ")} " +
-            "are each filled with a choice; a node holds one until the pick " +
-            "(R4b of docs/plan-regions.md)"
+            "are each filled with a choice; a node holds one until its root " +
+            "hosts it (R4c of docs/plan-regions.md)"
         )
         .toList
       two ++ chosen.flatMap { (n, k) =>
@@ -663,17 +663,30 @@ private[model] object Validate:
           if (k.by.variables.nonEmpty && k.by.entities.nonEmpty)
             List(
               s"$at is chosen by a viewer's variable and by state together, " +
-                "which is not built yet (R4b of docs/plan-regions.md)"
+                "which is not built yet (R4d of docs/plan-regions.md)"
             )
           else if (
             k.by.variables.nonEmpty && Choice.plainVariable(k.by).isEmpty
           )
             List(
-              s"$at is chosen by a computed read of a variable; until R4b it " +
+              s"$at is chosen by a computed read of a variable; until R4d it " +
                 "is the variable's own value (`v.value`)"
             )
           else Nil
-        chosenErrors(at, "its nodes", "its nodes", k, scope) ++ lengths ++ reads
+        val unshown = Choice.plainVariable(k.by) match
+          case Some(v) if k.otherwise.isEmpty =>
+            scope
+              .get(v)
+              .filterNot(d => k.cases.exists(_.is == Lit.Text(d)))
+              .map(d =>
+                s"$at is chosen by '$v', declared '$d', which no case takes " +
+                  s"(${k.cases.map(c => Steps.text(c.is.raw)).mkString(", ")}): " +
+                  "it would show nothing until a viewer chooses"
+              )
+              .toList
+          case _ => Nil
+        chosenErrors(at, "its nodes", "its nodes", k, scope) ++ lengths ++
+          reads ++ unshown
       }
 
     /** A choice is of the variable as this node reads it. */
@@ -855,7 +868,7 @@ private[model] object Validate:
             nodeId,
             card,
             c.valueSlots.keySet ++ c.calls.keySet,
-            c.regions.keySet
+            c.fills.keySet
           ) ++ placedCallErrors(nodeId, c) ++
             choiceFillErrors(nodeId, c, here) ++
             choiceErrors(nodeId, c, here) ++
@@ -885,7 +898,7 @@ private[model] object Validate:
             .when(
               sets.size > 1 || cards
                 .get(c.card)
-                .exists(_.regions.keySet != Set(region))
+                .exists(_.regions != Set(region))
             )(
               s"$setId: the set in '$region' is not its card's whole " +
                 "template — members are placed relative to each other, so " +
@@ -1014,7 +1027,7 @@ private[model] object Validate:
           case Left(e) =>
             List(s"card '$name': its template does not compile: $e")
           case Right(reads) =>
-            cd.regions.toList.sortBy(_._1).flatMap { case (r, region) =>
+            cd.regions.toList.sorted.flatMap { r =>
               val hole = cd.holeOf(r)
               if reads.misplacedRegions(r) then
                 List(
@@ -1027,7 +1040,7 @@ private[model] object Validate:
                 reads.regionHoles.getOrElse(r, 0) match
                   case 0 =>
                     List(
-                      s"card '$name': declares region '$r' (${region.fill}) " +
+                      s"card '$name': declares region '$r' " +
                         s"but its `template` places no $hole hole for it — " +
                         "nothing would ever appear there"
                     )
@@ -1076,7 +1089,7 @@ private[model] object Validate:
     // all-digit name would read as an index.
     val regionNameErrors: List[String] =
       cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
-        cd.regions.keys.toList.sorted.collect {
+        cd.regions.toList.sorted.collect {
           case r if r.isEmpty || !r.matches("[A-Za-z0-9_]+") =>
             s"card '$name': region name '$r' is not a plain token " +
               "([A-Za-z0-9_]+) — region names enter node ids"
@@ -1167,165 +1180,23 @@ private[model] object Validate:
         )
     )
 
-    // The hoist mints `bakeInto`, so a dangling one means the build's and the
-    // renderer's id derivations drifted; otherwise the symptom is a blank
-    // panel, indistinguishable from an unmatched state group.
-    val danglingBakes: List[String] = {
-      // Every node under the id the runtime gives it, set members' included:
-      // a member's nodes own bake groups too, a slider's heads (#556).
-      def nodesIn(
-          node: LayoutNode,
-          prefix: String,
-          id: NodeId,
-          within: Option[(NodeId, Int, List[LayoutNode.Step])]
-      ): List[(NodeId, LayoutNode, Boolean)] =
-        (id, node, within.isDefined) :: (node match {
-          case c: LayoutNode.Component =>
-            LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
-              nodesIn(
-                ch,
-                prefix,
-                LayoutNode.childIdWithin(prefix, id, step, ch, within),
-                within.map((m, cl, path) => (m, cl, path :+ step))
-              )
-            } ++ c.set.toList.flatMap { (_, s) =>
-              s.members.toList.flatMap { (entityId, m) =>
-                val member =
-                  NodeId.derived(LayoutNode.memberSegment(id, entityId))
-                m.indexed.flatMap((ci, n) =>
-                  nodesIn(n, prefix, member, Some((member, ci, Nil)))
-                )
-              }
-            }
-        })
-      val walked =
-        nodesIn(card, "", LayoutNode.rootId("", card), None) ++
-          surfaces.toList.flatMap { case (sid, s) =>
-            val p = LayoutNode.surfacePrefix(sid)
-            nodesIn(s.content, p, LayoutNode.rootId(p, s.content), None)
-          }
-      val nodes: Map[NodeId, LayoutNode] =
-        walked.map((id, n, _) => id -> n).toMap
-      val inMember: Set[NodeId] =
-        walked.collect { case (id, _, true) => id }.toSet
-      def hostCard(gid: NodeId): Option[CardDef] =
-        nodes
-          .get(gid)
-          .collect { case c: LayoutNode.Component => c.card }
-          .flatMap(cards.get)
-
-      surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
-        s.bakeInto.toList.flatMap { gid =>
-          if (!nodes.contains(gid))
-            List(
-              s"surface '$sid' bakes into '$gid', which is not a node in this " +
-                "dashboard (main tree or any surface's content)"
-            )
-          // Every clause of a candidate mints the same ids below the member, so
-          // only the clause tells two clauses' groups apart (`Surface.group`).
-          else if (inMember(gid) && s.clause.isEmpty)
-            List(
-              s"surface '$sid' bakes into '$gid', inside a candidate set's " +
-                "clause, but names no clause"
-            )
-          else
-            // `bakeAs` must be a baked region of that node's card.
-            (s.bakeAs, hostCard(gid)) match {
-              case (Some(region), Some(cd))
-                  if !cd.regions.get(region).exists(_.fill == Region.Baked) =>
-                val baked = cd.bakedRegions.keys.toList.sorted
-                List(
-                  s"surface '$sid' bakes into '$gid' as '$region', but that " +
-                    s"node's card declares no baked region '$region'" +
-                    (if (baked.isEmpty) " (it declares none)"
-                     else s" — it has ${baked.mkString(", ")}")
-                )
-              // Incoherent: the node owns a bake group while `hostId` falls to
-              // the popup host. Also what keeps "a bake owner is structure"
-              // true, which the render cache relies on.
-              case (None, _) =>
-                List(
-                  s"surface '$sid' bakes into '$gid' but names no 'bakeAs' — " +
-                    "a baked surface must name the region it fills"
-                )
-              case _ => Nil
-            }
-        }
-      }
-    }
-
-    // Selection is per session or server truth per group, never both.
-    val activationErrors: List[String] =
-      surfaces.toList
-        .flatMap { case (sid, s) => s.group.map((_, sid, s.activation)) }
-        .groupBy(_._1)
-        .toList
-        .sortBy(_._1)
-        .flatMap { case (gid, members) =>
-          val kinds = members.map {
-            case (_, _, _: Activation.User)  => "user"
-            case (_, _, _: Activation.Var)   => "var"
-            case (_, _, _: Activation.State) => "state"
-          }.distinct
-          val names = members.collect { case (_, _, Activation.Var(n, _)) =>
-            n
-          }
-          // A baked member has a host, and what fills a host is a choice the
-          // server knows: a viewer's variable or a condition (ADR 0033).
-          val unchosen = members.collect { case (_, sid, _: Activation.User) =>
-            sid
-          }.sorted
-          Option
-            .when(unchosen.nonEmpty)(
-              s"bake group '$gid' has members nothing selects (" +
-                unchosen.mkString(", ") + "): a baked surface is chosen by a " +
-                "node variable (activation kind \"var\") or a condition " +
-                "(\"state\")"
-            )
-            .toList ++ Option
-            .when(kinds.size > 1 && unchosen.isEmpty)(
-              s"bake group '$gid' mixes var- and state-activated members: " +
-                members.map(_._2).sorted.mkString(", ")
-            )
-            .toList ++ names.distinct.match {
-            case List(name) =>
-              // In [[SurfaceGraph.bakeGroup]]'s order.
-              val inOrder = members
-                .map(_._2)
-                .sorted
-                .flatMap(surfaces.get)
-                .sortBy(_.bakeIndex.getOrElse(Int.MaxValue))
-              varSelectionErrors(
-                d,
-                gid,
-                inOrder.flatMap(_.bakeInto).headOption.getOrElse(gid),
-                name,
-                inOrder.flatMap(_.selectedAt),
-                inOrder.count(_.isOtherwise)
-              )
-            case Nil  => Nil
-            case many =>
-              List(
-                s"bake group '$gid' is selected by more than one variable: " +
-                  many.sorted.mkString(", ")
-              )
-          }
-        }
-
+    // A choice over state is decided once for every viewer, about no subject.
     val unboundConditions: List[String] =
-      surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
-        s.activation match
-          case Activation.State(Some(c)) if conditionError(c).nonEmpty =>
-            conditionError(c).toList.map(e =>
-              s"surface '$sid' is shown by a condition that does not decide: $e"
+      picks.toList.sortBy(_._1).flatMap { (gid, p) =>
+        val by = p.choice.by
+        if (by.variables.nonEmpty) Nil
+        else
+          by.bypassError(ownMay = false)
+            .map(e =>
+              s"the choice at '$gid' is decided by a value that does not decide: $e"
             )
-          case Activation.State(Some(c)) if c.readsMissingSubject =>
-            List(
-              s"surface '$sid' is shown by a condition that compares an " +
-                "unnamed entity; a state condition must name the entity each " +
-                "comparison reads"
+            .orElse(
+              Option.when(by.readsMissingSubject)(
+                s"the choice at '$gid' compares an unnamed entity; a choice " +
+                  "over state must name the entity each comparison reads"
+              )
             )
-          case _ => Nil
+            .toList
       }
 
     // A call runs at the press as a decision: for no viewer, about no subject.
@@ -1426,8 +1297,6 @@ private[model] object Validate:
       chromeErrors ++
       failedLabelErrors ++
       theme.classes.errors ++
-      danglingBakes ++
-      activationErrors ++
       unboundConditions ++
       walk(card, "", LayoutNode.rootId("", card), Map.empty) ++
       surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
@@ -1440,45 +1309,6 @@ private[model] object Validate:
         ).map(err => s"surface '$sid': $err")
       }
 
-  /** A clause's or a state surface's condition: a bool that bypasses nothing.
-    */
+  /** A clause's condition: a bool that bypasses nothing. */
   private def conditionError(e: ValueExpr): Option[String] =
     e.boolError orElse e.bypassError(ownMay = false)
-
-  /** A variable-selected group needs its variable in scope at the host, and a
-    * declared value that is a member index: the declared value is what bakes
-    * before anyone chooses, and only a viewer's choice is checked at the write.
-    */
-  private def varSelectionErrors(
-      d: Dashboard,
-      gid: NodeId,
-      host: NodeId,
-      name: String,
-      values: List[String],
-      fallbacks: Int
-  ): List[String] =
-    import d.*
-    Option
-      .when(values.distinct.size != values.size)(
-        s"bake group '$gid' has two members selected at one value of '$name': " +
-          values.mkString(", ")
-      )
-      .toList ++ Option
-      .when(fallbacks > 1)(
-        s"bake group '$gid' has $fallbacks members selected at every other " +
-          s"value of '$name'; one can be"
-      )
-      .toList ++ (varScopes.get(host).flatMap(_.get(name)) match {
-      case None =>
-        List(
-          s"bake group '$gid' is selected by the variable '$name', which no " +
-            "node at or above it declares"
-        )
-      case Some(in)
-          if fallbacks == 0 && !values.contains(in.declaration.default) =>
-        List(
-          s"bake group '$gid' is selected by '$name', declared '${in.declaration.default}' " +
-            s"on ${in.declarer}, which is not ${Surface.membersText(values)}"
-        )
-      case Some(_) => Nil
-    })

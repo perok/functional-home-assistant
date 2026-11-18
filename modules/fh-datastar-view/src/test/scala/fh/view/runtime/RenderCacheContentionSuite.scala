@@ -6,18 +6,15 @@ import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{
-  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
   Part,
-  Region,
   SignalBind,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.{declared, st}
 import fh.view.testkit.TestIds.given
@@ -40,17 +37,24 @@ class RenderCacheContentionSuite extends ServerHarness {
     */
   private val Live: NodeId = "c_0_bar_0"
 
+  private def stateCard(entity: String) = LayoutNode.Component(
+    "card",
+    slots = Slots.values(
+      Map("state" -> TemplateSlot(ValueExpr(Value.Entity(Some(entity)))))
+    )
+  )
+
   private def leafDash = Dashboard(
     cards = Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       ),
       "card" -> TestCard("<span>{{state}}</span>"),
       "tabs" -> TestCard(
         template =
           """{{{bar}}}<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
-        regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
+        regions = Set("bar", "panel")
       )
     ),
     card = LayoutNode.Component(
@@ -61,55 +65,16 @@ class RenderCacheContentionSuite extends ServerHarness {
           slots = Slots.nodes(
             Map(
               "bar" -> List(
-                LayoutNode.Component(
-                  "card",
-                  slots = Slots.values(
-                    Map(
-                      "state" -> TemplateSlot(
-                        ValueExpr(Value.Entity(Some("sensor.shared")))
-                      )
-                    )
-                  )
-                )
+                stateCard("sensor.shared")
               )
             )
-          ),
+          ) + ("panel" -> Slots.tabs(
+            "tab",
+            stateCard("sensor.a"),
+            stateCard("sensor.b")
+          )),
           vars = declared("tab" -> "0")
         )
-      )
-    ),
-    surfaces = Map(
-      "t0" -> Surface(
-        LayoutNode.Component(
-          "card",
-          slots = Slots.values(
-            Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.a")))
-              )
-            )
-          )
-        ),
-        bakeInto = Some("c_0"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(0),
-        activation = Activation.Var("tab")
-      ),
-      "t1" -> Surface(
-        LayoutNode.Component(
-          "card",
-          slots = Slots.values(
-            Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.b")))
-              )
-            )
-          )
-        ),
-        bakeInto = Some("c_0"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(1),
-        activation = Activation.Var("tab")
       )
     )
   )
@@ -118,7 +83,7 @@ class RenderCacheContentionSuite extends ServerHarness {
     cards = Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       ),
       "card" -> TestCard("<span>{{state}}</span>")
     ),
@@ -146,7 +111,7 @@ class RenderCacheContentionSuite extends ServerHarness {
     cards = Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       ),
       "card" -> TestCard("<span>{{state}} {{window}}</span>")
     ),
@@ -250,9 +215,9 @@ class RenderCacheContentionSuite extends ServerHarness {
     )
 
   test("one selection is one render a frame, however many viewers hold it") {
-    assertCost("no bake group, 3 viewers", List.fill(3)(""), plainDash, 1.0) *>
+    assertCost("no pick, 3 viewers", List.fill(3)(""), plainDash, 1.0) *>
       assertCost(
-        "beside a bake owner, 4 viewers on one tab",
+        "beside a pick's host, 4 viewers on one tab",
         List.fill(4)(""),
         leafDash,
         1.0,
@@ -261,7 +226,7 @@ class RenderCacheContentionSuite extends ServerHarness {
       )
   }
 
-  /** A bake owner is structure, never cached or rendered per frame; the leaf
+  /** A pick's host is structure, never cached or rendered per frame; the leaf
     * beside it is owed the same bytes on any tab. So the floor is 1.0 at any
     * mix; 2.0 would mean cost follows selection and a cache keyed on entities
     * alone evicts one tab's bytes for the other's.
@@ -305,7 +270,7 @@ class RenderCacheContentionSuite extends ServerHarness {
     cards = Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       ),
       "card" -> TestCard("<b {{{state.bind}}}>{{state}}</b><i>{{name}}</i>")
     ),

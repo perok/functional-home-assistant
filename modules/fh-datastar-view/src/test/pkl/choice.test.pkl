@@ -1,5 +1,5 @@
 /// Choices in a nodes slot (`nodeMod.iff`, `nodeMod.match`, `c.iff(…).elif`):
-/// what each writes, the `Chosen` fill the runtime derives its bake group from.
+/// what each writes, the `Chosen` fill the runtime decides by a pick.
 ///
 /// Outside `lib/` deliberately — see `components.test.pkl`.
 amends "pkl:test"
@@ -51,8 +51,8 @@ facts {
     (w.by as predMod.FirstTrue).items.length == 2
     keys(w) == List(0, 1)
     w.otherwise!!.length == 1
-    // The slot is baked, so its card places the host and declares it.
-    h.nodesDeclared == Map("branch", true)
+    // Its card places the host and declares the slot.
+    h.nodesDeclared == Set("branch")
     // A choice is a fill, not a surface.
     h.inlineSurfaces == null
   }
@@ -84,13 +84,13 @@ facts {
     // A variable shows something at every value, so the else is there empty.
     (w.otherwise!![0] as layout.Row).children.isEmpty
   }
-  ["a chain reading a variable and live state is an error naming R4b"] {
+  ["a chain reading a variable and live state is an error naming R4d"] {
     module.catch(() -> chosen(new Host {
       choice = nodeMod.iff(mode.valueIs("a")).then(c.title("a")).elif(isOn(fan)).then(c.title("b"))
-    })).contains("R4b")
+    })).contains("R4d")
     module.catch(() -> chosen(new Host {
       choice = nodeMod.iff(mode.valueIs("a")).then(c.title("a")).elif(other.valueIs("b")).then(c.title("b"))
-    })).contains("R4b")
+    })).contains("R4d")
   }
   ["a match over a variable has a case per key, in order, and the otherwise at any other"] {
     local w = chosen(new Host {
@@ -111,15 +111,15 @@ facts {
     w.cases[0].value.length == 1
     w.cases[0].value[0] is layout.Row
   }
-  ["a match over entity state is an error naming R4b"] {
-    module.catch(() -> nodeMod.match(c.isOn(lamp), new Mapping { ["on"] = c.title("x") })).contains("R4b")
+  ["a match over entity state is an error naming R4"] {
+    module.catch(() -> nodeMod.match(c.isOn(lamp), new Mapping { ["on"] = c.title("x") })).contains("R4 of")
   }
   ["a tab bar is a match over its variable, and its card places the host the panel is patched into"] {
     local t = (c.tabs) { tabs { ["A"] { c.title("a") }; ["B"] { c.title("b") } } }
     local w = chosen(t)
     keys(w) == List("0", "1")
     (w.by.source as slotMod.VarRead).name == "tab"
-    t.nodesDeclared == Map("panel", true, "children", false)
+    t.nodesDeclared == Set("panel", "children")
     t.cardDef.template.contains("{{hostId}}")
   }
 }

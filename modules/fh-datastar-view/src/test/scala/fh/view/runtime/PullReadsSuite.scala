@@ -8,20 +8,16 @@ import cats.effect.{IO, Ref}
 import cats.effect.unsafe.implicits.global
 import fh.view.model.{
   SlotType,
-  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
-  NodeId,
   FetchTemplate,
   Choice,
-  Region,
   SlotRead,
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.testkit.TestIds.given
@@ -61,7 +57,12 @@ class PullReadsSuite extends munit.FunSuite {
     )
 
   private def host(id: String) =
-    LayoutNode.Component("tabs", id = Some(id), vars = declared("tab" -> "0"))
+    LayoutNode.Component(
+      "tabs",
+      Map("panel" -> Slots.tabs("tab", chart("sensor.tab", None))),
+      id = Some(id),
+      vars = declared("tab" -> "0")
+    )
 
   private val renderer = Renderer.create(
     Dashboard(
@@ -70,11 +71,11 @@ class PullReadsSuite extends munit.FunSuite {
         "chart" -> TestCard("<div>{{{chart}}}</div>"),
         "col" -> TestCard(
           "<div>{{{children}}}</div>",
-          regions = Map("children" -> Region())
+          regions = Set("children")
         ),
         "tabs" -> TestCard(
           """<div id="{{hostId}}">{{{panel}}}</div>""",
-          regions = Map("panel" -> Region(Region.Baked))
+          regions = Set("panel")
         )
       ),
       card = LayoutNode.Component(
@@ -84,15 +85,6 @@ class PullReadsSuite extends munit.FunSuite {
           chart("sensor.main", Some("chart")),
           host("charted")
         )
-      ),
-      surfaces = Map(
-        "withChart" -> Surface(
-          chart("sensor.tab", None),
-          bakeInto = Some(NodeId.derived("charted")),
-          bakeAs = Some("panel"),
-          bakeIndex = Some(0),
-          activation = Activation.Var("tab")
-        )
       )
     )
   )
@@ -101,7 +93,7 @@ class PullReadsSuite extends munit.FunSuite {
   private def asked(log: FragmentLog, open: Set[String] = Set.empty) = {
     val snapshot = FetchSnapshot.of(
       renderer
-        .fetchesForPage(Set("withChart"), Shared.of(Map.empty), Map.empty)
+        .fetchesForPage(Set("charted_t0"), Shared.of(Map.empty), Map.empty)
         .map(_ -> Staged(1L, "<svg/>"))
         .toMap
     )
@@ -142,7 +134,7 @@ class PullReadsSuite extends munit.FunSuite {
     // its read's version — so the tab's chart is asked even when only a light
     // moved, and the body's is not.
     assertEquals(
-      asked(FragmentLog("test").touched("plain", 1L), open = Set("withChart")),
+      asked(FragmentLog("test").touched("plain", 1L), open = Set("charted_t0")),
       Set("sensor.tab")
     )
   }

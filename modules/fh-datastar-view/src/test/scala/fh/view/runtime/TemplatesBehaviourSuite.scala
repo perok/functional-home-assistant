@@ -126,9 +126,9 @@ class TemplatesBehaviourSuite extends munit.FunSuite:
   test("the tabs host shape: vars + region holes") {
     assertEquals(
       render(
-        """<div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{bakeIndex}} }">{{{children}}}</div><div id="{{hostId}}">{{{panel}}}</div>""",
+        """<div class="tabs" data-signals__ifmissing="{ ui_{{id}}: {{tab}} }">{{{children}}}</div><div id="{{hostId}}">{{{panel}}}</div>""",
         "id" -> "c_2",
-        "bakeIndex" -> "1",
+        "tab" -> "1",
         "hostId" -> "c_2_panel",
         "children" -> "<a>one</a><a>two</a>",
         "panel" -> "<section>the panel</section>"

@@ -235,7 +235,7 @@ class SliderControls extends nodeMod.Node {
     template = #"<div id="{{hostId}}" class="fh-slider-controls-panel">\#(panelNodesSlot)</div>\#(slotMod.childrenSlot)"#
   }
   hidden controls: List<ControlHead>
-  /// One head per main control, baked into the node: the shown one is in the
+  /// One head per main control, a case of the node's choice: the shown one is in the
   /// first HTML, so nothing waits on a script to pick it.
   hidden heads: Mapping<varMod.Value, nodeMod.LayoutNode> =
     new { for (m in controls) { [m.value] = m.head } }

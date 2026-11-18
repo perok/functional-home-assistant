@@ -2,23 +2,20 @@ package fh.view.testkit
 
 import fh.view.model.{
   Part,
-  Activation,
   CallDecl,
   CardDef,
   Dashboard,
   IdKind,
   LayoutNode,
   Op,
-  Region,
   Step,
   Value,
   ValueExpr,
   ValueType,
   TemplateSlot,
-  Surface
+  Slot
 }
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
-import fh.view.testkit.TestIds.given
 import io.circe.Json
 
 import scala.collection.immutable.ListMap
@@ -32,7 +29,7 @@ object FixtureDashboard {
   val cards: Map[String, CardDef] = Map(
     "col" -> TestCard(
       """<div class="col">{{{children}}}</div>""",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     ),
     "reading" -> TestCard(
       """<div class="reading"><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
@@ -151,10 +148,9 @@ object FixtureDashboard {
   private def entityIs(id: String, state: String): ValueExpr =
     Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
-  /** An `ifhost` root ("c") whose `then` bakes while `condEntity` holds
-    * `activeState`, and whose always-true `else` bakes otherwise (ADR 0007).
-    * The condition entity is named in no slot, so a [[Scene]] seeds it with
-    * `.entity(..)`.
+  /** An `ifhost` root ("c") showing `c_t0` while `condEntity` holds
+    * `activeState`, and `c_else` otherwise (ADR 0007). The condition entity is
+    * named in no slot, so a [[Scene]] seeds it with `.entity(..)`.
     */
   def ifElse(
       condEntity: String,
@@ -165,23 +161,16 @@ object FixtureDashboard {
     Dashboard(
       cards = Sets.cards ++ cards + ("ifhost" -> TestCard(
         template = """<div class="ifhost" id="{{hostId}}">{{{branch}}}</div>""",
-        regions = Map("branch" -> Region(Region.Baked))
+        regions = Set("branch")
       )),
-      card = LayoutNode.Component("ifhost"),
-      surfaces = Map(
-        "c_then" -> Surface(
-          thenBranch,
-          bakeInto = Some("c"),
-          bakeAs = Some("branch"),
-          bakeIndex = Some(0),
-          activation = Activation.State(Some(entityIs(condEntity, activeState)))
-        ),
-        "c_else" -> Surface(
-          elseBranch,
-          bakeInto = Some("c"),
-          bakeAs = Some("branch"),
-          bakeIndex = Some(1),
-          activation = Activation.State()
+      card = LayoutNode.Component(
+        "ifhost",
+        Map(
+          "branch" -> Slots.iff(
+            entityIs(condEntity, activeState),
+            thenBranch,
+            Some(elseBranch)
+          )
         )
       ),
       slug = "ifhome",

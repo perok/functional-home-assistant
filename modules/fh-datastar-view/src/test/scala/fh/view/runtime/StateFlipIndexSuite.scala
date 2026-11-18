@@ -1,7 +1,7 @@
 package fh.view.runtime
 
 import fh.view.build.DashboardBuild
-import fh.view.model.{Activation, Dashboard, NodeId}
+import fh.view.model.{Dashboard, NodeId}
 import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture}
 import io.circe.parser.parse
 
@@ -26,6 +26,7 @@ class StateFlipIndexSuite extends munit.FunSuite {
       .hoistInlineSurfaces(parse(wire).fold(e => fail(s"$name: $e"), identity))
       .as[Dashboard]
       .fold(e => fail(s"$name: $e"), identity)
+      .lowered
   }
 
   private def key(e: FixtureEntity) = s"dump.entities.${e.dumpKey}"
@@ -82,7 +83,7 @@ class StateFlipIndexSuite extends munit.FunSuite {
       visible: Set[String]
   ): List[NodeId] = {
     def at(root: String) =
-      g.stateBakeOwnerIds.toList.filter(g.rootOf(_).contains(root))
+      g.statePicks.toList.filter(g.rootOf(_).contains(root))
     // A popup has no group and opens on the page.
     def openAt(root: String) = visible.toList.filter { sid =>
       d.surfaces(sid).group match {
@@ -91,12 +92,11 @@ class StateFlipIndexSuite extends munit.FunSuite {
       }
     }
     def walk(root: String): List[NodeId] = at(root).flatMap { gid =>
-      val sel = g.resolveActiveByState(gid, now)
+      val sel = g.decideByState(gid, now)
       if (!g.groupShown(gid, now)) Nil
-      else if (
-        g.groupShown(gid, before) && g.resolveActiveByState(gid, before) != sel
-      ) List(gid)
-      else sel.toList.flatMap(i => walk(g.bakeGroup(gid)(i)))
+      else if (g.groupShown(gid, before) && g.decideByState(gid, before) != sel)
+        List(gid)
+      else sel.toList.flatMap(i => walk(g.cases(gid)(i)))
     } ++ openAt(root).flatMap(walk)
     walk("").distinct.sorted
   }
@@ -105,9 +105,9 @@ class StateFlipIndexSuite extends munit.FunSuite {
 
   private def agree(name: String, d: Dashboard): Unit = {
     val g = graphOf(d)
-    assert(g.stateBakeOwnerIds.nonEmpty, s"$name has no state group to flip")
+    assert(g.statePicks.nonEmpty, s"$name has no state group to flip")
     val userSurfaces = d.surfaces.collect {
-      case (sid, s) if !s.activation.isInstanceOf[Activation.State] => sid
+      case (sid, s) if !s.group.exists(g.isStatePick) => sid
     }.toSet
     val rnd = new Random(556)
     val ids = HouseFixture.all.map(_.entityId)
@@ -137,7 +137,7 @@ class StateFlipIndexSuite extends munit.FunSuite {
         (now, seen ++ found)
     }
     // Not vacuous: every group flipped in some frame.
-    assertEquals(flipped, g.stateBakeOwnerIds, clue = name)
+    assertEquals(flipped, g.statePicks, clue = name)
   }
 
   test(

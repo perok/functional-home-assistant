@@ -102,9 +102,9 @@ The page walk no longer hashes each node or renders a node with a signal slot a 
 patch form; the live path no longer builds a version key or hashes the bytes it sends.
 
 The cache used to hold one generation per SELECTION as well, because a node could be both cached and the
-owner of a bake group: its own bytes then carried the viewer's chosen tab, so two viewers
+host of a choice: its own bytes then carried the viewer's chosen tab, so two viewers
 on two tabs were owed different bytes for one node and evicted each other every frame.
-That shape no longer exists. A bake owner holds its content in REGIONS, which makes it
+That shape no longer exists. A choice fills a nodes slot, which makes its host
 structure, and structure is never a patch target and so never cached — the live part is an
 ordinary leaf beside it, whose bytes mention no selection at all.
 
@@ -117,11 +117,11 @@ there, so they do not all render from one snapshot. Bytes are a function of thei
 straggler installing its own values costs the next session on the newer values a render, never
 wrong bytes (`RenderCacheContentionSuite`).
 
-**Variance stopped being a concept.** A node whose own markup reads its own selection —
-`{{bakeIndex}}`, the selection a card can show without scripts — is now just a node: the session renders
-it with its own `Selections`, and the key needs no selection in it — such a node holds regions,
-which makes it structure, and structure is never cached. No deferral, no memo, no per-variant
-log entry, no classification. This is the
+**Variance stopped being a concept.** A node showing a viewer's choice is now just a node: the
+session renders it with its own `Selections`, and the key needs no selection in it — the choice
+fills a nodes slot, which makes the node structure, and structure is never cached; its own
+markup shows the choice only through a cell class (below), written for the viewer in the
+document form. No deferral, no memo, no per-variant log entry, no classification. This is the
 part the shared pass had to invent machinery for, and the part that costs nothing once
 the renderer runs where the viewer is.
 
@@ -138,17 +138,16 @@ patched (ADR 0017).
 
 **Visibility is a chain, not a membership test.** A client can see a node when every user
 surface above it is selected AND every state surface above it is active. `open` alone is
-not that: a selection is reported for every bake group whether or not it is on screen.
+not that: a selection is reported for every pick over a variable whether or not it is on screen.
 The chain gates what is recorded at all, and prunes what a resume owes — including
 mutations, since a `Gone`/`Placed` inside a surface a client does not have open would
 patch an id its DOM lacks.
 
-**A fill is one operation, whoever chose the member.** A tab switch, a popup open and an
+**A fill is one operation, whoever chose the case.** A tab switch, a popup open and an
 `If` flip all evict a host's occupants, render the arriving surface, and overwrite the
-host. The model already said so: both kinds of member are surfaces with
-`bakeInto`/`bakeAs`/`bakeIndex`, and `Renderer.hostId` derives a group's host from its
-members' `Surface.hostId`. What differs is the SELECTOR (a viewer's node variable vs
-a condition over entity state) and where the claim lands: a flip records a `Mutation`,
+host. The model already said so: a choice's cases and a popup are all surfaces, and
+`Renderer.hostId` derives a pick's host from its cases' `Surface.hostId`. What differs is
+who decides (a viewer's node variable vs `by` over entity state, ADR 0007) and where the claim lands: a flip records a `Mutation`,
 because it is server truth every client must be replayed; a tab switch claims into the
 SESSION (`Patches.hostFill`), because one client switching a tab says nothing about
 anyone else's DOM.
@@ -172,17 +171,15 @@ anyone else's DOM.
 
 ## Why the no-JS path is worth its cost
 
-A selection is visible without scripts two ways: `{{bakeIndex}}` in a bake owner's own markup,
-and a cell class lit by a node variable (`cellClassWhen(cls, v.valueIs(x))`, ADR 0033), which
-is how a tab bar's buttons light the open tab in the first HTML — a tab click is then an
+A selection is visible without scripts in the case the page shows, and in a cell class lit by
+a node variable (`cellClassWhen(cls, v.valueIs(x))`, ADR 0033), which is how a tab bar's
+buttons light the open tab in the first HTML — a tab click is then an
 `<a href="?v.<host>.tab=N">` and the answer is a fresh document. Supporting it used to cost four
 concepts and a branch in the diff path. It now costs nothing: the renderer already takes the
 viewer's `Selections`, a node whose markup reads the selection is structure, which is never
 cached, and such a class is written for the viewer in the document form only, its binding
 reading the variable's own signals, so a leaf's patch is the same for every viewer and no key
-has to carry one. **The `validate` rule that would reject `{{bakeIndex}}` on a structural card is
-still the thing to restore if the no-JS goal is ever dropped** — but there is no longer a
-pipeline to simplify by dropping it.
+has to carry one. There is no longer a pipeline to simplify by dropping the no-JS goal.
 
 ## What it costs, honestly
 
@@ -257,7 +254,7 @@ other.
 ## Rejected along the way (still guarding the design)
 
 - **A hollow host plus a per-connection fill.** The first attempt at serving viewers on
-  different tabs from one render: insert the branch with its baked region EMPTY, then let
+  different tabs from one render: insert the branch with its tab panel EMPTY, then let
   each connection fill it. Two DOM updates for one change, and a rendering "for nobody"
   that leaked a blank tab index into live markup — a host carries client-dependent
   ATTRIBUTES, not merely children.
@@ -282,8 +279,8 @@ other.
 - **Keeping N generations per node** to stop two viewers evicting each other. It fixes the
   right problem with the wrong bound: N-1 of those generations are stale values nobody will
   ask for. This was answered by bucketing on the SELECTION — and that half is now
-  gone too: a bake owner holds its content in REGIONS, which makes it structure, which is never
-  cached, so no node's bytes mention a selection any more, and the cache holds ONE generation
+  gone too: a choice's host holds its cases in a nodes slot, which makes it structure, which is
+  never cached, so no node's bytes mention a selection any more, and the cache holds ONE generation
   per node. `RenderCacheContentionSuite` measures two viewers on two tabs at one render a frame
   where the old shape needed two. A slot reading a variable's value does not bring the buckets
   back: the value is in the key, so two values over one node replace each other's entry and each

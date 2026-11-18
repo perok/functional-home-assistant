@@ -11,7 +11,6 @@ import fh.view.history.Windows
 import fh.view.build.DashboardBuild
 import fh.view.model.{
   SlotType,
-  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
@@ -19,13 +18,13 @@ import fh.view.model.{
   Op,
   FetchTemplate,
   Choice,
-  Region,
   SlotRead,
   Step,
   Value,
   ValueExpr,
   TemplateSlot,
-  Surface
+  Surface,
+  Slot
 }
 import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.testkit.HouseFixture
@@ -68,7 +67,12 @@ class FetchDriftSuite extends munit.FunSuite {
     val flip = Map("on" -> "off", "off" -> "on")
     val flipped =
       base.view.mapValues(s => s.copy(state = flip.getOrElse(s.state, s.state)))
-    Case(name, built(d), d, List(Shared.of(base), Shared.of(flipped.toMap)))
+    Case(
+      name,
+      built(d),
+      d.lowered,
+      List(Shared.of(base), Shared.of(flipped.toMap))
+    )
   }
 
   /** A distinct sensor in every place a chart can hide, so no read is answered
@@ -91,18 +95,17 @@ class FetchDriftSuite extends munit.FunSuite {
       )
     )
     // A host is a tab bar's: it declares the variable its panel is chosen by.
-    def host(id: String) =
-      LayoutNode.Component("host", id = Some(id), vars = declared("tab" -> "0"))
+    def host(id: String, panel: Slot) =
+      LayoutNode.Component(
+        "host",
+        Map("panel" -> panel),
+        id = Some(id),
+        vars = declared("tab" -> "0")
+      )
+    def tabs(id: String, panels: LayoutNode*) =
+      host(id, Slots.tabs("tab", panels*))
     def col(kids: LayoutNode*) =
       LayoutNode.Component("col", slots = Slots.kids(kids*))
-    def baked(into: String, idx: Int, content: LayoutNode, a: Activation) =
-      Surface(
-        content,
-        bakeInto = Some(NodeId.derived(into)),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(idx),
-        activation = a
-      )
     val on =
       Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
     val plain = LayoutNode.Component(
@@ -120,18 +123,29 @@ class FetchDriftSuite extends munit.FunSuite {
         "dot" -> TestCard("<span>{{state}}</span>"),
         "col" -> TestCard(
           "<div>{{{children}}}</div>",
-          regions = Map("children" -> Region())
+          regions = Set("children")
         ),
         "host" -> TestCard(
           """<div id="{{hostId}}">{{{panel}}}</div>""",
-          regions = Map("panel" -> Region(Region.Baked))
+          regions = Set("panel")
         )
       ),
       card = col(
         plain,
         chart("sensor.main"),
-        host("tabs"),
-        host("branch"),
+        tabs("tabs", chart("sensor.tab0"), chart("sensor.tab1")),
+        host(
+          "branch",
+          Slots.iff(
+            on,
+            col(
+              plain,
+              chart("sensor.on"),
+              tabs("inner", chart("sensor.inner"))
+            ),
+            Some(chart("sensor.off"))
+          )
+        ),
         Sets.node(
           candidates = List("light.a"),
           members = Map(
@@ -146,29 +160,7 @@ class FetchDriftSuite extends munit.FunSuite {
           )
         )
       ),
-      surfaces = Map(
-        "t0" -> baked("tabs", 0, chart("sensor.tab0"), Activation.Var("tab")),
-        "t1" -> baked("tabs", 1, chart("sensor.tab1"), Activation.Var("tab")),
-        "on" -> baked(
-          "branch",
-          0,
-          col(plain, chart("sensor.on"), host("inner")),
-          Activation.State(Some(on))
-        ),
-        "off" -> baked(
-          "branch",
-          1,
-          chart("sensor.off"),
-          Activation.State()
-        ),
-        "i0" -> baked(
-          Renderer.surfacePrefix("on") + "inner",
-          0,
-          chart("sensor.inner"),
-          Activation.Var("tab")
-        ),
-        "pop" -> Surface(chart("sensor.pop"))
-      )
+      surfaces = Map("pop" -> Surface(chart("sensor.pop")))
     )
     def light(s: String) = Map(
       "light.a" -> EntityState("light.a", s, Map.empty)
@@ -176,7 +168,7 @@ class FetchDriftSuite extends munit.FunSuite {
     Case(
       "shapes",
       built(d),
-      d,
+      d.lowered,
       List(Shared.of(light("on")), Shared.of(light("off")))
     )
   }
@@ -188,9 +180,9 @@ class FetchDriftSuite extends munit.FunSuite {
   private def uiStates(c: Case): List[Selections] = {
     val r = c.renderer
     val tabs: List[Selections] =
-      r.surfaces.varBakeOwnerIds.toList.sorted.flatMap(gid =>
+      r.surfaces.varPicks.toList.sorted.flatMap(gid =>
         r.surfaces
-          .bakeGroup(gid)
+          .cases(gid)
           .indices
           .map(i => Selections(None, Map(gid -> i)))
       )
@@ -244,7 +236,7 @@ class FetchDriftSuite extends munit.FunSuite {
     for (c <- cases) {
       val r = c.renderer
       val painted: List[NodeId] =
-        (r.surfaces.stateBakeOwnerIds.toList ++
+        (r.surfaces.statePicks.toList ++
           c.dashboard.surfaces.keys.toList.flatMap(r.surfaceNodeIds) ++
           c.houses.flatMap(states =>
             r.renderPageInto(
@@ -266,7 +258,7 @@ class FetchDriftSuite extends munit.FunSuite {
       val nodes =
         (painted ++ painted.flatMap(r.ancestry.ancestorsOf)).distinct.sorted
       val hosts = nodes.filter(id =>
-        r.surfaces.stateBakeOwnerIds(id) || r.members.setContainer(id).isDefined
+        r.surfaces.statePicks(id) || r.members.setContainer(id).isDefined
       )
       for (states <- c.houses; ui <- uiStates(c)) {
         def asked(targets: List[NodeId], hs: List[NodeId]) =

@@ -40,7 +40,7 @@ class StateSurfaceSuite extends ServerHarness {
         shown <- step(v, es("sensor.a", "A1"))
       } yield {
         assertEquals(shown.size, 1, clue = shown)
-        assert(shown.head.contains("""id="s_then__c""""), clue = shown)
+        assert(shown.head.contains("""id="s_c_0_t0__c""""), clue = shown)
         assert(shown.head.contains("A1"), clue = shown)
       }
     }
@@ -72,7 +72,7 @@ class StateSurfaceSuite extends ServerHarness {
         assert(p.contains("mode inner"), clue = p)
         // `Surface.hostId`, the id the If's template puts on it.
         assert(p.contains("selector #c_0_branch"), clue = p)
-        assert(p.contains("""id="s_else__c""""), clue = p)
+        assert(p.contains("""id="s_c_0_else__c""""), clue = p)
         // Current state: B1, which no client ever saw.
         assert(p.contains("B1"), clue = p)
         assert(!p.contains("A1"), clue = p)
@@ -80,9 +80,9 @@ class StateSurfaceSuite extends ServerHarness {
         // The prune still clears hidden-branch staleness, and the new branch's
         // root is recorded as the host's occupant: a Mutation, since it is
         // structure.
-        assert(!cache.keys.exists(_.startsWith("s_then__")), clue = cache)
+        assert(!cache.keys.exists(_.startsWith("s_c_0_t0__")), clue = cache)
         assert(
-          moved.get("s_else__c").exists {
+          moved.get("s_c_0_else__c").exists {
             case _: Mutation.Placed => true
             case _                  => false
           },
@@ -148,7 +148,7 @@ class StateSurfaceSuite extends ServerHarness {
         // Without it the host is left empty.
         assert(opening.contains("mode inner"), clue = opening)
         assert(opening.contains("selector #c_0_branch"), clue = opening)
-        assert(opening.contains("""id="s_else__c""""), clue = opening)
+        assert(opening.contains("""id="s_c_0_else__c""""), clue = opening)
         assert(opening.contains("B0"), clue = opening)
         assert(!opening.contains(BodyRepaint), clue = opening)
         // A client that applied the flip and one that missed it land on the same
@@ -172,7 +172,7 @@ class StateSurfaceSuite extends ServerHarness {
       for {
         v <- ts.viewer()
         _ <- step(v, es("sensor.a", "on")).map(p => assertEquals(p.size, 1))
-        // 2. Flip away (prunes s_then__*), 3. churn the hidden branch to "off",
+        // 2. Flip away (prunes s_c_0_t0__*), 3. churn the hidden branch to "off",
         // the stale-entry trap, 4. flip back, rendered from current state.
         _ <- step(v, es("alarm.h", "disarmed")).map(p =>
           assertEquals(p.size, 1)
@@ -186,7 +186,7 @@ class StateSurfaceSuite extends ServerHarness {
         reveal <- step(v, es("sensor.a", "on"))
       } yield {
         assertEquals(reveal.size, 1, clue = reveal)
-        assert(reveal.head.contains("""id="s_then__c""""), clue = reveal)
+        assert(reveal.head.contains("""id="s_c_0_t0__c""""), clue = reveal)
         assert(reveal.head.contains("on"), clue = reveal)
       }
     }
@@ -218,7 +218,7 @@ class StateSurfaceSuite extends ServerHarness {
         tick <- step(v, es("light.x", "on2"))
         // "on2" fails the query: a membership change.
         _ = assert(tick.nonEmpty, clue = tick)
-        _ = assert(tick.forall(_.contains("s_then__c")), clue = tick)
+        _ = assert(tick.forall(_.contains("s_c_0_t0__c")), clue = tick)
         _ <- step(v, es("alarm.h", "disarmed")).map(p =>
           assertEquals(p.size, 1)
         )
@@ -230,34 +230,25 @@ class StateSurfaceSuite extends ServerHarness {
   }
 
   test("nested state groups: inner flips patch only inside the ACTIVE branch") {
-    // The inner host lives at the member's content path s_then__c_0; its
-    // members nest a level deeper.
+    // The inner host lives at the case's content path s_c_0_t0__c_0; its
+    // cases nest a level deeper.
     val innerHost =
       LayoutNode.Component(
         "col",
-        slots = Slots.kids(LayoutNode.Component("ifhost"))
+        slots = Slots.kids(
+          ifHost(
+            entityIs("mode.h", "night"),
+            branchCard("sensor.x"),
+            Some(branchCard("sensor.y"))
+          )
+        )
       )
     val d = Dashboard(
       cards = ifCards,
-      card = LayoutNode
-        .Component(
-          "col",
-          slots = Slots.kids(LayoutNode.Component("ifhost"))
-        ),
-      surfaces = Map(
-        "then" -> stateMember(innerHost, "c_0", 0, armedCond),
-        "else" -> stateMember(branchCard("sensor.b"), "c_0", 1, always),
-        "in_then" -> stateMember(
-          branchCard("sensor.x"),
-          "s_then__c_0",
-          0,
-          entityIs("mode.h", "night")
-        ),
-        "in_else" -> stateMember(
-          branchCard("sensor.y"),
-          "s_then__c_0",
-          1,
-          always
+      card = LayoutNode.Component(
+        "col",
+        slots = Slots.kids(
+          ifHost(armedCond, innerHost, Some(branchCard("sensor.b")))
         )
       )
     )
@@ -277,11 +268,11 @@ class StateSurfaceSuite extends ServerHarness {
         innerFlip <- step(v, es("mode.h", "day"))
         _ = assertEquals(innerFlip.size, 1, clue = innerFlip)
         _ = assert(
-          innerFlip.head.contains("selector #s_then__c_0_branch"),
+          innerFlip.head.contains("selector #s_c_0_t0__c_0_branch"),
           clue = innerFlip
         )
         _ = assert(
-          innerFlip.head.contains("""id="s_in_else__c""""),
+          innerFlip.head.contains("""id="s_s_c_0_t0__c_0_else__c""""),
           clue = innerFlip
         )
         _ <- step(v, es("alarm.h", "disarmed")).map(p =>
@@ -305,19 +296,17 @@ class StateSurfaceSuite extends ServerHarness {
       card = LayoutNode.Component("col"),
       surfaces = Map(
         "det" -> Surface(
-          LayoutNode
-            .Component(
-              "col",
-              slots = Slots.kids(LayoutNode.Component("ifhost"))
+          LayoutNode.Component(
+            "col",
+            slots = Slots.kids(
+              ifHost(
+                armedCond,
+                branchCard("sensor.a"),
+                Some(branchCard("sensor.b"))
+              )
             )
-        ),
-        "d_then" -> stateMember(
-          branchCard("sensor.a"),
-          "s_det__c_0",
-          0,
-          armedCond
-        ),
-        "d_else" -> stateMember(branchCard("sensor.b"), "s_det__c_0", 1, always)
+          )
+        )
       )
     )
     live(
@@ -342,7 +331,10 @@ class StateSurfaceSuite extends ServerHarness {
         val patches = elementPatches(opened)
         assertEquals(patches.size, 1, clue = patches)
         assert(patches.head.contains("selector #s_det__c_0_branch"), patches)
-        assert(patches.head.contains("""id="s_d_else__c""""), clue = patches)
+        assert(
+          patches.head.contains("""id="s_s_det__c_0_else__c""""),
+          clue = patches
+        )
       }
     }
   }

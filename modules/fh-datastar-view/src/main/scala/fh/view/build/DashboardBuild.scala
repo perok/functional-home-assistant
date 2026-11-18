@@ -111,7 +111,7 @@ object DashboardBuild {
           cardSurfaces ++ rebuilt.flatMap(_._2)
         // `fromIterable` keeps the last of a repeated key, silently handing a
         // popup someone else's content. Two clauses of one candidate share a
-        // member id, so both owning a popup collide; a baked surface carries
+        // member id, so both owning a popup collide; a choice's case carries
         // its clause.
         val clashes = collected.map(_._1).diff(collected.map(_._1).distinct)
         if (clashes.nonEmpty)
@@ -160,20 +160,11 @@ object DashboardBuild {
   private def authoredIdOf(node: Json): Option[String] =
     node.asObject.flatMap(_("id")).flatMap(_.asString)
 
-  // Keep only [[Surface]]'s own fields. The host is derived (`Surface.hostId`),
-  // not authored, so it is not lifted.
+  // Keep only a popup's own fields.
   private def surfaceOf(defObj: JsonObject): Json =
     Json.fromJsonObject(
       JsonObject.fromIterable(
-        defObj(ContentKey).map(ContentKey -> _).toList ++
-          List(
-            "bakeInto",
-            "bakeAs",
-            "bakeIndex",
-            "activation",
-            "clause"
-          )
-            .flatMap(k => defObj(k).map(k -> _))
+        List(ContentKey, "activation").flatMap(k => defObj(k).map(k -> _))
       )
     )
 
@@ -251,8 +242,8 @@ object DashboardBuild {
   /** A `Chosen` fill's cases, each walked as the root of the surface it is
     * served as: case `i` is `<host>_t<i>`, the otherwise `<host>_else`, inside
     * a set member's clause `<host>_k<clause>_…`. The model derives the same ids
-    * ([[fh.view.model.Dashboard.choiceSurfaces]]); a second spelling here would
-    * leave `@@NODE_ID@@` in the DOM.
+    * ([[fh.view.model.Dashboard.picks]]); a second spelling here would leave
+    * `@@NODE_ID@@` in the DOM.
     */
   private def walkChosen(
       chosen: JsonObject,
@@ -287,9 +278,9 @@ object DashboardBuild {
 
   /** A set's member nodes under [[LayoutNode.memberSegment]], as `MemberGraph`
     * mints them. Every case of a candidate gets the same id, since one is ever
-    * rendered, so a surface baked inside one carries its case
-    * (`Surface.group`); two cases' popups collide, which
-    * [[hoistInlineSurfaces]] refuses. A member that is a node alone is case 0.
+    * rendered, so a choice inside one carries its case (`Surface.InPick`); two
+    * cases' popups collide, which [[hoistInlineSurfaces]] refuses. A member
+    * that is a node alone is case 0.
     */
   private def walkMembers(
       fill: JsonObject,
@@ -390,29 +381,18 @@ object DashboardBuild {
           case None =>
             (Json.fromJsonObject(obj2), childSurfaces)
           case Some(marker) =>
-            // A baked surface inside a clause is its clause's, so two clauses'
-            // sliders do not claim one id. A popup keeps `<idBase>_<key>`: its
-            // opener spells that (`tap.pkl`'s `_self`).
-            val inClause: JsonObject => Option[Int] =
-              sd => clause.filter(_ => sd.contains("bakeInto"))
-            def sidOf(key: String, sd: JsonObject): String =
-              inClause(sd).fold(surfaceId(idBase, key))(k =>
-                surfaceId(s"${idBase}_k$k", key)
-              )
-            // Nested first, so the tokens left belong to this node. Under the
-            // surface's own root id, not `<idBase>_<key>_c`: that left tabs
-            // inside an `If` branch baking into a node that did not exist.
+            // A popup keeps `<idBase>_<key>`, in a clause too: its opener
+            // spells that (`tap.pkl`'s `_self`). Nested first, so the tokens
+            // left belong to this node. Under the popup's own root id, not
+            // `<idBase>_<key>_c`.
             val resolved = marker.toList.map { case (key, sd) =>
               val sdObj = sd.asObject.getOrElse(JsonObject.empty)
               val (content, nested) =
                 walkRoot(
                   sdObj(ContentKey).getOrElse(Json.Null),
-                  LayoutNode.surfacePrefix(sidOf(key, sdObj))
+                  LayoutNode.surfacePrefix(surfaceId(idBase, key))
                 )
-              val tagged = inClause(sdObj).fold(sdObj)(k =>
-                sdObj.add("clause", Json.fromInt(k))
-              )
-              (key, tagged.add(ContentKey, content), nested)
+              (key, sdObj.add(ContentKey, content), nested)
             }
             val withResolved = obj2.add(
               InlineSurfacesKey,
@@ -431,7 +411,7 @@ object DashboardBuild {
               .toList
               .map { case (key, sd) =>
                 val sdObj = sd.asObject.getOrElse(JsonObject.empty)
-                sidOf(key, sdObj) -> surfaceOf(sdObj)
+                surfaceId(idBase, key) -> surfaceOf(sdObj)
               }
             (
               Json.fromJsonObject(splicedObj.remove(InlineSurfacesKey)),

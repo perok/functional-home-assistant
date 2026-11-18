@@ -7,12 +7,12 @@ Issue [#209](https://github.com/perok/functional-home-assistant/issues/209); it 
 
 Two users: a chart's window — `c.history.chooser` declares `window`, and every
 `c.history.chart(s).fromChooser()` beneath it reads it, so pressing `7d` redraws them all — and a tab
-bar's open tab, which `c.tabs` declares as `tab` and its panel's bake group is selected by.
+bar's open tab, which `c.tabs` declares as `tab` and its panel's choice is picked by.
 A slider with main controls — `c.entitySlider(l)` on a light that has colour temperature or colour —
-declares `control` the same way, valued by the control's name: its head is a bake group, one head
+declares `control` the same way, valued by the control's name: its head is a choice, one head
 per control, and the pill's switch is a `c.select` of it. A group's rows with main controls declare
-their own, which shadows the head's. A slider that is `.fromChooser()` declares none and is a bake
-group selected by the nearest `control` above it — a group head's or `c.controlChooser`'s — so one
+their own, which shadows the head's. A slider that is `.fromChooser()` declares none and is a
+choice picked by the nearest `control` above it — a group head's or `c.controlChooser`'s — so one
 press switches them all; that is the ancestor lookup doing what it is for, not a mechanism of its
 own.
 
@@ -39,7 +39,7 @@ not be enumerated there. A declared reference can.
 4. A nested declaration of the same name shadows the outer one, for its own subtree only.
 5. A node sees its own declarations.
 6. The page and each popup start with an empty scope. A tab panel or an `If` branch starts with
-   the scope of the one node it is baked into.
+   the scope of the one node whose choice it is a case of.
 7. A candidate set's members read the scope at the set. A node inside a clause declares for its
    member alone: each member's copy is its own declarer.
 8. A read with no declarer is a build error naming the node and the variable.
@@ -76,8 +76,8 @@ head does). A result no reader takes (the light unavailable, no mode yet) is dro
 declared value stands, as for a stale link. It is read **once**: an open page never
 follows the entity, because a head moving under the viewer's finger is worse than a stale one (a
 ZHA group reports a false `xy` 59 ms after a temperature command,
-`docs/issue-zha-group-colour-mode.md`), and following would need state changes to reselect bake
-groups, a path only a write has. An initial value is not a choice: no `v.` param, so a refresh
+`docs/issue-zha-group-colour-mode.md`), and following would need state changes to re-decide
+picks over a variable, a path only a write has. An initial value is not a choice: no `v.` param, so a refresh
 decides it afresh, and the mirror compares to the session's `__initialValue` signal rather than the
 default in the shared node bytes; the shell seeds that signal only where a mirror reads it. Its entity is watched (ADR 0030), since it decides what the page shows.
 
@@ -118,8 +118,8 @@ yields the declared edge and its inverse, `VarGraph.readersOf` — the exact set
 
 - **A popup is its own scope root; an owned surface inherits.** A popup can be opened from many
   places, and inheriting from one would let its content resolve differently per opener. A tab
-  panel or an `If` branch is baked into exactly one node (`bakeInto`), so it starts with that
-  node's scope (`Dashboard.varScopes`, which the renderer and validation read; the hoist applies
+  panel or an `If` branch is a case of exactly one node's choice (`Surface.InPick`), so it starts
+  with that node's scope (`Dashboard.varScopes`, which the renderer and validation read; the hoist applies
   the same rule to tokens). A chooser above a tab bar reaches the charts in its panels, and a
   nested bar's own declaration shadows the outer one. A write still re-renders only the readers
   this viewer is shown, so a hidden panel's chart is fetched at the new value when it opens.
@@ -206,22 +206,21 @@ chooser rather than a card per variable: a card per variable copied the same reg
 Neither a shipped chooser nor its reader's `.fromChooser()` takes the variable's name, so the pair
 cannot drift.
 
-**A tab bar is a variable.** `c.tabs` declares `tab`, the open member's index (`"0"`), and its
-panel's surfaces are `Activation.Var("tab")`: the member selected at the variable's value as seen
-from the bar, which with no `value` of its own is its `bakeIndex`. Its buttons are `choose(i)` on
-that variable, so a tab press is a variable write whose reader is the bake group
-(`VarGraph.panelsSelectedBy`): the write swaps the panel this viewer is shown and commits after it,
-and a value no member of every panel it selects is selected at is refused like an unparseable
-window. A `c.select` over a variable names its members' values instead (`Variable.selecting`), so
-its cycle and its dropdown's label are right in the first HTML for a value like `7d`; an If over a
-variable (`c.iff(v.valueIs("30d"))`, ADR 0007) is one member at its value and one at every
-other (`VarAt.Otherwise`), so it takes any value. A tab panel cannot be opened directly; the open route refuses
-it, since the panel would move without the variable. `validate` requires the variable in scope at
-the bar and its declared value to be a member's (or the group to have its one member at every other value), distinct values per group, and refuses a `User`-activated member with
-a `bakeInto`: a host is filled by a choice the server knows, a variable or a condition (ADR 0007),
-and `User` is a popup's. Several bars, and a bar nested in another's panel, are kept apart by
-being different declarers. Every path that bakes takes a bar's member from the session's
-variables, so a stale `ui.<id>` param cannot pick a tab.
+**A tab bar is a variable.** `c.tabs` declares `tab`, the open tab's index (`"0"`), and its
+panel is a `nodeMod.match` over it: a case per tab, keyed by its index, picked by the variable's
+value as seen from the bar. Its buttons are `choose(i)` on that variable, so a tab press is a
+variable write whose reader is the pick (`VarGraph.panelsSelectedBy`): the write swaps the panel
+this viewer is shown and commits after it, and a value no case of every panel it decides takes is
+refused like an unparseable window. A `c.select` over a variable keys its cases by its options'
+values, so its cycle and its dropdown's label are right in the first HTML for a value like `7d`;
+an If over a variable (`c.iff(v.valueIs("30d"))`, ADR 0007) is one case at its value and the
+otherwise at every other, so it takes any value. A tab panel cannot be opened directly; the open
+route refuses it, since the panel would move without the variable. `validate` requires the
+variable in scope at the bar and its declared value to be a case's (or the choice to have an
+otherwise), and distinct keys per choice: a host is filled by a choice the server knows, a
+variable or a condition (ADR 0007), and `User` activation is a popup's. Several bars, and a bar
+nested in another's panel, are kept apart by being different declarers. Every path that renders
+a panel takes the bar's case from the session's variables, so a stale `ui.<id>` param cannot pick a tab.
 
 **A highlight is `v.valueIs(x)` in a bool signal slot**, the one variable read a signal may
 hold: `cellClassWhen("fh-chosen", v.valueIs(choice))` on the tab and select buttons. The
@@ -258,7 +257,9 @@ rendered per viewer, a leaf's value slot, and `validate` refuses one:
   it reads, so every viewer shares it;
 - in a structural card's own slots, which are never re-rendered for a viewer.
 
-`c.iff(v.valueIs(x))` is not a decision there: it still lowers to `Activation.Var`, a selection.
+`c.iff(v.valueIs(x))` is not a decision there: it is a match on the variable's value, picked per
+viewer. A choice reading a variable and state together is refused until R4d of
+`docs/plan-regions.md`.
 
 ## Why not
 
@@ -280,7 +281,7 @@ reader has.
 render-key change. It fails on the first paint — the default wins on every refresh, or the page
 ships a hole — and it is the second mechanism #210's draft was rejected for.
 
-**Making the window a bake group.** Zero new machinery, since tab bars ship. But a control over
+**Making the window a choice over nodes.** Zero new machinery, since tab bars ship. But a control over
 three charts is twelve surfaces with each chart written four times, and one window cannot steer
 charts outside its panel.
 
@@ -289,8 +290,7 @@ tabs, which the declarer token makes possible. Fixed, as the chooser's `window` 
 declaration and its writers cannot drift; naming it can come when a control needs it.
 
 **A tab's label as the value.** It would survive reordering the tabs, but a label can carry a
-space or a `'`, and the value travels in a route segment and a JS string. The index is what
-`bakeIndex` already says.
+space or a `'`, and the value travels in a route segment and a JS string.
 
 **Translating old `ui.<id>` tab links.** Cheap, but a second spelling to keep for as long as any
 link exists. An old link lands on the declared tab, which is what a stale `v.` link does.
@@ -324,8 +324,8 @@ instead.
   from the group entity's state, not each bulb's.
 - **The render key carries what a node read, and still one entry per node.** The key is the
   node's byte-slot values (ADR 0012), so a variable a slot reads, or a fetch the variable chose,
-  is in it through that slot's value; a bake group's selection is structure, which is never
-  cached. Viewers on one value share a render and a viewer on another replaces the entry, in
+  is in it through that slot's value; a choice fills a nodes slot, so its host is structure,
+  which is never cached. Viewers on one value share a render and a viewer on another replaces the entry, in
   place: `RenderCache` keeps one entry per node however many values are posted, and two values
   over one node alternate, each re-rendering (`RenderCacheContentionSuite`). For a chart that is a
   mustache splice of SVG already drawn, since `renderNodeById` takes a `FetchSnapshot` and cannot

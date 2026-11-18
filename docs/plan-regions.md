@@ -21,7 +21,8 @@ slots, a bool signal slot and a fetch window's `Choice.Chosen.by`, but a bake me
 it as `Activation.Var`.
 
 **State:** direction agreed in chat (2026-11-10); the prework is on main (below); R1 is built
-(`slot-classes`), R2 is built (`set-fill`), R3 is built (`choices-in-pkl`), R4 onward not. The opening describes the shape before
+(`slot-classes`), R2 is built (`set-fill`), R3 is built (`choices-in-pkl`), R4a and R4b are built
+(`one-runtime-path`), R4c onward not. The opening describes the shape before
 R1.
 
 ## What this builds on
@@ -188,14 +189,12 @@ slots {
   build `nodeMod.match` over their variable; popups are a `nodeMod.match` over `popups` (§7).
 - **A set** is the slot's whole fill: members are placed relative to each other, so a fixed
   sibling in the same host would need anchors.
-- `choose`/`each` and the separate `fills` block do not exist; `inlineSurfaces`, `bakeInto`,
-  `bakeAs`, `bakeIndex` and `Region.fill` go in R4: since R3 only the choices write them.
+- `choose`/`each` and the separate `fills` block do not exist; `inlineSurfaces` is popups' alone,
+  and the bake fields and `Region.fill` are gone (R4a, R4b).
 
 ### 4. Variables in decisions (R4)
 
-- **A guard** is `Choice.Chosen`'s `by` (§3). The bake groups' `Activation.Var` and `VarAt` are
-  replaced in R4, where the pick replaces bake groups; R3's choices over a variable lower to them
-  in the build until then.
+- **A guard** is `Choice.Chosen`'s `by` (§3), decided by a pick (built in R4b).
 
 A guard may read a variable and entity state together: a state change (through the reverse
 index) or the variable's write wakes it, and it is decided per viewer, a cost only such a guard
@@ -205,9 +204,9 @@ pays.
 `v.valueIs`) is allowed only in a leaf's value slots, a bool signal slot as `v.valueIs(x)` and a
 window's `by`;
 each refusal below is a stopgap, not a rule to keep:
-- **Shared decisions** (clauses, state surfaces, `valueWhile`, order keys): decided per viewer
-  once the pick replaces bake groups (R4), and `Activation.Var`/`VarAt` and the lowering of
-  `c.iff(v.valueIs(x))` to them go.
+- **Shared decisions** (clauses, a choice over state, `valueWhile`, order keys) and a choice
+  reading a variable and state together: decided per viewer once `holds` keeps what each host
+  shows (R4d).
 - **Call fields** (#702, a set a call targets included): a call is evaluated at the press, so
   reading a variable needs the viewer's session there. Every call's body carries `conn` (#707),
   so lifting it is the service case reading the presser's variables; it stays refused until a card
@@ -253,9 +252,8 @@ enum Slot:                         // decoded by `kind`
   a name, with no rule to say so.
 - The decoder only picks the case by `kind`. `Component` splits the map by kind once
   (`valueSlots`, `fills`, `regions`), so no consumer matches on the union.
-- The card's own `regions` on the wire (each nodes slot's name, `fill: baked` for one a bake
-  fills) stays until R4; Pkl builds it from the card's nodes slots, a baked one written
-  `slotMod.nodes("panel").baked()`. R4 deletes both.
+- The card's own `regions` on the wire is the list of its nodes slots' names, which Pkl builds
+  from them (`fill: baked` and `.baked()` went in R4b).
 - Each Pkl slot class carries its `kind`, which `WireShapeSuite` pairs with the Scala case.
 - Cell slots keep using `TemplateSlot` inside `Cell`, whose maps are their placement.
 
@@ -341,9 +339,9 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
   shell's `popupFromUrl` and the `/sse/surface/…/open` and `/sse/popup/…/close` routes go; the
   build collects every popup in the tree into the match, as the inline-surface hoist collects
   them today.
-- `SurfaceGraph`'s bake groups and `MemberGraph`'s special nesting (`WalkAt.InMember`,
-  `innerSetId`, `groupAt`) go into the one path in R4; `SurfaceGraph`'s popup half and the
-  inline-surface hoist in R5.
+- `SurfaceGraph`'s bake groups became picks in R4b; `MemberGraph`'s special nesting
+  (`WalkAt.InMember`, `innerSetId`, `groupAt`) goes into the one path in R4c/R4d;
+  `SurfaceGraph`'s popup half and the inline-surface hoist in R5.
 
 ### 8. Markup Scala stops writing
 
@@ -407,7 +405,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      suites named below move to `Chosen` fills. Popups keep `inlineSurfaces`. A guard mixing a
      variable and state stays refused. The JSON hoist walks each case of a `Chosen`. Rendered
      bytes do not move: the goldens are the check.
-   - **R4b, the pick.** The mechanism changes, the behaviour does not: each choice host's `by` is
+   - **R4b, the pick.** Built. The mechanism changes, the behaviour does not: each choice host's `by` is
      evaluated once and its case looked up, a state-only `by` once per version in `Shared`, a
      variable one per session, replacing the bake group. A variable value no case names and no
      otherwise takes shows nothing, as a set member and a state chain do (today's group falls
@@ -420,19 +418,19 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      (§4: the mixed `by`, set guards, `valueWhile`, order keys) stays until R4d: lifting one
      means re-deciding per session after a state change, which needs the per-session record of
      what each host shows that R4d builds (agreed 2026-11-18).
+     What R4b left: a case is still served as a surface (`Dashboard.picks` derives them,
+     `lowered` puts them in `surfaces`, `Surface.InPick` places them), so `validate`, the
+     scopes and the renderer's surface indexes walk them as before; R4c, which hosts a case at
+     its card's root, removes that. `Selections.none` now shows no tab, so a test standing for a
+     fresh viewer asks `surfaces.selections(None, vars.env(Map.empty))`, as a page load does
+     (`RenderGoldenSuite.fresh`).
    - **R4c, the root hosts.** The group, the If losing a `div`, and the id move (below).
    - **R4d, the planner.** `holds` keeps each host's keys; the log down to `fragments` (below);
      the variable-read refusals of §4 go, the mixed `by` and set guards included, with a test of
      one guard reading a variable and a state, two viewers on different values.
-   - `Fill.Nodes(Chosen)` replaces the bake fields on the wire, `inlineSurfaces` staying only for
-     popups; `nodeMod.match` over a state reading. The four suites building on `{{bakeIndex}}`
-     (`LiveStreamSuite`, `RenderInputsSuite`, `RendererSuite`, `ServerHarness`) are rewritten;
-     `LiveStreamSuite`'s server-rendered active tab moves to the document form of the tab's
-     `cellClassWhen` (agreed 2026-11-10 as `cellClassAtRender`, which `var-signal-reads` folds into
-     it).
-   - The pick, its planner and its ids (§7); deciding per send; `Activation.Var`, `VarAt`,
-     `SurfaceGraph`'s bake groups and `MemberGraph`'s nesting cases go; the shared decisions'
-     variable refusals (§4) go. Popups stay on today's swap.
+   - Left for R4c/R4d: `nodeMod.match` over a state reading (a Pkl error naming R4 today; the
+     pick decides one already); the planner and its ids (§7); `MemberGraph`'s nesting cases; the
+     shared decisions' variable refusals (§4). Popups stay on today's swap.
    - A test that a case no viewer shows costs nothing: a state change that only an unchosen tab
      panel or If branch reads renders and sends nothing.
    - The planner as §7 has it, the log down to `fragments`. Tests:
@@ -515,13 +513,12 @@ variables and the tap routes. This plan is deleted when the work lands.
 
 ## Open questions
 
-1. **Names**, free to change while v0: `group` (it shares a word with
-   the bake group until R4), `pick`, `IndexOfTrue`, the slot kinds and their base (`AnySlot`),
+1. **Names**, free to change while v0: `group`, `pick`, `IndexOfTrue`, the slot kinds and their base (`AnySlot`),
    `.inHistory()`.
-2. **The select's dropdown label over a variable** is a bake group only so the first HTML shows the
+2. **The select's dropdown label over a variable** is a choice only so the first HTML shows the
    chosen option (`select.pkl:15`). A value slot reading the variable could show it, but it sits
-   on a structure card, which refuses a live slot written as bytes. R3 kept it a bake group (a
-   `nodeMod.match`); settle it in R4, when it becomes a pick.
+   on a structure card, which refuses a live slot written as bytes. It is a `nodeMod.match`,
+   decided by a pick since R4b; settle whether it stays one in R4c.
 3. **Not built until a card needs it:** a cell class whose name an expression computes
    (`cellClassFrom(state.match(…))`, expanded in Pkl to one bool per literal arm), and `Step.Match`
    with typed keys like `Case.is`.

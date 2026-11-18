@@ -1205,7 +1205,7 @@ class Server(
         .flatMap { gid =>
           renderer.surfaces
             .memberAt(gid, value)
-            .map(renderer.surfaces.bakeGroup(gid))
+            .map(renderer.surfaces.cases(gid))
             .flatMap(sid =>
               renderer.surface(sid).filterNot(_ => s.open(sid)).map(sid -> _)
             )

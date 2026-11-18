@@ -15,21 +15,17 @@ import cats.effect.std.Supervisor
 import cats.effect.testkit.TestControl
 import cats.syntax.all.*
 import fh.view.model.{
-  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
   Op,
-  Region,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
 import fh.view.testkit.DashboardBuilders.{declared, st}
-import fh.view.testkit.TestIds.given
 import fh.view.testkit.TestAuth
 import fh.view.build.SystemPkl
 import fh.view.telemetry.{Logging, Meters}
@@ -173,8 +169,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "tabs" -> TestCard(
         template = """<div class="tabs">""" +
           """{{{children}}}</div>""" +
-          """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>""",
-        regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
+          """<div id="{{hostId}}">{{{panel}}}</div>""",
+        regions = Set("children", "panel")
       )
     )
     def panel(name: String): LayoutNode.Component =
@@ -202,33 +198,14 @@ trait ServerHarness extends munit.CatsEffectSuite {
               "btn",
               Slots.values(Map("label" -> TemplateSlot(ValueExpr.literal("B"))))
             )
-        ),
+        ) + ("panel" -> Slots.tabs("tab", panel("a"), panel("b"))),
         vars = TabDeclared
-      ),
-      surfaces = Map(
-        "c_t0" -> tabMember(panel("a"), "c", 0),
-        "c_t1" -> tabMember(panel("b"), "c", 1)
       )
     )
   }
 
-  /** What a tab bar declares: the open member's index (ADR 0033). */
+  /** What a tab bar declares: the open tab's index (ADR 0033). */
   val TabDeclared: List[Dashboard.Declaration] = declared("tab" -> "0")
-
-  /** A member of a tab bar's panel, selected by the bar's `tab`. */
-  def tabMember(
-      content: LayoutNode,
-      host: String,
-      index: Int,
-      bakeAs: String = "panel"
-  ): Surface =
-    Surface(
-      content,
-      bakeInto = Some(host),
-      bakeAs = Some(bakeAs),
-      bakeIndex = Some(index),
-      activation = Activation.Var("tab")
-    )
 
   /** A stream carrying this viewer's committed tabs, as a reconnect does
     * (`Server.SseInclude`): with no document, nothing else names them.
@@ -245,12 +222,12 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def get(params: (String, String)*): Request[IO] =
     Request[IO](Method.GET, uri"/".withQueryParams(params.toMap))
 
-  // No bake groups, so its live patches belong entirely to the shared pass.
+  // No picks, so its live patches belong entirely to the shared pass.
   def liveLeafDash = Dashboard(
     cards = Sets.cards ++ Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       ),
       "card" -> TestCard("<span>{{state}}</span>")
     ),
@@ -336,12 +313,12 @@ trait ServerHarness extends munit.CatsEffectSuite {
   val ifCards = Map(
     "col" -> TestCard(
       "<div>{{{children}}}</div>",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     ),
     // Pure structure, like `lib/components/base/surface.pkl`'s `If`.
     "ifhost" -> TestCard(
       template = """<div id="{{hostId}}">{{{branch}}}</div>""",
-      regions = Map("branch" -> Region(Region.Baked))
+      regions = Set("branch")
     ),
     "card" -> TestCard("<span>{{state}}</span>"),
     "dot" -> TestCard("<b>{{state}}</b>")
@@ -357,22 +334,21 @@ trait ServerHarness extends munit.CatsEffectSuite {
       )
     )
 
-  def stateMember(
-      content: LayoutNode,
-      host: String,
-      index: Int,
-      condition: ValueExpr
-  ): Surface =
-    Surface(
-      content,
-      bakeInto = Some(host),
-      bakeAs = Some("branch"),
-      bakeIndex = Some(index),
-      activation = Activation.State(Some(condition))
+  /** An `ifhost` whose branch is `then` while `cond` holds, else `otherwise`:
+    * the surfaces `<id>_t0` and `<id>_else`.
+    */
+  def ifHost(
+      cond: ValueExpr,
+      `then`: LayoutNode,
+      otherwise: Option[LayoutNode] = None
+  ): LayoutNode.Component =
+    LayoutNode.Component(
+      "ifhost",
+      Map("branch" -> Slots.iff(cond, `then`, otherwise))
     )
 
-  /** `ifhost` at "c_0". `then` is active while alarm.h == armed, and the
-    * always-true `else` otherwise; by default they show sensor.a and sensor.b.
+  /** `ifhost` at "c_0". `c_0_t0` shows while alarm.h == armed, and `c_0_else`
+    * otherwise; by default they show sensor.a and sensor.b.
     */
   def ifDash(
       thenContent: LayoutNode = branchCard("sensor.a"),
@@ -380,14 +356,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
   ): Dashboard =
     Dashboard(
       cards = Sets.cards ++ ifCards,
-      card = LayoutNode
-        .Component(
-          "col",
-          slots = Slots.kids(LayoutNode.Component("ifhost"))
-        ),
-      surfaces = Map(
-        "then" -> stateMember(thenContent, "c_0", 0, armedCond),
-        "else" -> stateMember(elseContent, "c_0", 1, always)
+      card = LayoutNode.Component(
+        "col",
+        slots = Slots.kids(ifHost(armedCond, thenContent, Some(elseContent)))
       )
     )
 
@@ -400,51 +371,36 @@ trait ServerHarness extends munit.CatsEffectSuite {
     */
   val BodyRepaint = "selector #dashboard"
 
-  def mixedTabsDash = Dashboard(
+  /** A card on sensor.shared at `c_0` and a tab bar at `c_1` whose panel `i` is
+    * `panels(i)`, the surface `c_1_t<i>`.
+    */
+  def tabsAt(panels: LayoutNode*): Dashboard = Dashboard(
     cards = Sets.cards ++ Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       ),
       "card" -> TestCard("<span>{{state}}</span>"),
       "tabs" -> TestCard(
         template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
-        regions = Map("panel" -> Region(Region.Baked))
+        regions = Set("panel")
       )
     ),
     card = LayoutNode.Component(
       "col",
       slots = Slots.kids(
+        branchCard("sensor.shared"),
         LayoutNode.Component(
-          "card",
-          slots = Slots.values(
-            Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.shared")))
-              )
-            )
-          )
-        ),
-        LayoutNode.Component("tabs", vars = TabDeclared)
-      )
-    ),
-    surfaces = Map(
-      "t0" -> tabMember(
-        LayoutNode.Component(
-          "card",
-          slots = Slots.values(
-            Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.a")))
-              )
-            )
-          )
-        ),
-        "c_1",
-        0
+          "tabs",
+          Map("panel" -> Slots.tabs("tab", panels*)),
+          vars = TabDeclared
+        )
       )
     )
   )
+
+  /** [[tabsAt]] with one tab, on sensor.a. */
+  def mixedTabsDash: Dashboard = tabsAt(branchCard("sensor.a"))
 
   /** A server-built event carries `data: ` on its continuation lines; a decoded
     * one, and an [[SseFrame]] read through its parser, do not. Tolerating both
@@ -688,64 +644,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
         )
     } yield ()).timeout(30.seconds)
 
-  def twoTabsDash = Dashboard(
-    cards = Sets.cards ++ Map(
-      "col" -> TestCard(
-        "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
-      ),
-      "card" -> TestCard("<span>{{state}}</span>"),
-      "tabs" -> TestCard(
-        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
-        regions = Map("panel" -> Region(Region.Baked))
-      )
-    ),
-    card = LayoutNode.Component(
-      "col",
-      slots = Slots.kids(
-        LayoutNode.Component(
-          "card",
-          slots = Slots.values(
-            Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.shared")))
-              )
-            )
-          )
-        ),
-        LayoutNode.Component("tabs", vars = TabDeclared)
-      )
-    ),
-    surfaces = Map(
-      "t0" -> tabMember(
-        LayoutNode.Component(
-          "card",
-          slots = Slots.values(
-            Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.a")))
-              )
-            )
-          )
-        ),
-        "c_1",
-        0
-      ),
-      "t1" -> tabMember(
-        LayoutNode.Component(
-          "card",
-          slots = Slots.values(
-            Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.b")))
-              )
-            )
-          )
-        ),
-        "c_1",
-        1
-      )
-    )
-  )
+  /** [[tabsAt]] with two tabs, on sensor.a and sensor.b. */
+  def twoTabsDash: Dashboard =
+    tabsAt(branchCard("sensor.a"), branchCard("sensor.b"))
 
 }

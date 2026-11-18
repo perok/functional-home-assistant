@@ -7,20 +7,17 @@ import cats.effect.unsafe.implicits.global
 import fh.view.history.{History, SeriesSource}
 import fh.view.model.{
   SlotType,
-  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
   FetchTemplate,
   Choice,
-  Region,
   SlotRead,
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.testkit.DashboardBuilders.declared
@@ -90,7 +87,7 @@ class FetchBench {
     } yield r).unsafeRunSync()
     cache = RenderCache.create.unsafeRunSync()
     // Warm: every read drawn once.
-    val _ = answer(renderer.fetchesForPage(Set("t0"), st, Map.empty))
+    val _ = answer(renderer.fetchesForPage(Set("tabs_t0"), st, Map.empty))
       .unsafeRunSync()
   }
 
@@ -130,7 +127,7 @@ class FetchBench {
 
   @Benchmark
   def pullPlainTabOpen(bh: Blackhole): Unit =
-    bh.consume(pull(PlainId, Set("t0")))
+    bh.consume(pull(PlainId, Set("tabs_t0")))
 
   @Benchmark
   def pullChart(bh: Blackhole): Unit =
@@ -139,13 +136,15 @@ class FetchBench {
   @Benchmark
   def pagePrepass(bh: Blackhole): Unit =
     bh.consume(
-      answer(renderer.fetchesForPage(Set("t0"), st, Map.empty)).unsafeRunSync()
+      answer(renderer.fetchesForPage(Set("tabs_t0"), st, Map.empty))
+        .unsafeRunSync()
     )
 
   @Benchmark
   def pageWithCharts(bh: Blackhole): Unit = {
     val f =
-      answer(renderer.fetchesForPage(Set("t0"), st, Map.empty)).unsafeRunSync()
+      answer(renderer.fetchesForPage(Set("tabs_t0"), st, Map.empty))
+        .unsafeRunSync()
     bh.consume(
       renderer.renderPageInto(
         Sink.buffer(renderer.pageBytesHint),
@@ -186,7 +185,7 @@ object FetchBench {
       "chart" -> TestCard("<div>{{{chart}}}</div>"),
       "host" -> TestCard(
         """<div id="{{hostId}}">{{{panel}}}</div>""",
-        regions = Map("panel" -> Region(Region.Baked))
+        regions = Set("panel")
       )
     ),
     card = LayoutNode.Component(
@@ -200,22 +199,21 @@ object FetchBench {
           List(
             LayoutNode.Component(
               "host",
+              Map(
+                "panel" -> Slots.tabs(
+                  "tab",
+                  LayoutNode.Component(
+                    "col",
+                    slots = Slots.kids(
+                      List.tabulate(4)(i => chart(s"sensor.tab_$i"))*
+                    )
+                  )
+                )
+              ),
               id = Some("tabs"),
               vars = declared("tab" -> "0")
             )
           ))*
-      )
-    ),
-    surfaces = Map(
-      "t0" -> Surface(
-        LayoutNode.Component(
-          "col",
-          slots = Slots.kids(List.tabulate(4)(i => chart(s"sensor.tab_$i"))*)
-        ),
-        bakeInto = Some(NodeId.derived("tabs")),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(0),
-        activation = Activation.Var("tab")
       )
     )
   )

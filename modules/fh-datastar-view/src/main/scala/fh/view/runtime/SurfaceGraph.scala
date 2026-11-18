@@ -1,12 +1,11 @@
 package fh.view.runtime
 
-import fh.view.model.{Dashboard, DomId, NodeId, Ready, SlotRead, Surface}
-import fh.view.model.Ready.Activation
+import fh.view.model.{Dashboard, DomId, NodeId, Ready, Surface}
 
-/** What one viewer has selected: the popup it has open, and the member of each
-  * bake group a node variable selects (ADR 0033). A state group's branch is
-  * everyone's and is not here. [[SurfaceGraph.selections]] narrows both, so a
-  * reader trusts them.
+/** What one viewer has selected: the popup it has open, and the case of each
+  * pick a node variable decides (ADR 0033). A pick over state is everyone's and
+  * is not here. A pick with no entry shows nothing. [[SurfaceGraph.selections]]
+  * narrows both, so a reader trusts them.
   */
 final case class Selections(popup: Option[String], panels: Map[NodeId, Int])
     derives CanEqual
@@ -16,100 +15,79 @@ object Selections {
 }
 
 /** Selection and visibility, beside [[MemberGraph]]; `Renderer` paints what
-  * they say. A variable-selected group's selection is per viewer
-  * ([[Selections]]); a state group's is the same for everyone, so a state
-  * surface hides nothing from anybody. Visibility derives from selection — one
-  * fact asked three ways.
+  * they say. A pick over a variable is decided per viewer ([[Selections]]); one
+  * over state is the same for everyone, so its cases hide nothing from anybody.
+  * Visibility derives from selection — one fact asked three ways.
   *
   * @param surfaces
   *   not the whole `Dashboard`, which this has no use for.
+  * @param picks
+  *   each choice, by its id ([[Surface.InPick.group]]).
   * @param members
   *   for [[rootOf]] of materialised members and nested sets.
   */
 private[runtime] final class SurfaceGraph(
     surfaces: Map[String, Ready.Surface],
+    picks: Map[NodeId, Ready.Pick],
     rootOfIndexed: Map[NodeId, String],
     members: MemberGraph
 ) {
 
-  /** A `val`: `hostId` asks for every node on every render. */
-  private val bakeGroups: Map[NodeId, List[String]] =
-    surfaces.toList
-      .flatMap { case (sid, s) =>
-        s.group.map(gid => (gid, sid, s.bakeIndex))
-      }
-      .groupBy(_._1)
-      .view
-      .mapValues(
-        _.sortBy { case (_, sid, bi) => (bi.getOrElse(Int.MaxValue), sid) }
-          .map(_._2)
-      )
+  // A pick's id is its host's, except inside a set member's clause
+  // (`Surface.InPick.group`).
+  private val pickHosts: Map[NodeId, (NodeId, Option[Int])] =
+    surfaces.values
+      .flatMap(_.pick)
+      .map(p => p.group -> (p.host, p.clause))
       .toMap
 
-  // A group id is its host's, except inside a set member's clause
-  // (`Surface.group`).
-  private val groupHosts: Map[NodeId, (NodeId, Option[Int])] =
-    surfaces.values.flatMap { s =>
-      s.group.zip(s.bakeInto).map((gid, host) => gid -> (host, s.clause))
-    }.toMap
+  /** The node a pick fills. */
+  def hostOf(gid: NodeId): NodeId = pickHosts.get(gid).fold(gid)(_._1)
 
-  /** The node a group bakes into. */
-  def hostOf(gid: NodeId): NodeId = groupHosts.get(gid).fold(gid)(_._1)
-
-  /** The group `host` owns in a member's `clause`, or `host` itself for a node
-    * owning none there. `validate` makes every surface baking inside a clause
-    * name it, so an untagged one never gets here.
+  /** The pick `host` owns in a member's `clause`, or `host` itself for a node
+    * owning none there.
     */
   def groupAt(host: NodeId, clause: Int): NodeId = {
     val tagged = Surface.groupId(host, Some(clause))
-    if (groupHosts.contains(tagged)) tagged else host
+    if (pickHosts.contains(tagged)) tagged else host
   }
 
-  /** The clause a group inside a set member belongs to. */
-  def clauseOf(gid: NodeId): Option[Int] = groupHosts.get(gid).flatMap(_._2)
+  /** The clause a pick inside a set member belongs to. */
+  def clauseOf(gid: NodeId): Option[Int] = pickHosts.get(gid).flatMap(_._2)
 
-  /** Ordered by `bakeIndex`, then surface id: what a variable's index selects
-    * among and a state selection walks first-match. A fixed, tiny set, so
-    * unlike a candidate set it needs no eviction horizon.
+  /** A pick's cases' surface ids, the otherwise's last; empty for a node owning
+    * none.
     */
-  def bakeGroup(gid: NodeId): List[String] =
-    bakeGroups.getOrElse(gid, Nil)
+  def cases(gid: NodeId): Vector[String] =
+    casesOf.getOrElse(gid, Vector.empty)
 
-  /** The member of a variable-selected group that `value` selects, else its
-    * `otherwise` member.
-    */
-  def memberAt(gid: NodeId, value: String): Option[Int] = {
-    val members = bakeGroup(gid).map(surfaces.get)
-    def first(p: Ready.Surface => Boolean): Option[Int] =
-      Some(members.indexWhere(_.exists(p))).filter(_ >= 0)
-    first(_.selectedAt.contains(value)).orElse(first(_.isOtherwise))
-  }
+  // Asked per member on every publish, so no `Option` per lookup.
+  private val casesOf: Map[NodeId, Vector[String]] =
+    picks.view.mapValues(_.members).toMap
 
-  /** What selects each member of a variable-selected group, in its order. */
+  /** The case of a pick over a variable that `value` picks. */
+  def memberAt(gid: NodeId, value: String): Option[Int] =
+    picks.get(gid).flatMap(_.decide(value))
+
+  /** What picks each case of a pick over a variable, in its order. */
   def memberValues(gid: NodeId): List[String] =
-    bakeGroup(gid).flatMap(surfaces.get(_).flatMap(_.selectedAt))
+    picks
+      .get(gid)
+      .fold(Nil)(_.byKey.toList.sortBy(_._2).map(_._1.toString))
 
-  /** A popup open from the first paint; a bake group's member is chosen. */
-  private def defaultOpenPopup(s: Ready.Surface): Boolean = s.activation match {
-    case Activation.User(d) => d
-    case _                  => false
-  }
+  /** A popup open from the first paint. */
+  private def defaultOpenPopup(s: Ready.Surface): Boolean = s.defaultOpen
 
-  /** The first member decides: `validate` rejects mode-mixed groups. */
-  def isStateGroup(gid: NodeId): Boolean =
-    bakeGroup(gid).headOption.exists(isStateSurface)
+  def isStatePick(gid: NodeId): Boolean = statePicks(gid)
 
-  /** The node variable selecting `gid`'s member, for a tab bar's panel. */
+  /** The node variable deciding `gid`, for a tab bar's panel. */
   def varSelecting(gid: NodeId): Option[String] =
-    bakeGroup(gid).headOption.flatMap(surfaces.get).map(_.activation).collect {
-      case Activation.Var(name, _) => name
-    }
+    picks.get(gid).flatMap(_.variable)
 
   /** A viewer's selections: `requested` narrowed by [[openPopup]], and each
-    * variable-selected group's member from `env`. A value no member is selected
-    * at is dropped, so the group shows its first member; every value passed
-    * `refusals` or `validate`, so that is a guard, which [[selectionAnomalies]]
-    * reports.
+    * pick over a variable decided from `env`. A value no case takes and no
+    * otherwise catches shows nothing; every value passed `refusals` or
+    * `validate`, so that is a guard, which [[selectionAnomalies]] reports.
     */
   def selections(requested: Option[String], env: VarEnv): Selections =
     Selections(
@@ -121,32 +99,28 @@ private[runtime] final class SurfaceGraph(
     panelChoices(env).toList.sortBy(_._1).collect { case (_, Left(w)) => w }
 
   // `env` is total over declarations and `validate` puts the variable in scope
-  // at the host, so every such group has an entry.
+  // at the host, so every such pick has an entry.
   private def panelChoices(env: VarEnv): Map[NodeId, Either[String, Int]] =
-    varBakeOwnerIds.toList.flatMap { gid =>
+    varPicks.toList.flatMap { gid =>
       varSelecting(gid)
         .flatMap(name => env.get(gid).flatMap(_.get(name)))
         .map { raw =>
           gid -> memberAt(gid, raw).toRight(
-            s"selection '$raw' for bake group $gid is not " +
-              s"${Surface.membersText(memberValues(gid))}; using the first"
+            s"selection '$raw' for the choice at $gid is not " +
+              s"${Surface.membersText(memberValues(gid))}; showing nothing"
           )
         }
     }.toMap
 
-  private val bakeOwnerIds: Set[NodeId] =
-    surfaces.values.flatMap(_.group).toSet
-
-  /** Tabs, selected by a viewer's variable: the selected member lives in the
-    * host, which a patch never carries; filling it is per client
+  /** Tabs, decided by a viewer's variable: the chosen case lives in the host,
+    * which a patch never carries; filling it is per client
     * ([[Patches.hostFill]]).
     */
-  val varBakeOwnerIds: Set[NodeId] =
-    bakeOwnerIds.filterNot(isStateGroup)
+  val varPicks: Set[NodeId] =
+    picks.collect { case (gid, p) if p.variable.isDefined => gid }.toSet
 
   /** If/else hosts: rendered once per slug for every viewer. */
-  val stateBakeOwnerIds: Set[NodeId] =
-    bakeOwnerIds.filter(isStateGroup)
+  val statePicks: Set[NodeId] = picks.keySet -- varPicks
 
   /** `""` for the main page. Not recoverable from the id, which carries only
     * its own surface's prefix. Members and nested sets answer through the
@@ -160,13 +134,13 @@ private[runtime] final class SurfaceGraph(
       .orElse(members.rootOfSet(node))
   }
 
-  // A popup has no `bakeInto` and is absent: it hosts on the main page.
+  // A popup has no pick and is absent: it hosts on the main page.
   private val surfaceParent: Map[String, String] =
     surfaces.flatMap { case (sid, s) =>
-      s.bakeInto.flatMap(rootOf).filter(_.nonEmpty).map(sid -> _)
+      s.pick.flatMap(p => rootOf(p.host)).filter(_.nonEmpty).map(sid -> _)
     }
 
-  /** `sid` plus the nested tabs this viewer selected and the branches `shared`
+  /** `sid` plus the nested tabs this viewer selected and the cases `shared`
     * picks, transitively.
     */
   def shownWithin(
@@ -185,26 +159,19 @@ private[runtime] final class SurfaceGraph(
     open ++ surfaces.keySet.filter(visibleSurface(_, open, shared))
 
   private def isStateSurface(sid: String): Boolean =
-    surfaces
-      .get(sid)
-      .exists(_.activation match {
-        case _: Activation.State => true
-        case _                   => false
-      })
+    surfaces.get(sid).flatMap(_.group).exists(isStatePick)
 
   private def stateSelected(sid: String, shared: Shared): Boolean =
     surfaces.get(sid).flatMap(_.group).exists { gid =>
-      resolveActiveByState(gid, shared)
-        .flatMap(bakeGroup(gid).lift)
-        .contains(sid)
+      decideByState(gid, shared).flatMap(cases(gid).lift).contains(sid)
     }
 
   /** Whether `sid` is on screen for a viewer with `open` open, as `shared` has
-    * it: every surface up its chain is, a user surface opened and a state
-    * branch selected, and a group inside a set member only while the member is
-    * in that clause ([[groupShown]]). `open` may hold a tab panel inside a
-    * hidden `If`, hence the whole chain. `cut`: groups flipping this frame,
-    * whose fill renders what is below them.
+    * it: every surface up its chain is, a user surface opened and a state case
+    * picked, and a pick inside a set member only while the member is in that
+    * clause ([[groupShown]]). `open` may hold a tab panel inside a hidden `If`,
+    * hence the whole chain. `cut`: picks switching this frame, whose fill
+    * renders what is below them.
     */
   def visibleSurface(
       sid: String,
@@ -213,9 +180,7 @@ private[runtime] final class SurfaceGraph(
       cut: Set[NodeId] = Set.empty
   ): Boolean = sid.isEmpty || shownUpTo(sid, "", open, shared, cut)
 
-  /** Every surface from `sid` up to `stop`, exclusive, is shown. The visited
-    * set because authored `bakeInto` may cycle.
-    */
+  /** Every surface from `sid` up to `stop`, exclusive, is shown. */
   private def shownUpTo(
       sid: String,
       stop: String,
@@ -246,80 +211,40 @@ private[runtime] final class SurfaceGraph(
   ): Boolean =
     rootOf(id).forall(r => r.isEmpty || visibleSurface(r, open, shared))
 
-  /** Each state surface's condition; an else has none. */
-  private val conditions: Map[String, Ready.Condition] =
-    surfaces.flatMap { (sid, s) =>
-      s.activation match
-        case Activation.State(Some(c)) => Some(sid -> c)
-        case _                         => None
-    }
-
-  /** What a state group's conditions read: its branch decision's fetches. */
-  private val branchReads: Map[NodeId, Set[SlotRead]] =
-    bakeGroups.view
-      .mapValues(_.flatMap(conditions.get).flatMap(_.reads).toSet)
-      .toMap
-
-  // Subject-free (`validate`). An else holds.
-  private def holds(
-      sid: String,
-      states: Map[String, EntityState],
-      fetched: Shared.Fetched
-  ): Boolean =
-    conditions
-      .get(sid)
-      .forall(c => Evaluator.holds(c.run(null, states, fetched)))
-
-  /** First match in `bakeIndex` order; `None` bakes empty content. */
-  private[runtime] def resolveActiveByState(
+  /** One read of `by` and a lookup, once per version; `None` fills the host
+    * with nothing. `by` is subject-free (`validate`).
+    */
+  private[runtime] def decideByState(
       gid: NodeId,
       shared: Shared
   ): Option[Int] =
-    shared.branch(gid, branchReads.getOrElse(gid, Set.empty)) { f =>
-      val idx = bakeGroup(gid).indexWhere(sid =>
-        surfaces
-          .get(sid)
-          .exists(_.activation match {
-            case Activation.State(_) => holds(sid, shared.states, f)
-            case _                   => false
-          })
+    val p = picks.getOrElse(gid, null)
+    if (p == null) None
+    else
+      shared.branch(gid, p.by.reads)(f =>
+        p.decide(p.by.run(null, shared.states, f))
       )
-      Option.when(idx >= 0)(idx)
-    }
 
-  /** The inverse of what each state group's conditions read. Exact, because
-    * conditions are subject-free: nothing outside it can move a selection.
+  /** The inverse of what each state pick's `by` reads. Exact, because `by` is
+    * subject-free: nothing outside it can move a pick.
     */
-  private val stateGroupsReading: Map[String, List[NodeId]] =
-    stateBakeOwnerIds.toList.sorted
-      .flatMap { gid =>
-        bakeGroup(gid)
-          .flatMap(
-            surfaces
-              .get(_)
-              .toList
-              .flatMap(_.activation match {
-                case Activation.State(c) => c.toList.flatMap(_.entities)
-                case _                   => Nil
-              })
-          )
-          .distinct
-          .map(_ -> gid)
-      }
+  private val statePicksReading: Map[String, List[NodeId]] =
+    statePicks.toList.sorted
+      .flatMap(gid => picks(gid).by.entities.distinct.map(_ -> gid))
       .groupMap(_._1)(_._2)
 
-  /** The state groups some entity can mark dirty; any other is dirty at every
+  /** The state picks some entity can mark dirty; any other is dirty at every
     * version, so it is never carried.
     */
-  val marked: Set[NodeId] = stateGroupsReading.values.flatten.toSet
+  val marked: Set[NodeId] = statePicksReading.values.flatten.toSet
 
-  /** The branch decisions `changes` dirty. */
+  /** The picks `changes` dirty. */
   def dirtied(changes: List[StateChange]): Set[NodeId] =
     changes.iterator
-      .flatMap(c => stateGroupsReading.getOrElse(c.entityId, Nil))
+      .flatMap(c => statePicksReading.getOrElse(c.entityId, Nil))
       .toSet
 
-  /** Whether `gid` is on the page as `shared` has it: a group inside a member
+  /** Whether `gid` is on the page as `shared` has it: a pick inside a member
     * only while the member is present and in that clause.
     */
   def groupShown(gid: NodeId, shared: Shared): Boolean =
@@ -330,12 +255,11 @@ private[runtime] final class SurfaceGraph(
         .exists(_.clause == k)
     }
 
-  /** Found from the changed entities, not by walking every group: at 200
-    * members with an If each, the walk evaluated 200 conditions a frame. A
-    * group counts only if [[groupShown]] before and after, since a member
-    * arriving or switching clause is placed whole, and only if its root is
-    * visible past no other group flipping ([[visibleSurface]]), whose fill
-    * holds it.
+  /** Found from the changed entities, not by walking every pick: at 200 members
+    * with an If each, the walk evaluated 200 conditions a frame. A pick counts
+    * only if [[groupShown]] before and after, since a member arriving or
+    * switching clause is placed whole, and only if its root is visible past no
+    * other pick switching ([[visibleSurface]]), whose fill holds it.
     */
   def affectedStateGroups(
       changes: List[StateChange],
@@ -344,11 +268,11 @@ private[runtime] final class SurfaceGraph(
       visible: Set[String] = Set.empty
   ): List[NodeId] = {
     val moved = changes
-      .flatMap(c => stateGroupsReading.getOrElse(c.entityId, Nil))
+      .flatMap(c => statePicksReading.getOrElse(c.entityId, Nil))
       .distinct
       .filter { gid =>
         groupShown(gid, prev) && groupShown(gid, next) &&
-        resolveActiveByState(gid, prev) != resolveActiveByState(gid, next)
+        decideByState(gid, prev) != decideByState(gid, next)
       }
     val cut = moved.toSet
     moved
@@ -356,33 +280,33 @@ private[runtime] final class SurfaceGraph(
       .sorted
   }
 
-  /** The first member when nothing chose one. */
-  private[runtime] def resolveActive(gid: NodeId, selections: Selections): Int =
-    selections.panels.getOrElse(gid, 0)
+  /** The case a viewer's variable picks, if any. */
+  private[runtime] def decideByViewer(
+      gid: NodeId,
+      selections: Selections
+  ): Option[Int] =
+    selections.panels.get(gid)
 
-  /** A session's open set. State-selected surfaces never enter it: the shared
+  /** A session's open set. State-picked surfaces never enter it: the shared
     * per-slug pass owns them.
     */
   def selectedSurfaces(
       selections: Selections = Selections.none
   ): Set[String] = {
-    val (baked, unbaked) =
-      surfaces.toList.partition(_._2.bakeInto.isDefined)
-    val fromGroups =
-      baked
-        .flatMap(_._2.group)
-        .distinct
-        .filterNot(isStateGroup)
-        .map(gid => bakeGroup(gid)(resolveActive(gid, selections)))
-        .toSet
-    val fromUnbaked =
-      unbaked.collect { case (sid, s) if defaultOpenPopup(s) => sid }.toSet
-    fromGroups ++ fromUnbaked ++ selections.popup
+    val fromPicks =
+      varPicks.flatMap(gid =>
+        decideByViewer(gid, selections).flatMap(cases(gid).lift)
+      )
+    val fromPopups =
+      surfaces.collect {
+        case (sid, s) if s.pick.isEmpty && defaultOpenPopup(s) => sid
+      }.toSet
+    fromPicks ++ fromPopups ++ selections.popup
   }
 
-  /** `ui_<popups>` holds a surface id, not an index: the host is not a bake
-    * group. Narrowed, since a stale URL can name a surface this dashboard
-    * cannot serve.
+  /** `ui_<popups>` holds a surface id, not an index: the host is not a pick.
+    * Narrowed, since a stale URL can name a surface this dashboard cannot
+    * serve.
     */
   def openPopup(requested: Option[String]): Option[String] =
     requested.filter(sid =>
@@ -395,8 +319,8 @@ private[runtime] final class SurfaceGraph(
     }.toSet
 
   /** The `ui_popups` entry a swap makes true — only the swap knows what
-    * happened, so only it asserts the selection (ADR 0025). `None` for a bake
-    * group's host: a tab's commit is its variable's, a branch is server truth.
+    * happened, so only it asserts the selection (ADR 0025). `None` for a pick's
+    * host: a tab's commit is its variable's, a branch is server truth.
     */
   def committedSelection(
       host: DomId,
@@ -416,8 +340,8 @@ private[runtime] final class SurfaceGraph(
         .getOrElse("")
     )
 
-  /** [[selectionsIn]], where a group none of whose members `open` holds takes
-    * `env`'s: a group in a set member's clause is first shown when the member
+  /** [[selectionsIn]], where a pick none of whose cases `open` holds takes
+    * `env`'s: a pick in a set member's clause is first shown when the member
     * switches to that clause.
     */
   def selectionsShown(open: Set[String], env: VarEnv): Selections = {
@@ -434,8 +358,8 @@ private[runtime] final class SurfaceGraph(
   def selectionsIn(open: Set[String]): Selections =
     Selections(
       surfacesAt(Dashboard.PopupHostId).find(open),
-      varBakeOwnerIds.toList.flatMap { gid =>
-        bakeGroup(gid).indexWhere(open) match {
+      varPicks.toList.flatMap { gid =>
+        cases(gid).indexWhere(open) match {
           case -1 => None
           case i  => Some(gid -> i)
         }

@@ -740,19 +740,15 @@
   },
   "cards" : {
     "fhcol" : {
-      "regions" : {
-        "children" : {
-          
-        }
-      },
+      "regions" : [
+        "children"
+      ],
       "template" : "<div class=\"fh-cell fh-col{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "group_div_fh_group_true" : {
-      "regions" : {
-        "children" : {
-          
-        }
-      },
+      "regions" : [
+        "children"
+      ],
       "template" : "<div class=\"fh-cell fh-group{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "pill" : {

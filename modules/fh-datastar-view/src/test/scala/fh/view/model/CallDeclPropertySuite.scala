@@ -313,7 +313,7 @@ object CallDeclPropertySuite {
         "parent" -> TestCard(
           placed("s", own) +
             """<b data-call="{{{tap.callId}}}"></b>{{{children}}}""",
-          regions = Map(LayoutNode.DefaultRegion -> Region())
+          regions = Set(LayoutNode.DefaultRegion)
         ),
         "child" -> TestCard(placed("c", child))
       ),

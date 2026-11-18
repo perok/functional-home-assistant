@@ -375,8 +375,8 @@ object Choice:
   val KeyTypes: Set[ValueType] =
     Set(ValueType.Text, ValueType.Bool, ValueType.Int)
 
-  /** The node variable `by` is exactly, which a bake group decides by its raw
-    * value.
+  /** The node variable `by` is exactly, which a pick decides by a lookup of its
+    * value in the viewer's session.
     */
   def plainVariable(by: ValueExpr): Option[String] = by match
     case ValueExpr(Value.Var(name), Nil, _, _) => Some(name)
@@ -611,13 +611,13 @@ object SignalBind:
 case class CardDef(
     template: String,
     layoutCell: Boolean = true,
-    regions: Map[String, Region] = Map.empty,
+    regions: Set[String] = Set.empty,
     css: String = "",
     script: Option[String] = None
 ) derives ConfiguredDecoder {
 
-  /** Eager and baked regions are spelled alike, which lets the document walk
-    * thread both into one buffer (issue #237).
+  /** Fixed nodes and a pick's case are spelled alike, which lets the document
+    * walk thread both into one buffer (issue #237).
     */
   def holeOf(name: String): String = "{{{" + name + "}}}"
 
@@ -626,26 +626,13 @@ case class CardDef(
   /** What the template places as `{{{name}}}`, each once, outside every
     * section: the regions and the root's holes.
     */
-  def holes: Set[String] = regions.keySet ++ CardDef.RootHoles
-
-  def bakedRegions: Map[String, Region] =
-    regions.filter(_._2.fill == Region.Baked)
+  def holes: Set[String] = regions ++ CardDef.RootHoles
 }
 
 object CardDef:
   val CellClassesHole: String = "cellClasses"
   val CellHole: String = "cell"
   val RootHoles: Set[String] = Set(CellClassesHole, CellHole)
-
-/** `eager`: the node's own children, in the same render. `baked`: a surface
-  * selected per viewer, rendered only while shown.
-  */
-case class Region(fill: String = Region.Eager) derives ConfiguredDecoder
-
-object Region {
-  val Eager: String = "eager"
-  val Baked: String = "baked"
-}
 
 /** The node's cell slots, which the renderer places on its card's root
   * ([[CellKey]]): the layout builders' classes, classes by name, `"1"` for one
@@ -720,34 +707,12 @@ object Op:
       .toRight(s"unknown op: $s")
   )
 
-/** How a [[Surface]] becomes visible.
-  *
-  *   - `User`: a popup, opened by a tap, optionally from first paint. The
-  *     selection is per connection (ADR 0005). Never a baked member.
-  *   - `Var`: the member the node variable `name` selects, as seen from the
-  *     `bakeInto` node (ADR 0033), at the values [[VarAt]] names. Per viewer,
-  *     and declared, so the server knows what selects it.
-  *   - `State`: while a subject-free `condition` holds — server truth, the same
-  *     for every viewer, so never in a session's open set. First match in
-  *     `bakeIndex` order wins; an "else" has none, and always holds.
-  *
-  * A bake group must be one mode, `Var` or `State` (`validate`), so any member
-  * decides it.
+/** How a popup becomes visible: by a tap, optionally from the first paint. The
+  * selection is per connection (ADR 0005). A choice's case is shown by its pick
+  * ([[Surface.InPick]]), not by this; R5 moves popups onto one too.
   */
 enum Activation derives ConfiguredDecoder:
   case User(defaultOpen: Boolean = false)
-  case Var(name: String, at: VarAt = VarAt.Index)
-  case State(condition: Option[ValueExpr] = None)
-
-/** Which values of an [[Activation.Var]]'s variable select its member: one (a
-  * slider's main controls, a `c.select`'s options), its `bakeIndex` as a number
-  * (a tab bar's panel), or every value no other member of the group names (an
-  * If's else).
-  */
-enum VarAt derives ConfiguredDecoder, CanEqual:
-  case Value(value: String)
-  case Index
-  case Otherwise
 
 sealed trait LayoutNode extends LayoutNode.Identified
     derives ConfiguredDecoder {
@@ -810,8 +775,7 @@ object LayoutNode:
       fills.collectFirst { case (n, s: Fill.Set) => n -> s }
 
     /** The nodes each nodes slot holds, where it is filled with nodes written
-      * down; a choice is served through the bake group derived from it
-      * ([[Dashboard.choiceSurfaces]]).
+      * down; a choice is served through its pick ([[Dashboard.picks]]).
       */
     lazy val regions: Map[String, List[LayoutNode]] =
       fills.collect { case (n, Fill.Nodes(Choice.Fixed(ns))) => n -> ns }
@@ -990,64 +954,53 @@ case class Theme(
     classes: ThemeClasses = ThemeClasses.empty
 ) derives ConfiguredDecoder
 
-/** A popup, tab panel or `If` branch, rendered only while shown. Chrome-less:
-  * the frame around its host lives in the theme or card.
+/** A popup, or one case of a nodes slot's choice (a tab panel, an `If` branch),
+  * rendered only while shown. Chrome-less: the frame around its host lives in
+  * the theme or card.
   *
-  *   - `bakeInto`/`bakeAs`: the node whose `bakeAs` region receives the
-  *     selected member at first paint, so the shown panel needs no round trip.
-  *   - `bakeIndex`: the order a user selection indexes and a state selection
-  *     walks first-match.
-  *   - `activation`: absent means a plain popup.
-  *   - `clause`: set by the build on a baked surface inside a set member's
-  *     clause ([[group]]).
+  *   - `activation`: a popup's.
+  *   - `pick`: a case's place, which the build derives from its choice
+  *     ([[Dashboard.picks]]). Pkl writes popups only, so it is never on the
+  *     wire.
   */
 case class Surface(
     content: LayoutNode,
-    bakeInto: Option[NodeId] = None,
-    bakeAs: Option[String] = None,
-    bakeIndex: Option[Int] = None,
     activation: Activation = Activation.User(false),
-    clause: Option[Int] = None
-) extends Surface.Placed derives ConfiguredDecoder:
-  def selects: Option[VarAt] = activation match
-    case Activation.Var(_, at) => Some(at)
-    case _                     => None
+    pick: Option[Surface.InPick] = None
+) extends Surface.Placed derives ConfiguredDecoder
 
 object Surface:
 
   /** Where a surface is placed, the wire's and the compiled one's alike. */
   trait Placed:
-    def bakeInto: Option[NodeId]
-    def bakeAs: Option[String]
-    def bakeIndex: Option[Int]
-    def clause: Option[Int]
+    def pick: Option[InPick]
 
-    /** Its [[Activation.Var]]'s values, for a variable-selected member. */
-    def selects: Option[VarAt]
+    lazy val group: Option[NodeId] = pick.map(_.group)
 
-    /** Its bake group. Not `bakeInto` alone: every clause of a member gives its
-      * nodes the same ids, so two clauses' sliders would pool their heads into
-      * one group (#556).
-      */
-    def group: Option[NodeId] = bakeInto.map(Surface.groupId(_, clause))
-
-    /** The live-patch target and eviction group: `<bakeInto>_<bakeAs>`, or the
-      * popup host. Once: a flip scans every surface for its host
+    /** The live-patch target and eviction group: its pick's host element, or
+      * the popup host. Once: a flip scans every surface for its host
       * (`SurfaceGraph.surfacesAt`), which was most of
       * `RenderBench.publishSetIfsFlip`'s allocation.
       */
-    lazy val hostId: DomId = (bakeInto, bakeAs) match
-      case (Some(into), Some(as)) => DomId.derived(s"${into}_${as}")
-      case _                      => Dashboard.PopupHostId
+    lazy val hostId: DomId = pick.fold(Dashboard.PopupHostId)(_.hostId)
 
-    /** The value of its variable that selects this member. */
-    def selectedAt: Option[String] = selects match
-      case Some(VarAt.Value(v)) => Some(v)
-      case Some(VarAt.Index)    => bakeIndex.map(_.toString)
-      case _                    => None
-
-    /** Selected at every value no other member of its group names. */
-    def isOtherwise: Boolean = selects.contains(VarAt.Otherwise)
+  /** Case `index` of the choice filling `host`'s nodes slot `slot` (the
+    * otherwise after the cases), inside a set member's `clause` where it is in
+    * one.
+    */
+  final case class InPick(
+      host: NodeId,
+      slot: String,
+      clause: Option[Int],
+      index: Int
+  ) derives ConfiguredDecoder,
+        CanEqual:
+    /** The pick's id. Not `host` alone: every clause of a member gives its
+      * nodes the same ids, so two clauses' sliders would pool their heads into
+      * one pick (#556).
+      */
+    def group: NodeId = groupId(host, clause)
+    def hostId: DomId = DomId.derived(s"${host}_$slot")
 
   /** `<host>_k<clause>`: no derived node id has a lone `k<n>` segment, since a
     * step is an index or `<region>_<index>` ([[LayoutNode.segment]]) and an
@@ -1164,24 +1117,19 @@ case class Dashboard(
     // call's guard names would otherwise be missing from the store.
     referencedEntities ++ calls.values.flatMap(_.all.flatMap(_.entities)) ++
       deciders(card) ++ surfaces.values.toList.flatMap(s =>
-        deciders(s.content) ++ (s.activation match {
-          case Activation.State(c) => c.toList.flatMap(_.entities)
-          case _: Activation.User | _: Activation.Var => Nil
-        })
-      )
+        deciders(s.content)
+      ) ++ picks.values.flatMap(_.choice.by.entities)
   }
 
-  /** The bake group each nodes slot's `Chosen` fill is served through, by
-    * surface id: one member per case, `<host>_t<i>`, and the otherwise,
-    * `<host>_else`, active where the decided key is the member's own. A
-    * variable read alone is a variable group, a read of state a state group
-    * whose members each ask `by == key`; a `by` reading both is `validate`'s to
-    * refuse and yields none. Ids are the ones the build's hoist walks the cases
-    * under ([[fh.view.build.DashboardBuild.walkChosen]]).
+  /** Every nodes slot's `Chosen` fill, by its id ([[Surface.InPick.group]]),
+    * each with its cases' surfaces: case `i` is `<host>_t<i>`, the otherwise
+    * `<host>_else`, and inside a set member's clause `<host>_k<clause>_…`. Ids
+    * are the ones the build's hoist walks the cases under
+    * ([[fh.view.build.DashboardBuild.walkChosen]]).
     */
-  lazy val choiceSurfaces: Map[String, Surface] =
+  private lazy val pickWalk: List[(Dashboard.Pick, List[(String, Surface)])] =
     type Within = Option[(NodeId, Int, List[LayoutNode.Step])]
-    def group(
+    def cases(
         host: NodeId,
         slot: String,
         k: Choice.Chosen[List[LayoutNode]],
@@ -1189,46 +1137,14 @@ case class Dashboard(
     ): List[(String, Surface)] =
       def sid(key: String) =
         clause.fold(s"${host}_$key")(c => s"${host}_k${c}_$key")
-      val variable = Choice.plainVariable(k.by)
-      def activation(is: Option[Lit]): Option[Activation] = variable match
-        case Some(name) =>
-          is match
-            case Some(Lit.Text(v)) => Some(Activation.Var(name, VarAt.Value(v)))
-            case Some(_)           => None
-            case None => Some(Activation.Var(name, VarAt.Otherwise))
-        case None if k.by.variables.nonEmpty => None
-        case None                            =>
-          Some(
-            Activation.State(
-              is.map {
-                // A bool key is the condition itself, or its negation; a
-                // compare takes a number or text.
-                case Lit.Bool(true)  => k.by
-                case Lit.Bool(false) =>
-                  k.by.copy(steps = k.by.steps :+ Step.Not)
-                case l =>
-                  k.by.copy(steps =
-                    k.by.steps :+ Step.Compare(Op.Eq, Value.Literal(l))
-                  )
-              }
-            )
-          )
       val members =
-        k.cases.zipWithIndex.map((c, i) => (s"t$i", Some(c.is), c.value)) ++
-          k.otherwise.map(v => ("else", None, v))
-      members.zipWithIndex.flatMap { case ((key, is, nodes), i) =>
-        for
-          content <- nodes match
-            case List(n) => Some(n)
-            case _       => None
-          a <- activation(is)
-        yield sid(key) -> Surface(
+        k.cases.zipWithIndex.map((c, i) => (s"t$i", c.value)) ++
+          k.otherwise.map(v => ("else", v))
+      // A case of another length is `validate`'s to refuse.
+      members.zipWithIndex.collect { case ((key, List(content)), i) =>
+        sid(key) -> Surface(
           content,
-          Some(host),
-          Some(slot),
-          Some(i),
-          a,
-          clause
+          pick = Some(Surface.InPick(host, slot, clause, i))
         )
       }
     def walk(
@@ -1236,22 +1152,20 @@ case class Dashboard(
         prefix: String,
         id: NodeId,
         within: Within
-    ): List[(String, Surface)] = node match
+    ): List[(Dashboard.Pick, List[(String, Surface)])] = node match
       case c: LayoutNode.Component =>
         val own = c.fills.toList.sortBy(_._1).flatMap {
           case (
                 slot,
                 Fill.Nodes(k: Choice.Chosen[List[LayoutNode]] @unchecked)
               ) =>
-            group(id, slot, k, within.map(_._2)).flatMap { (sid, s) =>
-              val p = LayoutNode.surfacePrefix(sid)
-              (sid -> s) :: walk(
-                s.content,
-                p,
-                LayoutNode.rootId(p, s.content),
-                None
-              )
-            }
+            val clause = within.map(_._2)
+            val here = cases(id, slot, k, clause)
+            (Dashboard.Pick(id, slot, clause, k, here.map(_._1)) -> here) ::
+              here.flatMap { (sid, s) =>
+                val p = LayoutNode.surfacePrefix(sid)
+                walk(s.content, p, LayoutNode.rootId(p, s.content), None)
+              }
           case _ => Nil
         }
         val below = LayoutNode.steps(c.regions).flatMap { (step, ch) =>
@@ -1272,18 +1186,25 @@ case class Dashboard(
         }
         own ++ below ++ members
     val fromCard = walk(card, "", LayoutNode.rootId("", card), None)
-    val fromSurfaces = surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
-      val p = LayoutNode.surfacePrefix(sid)
-      walk(s.content, p, LayoutNode.rootId(p, s.content), None)
+    // Popups only: a case is walked from its pick.
+    val fromPopups = surfaces.toList.sortBy(_._1).collect {
+      case (sid, s) if s.pick.isEmpty =>
+        val p = LayoutNode.surfacePrefix(sid)
+        walk(s.content, p, LayoutNode.rootId(p, s.content), None)
     }
-    (fromCard ++ fromSurfaces).toMap
+    fromCard ++ fromPopups.flatten
 
-  /** This with [[choiceSurfaces]] among its surfaces: what `validate` and the
-    * runtime read, so a choice is served by the bake group it derives.
+  /** Every choice the runtime decides, by its id. */
+  lazy val picks: Map[NodeId, Dashboard.Pick] =
+    pickWalk.map((p, _) => p.group -> p).toMap
+
+  /** This with each pick's cases among its surfaces: what `validate` and the
+    * runtime read. A case is a surface until its card's root hosts it (R4c of
+    * `docs/plan-regions.md`).
     */
   lazy val lowered: Dashboard =
-    if (choiceSurfaces.isEmpty) this
-    else copy(surfaces = surfaces ++ choiceSurfaces)
+    if (pickWalk.isEmpty) this
+    else copy(surfaces = surfaces ++ pickWalk.flatMap(_._2))
 
   /** Human-readable errors, empty when valid. `locateTransform` maps a
     * transform to a source location for the message.
@@ -1364,15 +1285,15 @@ case class Dashboard(
             } ++ s.nodes.flatMap(walk)
         }
 
-    walk(card) ++ surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
-      (s.activation match
-        case Activation.State(Some(c)) =>
-          List(s"surface '$sid''s condition" -> c)
-        case _ => Nil
-      ) ++ walk(s.content)
-    } ++ calls.toList
-      .sortBy(_._1)
-      .flatMap((_, d) => d.all.map(d.named -> _))
+    // A choice over a variable is decided per viewer; one over state too
+    // (refused until R4d) would be named twice.
+    walk(card) ++ picks.toList.sortBy(_._1).collect {
+      case (gid, p) if p.choice.by.variables.isEmpty =>
+        s"the choice at '$gid'" -> p.choice.by
+    } ++ surfaces.toList.sortBy(_._1).flatMap((_, s) => walk(s.content)) ++
+      calls.toList
+        .sortBy(_._1)
+        .flatMap((_, d) => d.all.map(d.named -> _))
   }
 
   /** Every fetch a decision reads ([[decisionExprs]]), beside where. */
@@ -1382,7 +1303,7 @@ case class Dashboard(
   /** Node variables in scope at every node, by name (issue #209). A popup is
     * its own scope root, since one content may be opened from many places. An
     * owned surface (a tab panel, an `If` branch) has exactly one host, so it
-    * starts with the scope at its `bakeInto` node: a chooser above a tab bar
+    * starts with the scope at its pick's host: a chooser above a tab bar
     * reaches the charts in its panels. A set member is walked under its own id
     * ([[LayoutNode.memberSegment]], static since the candidates are), starting
     * from the set's scope, so a clause's declaration is that member's own
@@ -1437,14 +1358,18 @@ case class Dashboard(
         pending: List[(String, Surface)]
     ): Map[NodeId, Scope] = {
       val (ready, waiting) =
-        pending.partition(_._2.bakeInto.forall(done.contains))
+        pending.partition(_._2.pick.forall(p => done.contains(p.host)))
       if (pending.isEmpty) done
       else if (ready.isEmpty)
         done ++ merged(waiting.flatMap((sid, s) => tree(sid, s, Map.empty)))
       else
         owned(
           done ++ merged(ready.flatMap { (sid, s) =>
-            tree(sid, s, s.bakeInto.flatMap(done.get).getOrElse(Map.empty))
+            tree(
+              sid,
+              s,
+              s.pick.flatMap(p => done.get(p.host)).getOrElse(Map.empty)
+            )
           }),
           waiting
         )
@@ -1457,8 +1382,8 @@ case class Dashboard(
 
   /** The declared values a surface's content starts with ([[varScopes]]). */
   def scopeOf(s: Surface): Map[String, String] =
-    s.bakeInto
-      .flatMap(varScopes.get)
+    s.pick
+      .flatMap(p => varScopes.get(p.host))
       .fold(Map.empty)(_.view.mapValues(_.declaration.default).toMap)
 
   /** At declared values. A clause that will not match still contributes: the
@@ -1585,6 +1510,19 @@ object Dashboard:
     */
   val PopupHostId: DomId = DomId.derived("popups")
 
+  /** The choice filling `host`'s nodes slot `slot`, and its cases' surface ids
+    * in order, the otherwise's last.
+    */
+  final case class Pick(
+      host: NodeId,
+      slot: String,
+      clause: Option[Int],
+      choice: Choice.Chosen[List[LayoutNode]],
+      members: List[String]
+  ):
+    def group: NodeId = Surface.groupId(host, clause)
+    def hostId: DomId = DomId.derived(s"${host}_$slot")
+
   /** The vars the renderer gives every node, a pure function of its id. Here
     * rather than in `Renderer` so [[injectedStatic]] is derived from it.
     */
@@ -1606,9 +1544,6 @@ object Dashboard:
     */
   val injectedStatic: Set[String] =
     structuralVars(NodeId.derived(""), DomId.derived(""), "").keySet
-
-  /** The chosen member's index, which the renderer gives a bake owner. */
-  val BakeIndexVar: String = "bakeIndex"
 
   /** How a template places a slot's view. */
   def spell(slot: String, view: Templates.View): String = view match

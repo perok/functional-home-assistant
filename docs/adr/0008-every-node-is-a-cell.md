@@ -182,19 +182,17 @@ says the same from the other side — it rejects a live BYTES slot on structure
 0011, "what is a log key"). A candidate set's root is a card whose one region
 is the set, so it is structure, for the same reason.
 
-**A structural card may read `bakeIndex`.** It is the node's own selected
-index, which no live state moves. What a structural card may not
-do is show a live value as BYTES: it holds content, so it would have to be
+**A structural card may not show a live value as BYTES:** it holds content, so it would have to be
 patched for those bytes to move, and it cannot be. A card wanting its own markup
 to change puts that markup in a region, as a node — a slider's head is a card of
 its own for exactly this reason — or carries the value as a SIGNAL slot (ADR
 0017), which never becomes bytes in its element.
 
-**The log key is always the node id.** A bake host's `<nodeId>_<bakeAs>` is a
+**The log key is always the node id.** A choice's host `<nodeId>_<slot>` is a
 rendering detail derived from it and nothing maps back, so a DOM id can never
 enter the log, the reverse index, or a cursor (ADR 0022).
 
-A bake-group owner (`Tabs`, `If`) gets a cell like anything else. Being a layout
+A choice's host (`Tabs`, `If`) gets a cell like anything else. Being a layout
 item and being a patch target are different jobs, and denying it the first
 because it fails the second is what used to drop `.columns(n)` on a `Tabs`
 silently.

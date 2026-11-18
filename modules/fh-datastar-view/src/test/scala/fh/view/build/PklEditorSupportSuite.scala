@@ -112,7 +112,7 @@ class PklEditorSupportSuite extends munit.CatsEffectSuite {
       "a nodes slot's handle",
       "card = let (h = panel.‸) new Probe { slots { h } }",
       "of(new Listing {})",
-      Ask.Completion(Set("of", "baked")),
+      Ask.Completion(Set("of")),
       Status.Works
     ),
     Case(

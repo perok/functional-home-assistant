@@ -622,7 +622,7 @@ class InputsSuite extends munit.CatsEffectSuite {
       val errs = errorsOf(
         s"""    c.iff(${kitchenIs("value.state")}).then(c.title("x"))"""
       )
-      assert(errs.exists(_.contains("a condition is a bool, not")), errs)
+      assert(errs.exists(_.contains("is chosen by a text")), errs)
     }
   }
 

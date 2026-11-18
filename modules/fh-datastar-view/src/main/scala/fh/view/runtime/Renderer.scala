@@ -290,11 +290,11 @@ class Renderer(validated: Dashboard.Validated) {
       // host's scope.
       scopes = {
         val byNode = dashboard.varScopes.filter(_._2.nonEmpty)
-        byNode ++ surfaces.varBakeOwnerIds.flatMap(gid =>
+        byNode ++ surfaces.varPicks.flatMap(gid =>
           byNode.get(surfaces.hostOf(gid)).map(gid -> _)
         )
       },
-      panelsSelected = surfaces.varBakeOwnerIds.toList
+      panelsSelected = surfaces.varPicks.toList
         .flatMap(gid => surfaces.varSelecting(gid).map(gid -> _))
         .toMap,
       readsAt = id =>
@@ -486,8 +486,8 @@ class Renderer(validated: Dashboard.Validated) {
             case Some(setId) => setAsks(setId, shared)
             case None        =>
               surfaces
-                .resolveActiveByState(gid, shared)
-                .flatMap(surfaces.bakeGroup(gid).lift)
+                .decideByState(gid, shared)
+                .flatMap(surfaces.cases(gid).lift)
                 .toList
                 .flatMap(surfaceAsks(_, shared, selections))
           }
@@ -654,6 +654,7 @@ class Renderer(validated: Dashboard.Validated) {
   private[runtime] val surfaces: SurfaceGraph =
     new SurfaceGraph(
       dashboard.surfaces,
+      dashboard.picks,
       rootOfIndexed,
       members
     )
@@ -935,7 +936,7 @@ class Renderer(validated: Dashboard.Validated) {
 
   /** A member's whole element in document form, with what it claims for the
     * record: what an arrival or a clause switch inserts. Per viewer, since a
-    * member holding regions can bake a viewer's selection.
+    * member holding regions can show a viewer's choice.
     */
   def renderMemberTraced(
       id: NodeId,
@@ -1045,8 +1046,8 @@ class Renderer(validated: Dashboard.Validated) {
         )
       case None =>
         surfaces
-          .resolveActiveByState(container, shared)
-          .flatMap(surfaces.bakeGroup(container).lift)
+          .decideByState(container, shared)
+          .flatMap(surfaces.cases(container).lift)
           .flatMap(sid =>
             renderSurfaceTraced(sid, shared, viewing).map(t =>
               HostContent(List(surfaceContentId(sid) -> t.html), t.claims)
@@ -1056,8 +1057,7 @@ class Renderer(validated: Dashboard.Validated) {
     }
 
   /** One derivation for both id sources (the static tree and set members), so a
-    * var added to [[Dashboard.structuralVars]] reaches both. `bakeIndex`
-    * depends on a selection, so it is not here ([[resolveBakeTraced]]).
+    * var added to [[Dashboard.structuralVars]] reaches both.
     */
   private def structuralVars(
       id: NodeId,
@@ -1065,7 +1065,7 @@ class Renderer(validated: Dashboard.Validated) {
   ): Map[String, String] =
     Dashboard.structuralVars(id, hostId(groupOf(id, shared)), dashboard.slug)
 
-  /** The bake group `id` owns: inside a set member, its current clause's
+  /** The pick `id` owns: inside a set member, its current clause's
     * ([[Surface.group]]).
     */
   private def groupOf(id: NodeId, shared: Shared): NodeId =
@@ -1087,58 +1087,36 @@ class Renderer(validated: Dashboard.Validated) {
   /** The node's `.fh-cell` root: the one crossing from node id to DOM id. */
   def elementId(id: NodeId): DomId = DomId.derived(id)
 
-  /** Where a node's baked region lives: for a bake owner it IS
-    * [[fh.view.model.Surface.hostId]], so Pkl and Scala do not derive the same
-    * string separately. Other nodes fall back to their own id, which only a
-    * candidate set uses — its members are filled into its one implicit hole.
+  /** Where a node's picked case lives ([[fh.view.model.Surface.hostId]]). Other
+    * nodes fall back to their own id, which only a candidate set uses — its
+    * members are filled into its one implicit hole.
     */
   def hostId(id: NodeId): DomId =
     surfaces
-      .bakeGroup(id)
+      .cases(id)
       .headOption
       .flatMap(dashboard.surfaces.get)
       .map(_.hostId)
       .getOrElse(elementId(id))
 
-  /** `(bakeIndex vars, (bakeAs, surface))` for a bake owner. The surface is
-    * rendered lazily, when the template reaches the hole.
+  /** `(slot, surface)` for the case `gid`'s pick shows, rendered lazily when
+    * the template reaches the slot's hole. `None` for a node owning no pick, or
+    * one showing nothing: the hole renders empty.
     */
-  private def resolveBakeTraced(
+  private def pickedCase(
       gid: NodeId,
       selections: Selections,
       shared: Shared
-  ): (Map[String, String], Option[(String, String)]) = {
-    val group = surfaces.bakeGroup(gid)
-    def bakeMember(
-        idx: Int
-    ): (Map[String, String], Option[(String, String)]) = {
-      val sid = group(idx)
-      (
-        Map(Dashboard.BakeIndexVar -> idx.toString),
-        dashboard.surfaces(sid).bakeAs.map(as => as -> sid)
-      )
-    }
-    if (group.isEmpty) (Map.empty, None)
+  ): Option[(String, String)] =
+    val cases = surfaces.cases(gid)
+    if (cases.isEmpty) None
     else
-      activeBakeIndex(gid, selections, shared) match {
-        case Some(idx) => bakeMember(idx)
-        // A state group with no matching branch: the hole renders empty.
-        case None => (Map.empty, None)
-      }
-  }
-
-  /** `None` for a node owning no group, or a state group with no branch
-    * holding.
-    */
-  private def activeBakeIndex(
-      gid: NodeId,
-      selections: Selections,
-      shared: Shared
-  ): Option[Int] =
-    if (surfaces.bakeGroup(gid).isEmpty) None
-    else if (surfaces.isStateGroup(gid))
-      surfaces.resolveActiveByState(gid, shared)
-    else Some(surfaces.resolveActive(gid, selections))
+      (if (surfaces.isStatePick(gid)) surfaces.decideByState(gid, shared)
+       else surfaces.decideByViewer(gid, selections))
+        .flatMap(cases.lift)
+        .flatMap(sid =>
+          dashboard.surfaces.get(sid).flatMap(_.pick).map(_.slot -> sid)
+        )
 
   /** What a node's patch form is rendered from ([[ByteValues]]). A node's other
     * inputs are fixed per renderer (template, constants, `id`,
@@ -1148,8 +1126,8 @@ class Renderer(validated: Dashboard.Validated) {
     *
     * Values, not their text: a section reads `false` and `"false"` differently.
     *
-    * `None`: the node has no rendering of its own. A bake owner raises instead:
-    * it is structure, and a quiet `None` would leave it unpatched.
+    * `None`: the node has no rendering of its own. A pick's host raises
+    * instead: it is structure, and a quiet `None` would leave it unpatched.
     */
   private[runtime] def byteSlotValues(
       id: NodeId,
@@ -1158,10 +1136,10 @@ class Renderer(validated: Dashboard.Validated) {
   ): Option[ByteValues] =
     allIndexed.get(id) match {
       case Some((c: Ready.Component, _)) if ownRenderingOf(c) =>
-        if (surfaces.bakeGroup(id).nonEmpty)
+        if (surfaces.cases(id).nonEmpty)
           sys.error(
-            s"node $id has its own rendering AND a bake group; ADR 0012 holds " +
-              "these are exclusive (a bake owner holds regions, so it is " +
+            s"node $id has its own rendering AND a pick; ADR 0012 holds " +
+              "these are exclusive (a pick's host holds regions, so it is " +
               "structure). A session's byte-value check cannot see a " +
               "selection, so this must be fixed rather than tolerated."
           )
@@ -1215,8 +1193,8 @@ class Renderer(validated: Dashboard.Validated) {
 
   /** A leaf's patch form is written directly, not taken from a [[traced]] walk,
     * which builds the document form and the trace maps a tick throws away. A
-    * leaf has no children and no bake group (its card declares no region), so
-    * this is its whole body; its root's holes are the walk's
+    * leaf has no children and no pick (its card declares no region), so this is
+    * its whole body; its root's holes are the walk's
     * ([[NodeContext.writeHole]]). The patch form reads no signal value and no
     * at-render class, so only the byte slots are painted.
     */
@@ -1226,7 +1204,7 @@ class Renderer(validated: Dashboard.Validated) {
         plan.tpl,
         buf,
         NodeContext(
-          Resolved(plan, values.slots, Map.empty, Map.empty),
+          Resolved(plan, values.slots, Map.empty),
           SlotForm.Patch,
           buf
         )
@@ -1346,13 +1324,11 @@ class Renderer(validated: Dashboard.Validated) {
           case WalkAt.Static      => id
           case m: WalkAt.InMember => surfaces.groupAt(id, m.clause)
         }
-        val (bakeIndex, bakeSel) =
-          resolveBakeTraced(gid, viewing.selections, shared)
+        val picked = pickedCase(gid, viewing.selections, shared)
         // Resolved once for both forms; what a paint cannot change comes from
         // the plan ([[NodePlan]]).
         val plan = planOf(id, c, shared)
-        val resolved =
-          resolvePlanned(plan, shared, bakeIndex, viewing.fragments)
+        val resolved = resolvePlanned(plan, shared, viewing.fragments)
         val tpl = plan.tpl
         def withinOf(region: String, i: Int): WalkAt =
           within.down(LayoutNode.Step(region, i))
@@ -1375,9 +1351,9 @@ class Renderer(validated: Dashboard.Validated) {
             buf: Sink,
             form: SlotForm
         ): Unit = {
-          // A bake owner with no authored regions (an `If` host) is not a
-          // leaf: its hole is filled from the selection.
-          if c.regions.isEmpty && c.set.isEmpty && bakeSel.isEmpty then
+          // A pick's host with no authored regions (an `If` host) is not a
+          // leaf: its hole is filled from the picked case.
+          if c.regions.isEmpty && c.set.isEmpty && picked.isEmpty then
             Templates.run(
               tpl,
               buf,
@@ -1426,10 +1402,10 @@ class Renderer(validated: Dashboard.Validated) {
                   )
                 case None => eager
               }
-            // A baked region walks the selected surface under its own ids.
+            // A picked case is walked under its own ids.
             // Not `++`: concatenating rebuilds the map on every structural node.
             val holes: Map[String, java.io.Writer => Unit] =
-              bakeSel match {
+              picked match {
                 case Some((region, sid)) if !withSet.contains(region) =>
                   withSet.updated(
                     region,
@@ -1550,15 +1526,12 @@ class Renderer(validated: Dashboard.Validated) {
     *   form withholds
     * @param paint
     *   the live slot values — empty when the card has none
-    * @param bake
-    *   the client's bake selection (empty off bake groups)
     * @param signals
     *   the seed values, captured as they resolve
     */
   private case class Resolved(
       plan: NodePlan,
       paint: Map[SlotKey, SlotValue],
-      bake: Map[String, String],
       signals: Map[SignalId, SlotValue]
   ) {
     def structural: Map[String, String] = plan.structural
@@ -1692,7 +1665,6 @@ class Renderer(validated: Dashboard.Validated) {
           val c: SlotValue | Null = resolved.constants.getOrElse(name, null)
           if (c != null) v = SlotValue.scoped(c)
         }
-        if (v == null) v = resolved.bake.getOrElse(name, null)
         if (v == null) v = resolved.structural.getOrElse(name, null)
         v
       }
@@ -1726,8 +1698,7 @@ class Renderer(validated: Dashboard.Validated) {
   }
 
   /** What a paint cannot change about one node, derived once per renderer so a
-    * paint resolves only live slot values, signal values and the bake
-    * selection.
+    * paint resolves only live slot values and signal values.
     */
   private case class NodePlan(
       node: Ready.Component,
@@ -1943,7 +1914,6 @@ class Renderer(validated: Dashboard.Validated) {
   private def resolvePlanned(
       plan: NodePlan,
       shared: Shared,
-      bakeIndex: Map[String, String],
       fragments: FetchSnapshot
   ): Resolved = {
     // The only map a paint builds.
@@ -1965,7 +1935,6 @@ class Renderer(validated: Dashboard.Validated) {
     Resolved(
       plan,
       paint = paintB.result(),
-      bake = bakeIndex,
       signalB.fold(Map.empty[SignalId, SlotValue])(_.result())
     )
   }
