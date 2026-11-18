@@ -407,23 +407,29 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      suites named below move to `Chosen` fills. Popups keep `inlineSurfaces`. A guard mixing a
      variable and state stays refused. The JSON hoist walks each case of a `Chosen`. Rendered
      bytes do not move: the goldens are the check.
-   - **R4b, the pick.** Deciding per send replaces the bake group: a state-only `by` once per
-     version in `Shared`, a variable-reading one per session; the shared decisions' variable
-     refusals (§4) and the mixed-guard refusal go; `MemberGraph`'s nesting cases go. The
-     hand-built bake surfaces and their suites (~20, `RendererSuite` and `ServerHarness`
-     among them) are rewritten here, once, onto `Chosen` fills, and `Region.fill`, `.baked()`
-     and `Dashboard.choiceSurfaces` go with the bake group. R4a left `validated` on `branches`
-     6.5% above R3 in allocation (deriving the surfaces) and a state group running `by` once
-     per member; the pick removes both.
+   - **R4b, the pick.** The mechanism changes, the behaviour does not: each choice host's `by` is
+     evaluated once and its case looked up, a state-only `by` once per version in `Shared`, a
+     variable one per session, replacing the bake group. A variable value no case names and no
+     otherwise takes shows nothing, as a set member and a state chain do (today's group falls
+     back to its first member; agreed 2026-11-18). The hand-built bake surfaces and their suites
+     (~20, `RendererSuite` and `ServerHarness` among them) are rewritten here, once, onto
+     `Chosen` fills, and `bakeInto`/`bakeAs`/`bakeIndex`, `Activation.Var`/`State`, `VarAt`,
+     `Region.fill`, `.baked()` and `Dashboard.choiceSurfaces` go with the bake group. R4a left
+     `validated` on `branches` 6.5% above R3 in allocation (deriving the surfaces) and a state
+     group running `by` once per member; the pick removes both. Every variable-read refusal
+     (§4: the mixed `by`, set guards, `valueWhile`, order keys) stays until R4d: lifting one
+     means re-deciding per session after a state change, which needs the per-session record of
+     what each host shows that R4d builds (agreed 2026-11-18).
    - **R4c, the root hosts.** The group, the If losing a `div`, and the id move (below).
-   - **R4d, the planner.** `holds` keeps each host's keys; the log down to `fragments` (below).
+   - **R4d, the planner.** `holds` keeps each host's keys; the log down to `fragments` (below);
+     the variable-read refusals of §4 go, the mixed `by` and set guards included, with a test of
+     one guard reading a variable and a state, two viewers on different values.
    - `Fill.Nodes(Chosen)` replaces the bake fields on the wire, `inlineSurfaces` staying only for
      popups; `nodeMod.match` over a state reading. The four suites building on `{{bakeIndex}}`
      (`LiveStreamSuite`, `RenderInputsSuite`, `RendererSuite`, `ServerHarness`) are rewritten;
      `LiveStreamSuite`'s server-rendered active tab moves to the document form of the tab's
      `cellClassWhen` (agreed 2026-11-10 as `cellClassAtRender`, which `var-signal-reads` folds into
      it).
-   - A test of one guard reading a variable and a state, with two viewers on different values.
    - The pick, its planner and its ids (§7); deciding per send; `Activation.Var`, `VarAt`,
      `SurfaceGraph`'s bake groups and `MemberGraph`'s nesting cases go; the shared decisions'
      variable refusals (§4) go. Popups stay on today's swap.
