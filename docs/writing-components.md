@@ -519,8 +519,8 @@ panel.of(nodeMod.match(mode.value, new Mapping { ["heat"] = h; ["cool"] = k }).o
 Only the branch showing is rendered and kept live. A choice is patched into an
 element your template writes, so place one element carrying `id="{{hostId}}"`
 around the slot: `<div id="{{hostId}}">\(panel)</div>`. A chain reading a
-variable and live state together, and a `match` over entity state, are errors
-for now.
+variable and live state together, a `match` over entity state, and a node with
+two choices in different slots, are errors for now.
 
 ---
 

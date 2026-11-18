@@ -287,10 +287,8 @@ abstract class Node extends LayoutNode {
     else inputs.toMap().mapValues((_, v) -> slotMod.wireInput(v))
   // Lifted into the top-level `surfaces` by the build's hoist, keyed
   // `<node-id>_<localKey>`, with the node's id spliced into every [[NODE_ID]].
-  // The choices in this node's nodes slots lower to it (`core/choice.pkl`).
-  inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? =
-    let (ms = nodesSlots.flatMap((s) -> if (s.choice == null) List() else s.choice!!.members(s.name)))
-      if (ms.isEmpty) null else ms.toMap((m) -> m.key, (m) -> m.def).toMapping()
+  // The popups a tap opens; a choice is a nodes slot's fill, not a surface.
+  inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
 
   /// [[inputs]] as a chain step:
   ///
@@ -522,6 +520,7 @@ const local function nodesUnder(n: LayoutNode): List<Node> =
       + n.regions.toMap().values.flatMap((l) -> l.toList()).flatMap((k) -> nodesUnder(k))
       + (n.inlineSurfaces?.toMap()?.values ?? List()).flatMap((s) -> nodesUnder(s.content))
       + n.nodesSlots.flatMap((s) -> s.set?.nodes ?? List()).flatMap((k) -> nodesUnder(k))
+      + n.nodesSlots.flatMap((s) -> if (s.choice == null) List() else s.choice!!.nodes()).flatMap((k) -> nodesUnder(k))
   else throw("unknown node kind '\(n.kind)'")
 
 /// A choice among branches, for a nodes slot:

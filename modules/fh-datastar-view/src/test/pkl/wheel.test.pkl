@@ -90,7 +90,7 @@ facts {
     switchOf.apply(c.entitySlider(lamp).buttons(List(c.its.mainControl.style("buttons")))) is selectMod.SelectButtons
     // The default list, cycling: a pill per control, the shown one baked.
     local cyc = switchOf.apply(c.entitySlider(lamp)) as selectMod.VarSelectCycle
-    cyc.inlineSurfaces.length == 3
+    (cyc.nodesSlots.findOrNull((s) -> s.choice != null)!!.fill as slotMod.NodesFill).choice.cases.length == 3
     cyc.optionNodes.every((n) -> n is c.Pill)
   }
 

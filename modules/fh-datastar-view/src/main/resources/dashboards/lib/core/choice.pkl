@@ -1,17 +1,15 @@
 /// A nodes slot's fill that picks among branches: `nodeMod.iff(p).then(a).elif(q).then(b).else(x)`
-/// over live state, or `nodeMod.match(v.value, cases)` over a node variable. A
-/// choice here LOWERS to the surfaces a card's bake group is built from
-/// (`core/surface.pkl`): one member per branch, baked into the node whose slot it
-/// fills, so the runtime reads the same wire it always has (ADR 0007). Each
-/// choice is decided over state for every viewer, or over a variable for each
-/// one; one decision reading both is not built yet (docs/plan-regions.md, R4).
+/// over live state, or `nodeMod.match(v.value, cases)` over a node variable. On
+/// the wire a choice is `Fill.Nodes(Choice.Chosen)`: `by`, a case per key and an
+/// `otherwise`, one node per case (several sit in a row). Each choice is decided
+/// over state for every viewer, or over a variable for each one; one decision
+/// reading both is not built yet (docs/plan-regions.md, R4b).
 module core.choice
 
 import "../layout.pkl" as layout
 import "node.pkl" as nodeMod
 import "predicate.pkl" as pred
 import "slot.pkl" as slotMod
-import "surface.pkl" as surfaceMod
 import "variable.pkl" as varMod
 
 /// A branch: one node, or several, which sit in a row.
@@ -21,17 +19,28 @@ typealias Branch = nodeMod.LayoutNode|Listing<nodeMod.LayoutNode>
 /// `Boolean` the build already knows (`q.from(emptyRoom).any()` folds to `false`).
 typealias Condition = slotMod.Expr|Boolean
 
-/// One surface of a choice's bake group, under the key it is lifted by.
-class Member {
-  key: String
-  def: surfaceMod.SurfaceDef
+/// One case of a [[ChosenNodes]]: its node where `by` reads `is`.
+class NodesCase {
+  `is`: String|Boolean|Int
+  value: Listing<nodeMod.LayoutNode>
+}
+
+/// What a choice writes (`fh.view.model.Choice.Chosen` of a node list).
+class ChosenNodes {
+  kind: "Chosen" = "Chosen"
+  by: slotMod.Expr
+  cases: Listing<NodesCase>
+  otherwise: Listing<nodeMod.LayoutNode>?
 }
 
 /// What `NodesSlot.of` takes besides nodes and a set.
 abstract class Choice {
-  /// The surfaces this choice lowers to, baked into the node whose nodes slot
-  /// `slotName` it fills, in `bakeIndex` order.
-  function members(slotName: String): List<Member> = throw("a choice lowers to its members")
+  function wire(): ChosenNodes = throw("a choice writes its cases")
+
+  /// Every node a case can be.
+  function nodes(): List<nodeMod.LayoutNode> =
+    let (w = wire())
+      w.cases.toList().flatMap((k) -> k.value.toList()) + (w.otherwise?.toList() ?? List())
 }
 
 const function conditionOf(c: Condition): slotMod.Expr =
@@ -46,19 +55,8 @@ const local function listingOf(b: Branch): Listing<nodeMod.LayoutNode> =
 const local function contentOf(b: Branch): nodeMod.LayoutNode =
   if (b is Listing) new layout.Row { children = b as Listing<nodeMod.LayoutNode> } else b as nodeMod.LayoutNode
 
-// Parameters are named apart from the fields they fill: `key = key` reads the
-// object's own field and recurses.
-const local function member(keyed: String, slotName: String, at: Int, shown: nodeMod.LayoutNode, act: surfaceMod.VarActivation|surfaceMod.StateActivation): Member =
-  new Member {
-    key = keyed
-    def = new surfaceMod.SurfaceDef {
-      content = shown
-      bakeInto = nodeMod.NODE_ID
-      bakeAs = slotName
-      bakeIndex = at
-      activation = act
-    }
-  }
+const local function oneNode(b: Branch): Listing<nodeMod.LayoutNode> =
+  new Listing<nodeMod.LayoutNode> { contentOf(b) }
 
 /// One `elif` of an [[Iff]].
 class Elif {
@@ -84,27 +82,37 @@ class Iff extends Choice {
   /// What shows when no branch holds; may be given more than once.
   function `else`(n: Branch): this = let (i = this) (i) { `else` { ...listingOf(n) } }
 
-  function members(slotName: String): List<Member> =
+  function wire(): ChosenNodes =
     let (i = this)
     let (conds = List(i.condition) + i.elifs.toList().map((e) -> e.condition))
     let (branches = List(i.`then`) + i.elifs.toList().map((e) -> e.nodes))
-    let (keys = conds.mapIndexed((k, _) -> if (k == 0) "then" else "elif\(k)"))
     let (vars = conds.filter((c) -> c is varMod.ValueIs).map((c) -> (c as varMod.ValueIs).variable.name).distinct)
       if (vars.isEmpty)
-        // Over state: first match wins, and an `else` that is empty is not a member.
-        conds.mapIndexed((k, c) ->
-          member(keys[k], slotName, k, contentOf(branches[k]), new surfaceMod.StateActivation { condition = c }))
-        + (if (i.`else`.isEmpty) List()
-           else List(member("else", slotName, conds.length, contentOf(i.`else`), new surfaceMod.StateActivation {})))
+        // Over state: one condition is the key itself, a chain is the position
+        // of the first that holds. An `else` that is empty is no case at all.
+        new ChosenNodes {
+          by = if (conds.length == 1) conds[0] else new pred.FirstTrue { items { ...conds } }
+          cases {
+            for (k, b in branches) {
+              new NodesCase { `is` = if (conds.length == 1) true else k; value = oneNode(b) }
+            }
+          }
+          otherwise = if (i.`else`.isEmpty) null else oneNode(i.`else`)
+        }
       else if (vars.length == 1 && conds.every((c) -> c is varMod.ValueIs))
-        let (v = (conds[0] as varMod.ValueIs).variable)
-          // A variable's group shows a member at every value, and one no member
-          // takes is refused, so the else is there even when empty.
-          conds.mapIndexed((k, c) ->
-            member(keys[k], slotName, k, contentOf(branches[k]), v.selecting((c as varMod.ValueIs).value)))
-          + List(member("else", slotName, conds.length, contentOf(i.`else`), v.selectingAnyOther))
+        // A variable shows a branch at every value and one no case takes is
+        // refused, so the else is there even when empty.
+        new ChosenNodes {
+          by = (conds[0] as varMod.ValueIs).variable.value
+          cases {
+            for (k, b in branches) {
+              new NodesCase { `is` = (conds[k] as varMod.ValueIs).value; value = oneNode(b) }
+            }
+          }
+          otherwise = oneNode(i.`else`)
+        }
       else
-        throw("an If chain reads one variable and nothing else, or live state and no variable: one decision reading both is not built yet (R4 of docs/plan-regions.md)")
+        throw("an If chain reads one variable and nothing else, or live state and no variable: one decision reading both is not built yet (R4b of docs/plan-regions.md)")
 }
 
 /// `nodeMod.match(v.value, cases)`: the branch at the variable's value, for each
@@ -118,12 +126,17 @@ class Match extends Choice {
   /// What shows at a value no case names.
   function otherwise(b: Branch): this = (this) { other = b }
 
-  function members(slotName: String): List<Member> =
+  function wire(): ChosenNodes =
     let (m = this)
-      m.caseMap.keys.toList().mapIndexed((k, key) ->
-        member("t\(k)", slotName, k, contentOf(m.caseMap[key]), m.variable.selecting(key)))
-      + (if (m.other == null) List()
-         else List(member("other", slotName, m.caseMap.length, contentOf(m.other!!), m.variable.selectingAnyOther)))
+      new ChosenNodes {
+        by = m.variable.value
+        cases {
+          for (key, b in m.caseMap) {
+            new NodesCase { `is` = key; value = oneNode(b) }
+          }
+        }
+        otherwise = if (m.other == null) null else oneNode(m.other!!)
+      }
 }
 
 /// `nodeMod.iff(p)`: a branch for `p`, extended with `.then`, `.elif`, `.else`.
@@ -131,9 +144,9 @@ const function iff(p: Condition): Iff = new Iff { condition = conditionOf(p) }
 
 /// A choice over a node variable's value (`v.value`): the branch whose key is
 /// that value, else `.otherwise(…)`, else nothing. A match over entity state is
-/// not built yet (R4 of docs/plan-regions.md).
+/// not built yet (R4b of docs/plan-regions.md).
 const function match(on: slotMod.Reading, byValue: Mapping<varMod.Value, Branch>): Match =
   if (on.source is slotMod.VarRead && on.steps.isEmpty)
     let (n = (on.source as slotMod.VarRead).name)
       new Match { variable = new varMod.Variable { name = n }; caseMap = byValue }
-  else throw("nodeMod.match chooses by a node variable's value (`v.value`); a match over entity state is not built yet (R4 of docs/plan-regions.md)")
+  else throw("nodeMod.match chooses by a node variable's value (`v.value`); a match over entity state is not built yet (R4b of docs/plan-regions.md)")

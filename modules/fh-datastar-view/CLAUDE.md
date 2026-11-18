@@ -407,7 +407,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   It is what a tap on a non-actionable entity does instead of nothing — `c.informative` is now
   only needed to FORCE more-info on a card whose domain does have an action),
   candidate sets (`q.from(...).where(...).render(...)`), conditional sections (`` c.iff(cond).then(..).elif(..).then(..).`else`(..) ``, or `c.iff(v.valueIs(x))` for a per-viewer branch chosen by a node variable — state-activated
-  surfaces on the tabs machinery, ADR 0007; each is a choice (`core/choice.pkl`: `nodeMod.iff`, `nodeMod.match`) filling a nodes slot, which the node lowers to its bake group — tabs, a select's variable-chosen label and cycle and a slider's main controls are `nodeMod.match`es over their variable; `cond` NAMES its entities, via `q.entity(e)` or a
+  surfaces on the tabs machinery, ADR 0007; each is a choice (`core/choice.pkl`: `nodeMod.iff`, `nodeMod.match`) filling a nodes slot as a `Chosen` fill, which the backend derives its bake group from (`Dashboard.choiceSurfaces`) — tabs, a select's variable-chosen label and cycle and a slider's main controls are `nodeMod.match`es over their variable; `cond` NAMES its entities, via `q.entity(e)` or a
   `q.from(...)` aggregate — a comparison that names none is a validate error), three-tier slider config — see ADR 0006 for the deliberate API shape
   (`openPopup`/`openPopupInline` split, `cssClass`) and Pkl gotchas before extending. `PklBuild`
   renders the evaluated module to JSON backend-side (no `output` blocks in entries) and watches the

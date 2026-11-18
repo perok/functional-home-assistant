@@ -144,12 +144,18 @@ to prevent it because nothing tested two clients on different tabs across a flip
 
 A choice is the fill of a nodes slot (`slot.of(nodeMod.iff(cond)…)`,
 `slot.of(nodeMod.match(v.value, cases))`, `core/choice.pkl`), and the node whose
-slot it fills lowers it to the bake group below: one surface per branch, each
-`bakeInto` that node and `bakeAs` the slot's name, so the card's template places
-one element carrying `id="{{hostId}}"` around the slot. `c.iff(cond)` returns an
+slot it fills writes it on the wire as `Fill.Nodes(Choice.Chosen)`: a `by`, a
+case per key holding one node, and an `otherwise`. The backend derives the bake
+group below from it (`Dashboard.choiceSurfaces`): one surface per case, case `i`
+`<host>_t<i>` and the otherwise `<host>_else`, each `bakeInto` that node and
+`bakeAs` the slot's name, so the card's template places one element carrying
+`id="{{hostId}}"` around the slot. A member is active where the decided key
+is its own: a variable group's member by the variable's value (`VarAt.Value`,
+the otherwise `VarAt.Otherwise`), a state group's by `by` compared with its key,
+so the first of the group holding is the only one. `c.iff(cond)` returns an
 `If` node, which is such a card and supports both a builder and an amend form
-(both set the same hidden properties; the choice and so the derived
-`inlineSurfaces` are late-bound, so either path re-derives them). The condition
+(both set the same hidden properties; the choice is late-bound, so either path
+re-derives it). The condition
 comes from `query.pkl`, which is what makes it name its entities:
 
 ```pkl
@@ -166,12 +172,14 @@ c.iff(q.from(hass.lights(dump.areas.stue.all))                // a named set
 c.iff(p).then(a).elif(q).then(b).`else`(x)                     // first to hold wins
 ```
 
-Each step returns `this`, `.then` filling the branch last begun. The members are
-`then`, `elif1`, … in `bakeIndex` order, and `else` last (not a member while
-empty, over state). A chain whose conditions all read one variable
-(`valueIs`) is a variable group, one member per value; one mixing a variable
-with live state, or two variables, is a Pkl error naming R4 of
-`docs/plan-regions.md`, where a decision reading both arrives.
+Each step returns `this`, `.then` filling the branch last begun. A chain of
+conditions is `by = List(Bool, [p, q]) |> IndexOfTrue` with cases `0..n`, a
+lone one `by = p` with the case `true`, and the `else` the `otherwise` (none
+while empty, over state). A chain whose conditions all read one variable
+(`valueIs`) is a match on the variable's value, one case per value; one mixing a
+variable with live state, or two variables, is a Pkl error naming R4b of
+`docs/plan-regions.md`, where a decision reading both arrives. A node holds one
+choice until then, and a case is one node (several sit in a row).
 
 `iff` also takes a node variable at one value, `c.iff(window.valueIs("30d"))`
 (#510). Then the group is variable-selected like a `c.select`'s panels, so the

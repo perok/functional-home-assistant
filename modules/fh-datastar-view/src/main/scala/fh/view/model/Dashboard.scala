@@ -375,6 +375,13 @@ object Choice:
   val KeyTypes: Set[ValueType] =
     Set(ValueType.Text, ValueType.Bool, ValueType.Int)
 
+  /** The node variable `by` is exactly, which a bake group decides by its raw
+    * value.
+    */
+  def plainVariable(by: ValueExpr): Option[String] = by match
+    case ValueExpr(Value.Var(name), Nil, _, _) => Some(name)
+    case _                                     => None
+
   /** A value's key as a case's `is` is keyed, or none for a value no literal
     * spells: a `by` reads text, a bool or a whole number.
     */
@@ -803,7 +810,8 @@ object LayoutNode:
       fills.collectFirst { case (n, s: Fill.Set) => n -> s }
 
     /** The nodes each nodes slot holds, where it is filled with nodes written
-      * down; `validate` refuses a choice, which nothing places yet.
+      * down; a choice is served through the bake group derived from it
+      * ([[Dashboard.choiceSurfaces]]).
       */
     lazy val regions: Map[String, List[LayoutNode]] =
       fills.collect { case (n, Fill.Nodes(Choice.Fixed(ns))) => n -> ns }
@@ -1163,13 +1171,132 @@ case class Dashboard(
       )
   }
 
+  /** The bake group each nodes slot's `Chosen` fill is served through, by
+    * surface id: one member per case, `<host>_t<i>`, and the otherwise,
+    * `<host>_else`, active where the decided key is the member's own. A
+    * variable read alone is a variable group, a read of state a state group
+    * whose members each ask `by == key`; a `by` reading both is `validate`'s to
+    * refuse and yields none. Ids are the ones the build's hoist walks the cases
+    * under ([[fh.view.build.DashboardBuild.walkChosen]]).
+    */
+  lazy val choiceSurfaces: Map[String, Surface] =
+    type Within = Option[(NodeId, Int, List[LayoutNode.Step])]
+    def group(
+        host: NodeId,
+        slot: String,
+        k: Choice.Chosen[List[LayoutNode]],
+        clause: Option[Int]
+    ): List[(String, Surface)] =
+      def sid(key: String) =
+        clause.fold(s"${host}_$key")(c => s"${host}_k${c}_$key")
+      val variable = Choice.plainVariable(k.by)
+      def activation(is: Option[Lit]): Option[Activation] = variable match
+        case Some(name) =>
+          is match
+            case Some(Lit.Text(v)) => Some(Activation.Var(name, VarAt.Value(v)))
+            case Some(_)           => None
+            case None => Some(Activation.Var(name, VarAt.Otherwise))
+        case None if k.by.variables.nonEmpty => None
+        case None                            =>
+          Some(
+            Activation.State(
+              is.map {
+                // A bool key is the condition itself, or its negation; a
+                // compare takes a number or text.
+                case Lit.Bool(true)  => k.by
+                case Lit.Bool(false) =>
+                  k.by.copy(steps = k.by.steps :+ Step.Not)
+                case l =>
+                  k.by.copy(steps =
+                    k.by.steps :+ Step.Compare(Op.Eq, Value.Literal(l))
+                  )
+              }
+            )
+          )
+      val members =
+        k.cases.zipWithIndex.map((c, i) => (s"t$i", Some(c.is), c.value)) ++
+          k.otherwise.map(v => ("else", None, v))
+      members.zipWithIndex.flatMap { case ((key, is, nodes), i) =>
+        for
+          content <- nodes match
+            case List(n) => Some(n)
+            case _       => None
+          a <- activation(is)
+        yield sid(key) -> Surface(
+          content,
+          Some(host),
+          Some(slot),
+          Some(i),
+          a,
+          clause
+        )
+      }
+    def walk(
+        node: LayoutNode,
+        prefix: String,
+        id: NodeId,
+        within: Within
+    ): List[(String, Surface)] = node match
+      case c: LayoutNode.Component =>
+        val own = c.fills.toList.sortBy(_._1).flatMap {
+          case (
+                slot,
+                Fill.Nodes(k: Choice.Chosen[List[LayoutNode]] @unchecked)
+              ) =>
+            group(id, slot, k, within.map(_._2)).flatMap { (sid, s) =>
+              val p = LayoutNode.surfacePrefix(sid)
+              (sid -> s) :: walk(
+                s.content,
+                p,
+                LayoutNode.rootId(p, s.content),
+                None
+              )
+            }
+          case _ => Nil
+        }
+        val below = LayoutNode.steps(c.regions).flatMap { (step, ch) =>
+          walk(
+            ch,
+            prefix,
+            LayoutNode.childIdWithin(prefix, id, step, ch, within),
+            within.map((m, cl, path) => (m, cl, path :+ step))
+          )
+        }
+        val members = c.set.toList.flatMap { (_, s) =>
+          s.members.toList.flatMap { (entityId, m) =>
+            val member = NodeId.derived(LayoutNode.memberSegment(id, entityId))
+            m.indexed.flatMap((ci, n) =>
+              walk(n, prefix, member, Some((member, ci, Nil)))
+            )
+          }
+        }
+        own ++ below ++ members
+    val fromCard = walk(card, "", LayoutNode.rootId("", card), None)
+    val fromSurfaces = surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
+      val p = LayoutNode.surfacePrefix(sid)
+      walk(s.content, p, LayoutNode.rootId(p, s.content), None)
+    }
+    (fromCard ++ fromSurfaces).toMap
+
+  /** This with [[choiceSurfaces]] among its surfaces: what `validate` and the
+    * runtime read, so a choice is served by the bake group it derives.
+    */
+  lazy val lowered: Dashboard =
+    if (choiceSurfaces.isEmpty) this
+    else copy(surfaces = surfaces ++ choiceSurfaces)
+
   /** Human-readable errors, empty when valid. `locateTransform` maps a
     * transform to a source location for the message.
     */
   def validate(
       locateTransform: String => Option[String] = _ => None
   ): List[String] =
-    Validate.errors(this, locateTransform, compiledCards, compiledFailedLabel)
+    Validate.errors(
+      lowered,
+      locateTransform,
+      compiledCards,
+      compiledFailedLabel
+    )
 
   // Each template once, theme classes applied, so what validation reads is
   // what renders.
@@ -1376,16 +1503,17 @@ case class Dashboard(
   ): Either[List[String], Dashboard.Validated] =
     val compiled = compiledCards
     val label = compiledFailedLabel
-    Validate.errors(this, locateTransform, compiled, label) match
+    val whole = lowered
+    Validate.errors(whole, locateTransform, compiled, label) match
       case Nil =>
         Ready
           .Compile(Evaluator.Scope(slug))
-          .dashboard(this)
+          .dashboard(whole)
           .left
           .map(m => List(m.message))
           .map(ready =>
             Dashboard.Validated(
-              this,
+              whole,
               ready,
               Templates(
                 compiled.collect { case (n, Right(c)) => n -> c },

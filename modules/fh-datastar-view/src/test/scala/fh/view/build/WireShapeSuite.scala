@@ -27,8 +27,7 @@ import fh.view.model.{
   ValueExpr,
   ValueType,
   TemplateSlot,
-  Theme,
-  VarAt
+  Theme
 }
 import fh.view.history.Window
 import fh.view.testkit.PklWorkspace
@@ -64,6 +63,7 @@ class WireShapeSuite extends munit.FunSuite {
         |import "@fh-dashboard/hass.pkl"
         |import "@fh-dashboard/core/node.pkl" as nodeMod
         |import "@fh-dashboard/core/slot.pkl" as slotMod
+        |import "@fh-dashboard/core/choice.pkl" as choiceMod
         |import "@fh-dashboard/core/surface.pkl" as surfaceMod
         |import "@fh-dashboard/core/tap.pkl" as tapMod
         |import "@fh-dashboard/core/predicate.pkl" as pred
@@ -80,7 +80,7 @@ class WireShapeSuite extends munit.FunSuite {
         |// "does this module own the ancestor" true across a module boundary
         |// (`Node extends LayoutNode` spans two files).
         |local mods: List<Module> =
-        |  List(nodeMod, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, varMod, historyProv, chartMod, themeMod) + c.modules
+        |  List(nodeMod, slotMod, choiceMod, surfaceMod, tapMod, pred, simpleMod, accessMod, varMod, historyProv, chartMod, themeMod) + c.modules
         |local own: Map<String, reflect.Class> =
         |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
@@ -243,6 +243,10 @@ class WireShapeSuite extends munit.FunSuite {
       pklOnly = Set("name")
     )
     check("NodesFill", Fill.Nodes(Choice.Fixed(Nil)))
+    // A nodes slot's choice: a case holds a node list, and `otherwise` may be
+    // none.
+    check("ChosenNodes", Choice.Chosen(ValueExpr(Value.Var("x")), Nil))
+    check("NodesCase", Case(Lit.Bool(true), List.empty[LayoutNode]))
     // `provider` picks the decoder rather than filling a field.
     check(
       "HistoryFetch",
@@ -341,9 +345,9 @@ class WireShapeSuite extends munit.FunSuite {
       caseNames[LayoutNode] -> Set("Node"),
       caseNames[Slot] -> Set("Slot", "NodesSlot"),
       caseNames[Fill] -> Set("NodesFill", "SetFill"),
-      caseNames[Activation] ->
-        Set("UserActivation", "VarActivation", "StateActivation"),
-      caseNames[VarAt] -> Set("AtValue", "AtIndex", "AtOtherwise"),
+      // Only popups are written as surfaces; a choice's branches are a nodes
+      // slot's `Chosen` fill, from which Scala derives the other cases.
+      caseNames[Activation] -> Set("UserActivation"),
       caseNames[Value] ->
         Set(
           "EntityRead",
@@ -390,7 +394,8 @@ class WireShapeSuite extends munit.FunSuite {
         "BindClass"
       ),
       caseNames[Window] -> Set("Raw", "Statistics"),
-      caseNames[Choice[Window]] - "Fixed" -> Set("Chosen", "MemberChosen"),
+      caseNames[Choice[Window]] - "Fixed" ->
+        Set("Chosen", "MemberChosen", "ChosenNodes"),
       caseNames[CallDecl] -> Set("ServiceCall", "SetVarCall")
     )
     families.foreach { (scalaNames, pklClasses) =>
