@@ -151,13 +151,17 @@ class RenderGoldenSuite extends munit.FunSuite {
   }
 
   // On demand: `sbt dashboardGoldensVs <rev>` (defaults to HEAD).
-  test("goldens equal a revision's once ids are numbered by first appearance") {
-    sys.props.get(RenderGoldenSuite.AgainstProp) match {
-      case None      => ()
-      case Some(rev) =>
-        def norm(s: String) =
-          RenderGoldenSuite.normaliseIds(RenderGoldenSuite.normaliseHashes(s))
-        for (e <- FixtureEntries.all) {
+  for (e <- FixtureEntries.all) {
+    test(
+      s"goldens equal a revision's once ids are numbered by first appearance: ${e.slug}"
+    ) {
+      sys.props.get(RenderGoldenSuite.AgainstProp) match {
+        case None      => ()
+        case Some(rev) =>
+          def norm(s: String) =
+            RenderGoldenSuite.normaliseIds(
+              RenderGoldenSuite.normaliseHashes(s)
+            )
           val rel =
             (TextSnapshot.resources / "goldens" / s"${e.slug}.html")
               .relativeTo(os.pwd)
@@ -172,16 +176,15 @@ class RenderGoldenSuite extends munit.FunSuite {
               .getOrElse(("", ""))
             fail(s"${e.slug}: first differing line\n  $rev: $a\n  now: $b")
           }
-        }
+      }
     }
-  }
 
-  test("every test dashboard renders as its golden") {
-    for (e <- FixtureEntries.all)
+    test(s"a test dashboard renders as its golden: ${e.slug}") {
       TextSnapshot.check(
         TextSnapshot.resources / "goldens" / s"${e.slug}.html",
         golden(e)
       )
+    }
   }
 }
 
