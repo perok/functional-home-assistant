@@ -201,8 +201,8 @@ private[runtime] object Patches {
   ): FragmentLog = {
     def memberAt(shared: Shared): Option[String] =
       renderer.surfaces
-        .resolveActiveByState(gid, shared)
-        .flatMap(renderer.surfaces.bakeGroup(gid).lift)
+        .decideByState(gid, shared)
+        .flatMap(renderer.surfaces.cases(gid).lift)
     val was = memberAt(prev)
     val now = memberAt(next)
     if (was == now) log
@@ -607,7 +607,7 @@ private[runtime] object Patches {
 
   /** What a placed member inserts and claims. A member that is a leaf comes
     * through the cache as any target does; one holding nodes renders per viewer
-    * with its subtree's claims, since it can bake this viewer's selection.
+    * with its subtree's claims, since it can show this viewer's choice.
     */
   private def placed(
       renderer: Renderer,

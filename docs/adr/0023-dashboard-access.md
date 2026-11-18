@@ -334,7 +334,7 @@ from a write and from a URL alike, to those keys.
 **`referencedEntities` is that bound, and it is not the same set as
 `watchedEntities`** (ADR 0030), which is what the upstream subscription asks HA
 for. That one is WIDER: it also walks what merely decides — a clause's `when`
-guard, a surface's `Activation.State` — entities a dashboard reads and renders
+guard, a choice's `by` over state — entities a dashboard reads and renders
 nowhere. The two answer different questions and must not be merged in either
 direction: narrowing the subscription to this set would leave a dashboard that
 never reacts, and widening this set to that one would let a viewer's value

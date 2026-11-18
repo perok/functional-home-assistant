@@ -16,7 +16,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   Reads,
-  Region,
   SetId,
   SignalBind,
   SignalId,
@@ -591,7 +590,7 @@ class SignalSlotSuite extends ServerHarness {
       Map(
         "box" -> TestCard(
           """<div><b {{{state.bind}}}>{{state}}</b><i {{{bright.bind}}}>{{bright}}</i>{{{children}}}</div>""",
-          regions = Map("children" -> Region())
+          regions = Set("children")
         ),
         "plain" -> TestCard("<p>x</p>")
       ),
@@ -779,7 +778,7 @@ class SignalSlotSuite extends ServerHarness {
   private val twoNodes = Dashboard(
     cards + ("col" -> TestCard(
       "<div>{{{children}}}</div>",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     )),
     LayoutNode.Component(
       "col",
@@ -791,7 +790,7 @@ class SignalSlotSuite extends ServerHarness {
   private val twiceOver = Dashboard(
     cards + ("col" -> TestCard(
       "<div>{{{children}}}</div>",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     )),
     LayoutNode.Component(
       "col",
@@ -841,7 +840,7 @@ class SignalSlotSuite extends ServerHarness {
       ),
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       )
     )
     def place = LayoutNode.Component(
@@ -1312,7 +1311,7 @@ class SignalSlotSuite extends ServerHarness {
   private val structural = Dashboard(
     cards + ("frame" -> TestCard(
       "<section {{{tint.bind}}}>{{{body}}}</section>",
-      regions = Map("body" -> Region())
+      regions = Set("body")
     )),
     LayoutNode.Component(
       "frame",

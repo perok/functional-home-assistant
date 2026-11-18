@@ -36,11 +36,11 @@ so node ids are unique within a dashboard and **not slug-prefixed**.
 A **surface** (`model.Surface`) is a named layout subtree registered in
 `Dashboard.surfaces`, rendered on demand and streamed only while it is
 *active* — for a popup, while a connection has it open; for a tab panel, while
-the viewer's node variable selects it (ADR 0033); for a **state-activated** one
-(an if/else branch — ADR 0007), while its condition over live entity state
-selects it. Its fields are `(content, bakeInto, bakeAs, bakeIndex,
-activation)`, where `activation` is the sum `User(defaultOpen) | Var(name) |
-State(condition)`:
+the viewer's node variable picks it (ADR 0033); for an if/else branch (ADR
+0007), while its condition over live entity state picks it. A popup's fields
+are `(content, activation)`, `activation` being `User(defaultOpen)`; a tab
+panel or a branch is a case of a nodes slot's choice, which the build serves as
+a surface carrying its place (`Surface.pick`):
 
 - **Every surface is chrome-less** — `renderSurface` returns bare content. A
   popup's `<dialog>` is a plain `popup` *container card* composed into the
@@ -48,18 +48,15 @@ State(condition)`:
   wraps registered surfaces; `openPopupInline` wraps inline ones), not backend
   chrome; the theme styles `.fh-popup` as a class contract.
 - **The host is derived, not authored** — `Surface.hostId` is
-  `{bakeInto}_{bakeAs}` for a baked tab panel (enforcing the
-  `id="{{bakeInto}}_{{bakeAs}}"` host convention the `tabs` card template
-  honours) and the theme's popup host (`Dashboard.PopupHostId`, `#popups`)
-  otherwise. The host is both the live-patch target and the eviction group.
-- **`bakeInto`/`bakeAs`/`bakeIndex`/`activation`** drive first-paint baking:
-  the component whose id equals `bakeInto` receives the selected member's
-  rendered content under the template var `bakeAs`, so the selected panel is
-  in the initial HTML with no round-trip and no flash. How the member is
-  selected is the group's activation mode: a variable-selected group takes
-  the member its variable names, declared or chosen (ADR 0033); state-activated
-  groups take the first member whose condition holds (ADR 0007). Baked HTML
-  and a later live switch are byte-identical.
+  `<node>_<slot>` for a choice's case (the `id="{{hostId}}"` element the
+  card's template places around the slot) and the theme's popup host
+  (`Dashboard.PopupHostId`, `#popups`) otherwise. The host is both the
+  live-patch target and the eviction group.
+- **The first paint renders the picked case into its slot's hole**, so the
+  selected panel is in the initial HTML with no round-trip and no flash. A
+  pick over a variable takes the case its value keys, declared or chosen (ADR
+  0033); one over state the case its `by` keys (ADR 0007). The first HTML and
+  a later live switch are byte-identical.
 - Surface node ids are namespaced (`s_<id>__…`, `LayoutNode.surfacePrefix`) so
   they never collide with the main page.
 
@@ -121,8 +118,8 @@ keyed by what the render reads.
 Almost nothing else can vary anyway: only a LEAF is a patch target and a leaf holds no
 regions (ADR 0008), so only a render that CREATES a subtree can differ per viewer.
 
-This replaced a **shared/per-session split**, in which open surfaces and bake-group
-owners were re-rendered once per connection against a per-session diff cache, and then a
+This replaced a **shared/per-session split**, in which open surfaces and the hosts
+of choices were re-rendered once per connection against a per-session diff cache, and then a
 **shared pass with an audience tag**, in which one render per slug was addressed to
 whoever could see it. Both were cost models — "render shared what is cheap to share" —
 and both bought a second vocabulary to describe who a rendering was for. What replaced
@@ -242,11 +239,10 @@ hoist and renderer, so a node's build-time id namespace equals its render-time
 
 ### Tabs are pure composition
 
-A tab group is N surfaces baked into one `tabs` card: the card's template owns
-the button bar and the panel host (`<div id="{{id}}_panel">{{{panel}}}</div>`);
-each tab's content rides the generic inline-surface hoist with
-`bakeInto`/`bakeAs`/`bakeIndex`; the bar declares a node variable selecting
-the panel, and its buttons write it (ADR 0033). **No tabs logic in the
+A tab group is one `tabs` card whose `panel` slot holds a match over its
+variable, a case per tab: the card's template owns the button bar and the
+panel host (`<div id="{{hostId}}">{{{panel}}}</div>`); the bar declares the
+variable picking the panel, and its buttons write it (ADR 0033). **No tabs logic in the
 backend** — the runtime reads only structural surface fields and variables,
 never a card name. The active tab persists via the session and the URL mirror
 (ADR 0005).
@@ -290,9 +286,8 @@ wiring, not dashboard frame.
 - **Stacked popups + per-surface `chrome`/`stack`/host fields**: the fields
   co-varied; deriving the host and dropping stacking collapsed `Surface` from 8
   fields to 5 and unified open/switch/close. The derivations are safe only
-  because the constraining assumptions (popups don't stack; a baked surface's
-  host follows the `{{id}}_{{bakeAs}}` convention) are guaranteed, not
-  inferred.
+  because the constraining assumptions (popups don't stack; a choice's host is
+  `<node>_<slot>`) are guaranteed, not inferred.
 - **A theme-composed `c.popupHost()` component**: inverted the layering (theme
   → components); the host is inlined in the theme instead.
 - **A hollow host plus a per-connection fill**: serving viewers on different tabs

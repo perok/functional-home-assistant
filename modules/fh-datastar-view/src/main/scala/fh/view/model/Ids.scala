@@ -18,7 +18,7 @@ object NodeId {
     */
   private[view] def derived(s: String): NodeId = s
 
-  // `Surface.bakeInto` on the wire; `validate` checks it resolves.
+  // For `Surface.InPick`'s derived decoder; Pkl never writes one.
   given Decoder[NodeId] = Decoder[String].map(derived)
 }
 
@@ -50,7 +50,7 @@ object MemberId {
   private[view] def of(id: NodeId): MemberId = id
 }
 
-/** A patch target: a node's `.fh-cell`, a bake host, the theme's `popups`.
+/** A patch target: a node's `.fh-cell`, a pick's host, the theme's `popups`.
   * Never a log key.
   */
 opaque type DomId <: String = String

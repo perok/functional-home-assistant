@@ -11,7 +11,6 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
-  Region,
   Value,
   ValueExpr,
   TemplateSlot
@@ -32,7 +31,7 @@ class SharedPassSuite extends ServerHarness {
     cards = Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       ),
       "card" -> TestCard("<span>{{state}}</span>")
     ),
@@ -123,7 +122,7 @@ class SharedPassSuite extends ServerHarness {
     // subscription would let one stalled browser freeze the HA feed for
     // everyone.
     //
-    // A per-session node (the tabs host bakes the client's panel), so the
+    // A per-session node (the tabs host shows the client's panel), so the
     // per-connection pass really emits.
     live(tabsDash, Map("sensor.a" -> es("sensor.a", "a0"))) { ts =>
       ts.sse().flatMap { resp =>

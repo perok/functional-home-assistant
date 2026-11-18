@@ -44,6 +44,8 @@ enum Tenure derives CanEqual {
   *   - `told`: the newest cursor put on its wire, the most it could echo back
   *     ([[Server.openingPatches]]). A site that emits one without recording it
   *     leaves this low, which loses the check rather than breaking anything.
+  *   - `checkedBy`: the [[Renderer.generation]] `vars` and `initialValues` were
+  *     last checked against ([[Renderer.recheck]]).
   *
   * '''`position` may run ahead of the client's cursor''' (the signal can ride
   * the keepalive). Safe because the client's cursor is the authority at
@@ -57,7 +59,8 @@ final case class SessionState(
     holds: Map[NodeId, Held],
     position: Long,
     told: Long,
-    initialValues: Map[VarKey, String] = Map.empty
+    initialValues: Map[VarKey, String] = Map.empty,
+    checkedBy: Option[AnyRef] = None
 ) {
 
   /** What this viewer is shown: a choice, else the start; [[VarGraph]] fills

@@ -365,7 +365,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   shortcut. Do not "simplify" this into a builder method or a selector enum — both hide the choice
   from static analysis; ADR 0013 "Shapes considered" has the four attempts. The light ITSELF,
   `c.entitySlider(l)`, switches between brightness, colour temperature and colour as far as it has
-  them, its MAIN CONTROLS (HA's name): a head per control in a bake group selected by the node variable
+  them, its MAIN CONTROLS (HA's name): a head per control, a choice picked by the node variable
   `control` the slider declares (`base/slider.pkl`'s `SliderControls`, each head chosen by the control's name), with a pill over the track's end, as any slider's buttons, holding the
   slider's buttons and its switch: `c.its.mainControl`, the default list, a `c.select` of `control` (a pill
   stepping round, or `.style("dropdown"|"buttons")`). A group's rows have their own; a row that is
@@ -407,7 +407,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   It is what a tap on a non-actionable entity does instead of nothing — `c.informative` is now
   only needed to FORCE more-info on a card whose domain does have an action),
   candidate sets (`q.from(...).where(...).render(...)`), conditional sections (`` c.iff(cond).then(..).elif(..).then(..).`else`(..) ``, or `c.iff(v.valueIs(x))` for a per-viewer branch chosen by a node variable — state-activated
-  surfaces on the tabs machinery, ADR 0007; each is a choice (`core/choice.pkl`: `nodeMod.iff`, `nodeMod.match`) filling a nodes slot as a `Chosen` fill, which the backend derives its bake group from (`Dashboard.choiceSurfaces`) — tabs, a select's variable-chosen label and cycle and a slider's main controls are `nodeMod.match`es over their variable; `cond` NAMES its entities, via `q.entity(e)` or a
+  surfaces on the tabs machinery, ADR 0007; each is a choice (`core/choice.pkl`: `nodeMod.iff`, `nodeMod.match`) filling a nodes slot as a `Chosen` fill, which one pick decides (`Dashboard.picks`, `Ready.Pick`): its `by` read once, its case looked up — tabs, a select's variable-chosen label and cycle and a slider's main controls are `nodeMod.match`es over their variable; `cond` NAMES its entities, via `q.entity(e)` or a
   `q.from(...)` aggregate — a comparison that names none is a validate error), three-tier slider config — see ADR 0006 for the deliberate API shape
   (`openPopup`/`openPopupInline` split, `cssClass`) and Pkl gotchas before extending. `PklBuild`
   renders the evaluated module to JSON backend-side (no `output` blocks in entries) and watches the

@@ -251,9 +251,8 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
   default (`PopupSurface`: hidden `body` Listing, auto-`Popup`-wrapped
   content) — no `new`, and the wrap rule is enforced by construction.
 - Tabs: the `Tabs` class, keyed `tabs: Mapping<String, Listing<LayoutNode>>`
-  (label → that tab's cards, Row-wrapped into per-tab inline surfaces with
-  `bakeInto`/`bakeAs`/`bakeIndex` and selected by the bar's `tab` variable,
-  ADR 0033; the Listing-valued mapping
+  (label → that tab's cards, Row-wrapped into the cases of a match over the
+  bar's `tab` variable, ADR 0033; the Listing-valued mapping
   default lets a tab body list cards with no `new`/`children`). The bar is
   BeerCSS-native markup under the default theme: a `TabButton` card per tab
   (`.fh-tabs > a` anchors, `data-class:fh-chosen` + a variable-writing onclick) — internal to `Tabs`, not an
@@ -367,7 +366,7 @@ slot key remains `"class"`.
   existence value is a Listing, so the body adds elements directly (how a tab
   lists its cards with no `children` key). `Mapping.keys.toList()` preserves
   insertion order, which is what makes a Mapping-keyed class able to derive an
-  index (`Tabs`' per-tab surface keys and `bakeIndex`).
+  index (`Tabs`' per-tab case keys).
 - **Methods aren't first-class values.** To pass a factory *as a value* (a
   `Mapping` branch's render fn) you need either an explicit `.apply` at the call
   site or the dual-name **method + function-value delegate** pattern

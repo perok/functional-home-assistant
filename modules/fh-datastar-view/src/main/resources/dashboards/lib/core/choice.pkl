@@ -3,7 +3,7 @@
 /// the wire a choice is `Fill.Nodes(Choice.Chosen)`: `by`, a case per key and an
 /// `otherwise`, one node per case (several sit in a row). Each choice is decided
 /// over state for every viewer, or over a variable for each one; one decision
-/// reading both is not built yet (docs/plan-regions.md, R4b).
+/// reading both is not built yet (docs/plan-regions.md, R4d).
 module core.choice
 
 import "../layout.pkl" as layout
@@ -112,7 +112,7 @@ class Iff extends Choice {
           otherwise = oneNode(i.`else`)
         }
       else
-        throw("an If chain reads one variable and nothing else, or live state and no variable: one decision reading both is not built yet (R4b of docs/plan-regions.md)")
+        throw("an If chain reads one variable and nothing else, or live state and no variable: one decision reading both is not built yet (R4d of docs/plan-regions.md)")
 }
 
 /// `nodeMod.match(v.value, cases)`: the branch at the variable's value, for each
@@ -144,9 +144,9 @@ const function iff(p: Condition): Iff = new Iff { condition = conditionOf(p) }
 
 /// A choice over a node variable's value (`v.value`): the branch whose key is
 /// that value, else `.otherwise(…)`, else nothing. A match over entity state is
-/// not built yet (R4b of docs/plan-regions.md).
+/// not built yet (R4 of docs/plan-regions.md).
 const function match(on: slotMod.Reading, byValue: Mapping<varMod.Value, Branch>): Match =
   if (on.source is slotMod.VarRead && on.steps.isEmpty)
     let (n = (on.source as slotMod.VarRead).name)
       new Match { variable = new varMod.Variable { name = n }; caseMap = byValue }
-  else throw("nodeMod.match chooses by a node variable's value (`v.value`); a match over entity state is not built yet (R4b of docs/plan-regions.md)")
+  else throw("nodeMod.match chooses by a node variable's value (`v.value`); a match over entity state is not built yet (R4 of docs/plan-regions.md)")

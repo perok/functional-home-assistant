@@ -177,23 +177,23 @@ Both are keyed by the id the server already knows, and both are untrusted
 input, clamped at the boundary:
 
 - **Active tab.** A node variable (ADR 0033): the bar declares `tab`, the
-  open member's index, and its panel's bake group is selected by it
-  (`Activation.Var`). A press writes it, as a window choice does; the server
+  open tab's index, and its panel is a choice picked by it (ADR 0007). A
+  press writes it, as a window choice does; the server
   swaps the panel and commits `_var_<id>__tab`, which the panel host mirrors to
-  `v.<id>.tab`. A value is untrusted and refused unless it is a member index of
-  every panel it selects (`Renderer.refusals`), so a hand-edited URL can never
-  bake a non-existent surface; an old `ui.<id>` link is not read and lands on
-  the declared tab. The restore is flash-free because the GET bakes the
-  selected surface directly, and the SSE connect seeds the open set from the
+  `v.<id>.tab`. A value is untrusted and refused unless a case of every panel it
+  decides takes it (`Renderer.refusals`), so a hand-edited URL can never
+  render a non-existent surface; an old `ui.<id>` link is not read and lands on
+  the declared tab. The restore is flash-free because the GET renders the
+  picked case directly, and the SSE connect seeds the open set from the
   session's variables so it streams live from the first paint.
 - **Open popup.** `ui_<PopupHostId>`, mirrored to `ui.<PopupHostId>`,
   committed by the open/close swaps (ADR 0025). It carries no pending twin, because nothing on the page DISPLAYS a
   popup selection — the dialog itself is what the swap patches in, so there is
   no highlight to keep instant. Only the VALUE differs in kind — a surface id rather than
-  a member index — because the popup host is not a bake group: any registered
+  a tab's index — because the popup host is not a choice: any registered
   surface can appear there, one at a time. `Renderer.openPopup` clamps it,
   ignoring a claim naming a surface this dashboard does not host, which is the
-  popup's equivalent of `resolveActive`'s index clamp.
+  popup's equivalent of a pick taking only the values its cases key.
 
   It is not a node variable because no node can declare it: the popup host
   lives in `theme.chrome`, outside every node, so the page shell declares and

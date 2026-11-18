@@ -12,7 +12,6 @@ import fh.view.model.*
 import fh.view.history.{ChartStyle, Window, Windows}
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import io.circe.parser.decode
-import fh.view.testkit.TestIds.given
 import fh.view.testkit.DashboardBuilders.declared
 
 /** Node variables (issue #209): a node declares a named choice, a descendant
@@ -29,7 +28,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   private val plainCard = TestCard("<span>{{name}}</span>")
   private val boxCard = TestCard(
     "<div>{{{children}}}</div>",
-    regions = Map("children" -> Region())
+    regions = Set("children")
   )
 
   private val chosen: Choice[Window] =
@@ -236,7 +235,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a SURFACE is its own scope root") {
-    // A baked surface can be swapped into different hosts, so inheriting would
+    // A popup can be opened from different places, so inheriting would
     // resolve one content differently per host; it declares what it needs.
     val errs = dash(
       box(Map("window" -> "24h"), LayoutNode.Component("plain")),
@@ -250,28 +249,24 @@ class NodeVariablesSuite extends munit.FunSuite {
     )
   }
 
-  test("an OWNED surface starts with the scope of the node it bakes into") {
+  test("a choice's case starts with the scope of the node it fills") {
     // A tab panel or an `If` branch has exactly one host, so the reason a popup
     // is a scope root does not apply: a chooser above a tab bar reaches the
     // charts in its panels.
     val d = dash(
-      box(Map("window" -> "7d"), box(Map("tab" -> "0"))),
-      surfaces = Map(
-        "t0" -> Surface(
-          chartNode(),
-          bakeInto = Some("c_0"),
-          bakeAs = Some("children"),
-          bakeIndex = Some(0),
-          activation = Activation.Var("tab")
+      box(
+        Map("window" -> "7d"),
+        box(Map("tab" -> "0")).copy(slots =
+          Map(LayoutNode.DefaultRegion -> Slots.tabs("tab", chartNode()))
         )
       )
-    )
+    ).lowered
     val errs = d.validate()
     assert(!errs.exists(_.contains("no ancestor declares")), clue = errs)
     assertEquals(windowOf(d.allFetches), List("7d"))
     assertEquals(
       d.varScopes
-        .get(NodeId.derived(LayoutNode.surfacePrefix("t0") + "c"))
+        .get(NodeId.derived(LayoutNode.surfacePrefix("c_0_t0") + "c"))
         .flatMap(_.get("window"))
         .map(_.declarer),
       Some(NodeId.derived("c"))

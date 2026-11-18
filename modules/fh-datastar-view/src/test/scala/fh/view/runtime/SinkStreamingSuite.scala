@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
-import fh.view.model.{CardDef, Dashboard, NodeId, Region, Theme}
+import fh.view.model.{CardDef, Dashboard, NodeId, Theme}
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
 
 import java.nio.charset.StandardCharsets.UTF_8
@@ -34,7 +34,7 @@ class SinkStreamingSuite extends munit.FunSuite {
     "leaf" -> TestCard("""<div class="leaf">{{v}}</div>"""),
     "col" -> TestCard(
       """<div>{{{children}}}</div>""",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     )
   )
 

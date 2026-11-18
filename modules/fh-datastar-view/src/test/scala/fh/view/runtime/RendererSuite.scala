@@ -13,7 +13,6 @@ import fh.view.runtime.RendererTestOps.*
 import fh.view.model.{
   SortTerm,
   Part,
-  Activation,
   CardDef,
   Cell,
   Dashboard,
@@ -21,7 +20,6 @@ import fh.view.model.{
   NodeId,
   Op,
   Reads,
-  Region,
   SetId,
   SlotType,
   Step,
@@ -63,33 +61,32 @@ class RendererSuite extends munit.FunSuite {
     ),
     "col" -> TestCard(
       """<div class="fh-col">{{{children}}}</div>""",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     ),
     "row" -> TestCard(
       """<div class="fh-row">{{{children}}}</div>""",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     ),
-    // Shaped like the shipped `Tabs`, structure with a bar region and a baked
-    // panel region, because `CardDef.isStructure` is what the engine dispatches
+    // Shaped like the shipped `Tabs`, structure with a bar region and a panel
+    // region its choice fills, because `CardDef.isStructure` is what the engine dispatches
     // on: a fixture whose shape drifted would be a different kind of card.
     "tabs" -> TestCard(
       template = """<div class="fh-col"><div class="fh-row tabbar">""" +
         """{{{children}}}</div>""" +
-        """<div id="{{hostId}}" class="fh-tab-panel" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
-      regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
+        """<div id="{{hostId}}" class="fh-tab-panel">{{{panel}}}</div></div>""",
+      regions = Set("children", "panel")
     ),
     // The live header is a node in the bar region, so a title tick patches that
     // node and cannot reach the panel.
     "tabsLive" -> TestCard(
       template = """<div><div class="tabs">{{{bar}}}</div>""" +
-        """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div></div>""",
-      regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
+        """<div id="{{hostId}}">{{{panel}}}</div></div>""",
+      regions = Set("bar", "panel")
     ),
     "tabsBar" -> TestCard("""<span>{{title}}</span>""")
   )
 
-  // As `c.tabs` plus the hoist produce it: the surfaces carry `bakeInto:"c"`,
-  // `bakeAs:"panel"`, so `hostId` derives to `c_panel`, the hoist invariant.
+  // As `c.tabs` produces it: the panel slot's choice is hosted at `c_panel`.
   private def tabsDashboard: Dashboard = {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
@@ -109,24 +106,8 @@ class RendererSuite extends munit.FunSuite {
         slots = Slots.kids(
           LayoutNode.Component("btn", Slots.values(Map("label" -> lit("A")))),
           LayoutNode.Component("btn", Slots.values(Map("label" -> lit("B"))))
-        ),
+        ) + ("panel" -> Slots.tabs("tab", panel("a"), panel("b"))),
         vars = declared("tab" -> "0")
-      ),
-      surfaces = Map(
-        "c_t0" -> Surface(
-          panel("a"),
-          bakeInto = Some("c"),
-          bakeAs = Some("panel"),
-          bakeIndex = Some(0),
-          activation = Activation.Var("tab")
-        ),
-        "c_t1" -> Surface(
-          panel("b"),
-          bakeInto = Some("c"),
-          bakeAs = Some("panel"),
-          bakeIndex = Some(1),
-          activation = Activation.Var("tab")
-        )
       )
     )
   }
@@ -1210,21 +1191,20 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "tabs: default panel is baked into the tabs card; a panel renders without dialog chrome"
+    "tabs: the chosen panel is rendered into the tabs card; a panel renders without dialog chrome"
   ) {
     val rr = Renderer.create(tabsDashboard)
     val states = Map(
       "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
-    assertEquals(rr.surfaces.selectedSurfaces(), Set("c_t0"))
+    val first = picking("c" -> 0)
+    assertEquals(rr.surfaces.selectedSurfaces(first), Set("c_t0"))
 
     // Surface-namespaced ids, so a later switch-back is byte-identical.
-    val body = rr.renderBody(states)
+    val body = rr.renderBody(states, first)
     assert(
-      body.contains(
-        """<div id="c_panel" class="fh-tab-panel" data-signals="{ tab_c: 0 }">"""
-      ),
+      body.contains("""<div id="c_panel" class="fh-tab-panel">"""),
       clue = body
     )
     assert(body.contains("""id="s_c_t0__c""""), clue = body)
@@ -1252,20 +1232,23 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "selectedSurfaces picks the chosen member; none chosen is the first"
+    "selectedSurfaces picks the chosen member; none chosen is none"
   ) {
     val rr = Renderer.create(tabsDashboard)
     assertEquals(
       rr.surfaces.selectedSurfaces(picking("c" -> 1)),
       Set("c_t1")
     )
-    // No selection picks index 0.
-    assertEquals(rr.surfaces.selectedSurfaces(Selections.none), Set("c_t0"))
-    assertEquals(rr.surfaces.selectedSurfaces(), Set("c_t0"))
+    // A session's selections are decided from its variables, which every
+    // declaration fills; no entry shows nothing.
+    assertEquals(
+      rr.surfaces.selectedSurfaces(Selections.none),
+      Set.empty[String]
+    )
   }
 
   test(
-    "render of a tabs component with a chosen member bakes that tab + seeds its signal"
+    "render of a tabs component with a chosen member renders that tab"
   ) {
     val rr = Renderer.create(tabsDashboard)
     val states = Map(
@@ -1274,9 +1257,7 @@ class RendererSuite extends munit.FunSuite {
     )
     val body = rr.renderBody(states, picking("c" -> 1))
     assert(
-      body.contains(
-        """<div id="c_panel" class="fh-tab-panel" data-signals="{ tab_c: 1 }">"""
-      ),
+      body.contains("""<div id="c_panel" class="fh-tab-panel">"""),
       clue = body
     )
     assert(body.contains("""id="s_c_t1__c""""), clue = body)
@@ -1284,11 +1265,11 @@ class RendererSuite extends munit.FunSuite {
     assert(!body.contains("<span>AA</span>"), clue = body)
   }
 
-  test("resolveActive reads the chosen member, and the first when none") {
-    // Parsing and clamping a variable's value is `SurfaceGraph.selections`'s.
+  test("decideByViewer reads the chosen member, and none when none") {
+    // Deciding a variable's value is `SurfaceGraph.selections`'s.
     val rr = Renderer.create(tabsDashboard)
-    assertEquals(rr.surfaces.resolveActive("c", picking("c" -> 1)), 1)
-    assertEquals(rr.surfaces.resolveActive("c", Selections.none), 0)
+    assertEquals(rr.surfaces.decideByViewer("c", picking("c" -> 1)), Some(1))
+    assertEquals(rr.surfaces.decideByViewer("c", Selections.none), None)
   }
 
   test(
@@ -1324,7 +1305,7 @@ class RendererSuite extends munit.FunSuite {
     // The hole is the same raw spelling for both fills, so the check is
     // presence.
     val eagerMissing = dash(
-      TestCard("<div>nothing</div>", regions = Map("kids" -> Region()))
+      TestCard("<div>nothing</div>", regions = Set("kids"))
     )
     assert(
       eagerMissing
@@ -1337,7 +1318,7 @@ class RendererSuite extends munit.FunSuite {
       TestCard(
         // A section where the hole goes: what an older workspace card has.
         "<div>{{#panel}}{{{html}}}{{/panel}}</div>",
-        regions = Map("panel" -> Region(Region.Baked))
+        regions = Set("panel")
       )
     )
     assert(
@@ -1352,7 +1333,7 @@ class RendererSuite extends munit.FunSuite {
       dash(
         TestCard(
           """<div>{{{kids}}}<i id="{{hostId}}">{{{panel}}}</i></div>""",
-          regions = Map("kids" -> Region(), "panel" -> Region(Region.Baked))
+          regions = Set("kids", "panel")
         )
       ).validate(),
       Nil
@@ -1412,7 +1393,7 @@ class RendererSuite extends munit.FunSuite {
     val two = TestCard(
       template = """<div><b>{{{children}}}</b>""" +
         """<i>{{{extra}}}</i></div>""",
-      regions = Map("children" -> Region(), "extra" -> Region())
+      regions = Set("children", "extra")
     )
     def leaf(v: String) =
       LayoutNode.Component("card", slots = Slots.values(Map("state" -> lit(v))))
@@ -1539,7 +1520,7 @@ class RendererSuite extends munit.FunSuite {
     def dash(mode: Reads) = Dashboard(
       cards + ("box" -> TestCard(
         """<div title="{{name}}">{{{children}}}</div>""",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       )),
       LayoutNode.Component(
         "box",
@@ -1589,7 +1570,7 @@ class RendererSuite extends munit.FunSuite {
       Map(
         "box" -> TestCard(
           s"<div>{{{$region}}}</div>",
-          regions = Map(region -> Region())
+          regions = Set(region)
         )
       ),
       LayoutNode.Component("box")
@@ -1627,24 +1608,23 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "Surface.hostId derives <bakeInto>_<bakeAs> for a baked surface, the popup overlay otherwise"
+    "Surface.hostId derives <host>_<slot> for a pick's case, the popup overlay otherwise"
   ) {
-    val baked = Surface(
+    val inPick = Surface(
       col(),
-      bakeInto = Some("c_1"),
-      bakeAs = Some("panel")
+      pick = Some(Surface.InPick(NodeId.derived("c_1"), "panel", None, 0))
     )
-    assertEquals(baked.hostId, "c_1_panel")
+    assertEquals(inPick.hostId, "c_1_panel")
 
-    val unbaked = Surface(col())
-    assertEquals(unbaked.hostId, Dashboard.PopupHostId)
+    val popup = Surface(col())
+    assertEquals(popup.hostId, Dashboard.PopupHostId)
   }
 
   test(
-    "a live bake owner patches its header alone; the bake is document-path only"
+    "a live pick host patches its header alone; the case is document-path only"
   ) {
-    // A live SSE patch re-renders the node by id; it must bake the session's
-    // selected tab, not the default.
+    // A live SSE patch re-renders the node by id; it must not carry the
+    // session's tab.
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
         "card",
@@ -1678,24 +1658,8 @@ class RendererSuite extends munit.FunSuite {
               )
             )
           )
-        ),
+        ) + ("panel" -> Slots.tabs("tab", panel("a"), panel("b"))),
         vars = declared("tab" -> "0")
-      ),
-      surfaces = Map(
-        "c_t0" -> Surface(
-          panel("a"),
-          bakeInto = Some("c"),
-          bakeAs = Some("panel"),
-          bakeIndex = Some(0),
-          activation = Activation.Var("tab")
-        ),
-        "c_t1" -> Surface(
-          panel("b"),
-          bakeInto = Some("c"),
-          bakeAs = Some("panel"),
-          bakeIndex = Some(1),
-          activation = Activation.Var("tab")
-        )
       )
     )
     val rr = Renderer.create(d)
@@ -1728,15 +1692,13 @@ class RendererSuite extends munit.FunSuite {
       """<div class="fh-cell" id="c_bar_0"><span>Live</span></div>"""
     )
 
-    // Which member is baked lives on the document path alone, where the
+    // Which case shows lives on the document path alone, where the
     // selection still decides.
-    val dflt = rr.renderBody(states)
-    assert(dflt.contains("tab_c: 0"), clue = dflt)
+    val dflt = rr.renderBody(states, picking("c" -> 0))
     assert(dflt.contains("<span>AA</span>"), clue = dflt)
     assert(!dflt.contains("<span>BB</span>"), clue = dflt)
 
     val sel = rr.renderBody(states, picking("c" -> 1))
-    assert(sel.contains("tab_c: 1"), clue = sel)
     assert(sel.contains("<span>BB</span>"), clue = sel)
     assert(!sel.contains("<span>AA</span>"), clue = sel)
   }
@@ -1828,11 +1790,11 @@ class RendererSuite extends munit.FunSuite {
     Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
   private val ifCards =
-    // Mirrors lib/components.pkl's `If`: one baked region and no markup of its
-    // own. The region's id is `Surface.hostId`.
+    // Mirrors lib/components.pkl's `If`: one region its choice fills and no
+    // markup of its own. The region's id is `Surface.hostId`.
     cards + ("ifhost" -> TestCard(
       template = """<div id="{{hostId}}">{{{branch}}}</div>""",
-      regions = Map("branch" -> Region(Region.Baked))
+      regions = Set("branch")
     ))
 
   private def ifDashboard(withElse: Boolean = true): Dashboard = {
@@ -1846,26 +1808,19 @@ class RendererSuite extends munit.FunSuite {
         )
       )
     )
-    val members = Map(
-      "c_then" -> Surface(
-        branch("a"),
-        bakeInto = Some("c"),
-        bakeAs = Some("branch"),
-        bakeIndex = Some(0),
-        activation = Activation.State(Some(entityIs("alarm.h", "armed")))
+    Dashboard(
+      ifCards,
+      LayoutNode.Component(
+        "ifhost",
+        Map(
+          "branch" -> Slots.iff(
+            entityIs("alarm.h", "armed"),
+            branch("a"),
+            Option.when(withElse)(branch("b"))
+          )
+        )
       )
-    ) ++ (if (withElse)
-            Map(
-              "c_else" -> Surface(
-                branch("b"),
-                bakeInto = Some("c"),
-                bakeAs = Some("branch"),
-                bakeIndex = Some(1),
-                activation = Activation.State(Some(always))
-              )
-            )
-          else Map.empty)
-    Dashboard(ifCards, LayoutNode.Component("ifhost"), surfaces = members)
+    )
   }
 
   private def armedStates(alarm: String) = Map(
@@ -1875,24 +1830,23 @@ class RendererSuite extends munit.FunSuite {
   )
 
   test(
-    "resolveActiveByState picks the FIRST holding member in bakeIndex order"
+    "decideByState picks the case `by` reads, else the otherwise"
   ) {
     val r = Renderer.create(ifDashboard())
-    // The first holding member wins, though the always-true else holds too.
     assertEquals(
-      r.surfaces.resolveActiveByState("c", Shared.of(armedStates("armed"))),
+      r.surfaces.decideByState("c", Shared.of(armedStates("armed"))),
       Some(0)
     )
     assertEquals(
-      r.surfaces.resolveActiveByState("c", Shared.of(armedStates("disarmed"))),
+      r.surfaces.decideByState("c", Shared.of(armedStates("disarmed"))),
       Some(1)
     )
   }
 
-  test("resolveActiveByState: no member holds -> None; the host bakes empty") {
+  test("decideByState: no member holds -> None; the host is empty") {
     val r = Renderer.create(ifDashboard(withElse = false))
     val states = armedStates("disarmed")
-    assertEquals(r.surfaces.resolveActiveByState("c", Shared.of(states)), None)
+    assertEquals(r.surfaces.decideByState("c", Shared.of(states)), None)
     // The host still renders, empty, so a branch matching later has its patch
     // target in the DOM. Through the document path: an If is structure, so
     // `renderNodeById` refuses it.
@@ -1916,14 +1870,13 @@ class RendererSuite extends munit.FunSuite {
     val on = Conds.cmp("state", Op.Eq, Json.fromString("on"))
     def dash(cond: ValueExpr) = Dashboard(
       ifCards,
-      LayoutNode.Component("ifhost"),
-      surfaces = Map(
-        "c_t" -> Surface(
-          LayoutNode.Component("btn", Slots.values(Map("label" -> lit("x")))),
-          bakeInto = Some("c"),
-          bakeAs = Some("branch"),
-          bakeIndex = Some(0),
-          activation = Activation.State(Some(cond))
+      LayoutNode.Component(
+        "ifhost",
+        Map(
+          "branch" -> Slots.iff(
+            cond,
+            LayoutNode.Component("btn", Slots.values(Map("label" -> lit("x"))))
+          )
         )
       )
     )
@@ -1939,31 +1892,31 @@ class RendererSuite extends munit.FunSuite {
 
     val anyR = Renderer.create(dash(count(Op.Gt, 0)))
     assertEquals(
-      anyR.surfaces.resolveActiveByState("c", Shared.of(mixed)),
+      anyR.surfaces.decideByState("c", Shared.of(mixed)),
       Some(0)
     )
     assertEquals(
-      anyR.surfaces.resolveActiveByState("c", Shared.of(allOff)),
+      anyR.surfaces.decideByState("c", Shared.of(allOff)),
       None
     )
 
     val noneR = Renderer.create(dash(count(Op.Eq, 0)))
     assertEquals(
-      noneR.surfaces.resolveActiveByState("c", Shared.of(allOff)),
+      noneR.surfaces.decideByState("c", Shared.of(allOff)),
       Some(0)
     )
     assertEquals(
-      noneR.surfaces.resolveActiveByState("c", Shared.of(mixed)),
+      noneR.surfaces.decideByState("c", Shared.of(mixed)),
       None
     )
 
     val allR = Renderer.create(dash(count(Op.Eq, 2)))
     assertEquals(
-      allR.surfaces.resolveActiveByState("c", Shared.of(allOn)),
+      allR.surfaces.decideByState("c", Shared.of(allOn)),
       Some(0)
     )
     assertEquals(
-      allR.surfaces.resolveActiveByState("c", Shared.of(mixed)),
+      allR.surfaces.decideByState("c", Shared.of(mixed)),
       None
     )
 
@@ -1971,19 +1924,21 @@ class RendererSuite extends munit.FunSuite {
     // it.
     val oneR = Renderer.create(dash(entityIs("l.a", "on")))
     assertEquals(
-      oneR.surfaces.resolveActiveByState("c", Shared.of(mixed)),
+      oneR.surfaces.decideByState("c", Shared.of(mixed)),
       Some(0)
     )
     assertEquals(
-      oneR.surfaces.resolveActiveByState("c", Shared.of(allOff)),
+      oneR.surfaces.decideByState("c", Shared.of(allOff)),
       None
     )
   }
 
-  test("state members bake by condition and never enter selectedSurfaces") {
+  test(
+    "a choice over state shows by condition and never enter selectedSurfaces"
+  ) {
     val r = Renderer.create(ifDashboard())
     val bodyArmed = r.renderBody(armedStates("armed"))
-    assert(bodyArmed.contains("""id="s_c_then__c""""), clue = bodyArmed)
+    assert(bodyArmed.contains("""id="s_c_t0__c""""), clue = bodyArmed)
     assert(bodyArmed.contains("<span>A</span>"), clue = bodyArmed)
     assert(!bodyArmed.contains("<span>B</span>"), clue = bodyArmed)
     val bodyElse = r.renderBody(armedStates("disarmed"))
@@ -1992,11 +1947,11 @@ class RendererSuite extends munit.FunSuite {
     // State members never seed a session's open set; their liveness is the
     // shared pass's job.
     assertEquals(r.surfaces.selectedSurfaces(), Set.empty[String])
-    assertEquals(r.surfaces.stateBakeOwnerIds, Set("c"))
-    assertEquals(r.surfaces.varBakeOwnerIds, Set.empty[String])
+    assertEquals(r.surfaces.statePicks, Set("c"))
+    assertEquals(r.surfaces.varPicks, Set.empty[String])
     val tabs = Renderer.create(tabsDashboard)
-    assertEquals(tabs.surfaces.varBakeOwnerIds, Set("c"))
-    assertEquals(tabs.surfaces.stateBakeOwnerIds, Set.empty[String])
+    assertEquals(tabs.surfaces.varPicks, Set("c"))
+    assertEquals(tabs.surfaces.statePicks, Set.empty[String])
   }
 
   /** Without declaring the region, a template splicing `{{#children}}` reads as
@@ -2040,7 +1995,7 @@ class RendererSuite extends munit.FunSuite {
     val declared = dash(
       TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       )
     )
     assertEquals(declared.validate(), Nil)
@@ -2076,14 +2031,14 @@ class RendererSuite extends munit.FunSuite {
       "host" -> TestCard(
         template = """{{{head}}}""" +
           """<div>{{{children}}}</div>""",
-        regions = Map("head" -> Region(), "children" -> Region())
+        regions = Set("head", "children")
       ),
       "head" -> TestCard("""<span>{{state}}</span>"""),
       // A member that is itself a container broke this when the answer was a
       // walk over what the children carried.
       "member" -> TestCard(
         template = """<div>m{{{children}}}</div>""",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       )
     )
     val r = Renderer.create(
@@ -2132,74 +2087,37 @@ class RendererSuite extends munit.FunSuite {
 
   test("state surfaces are transparent to visibility, user surfaces are not") {
     // Two chains off the main page, each two surfaces deep:
-    //   main -> t0 (user)  -> if host -> b0 (state)
-    //   main -> sx (state) -> tabs    -> u0 (user)
+    //   main -> c_0_t0 (tab)   -> if host -> b0 (state)
+    //   main -> c_1_t0 (state) -> tabs    -> u0 (tab)
+    def card(e: String) = LayoutNode.Component(
+      "card",
+      Slots.values(
+        Map("state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e)))))
+      )
+    )
+    def tabs(panel: LayoutNode) = LayoutNode.Component(
+      "tabs",
+      Map("panel" -> Slots.tabs("tab", panel)),
+      vars = declared("tab" -> "0")
+    )
+    def ifHost(branch: LayoutNode) =
+      LayoutNode.Component("ifhost", Map("branch" -> Slots.iff(always, branch)))
     val d = Dashboard(
       ifCards,
-      col(
-        // c_0 — hosts the tab panel t0
-        LayoutNode.Component("tabs", vars = declared("tab" -> "0")),
-        LayoutNode.Component("ifhost") // c_1 — hosts the state surface sx
-      ),
-      surfaces = Map(
-        "t0" -> Surface(
-          LayoutNode.Component("ifhost"),
-          bakeInto = Some("c_0"),
-          bakeAs = Some("panel"),
-          bakeIndex = Some(0),
-          activation = Activation.Var("tab")
-        ),
-        "b0" -> Surface(
-          LayoutNode.Component(
-            "card",
-            Slots.values(
-              Map(
-                "state" -> TemplateSlot(
-                  ValueExpr(Value.Entity(Some("s.a")))
-                )
-              )
-            )
-          ),
-          bakeInto = Some("s_t0__c"),
-          bakeAs = Some("branch"),
-          bakeIndex = Some(0),
-          activation = Activation.State(Some(always))
-        ),
-        "sx" -> Surface(
-          LayoutNode.Component("tabs", vars = declared("tab" -> "0")),
-          bakeInto = Some("c_1"),
-          bakeAs = Some("branch"),
-          bakeIndex = Some(0),
-          activation = Activation.State(Some(always))
-        ),
-        "u0" -> Surface(
-          LayoutNode.Component(
-            "card",
-            Slots.values(
-              Map(
-                "state" -> TemplateSlot(
-                  ValueExpr(Value.Entity(Some("s.b")))
-                )
-              )
-            )
-          ),
-          bakeInto = Some("s_sx__c"),
-          bakeAs = Some("panel"),
-          bakeIndex = Some(0),
-          activation = Activation.Var("tab")
-        )
-      )
+      col(tabs(ifHost(card("s.a"))), ifHost(tabs(card("s.b"))))
     )
     val r = Renderer.create(d)
     def shown(id: String, open: Set[String]) =
       r.surfaces.visibleNode(NodeId.derived(id), open, Shared.of(Map.empty))
 
-    // A state surface hides nothing, so b0 is shown exactly when the user tab
-    // above it is open, which `s_b0__c` cannot say.
-    assert(shown("s_b0__c", Set("t0")))
-    assert(!shown("s_b0__c", Set.empty))
-    assert(shown("s_u0__c", Set("u0")))
-    assert(!shown("s_u0__c", Set.empty))
+    // A state case hides nothing, so b0 is shown exactly when the tab above it
+    // is open, which its id cannot say.
+    val b0 = "s_s_c_0_t0__c_t0__c"
+    val u0 = "s_s_c_1_t0__c_t0__c"
+    assert(shown(b0, Set("c_0_t0")))
+    assert(!shown(b0, Set.empty))
+    assert(shown(u0, Set("s_c_1_t0__c_t0")))
+    assert(!shown(u0, Set.empty))
     assert(shown("c", Set.empty))
   }
 
@@ -2265,11 +2183,10 @@ class RendererSuite extends munit.FunSuite {
     * `children` the rest.
     */
   private val splitCards = cards + ("split" -> TestCard(
-    // No `{{hostId}}`: a region needs an id only where `bakeAs` names it for
-    // filling.
+    // No `{{hostId}}`: a region needs an id only where a choice fills it.
     template = """<div class="fh-col">{{{bar}}}""" +
       """<div class="panel">{{{children}}}</div></div>""",
-    regions = Map("bar" -> Region(), "children" -> Region())
+    regions = Set("bar", "children")
   )) + ("bar" -> TestCard(
     """<div class="bar">{{state}}</div>"""
   ))

@@ -141,22 +141,34 @@ object Ready:
       styleSlots: List[fh.view.model.Cell.Entry]
   )
 
-  enum Activation:
-    case User(defaultOpen: Boolean)
-    case Var(name: String, at: VarAt)
-    case State(condition: Option[Condition])
-
+  /** A popup (`defaultOpen` from its activation), or a pick's case. */
   final case class Surface(
       content: Node,
-      bakeInto: Option[NodeId],
-      bakeAs: Option[String],
-      bakeIndex: Option[Int],
-      activation: Activation,
-      clause: Option[Int]
-  ) extends fh.view.model.Surface.Placed:
-    def selects: Option[VarAt] = activation match
-      case Activation.Var(_, at) => Some(at)
-      case _                     => None
+      pick: Option[fh.view.model.Surface.InPick],
+      defaultOpen: Boolean
+  ) extends fh.view.model.Surface.Placed
+
+  /** A choice ready to decide: `by` read once and its case looked up
+    * ([[decide]]). A `by` that is a node `variable` is decided per viewer, by a
+    * lookup of its value; any other reads state, once per version. `members`:
+    * the cases' surface ids, the otherwise's last.
+    */
+  final case class Pick(
+      by: Condition,
+      variable: Option[String],
+      members: Vector[String],
+      byKey: Map[Any, Int],
+      otherwise: Option[Int]
+  ):
+    /** The member `read` picks: the case keyed by it, else the otherwise, else
+      * none. Keyed by the raw value, as [[MemberChoice.pick]] is.
+      */
+    def decide(read: Any): Option[Int] =
+      (read match
+        case i: java.lang.Integer =>
+          byKey.get(java.lang.Long.valueOf(i.longValue))
+        case _ => byKey.get(read)
+      ).orElse(otherwise)
 
   /** A declared call ready to run at the press. */
   sealed trait Call:
@@ -204,13 +216,15 @@ object Ready:
           .traverse(k => scope.program(k).map(k -> _)),
         d.choiceBys.traverse(by =>
           Evaluator.compile(by, scope).map(by.inputKey -> _.run)
-        )
-      ).mapN((card, surfaces, calls, initials, choices) =>
+        ),
+        d.picks.toList.traverse((gid, p) => pick(p).map(gid -> _))
+      ).mapN((card, surfaces, calls, initials, choices, picks) =>
         Dashboard(
           d.cards,
           card,
           d.theme,
           surfaces.toMap,
+          picks.toMap,
           d.slug,
           d.title,
           d.css,
@@ -315,16 +329,25 @@ object Ready:
           )
         )
     def surface(s: fh.view.model.Surface): Built[Surface] =
-      (node(s.content), activation(s.activation)).mapN((content, a) =>
-        Surface(content, s.bakeInto, s.bakeAs, s.bakeIndex, a, s.clause)
+      node(s.content).map(content =>
+        Surface(
+          content,
+          s.pick,
+          s.activation match
+            case fh.view.model.Activation.User(d) => d
+        )
       )
 
-    private def activation(a: fh.view.model.Activation): Built[Activation] =
-      a match
-        case fh.view.model.Activation.User(d)    => Right(Activation.User(d))
-        case fh.view.model.Activation.Var(n, at) => Right(Activation.Var(n, at))
-        case fh.view.model.Activation.State(c)   =>
-          c.traverse(condition).map(Activation.State(_))
+    def pick(p: fh.view.model.Dashboard.Pick): Built[Pick] =
+      condition(p.choice.by).map(by =>
+        Pick(
+          by,
+          Choice.plainVariable(p.choice.by),
+          p.members.toVector,
+          p.choice.cases.zipWithIndex.map((k, i) => k.is.raw -> i).toMap,
+          p.choice.otherwise.map(_ => p.choice.cases.size)
+        )
+      )
 
     private def call(decl: CallDecl): Built[Call] = decl match
       case d: CallDecl.Service => service(d)
@@ -371,6 +394,7 @@ object Ready:
       card: Node,
       theme: Theme,
       surfaces: Map[String, Surface],
+      picks: Map[NodeId, Pick],
       slug: String,
       title: Option[String],
       css: String,

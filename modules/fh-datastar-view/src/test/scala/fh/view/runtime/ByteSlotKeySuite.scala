@@ -15,21 +15,19 @@ import cats.syntax.traverse.*
 import fh.view.model.{
   Part,
   SlotKey,
-  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
   Op,
-  Region,
   SignalBind,
   Step,
   Value,
   ValueExpr,
   TemplateSlot,
-  Surface
+  Slot
 }
-import fh.view.testkit.DashboardBuilders.{col, lit, st}
+import fh.view.testkit.DashboardBuilders.{col, declared, lit, st}
 import fh.view.testkit.TestIds.{setId, given}
 import io.circe.Json
 
@@ -49,17 +47,17 @@ class ByteSlotKeySuite extends munit.FunSuite {
   private val cards = Sets.cards ++ Map(
     "col" -> TestCard(
       """<div>{{{children}}}</div>""",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     ),
     "card" -> TestCard(
       """<div><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
     ),
-    // A bake owner beside a live leaf: an owner holds regions, so it is
-    // structure and never cached, and the leaf cannot see the selection.
+    // A choice beside a live leaf: its host holds regions, so it is
+    // structure and never cached, and the leaf cannot see the choice.
     "banner" -> TestCard(
       template =
-        """<div><i>{{bakeIndex}}</i>{{{bar}}}<div id="{{hostId}}">{{{branch}}}</div></div>""",
-      regions = Map("bar" -> Region(), "branch" -> Region(Region.Baked))
+        """<div>{{{bar}}}<div id="{{hostId}}">{{{branch}}}</div></div>""",
+      regions = Set("bar", "branch")
     ),
     "bannerBar" -> TestCard("""<b>{{title}}</b>"""),
     "btn" -> TestCard("""<button>{{label}}</button>"""),
@@ -100,10 +98,13 @@ class ByteSlotKeySuite extends munit.FunSuite {
       value = Json.fromInt(0)
     )
 
-  /** `c_2` is a banner bound to sensor.t whose bake group is chosen by a count
-    * of the lights: inputs that appear nowhere in its `entitiesForNode`. `c_3`
-    * is a candidate group over lights.
+  /** `c_2` is a banner bound to sensor.t whose choice is decided by a count of
+    * the lights: inputs that appear nowhere in its `entitiesForNode`. `c_3` is
+    * a candidate group over lights.
     */
+  private val branch =
+    Slots.iff(anyLightOn, bound("sensor.a"), Some(bound("sensor.b")))
+
   private val dashboard = Dashboard(
     cards,
     col(
@@ -126,7 +127,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
               )
             )
           )
-        )
+        ) + ("branch" -> branch)
       ),
       Sets.node(
         candidates = List("light.a", "light.b"),
@@ -177,22 +178,6 @@ class ByteSlotKeySuite extends munit.FunSuite {
           )
         )
       )
-    ),
-    surfaces = Map(
-      "lit" -> Surface(
-        bound("sensor.a"),
-        bakeInto = Some("c_2"),
-        bakeAs = Some("branch"),
-        bakeIndex = Some(0),
-        activation = Activation.State(Some(anyLightOn))
-      ),
-      "dark" -> Surface(
-        bound("sensor.b"),
-        bakeInto = Some("c_2"),
-        bakeAs = Some("branch"),
-        bakeIndex = Some(1),
-        activation = Activation.State()
-      )
     )
   )
 
@@ -228,7 +213,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
         Some(java.time.Instant.parse("2026-08-04T10:00:00Z"))
       ),
     st("sensor.other", "2"),
-    // Flips c_2's bake group and changes a set member's case.
+    // Flips c_2's choice and changes a set member's case.
     st("light.a", "on"),
     // The adversarial step: an entity c_2 does not bind, leaving the count's
     // comparison where it was. Neither its bytes nor its key may move.
@@ -337,7 +322,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
     // Without this the cache would miss on every HA reconnect.
     assertEquals(key("c_0", 1), key("c_0", 2))
     assertEquals(key("c_0", 2), key("c_0", 3))
-    // Not `c_2`: a bake owner is structure and has no key (below).
+    // Not `c_2`: a choice's host is structure and has no key (below).
   }
 
   test("an absent entity keys differently from any version it could hold") {
@@ -379,14 +364,14 @@ class ByteSlotKeySuite extends munit.FunSuite {
     )
   }
 
-  /** A bake owner that reads an entity itself, as a signal: structure cannot
+  /** A choice's host that reads an entity itself, as a signal: structure cannot
     * carry live bytes (`validate`).
     */
   private val tabsOwner: Dashboard =
     Dashboard(
       cards + ("signalBanner" -> cards("banner").copy(
         template = cards("banner").template
-          .replace("<i>", "<b {{{title.bind}}}></b><i>")
+          .replace("{{{bar}}}", "<b {{{title.bind}}}></b>{{{bar}}}")
       )),
       LayoutNode.Component(
         "signalBanner",
@@ -404,14 +389,16 @@ class ByteSlotKeySuite extends munit.FunSuite {
                 .Component("btn", Slots.values(Map("label" -> lit("A"))))
             )
           )
-        )
-      ),
-      surfaces = dashboard.surfaces.map { case (sid, s) =>
-        sid -> s.copy(bakeInto = Some("c"))
-      }
+        ) + ("branch" -> Slots.tabs(
+          "tab",
+          bound("sensor.a"),
+          bound("sensor.b")
+        )),
+        vars = declared("tab" -> "0")
+      )
     )
 
-  test("a bake owner with a live signal of its own has no key either") {
+  test("a choice's host with a live signal of its own has no key either") {
     val tabs = Renderer.create(tabsOwner)
     assertEquals(
       tabs.byteSlotValues(
@@ -452,16 +439,14 @@ class ByteSlotKeySuite extends munit.FunSuite {
     )
   }
 
-  /** '''No cacheable node owns a bake group.''' The key is byte-slot values
-    * only, so two viewers on two tabs would otherwise share one entry. It holds
-    * because `Dashboard.validate` requires a `bakeInto` target to declare a
-    * baked region, and a card with a region is structure: the join of two rules
-    * in different files, true until one is relaxed for a good local reason.
+  /** '''No cacheable node owns a pick.''' The key is byte-slot values only, so
+    * two viewers on two tabs would otherwise share one entry. It holds because
+    * a choice fills a nodes slot, and a card with one is structure.
     */
-  test("no cacheable node owns a bake group") {
+  test("no cacheable node owns a pick") {
     def check(label: String, r: Renderer, states: Map[String, EntityState]) = {
-      val owners = r.surfaces.varBakeOwnerIds ++ r.surfaces.stateBakeOwnerIds
-      assert(owners.nonEmpty, s"$label exercises no bake group at all")
+      val owners = r.surfaces.varPicks ++ r.surfaces.statePicks
+      assert(owners.nonEmpty, s"$label exercises no pick at all")
       owners.foreach(id =>
         assertEquals(
           r.byteSlotValues(
@@ -470,13 +455,13 @@ class ByteSlotKeySuite extends munit.FunSuite {
             fragments = FetchSnapshot.empty
           ),
           None,
-          s"$label: bake owner '$id' has a cache key, but its bytes can carry " +
+          s"$label: pick host '$id' has a cache key, but its bytes can carry " +
             "the viewer's selection"
         )
       )
     }
-    // Both activation kinds, since only one reads the viewer: `dashboard` is
-    // state-activated, `tabsOwner` user-selected.
+    // Both kinds, since only one reads the viewer: `dashboard` is decided by
+    // state, `tabsOwner` by a variable.
     check("state-activated", renderer, line.head)
     check("user-selected", Renderer.create(tabsOwner), line.head)
   }

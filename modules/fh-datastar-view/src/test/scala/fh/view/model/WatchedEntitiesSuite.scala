@@ -100,57 +100,59 @@ class WatchedEntitiesSuite extends munit.FunSuite {
     )
   }
 
-  test("a surface's state activation is watched") {
-    // The flip's deciding entity: it chooses which panel is baked in and is
-    // rendered by nothing at all.
+  private val host = Map(
+    "host" -> TestCard(
+      """<div id="{{hostId}}">{{{armed}}}</div>""",
+      Set("armed")
+    )
+  )
+
+  private def hostOf(cond: ValueExpr, shown: LayoutNode) =
+    LayoutNode.Component("host", Map("armed" -> Slots.iff(cond, shown)))
+
+  test("a choice's deciding entity is watched") {
+    // It chooses which case is shown and is rendered by nothing at all.
     val alarm = "alarm_control_panel.house"
     val dash = Dashboard(
-      cards = Sets.cards ++ tile,
-      card = tileNode("light.a"),
-      surfaces = Map(
-        "armed" -> Surface(
-          content = tileNode("light.b"),
-          bakeInto = Some(NodeId.derived("host")),
-          bakeAs = Some("armed"),
-          bakeIndex = Some(0),
-          activation = Activation.State(Some(onEntity(alarm)))
-        )
-      )
-    )
+      cards = Sets.cards ++ tile ++ host,
+      card = hostOf(onEntity(alarm), tileNode("light.b"))
+    ).lowered
 
     assert(dash.watchedEntities.contains(alarm), clue = dash.watchedEntities)
     assert(!dash.referencedEntities.contains(alarm))
-    // A surface's CONTENT is still watched — this widens the set, it does not
+    // A case's CONTENT is still watched — this widens the set, it does not
     // move it.
     assert(dash.watchedEntities.contains("light.b"))
   }
 
   test("watchedEntities is a superset of referencedEntities") {
     val dash = Dashboard(
-      cards = Sets.cards ++ tile,
-      card = Sets.node(
-        candidates = List("light.a", "light.b"),
-        members = Map(
-          "light.a" -> Sets.Member(
-            List(Sets.Clause(Some(whileOn), tileNode("light.a")))
-          ),
-          "light.b" -> Sets.Member(
-            List(
-              Sets.Clause(
-                Some(onEntity("binary_sensor.h")),
-                tileNode("light.b")
+      cards = Sets.cards ++ tile ++ host ++ Map(
+        "col" -> TestCard("{{{children}}}", Set("children"))
+      ),
+      card = LayoutNode.Component(
+        "col",
+        Slots.kids(
+          Sets.node(
+            candidates = List("light.a", "light.b"),
+            members = Map(
+              "light.a" -> Sets.Member(
+                List(Sets.Clause(Some(whileOn), tileNode("light.a")))
+              ),
+              "light.b" -> Sets.Member(
+                List(
+                  Sets.Clause(
+                    Some(onEntity("binary_sensor.h")),
+                    tileNode("light.b")
+                  )
+                )
               )
             )
-          )
-        )
-      ),
-      surfaces = Map(
-        "s" -> Surface(
-          content = tileNode("light.c"),
-          activation = Activation.State(Some(onEntity("alarm_control_panel.p")))
+          ),
+          hostOf(onEntity("alarm_control_panel.p"), tileNode("light.c"))
         )
       )
-    )
+    ).lowered
 
     // The relationship, not a hand-written list: whatever the walks grow to
     // cover, subscribing to `watchedEntities` must never drop an entity the

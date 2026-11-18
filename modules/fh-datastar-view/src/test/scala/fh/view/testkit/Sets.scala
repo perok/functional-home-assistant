@@ -35,7 +35,7 @@ object Sets:
   /** `.build()`'s root, as `core/group.pkl` lowers it. */
   val card: CardDef = CardDef(
     """<div class="fh-cell fh-group{{{cellClasses}}}"{{{cell}}}>{{{children}}}</div>""",
-    regions = Map(SlotName -> fh.view.model.Region())
+    regions = Set(SlotName)
   )
 
   /** The group card by its name, for a dashboard's `cards`. */

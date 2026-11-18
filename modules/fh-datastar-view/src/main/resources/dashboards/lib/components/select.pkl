@@ -12,11 +12,11 @@
 /// 0033). Each option is a node of its own, so a press dims only the option
 /// pressed (ADR 0019).
 ///
-/// Over a variable, the cycle and the dropdown's label are bake groups selected
+/// Over a variable, the cycle and the dropdown's label are choices picked
 /// by its value, so the first HTML shows the chosen option; the buttons are lit
 /// by the client, as a tab bar's are. The server refuses a choice nothing on the
 /// page reads, so `buttons` over a variable needs a reader: a chart's
-/// `.over((p) -> p.history.chosen(v, table))`, a bake group.
+/// `.over((p) -> p.history.chosen(v, table))`, a chosen window.
 module components.select
 
 import "../core/choice.pkl" as choiceMod
@@ -73,7 +73,7 @@ const local function entityCall(o: hass.Options, v: String): tapMod.Call =
   tapMod.call(o.service, o.owner).with(o.key, v)
 
 // Each option is a node in the default nodes slot, so the card is structure: a
-// patch of the select never re-sends them. A variable's panel is baked.
+// patch of the select never re-sends them. A variable's panel is a choice.
 const local panelSlot: slotMod.NodesSlot = slotMod.nodes("panel")
 const local barSlot: slotMod.NodesSlot = slotMod.nodes("bar")
 
@@ -227,8 +227,8 @@ class SelectDropdown extends Select {
   }
 }
 
-/// [[SelectDropdown]] over a node variable: its label is one member per option,
-/// baked by the variable's value.
+/// [[SelectDropdown]] over a node variable: its label is one case per option,
+/// picked by the variable's value.
 class VarSelectDropdown extends Select {
   hidden target: varMod.Variable
   card = "selectVarDropdown"
@@ -262,7 +262,7 @@ class SelectCycle extends Select {
   cycling = true
 }
 
-/// [[SelectCycle]] over a node variable: one member per option, baked by the
+/// [[SelectCycle]] over a node variable: one case per option, picked by the
 /// variable's value, so only the chosen option's button is sent.
 class VarSelectCycle extends Select {
   hidden target: varMod.Variable

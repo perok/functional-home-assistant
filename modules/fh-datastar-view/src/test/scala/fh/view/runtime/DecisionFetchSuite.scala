@@ -87,7 +87,7 @@ class DecisionFetchSuite extends munit.FunSuite {
       "call" -> TestCard("""<button data-call="{{{tap.callId}}}"></button>"""),
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map(LayoutNode.DefaultRegion -> Region())
+        regions = Set(LayoutNode.DefaultRegion)
       )
     ),
     card = LayoutNode.Component(
@@ -200,24 +200,20 @@ class DecisionFetchSuite extends munit.FunSuite {
     assert(!order(empty))
   }
 
-  test("a state surface's condition reads a fetch") {
-    val surface = Surface(
-      item("shown"),
-      bakeInto = Some(NodeId.derived("c")),
-      bakeAs = Some("t0"),
-      bakeIndex = Some(0),
-      activation = Activation.State(Some(hasPast))
-    )
-    assertEquals(
-      dashboard().copy(surfaces = Map("t0" -> surface)).decisionFetches,
-      List("surface 't0''s condition" -> history)
-    )
-    val g = new SurfaceGraph(
-      Map(
-        "t0" -> Conds.compiled(
-          Ready.Compile(Evaluator.Scope("")).surface(surface)
+  test("a choice over state reads a fetch") {
+    val d = dashboard()
+      .copy(card =
+        LayoutNode.Component(
+          "col",
+          Map(LayoutNode.DefaultRegion -> Slots.iff(hasPast, item("shown")))
         )
-      ),
+      )
+      .lowered
+    assertEquals(d.decisionFetches, List("the choice at 'c'" -> history))
+    val ready = Conds.compiled(Ready.Compile(Evaluator.Scope("")).dashboard(d))
+    val g = new SurfaceGraph(
+      ready.surfaces,
+      ready.picks,
       Map.empty,
       new MemberGraph(Map.empty, Map.empty)
     )
@@ -225,11 +221,11 @@ class DecisionFetchSuite extends munit.FunSuite {
     val read = SlotAsk(history, Step.Json).fixed
     def branch(have: FetchSnapshot) = {
       val run = Shared.Run(have)
-      g.resolveActiveByState(gid, Shared.of(states()).asking(run)) -> run.needs
+      g.decideByState(gid, Shared.of(states()).asking(run)) -> run.needs
     }
     assert(
       intercept[FHError](
-        g.resolveActiveByState(gid, Shared.of(states()))
+        g.decideByState(gid, Shared.of(states()))
       ).getMessage
         .contains("outside a run")
     )

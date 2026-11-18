@@ -79,7 +79,7 @@ object VarKey:
   *   the model's ([[Dashboard.varScopes]]), every node with one, each set
   *   member included under its own id.
   * @param panelsSelected
-  *   each variable-selected bake group, by the variable choosing its member.
+  *   each pick over a variable, by the variable deciding it.
   * @param readsAt
   *   the variables a node reads, by its fetches or its slots, a member's whole
   *   subtree included.

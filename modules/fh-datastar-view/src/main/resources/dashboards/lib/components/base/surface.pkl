@@ -33,7 +33,7 @@ class TabButton extends nodeMod.Node {
 
 const local labelSlot: slotMod.Slot = slotMod.slot("label")
 
-/// The slot holding the panel the open tab is baked into.
+/// The slot holding the open tab's panel.
 const local panelSlot: slotMod.NodesSlot = slotMod.nodes("panel")
 
 /// The tab choosing `choice` for `v`, lit while `v` holds it: every button bar
@@ -47,8 +47,8 @@ const function tabButton(v: varMod.Variable, choice: varMod.Value, text: String)
 }).cellClassWhen("fh-chosen", v.valueIs(choice))
 
 /// A tab bar over one panel. It declares the node variable `tab`, the open
-/// tab's index; each tab's cards become a branch of a match over it, baked into
-/// the panel and selected by it, and each button writes it (ADR 0033). The server
+/// tab's index; each tab's cards become a case of a match over it, filling
+/// the panel, and each button writes it (ADR 0033). The server
 /// commits `_var_<id>__tab` once the panel is in, the bar's cell mirrors it into
 /// the URL as `v.<id>.tab`, and a refresh restores the tab without a flash.
 class Tabs extends nodeMod.Node {

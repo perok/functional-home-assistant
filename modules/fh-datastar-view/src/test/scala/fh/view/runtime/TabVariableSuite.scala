@@ -5,17 +5,8 @@ import fh.view.testkit.Slots
 import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.{
-  Activation,
-  CardDef,
-  Dashboard,
-  LayoutNode,
-  NodeId,
-  Region,
-  Surface
-}
+import fh.view.model.{CardDef, Dashboard, LayoutNode, NodeId, Slot}
 import fh.view.testkit.FixtureEntity
-import fh.view.testkit.TestIds.given
 import fh.view.testkit.DashboardBuilders
 import fh.view.testkit.DashboardBuilders.declared
 import org.http4s.*
@@ -23,26 +14,19 @@ import org.http4s.*
 import scala.concurrent.duration.*
 
 /** A tab bar's selection as a node variable (issue #209, step 4): the bar
-  * declares `tab`, its panel's bake group is selected by it, and a press is a
-  * variable write that swaps the panel.
+  * declares `tab`, its panel is a choice over it, and a press is a variable
+  * write that swaps the panel.
   */
 class TabVariableSuite extends ServerHarness {
 
   private val barCard = TestCard(
     """<div id="{{hostId}}">{{{buttons}}}{{{panel}}}</div>""",
-    regions = Map("panel" -> Region(Region.Baked), "buttons" -> Region())
+    regions = Set("panel", "buttons")
   )
   private val textCard = TestCard("<p>{{text}}</p>")
 
-  private def panel(i: Int, text: String) =
-    Surface(
-      LayoutNode
-        .Component("text", slots = Slots.values(Map("text" -> lit(text)))),
-      bakeInto = Some("bar"),
-      bakeAs = Some("panel"),
-      bakeIndex = Some(i),
-      activation = Activation.Var("tab")
-    )
+  private def text(t: String) =
+    LayoutNode.Component("text", slots = Slots.values(Map("text" -> lit(t))))
 
   private def lit(s: String) =
     fh.view.model.TemplateSlot(fh.view.model.ValueExpr.literal(s))
@@ -57,7 +41,7 @@ class TabVariableSuite extends ServerHarness {
         if (vars.contains("tab"))
           Map("buttons" -> DashboardBuilders.choices("tab", "0", "1", "5"))
         else Map.empty
-      )
+      ) + ("panel" -> Slots.tabs("tab", text("first"), text("second")))
     )
 
   private val dash = Dashboard(
@@ -66,8 +50,7 @@ class TabVariableSuite extends ServerHarness {
       "text" -> textCard,
       DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard
     ),
-    card = barNode(Map("tab" -> "0")),
-    surfaces = Map("t0" -> panel(0, "first"), "t1" -> panel(1, "second"))
+    card = barNode(Map("tab" -> "0"))
   )
 
   private def served[A](f: TestServer => IO[A]): IO[A] =
@@ -97,7 +80,10 @@ class TabVariableSuite extends ServerHarness {
         sent <- drain(session)
       } yield {
         assertEquals(result._1, Status.NoContent)
-        assertEquals(open.map(_.intersect(Set("t0", "t1"))), Some(Set("t1")))
+        assertEquals(
+          open.map(_.intersect(Set("bar_t0", "bar_t1"))),
+          Some(Set("bar_t1"))
+        )
         assert(sent.contains("second"), clue = sent)
         assert(sent.contains("\"_var_bar__tab\":\"1\""), clue = sent)
         assert(!sent.contains("ui_bar"), clue = sent)
@@ -142,7 +128,7 @@ class TabVariableSuite extends ServerHarness {
     served { ts =>
       for {
         conn <- ts.load().map(_.conn)
-        result <- post(ts, conn, s"sse/surface/${ts.slug}/open/t1")
+        result <- post(ts, conn, s"sse/surface/${ts.slug}/open/bar_t1")
       } yield {
         assertEquals(result._1, Status.Ok)
         assert(result._2.contains("node variable"), clue = result._2)
@@ -162,17 +148,19 @@ class TabVariableSuite extends ServerHarness {
     )
   }
 
-  test("a bar's variable must be declared at the bar, as a member index") {
+  test("a bar's variable must be declared at the bar, at a value a tab takes") {
     val undeclared = dash.copy(card = barNode(Map.empty))
     assert(
       undeclared
         .validate()
-        .exists(_.contains("which no node at or above it declares")),
+        .exists(_.contains("which no ancestor declares")),
       clue = undeclared.validate()
     )
     val outside = dash.copy(card = barNode(Map("tab" -> "2")))
     assert(
-      outside.validate().exists(_.contains("not a member index (0..1)")),
+      outside
+        .validate()
+        .exists(_.contains("declared '2', which no case takes")),
       clue = outside.validate()
     )
     assertEquals(dash.validate(), Nil)

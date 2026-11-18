@@ -229,13 +229,13 @@ abstract class Node extends LayoutNode {
   /// The nodes each nodes slot holds, by name: empty ones too.
   hidden regions: Mapping<String, Listing<LayoutNode>> =
     nodesSlots.toMap((s) -> s.name, (s) -> s.nodes).toMapping()
-  /// Each nodes slot's name and whether a surface fills it.
-  hidden nodesDeclared: Map<String, Boolean> =
-    nodesSlots.toMap((s) -> s.name, (s) -> s.bakedBy)
+  /// Each nodes slot's name.
+  hidden nodesDeclared: Set<String> =
+    nodesSlots.map((s) -> s.name).toSet()
   /// [[slots]] as the wire holds them, by name: every value slot that is set
   /// and every nodes slot holding nodes. `slots` is the author's name for them.
   fixed wireSlots: Mapping<String, Any> =
-    if (!children.isEmpty && !nodesDeclared.containsKey(slotMod.childrenSlot.name))
+    if (!children.isEmpty && !nodesDeclared.contains(slotMod.childrenSlot.name))
       throw("card '\(card)' places no `children` nodes slot, so the children given to it would never render")
     else if (nodesSlots.any((s) -> s.set != null && cardDef.template != s.toString()))
       throw("card '\(card)': a set must be its card's whole template (`\(nodesSlots.findOrNull((s) -> s.set != null))` and nothing else): its members are placed relative to each other, so a fixed sibling in the same element would need anchors — put the set in a `group` of its own")
@@ -376,21 +376,18 @@ class CardDef {
 /// space) and `cell` (the id, the signal seed, the cell bindings).
 class WireCard {
   template: String
-  /// The card's nodes slots: each name, and `fill = "baked"` for one a surface
-  /// fills. Null on a leaf.
-  regions: Mapping<String, Map<String, String>>?
+  /// The card's nodes slots' names. Null on a leaf.
+  regions: List<String>?
   css: String
   script: String?
   layoutCell: Boolean?
 }
 
-const local function wireCard(d: CardDef, nodesSlots: Map<String, Boolean>): WireCard = new {
+const local function wireCard(d: CardDef, nodesSlots: Set<String>): WireCard = new {
   template =
     let (cls = (if (d.layoutCell) List("fh-cell") else List()) + (if (d.classes.isEmpty) List() else List(d.classes)))
       "<\(d.tag) class=\"\(cls.join(" ")){{{cellClasses}}}\"{{{cell}}}\(if (d.attrs.isEmpty) "" else " " + d.attrs)>\(d.template)</\(d.tag)>"
-  regions =
-    if (nodesSlots.isEmpty) null
-    else nodesSlots.mapValues((_, baked) -> if (baked) Map("fill", "baked") else Map()).toMapping()
+  regions = if (nodesSlots.isEmpty) null else nodesSlots.toList().sort()
   css = d.css
   script = d.script
   layoutCell = if (d.layoutCell) null else false
@@ -507,7 +504,7 @@ const function cardsIn(roots: List<LayoutNode>): Mapping<String, WireCard> =
         else if (declared.length != 1)
           throw("card '\(name)' has \(declared.length) different sets of nodes slots: its class must list the same ones in `slots` on every node")
         else
-          let (unplaced = declared.first.keys.filter((n) -> !defs.first.template.contains("{{{\(n)}}}")))
+          let (unplaced = declared.first.filter((n) -> !defs.first.template.contains("{{{\(n)}}}")))
             if (unplaced.isEmpty) wireCard(defs.first, declared.first)
             else throw("card '\(name)': nodes slot \(unplaced.toList().map((n) -> "'\(n)'").join(", ")) is never placed — its template has no {{{\(unplaced.first)}}}"))
     .toMapping()

@@ -1,12 +1,12 @@
 package fh.view.runtime
 
 import fh.view.testkit.TestCard
+import fh.view.testkit.Slots
 import fh.view.runtime.RendererTestOps.*
 
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{
-  Activation,
   CallDecl,
   CallField,
   CardDef,
@@ -14,7 +14,6 @@ import fh.view.model.{
   IdKind,
   LayoutNode,
   NodeId,
-  Region,
   SlotValue,
   Surface,
   Theme,
@@ -24,7 +23,6 @@ import fh.view.model.{
 }
 import fh.view.testkit.DashboardBuilders.declared
 import fh.view.testkit.PklFixture
-import fh.view.testkit.TestIds.given
 import io.circe.JsonObject
 import scala.collection.immutable.ListMap
 import org.http4s.*
@@ -83,7 +81,7 @@ class ServerRoutesSuite extends ServerHarness {
     val env = r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "1"))
     val selections = r.surfaces.selections(None, env)
     assertEquals(r.surfaces.selectedSurfaces(selections), Set("c_t1"))
-    assert(r.renderBody(Map.empty, selections).contains("tab_c: 1"))
+    assert(r.renderBody(Map.empty, selections).contains("""id="s_c_t1__c""""))
     assert(
       r.surfaces.selectionAnomalies(env).isEmpty,
       clue = r.surfaces.selectionAnomalies(env)
@@ -91,14 +89,15 @@ class ServerRoutesSuite extends ServerHarness {
   }
 
   test(
-    "selection round-trip: a malformed value falls back to index 0 + warns"
+    "selection round-trip: a value no tab takes shows none + warns"
   ) {
     // `refusals` keeps such a value off the session; this is the guard behind.
+    // A choice with no otherwise shows nothing at a value no case takes.
     val r = tabsRenderer
     val env = r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "abc"))
     val selections = r.surfaces.selections(None, env)
-    assertEquals(r.surfaces.selectedSurfaces(selections), Set("c_t0"))
-    assert(r.renderBody(Map.empty, selections).contains("tab_c: 0"))
+    assertEquals(r.surfaces.selectedSurfaces(selections), Set.empty[String])
+    assert(!r.renderBody(Map.empty, selections).contains("s_c_t"))
     assertEquals(r.surfaces.selectionAnomalies(env).size, 1)
   }
 
@@ -196,7 +195,7 @@ class ServerRoutesSuite extends ServerHarness {
       cards = Map(
         "col" -> TestCard(
           "<div>{{{children}}}</div>",
-          regions = Map("children" -> Region())
+          regions = Set("children")
         )
       ),
       card = LayoutNode.Component("col"),
@@ -642,19 +641,14 @@ class ServerRoutesSuite extends ServerHarness {
       base.copy(
         cards = base.cards + ("tabs" -> TestCard(
           """<div id="{{hostId}}">{{{panel}}}</div>""",
-          regions = Map("panel" -> Region(Region.Baked))
+          regions = Set("panel")
         )),
-        card = LayoutNode.Component("tabs", vars = declared("tab" -> "0")),
-        surfaces = Map(
-          "det" -> Surface(LayoutNode.Component("col")),
-          "panel" -> Surface(
-            LayoutNode.Component("col"),
-            bakeInto = Some("c"),
-            bakeAs = Some("panel"),
-            bakeIndex = Some(0),
-            activation = Activation.Var("tab")
-          )
-        )
+        card = LayoutNode.Component(
+          "tabs",
+          Map("panel" -> Slots.tabs("tab", LayoutNode.Component("col"))),
+          vars = declared("tab" -> "0")
+        ),
+        surfaces = Map("det" -> Surface(LayoutNode.Component("col")))
       )
     )
     assertEquals(r.surfaces.openPopup(Some("det")), Some("det"))
@@ -662,7 +656,7 @@ class ServerRoutesSuite extends ServerHarness {
     // cannot serve.
     assertEquals(r.surfaces.openPopup(Some("")), None)
     assertEquals(r.surfaces.openPopup(Some("nope")), None)
-    assertEquals(r.surfaces.openPopup(Some("panel")), None)
+    assertEquals(r.surfaces.openPopup(Some("c_t0")), None)
     assertEquals(r.surfaces.openPopup(None), None)
     assert(
       r.surfaces
