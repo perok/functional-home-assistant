@@ -160,7 +160,7 @@ object FixtureDashboard {
   ): Dashboard =
     Dashboard(
       cards = Sets.cards ++ cards + ("ifhost" -> TestCard(
-        template = """<div class="ifhost" id="{{hostId}}">{{{branch}}}</div>""",
+        template = """{{{branch}}}""",
         regions = Set("branch")
       )),
       card = LayoutNode.Component(

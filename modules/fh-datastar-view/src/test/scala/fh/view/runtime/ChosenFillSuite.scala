@@ -29,7 +29,7 @@ class ChosenFillSuite extends munit.FunSuite {
 
   private val cards = Map(
     "host" -> TestCard(
-      """<div id="{{hostId}}">{{{branch}}}</div>""",
+      """{{{branch}}}""",
       regions = Set("branch")
     ),
     "leaf" -> TestCard("<span>{{text}}</span>")

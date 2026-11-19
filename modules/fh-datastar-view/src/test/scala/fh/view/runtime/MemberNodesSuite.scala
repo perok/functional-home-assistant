@@ -40,7 +40,7 @@ class MemberNodesSuite extends ServerHarness {
       regions = Set("children")
     ),
     "host" -> TestCard(
-      """<div id="{{hostId}}">{{{panel}}}</div>""",
+      """{{{panel}}}""",
       regions = Set("panel")
     ),
     "text" -> TestCard("<p>{{text}}</p>")
@@ -242,7 +242,8 @@ class MemberNodesSuite extends ServerHarness {
       r.renderBody(twoOn, picking("c_0_light_a_k0" -> 1, "c_0_light_b_k0" -> 0))
     assert(html.contains("A second") && !html.contains("A first"), clue = html)
     assert(html.contains("B first") && !html.contains("B second"), clue = html)
-    assert(html.contains("""id="c_0_light_a_panel""""), clue = html)
+    // The member's root hosts its panel.
+    assert(html.contains("""id="c_0_light_a""""), clue = html)
   }
 
   test("a write swaps each member's panel, not the member") {
@@ -262,8 +263,8 @@ class MemberNodesSuite extends ServerHarness {
           sent.contains("A second") && sent.contains("B second"),
           clue = sent
         )
-        assert(sent.contains("c_0_light_a_panel"), clue = sent)
-        // The member itself is never re-sent.
+        assert(sent.contains("selector #c_0_light_a"), clue = sent)
+        // The member itself is never re-sent: the case goes inside it.
         assert(!sent.contains("""id="c_0_light_a""""), clue = sent)
       }
     }

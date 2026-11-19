@@ -283,10 +283,11 @@ is a `Choice` of its node, and a clause is one of its cases, the clause's index 
 `by` is a lone `when`, or `IndexOfTrue` over the list of them.
 
 **Group** — a card whose template is its one nodes slot: an element (a tag, classes, a layout cell)
-holding what fills it, and nothing beside it (`core/group.pkl`). A set must be its card's whole
-template, because its members are placed relative to each other, so a set among other content goes
-in a group; `q.from(…).render(…).build()` is one, with `fh-group` among its classes. Not a pick
-(below), which decides a choice.
+holding what fills it, and nothing beside it (`core/group.pkl`). A live fill, a set or a choice,
+must be its card's whole template, because its card's root is its **host** (below); so a live fill
+among other content goes in a group. `q.from(…).render(…).build()` is one, with `fh-group` among
+its classes; a tab bar's panel, a slider's controls and a variable select's face are
+`groupMod.inner` ones, with `layoutCell = false`. Not a pick (below), which decides a choice.
 
 **Present** — a set's candidate ids whose guard holds now, a candidate with no guard always
 (`Value.Present`, `pred.Tally` in Pkl). It is what a `List` of the candidates' reads filtered by
@@ -386,9 +387,10 @@ a leaf card beside the rows for exactly this reason. So the guarantee needs no r
 every hole in a template is filled by a node with an id of its own, and a patch at one node can
 never reach another's content.
 
-**Host** — the element a choice's case is filled through, addressed as `hostId` (`c_2_panel`, the
-node's id and the slot's name). The word the runtime uses; not to be confused with a **region**,
-which is the declaration, or with the **node** that owns it.
+**Host** — the element a choice's case or a set's members are filled through: the root of the node
+whose nodes slot the live fill is, that slot being its card's whole template (`Renderer.hostId`).
+The word the runtime uses, not the author's; not to be confused with a **region**, which is the
+declaration.
 
 **Pick** — deciding a nodes slot's choice: its `by` is read once and its case looked up, else the
 otherwise, else nothing (`Ready.Pick`, `SurfaceGraph`). A `by` that is a node variable (a tab bar,

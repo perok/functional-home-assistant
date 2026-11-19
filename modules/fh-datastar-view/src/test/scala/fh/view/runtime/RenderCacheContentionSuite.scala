@@ -52,10 +52,10 @@ class RenderCacheContentionSuite extends ServerHarness {
       ),
       "card" -> TestCard("<span>{{state}}</span>"),
       "tabs" -> TestCard(
-        template =
-          """{{{bar}}}<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        template = """{{{bar}}}{{{panel}}}""",
         regions = Set("bar", "panel")
-      )
+      ),
+      Slots.GroupCard -> Slots.groupCard
     ),
     card = LayoutNode.Component(
       "col",
@@ -68,10 +68,8 @@ class RenderCacheContentionSuite extends ServerHarness {
                 stateCard("sensor.shared")
               )
             )
-          ) + ("panel" -> Slots.tabs(
-            "tab",
-            stateCard("sensor.a"),
-            stateCard("sensor.b")
+          ) + ("panel" -> Slots.inGroup(
+            Slots.tabs("tab", stateCard("sensor.a"), stateCard("sensor.b"))
           )),
           vars = declared("tab" -> "0")
         )

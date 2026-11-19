@@ -1080,19 +1080,8 @@ class Renderer(validated: Dashboard.Validated) {
   /** One derivation for both id sources (the static tree and set members), so a
     * var added to [[Dashboard.structuralVars]] reaches both.
     */
-  private def structuralVars(
-      id: NodeId,
-      shared: Shared
-  ): Map[String, String] =
-    Dashboard.structuralVars(id, hostId(groupOf(id, shared)), dashboard.slug)
-
-  /** The pick `id` owns: inside a set member, its current clause's
-    * ([[Surface.group]]).
-    */
-  private def groupOf(id: NodeId, shared: Shared): NodeId =
-    members
-      .nodeAt(id, shared)
-      .fold(id)((m, _) => surfaces.groupAt(id, m.clause))
+  private def structuralVars(id: NodeId): Map[String, String] =
+    Dashboard.structuralVars(id, dashboard.slug)
 
   /** Whether a node may be a log key or a patch target: decided by its card
     * alone. Structure's element contains its regions, and a set's members are
@@ -1108,17 +1097,10 @@ class Renderer(validated: Dashboard.Validated) {
   /** The node's `.fh-cell` root: the one crossing from node id to DOM id. */
   def elementId(id: NodeId): DomId = DomId.derived(id)
 
-  /** Where a node's picked case lives ([[fh.view.model.Surface.hostId]]). Other
-    * nodes fall back to their own id, which only a candidate set uses — its
-    * members are filled into its one implicit hole.
+  /** The element a pick's case or a set's members are patched into: its node's
+    * root, the live fill being its card's whole template.
     */
-  def hostId(id: NodeId): DomId =
-    surfaces
-      .cases(id)
-      .headOption
-      .flatMap(dashboard.surfaces.get)
-      .map(_.hostId)
-      .getOrElse(elementId(id))
+  def hostId(gid: NodeId): DomId = elementId(surfaces.hostOf(gid))
 
   /** `(slot, surface)` for the case `gid`'s pick shows, rendered lazily when
     * the template reaches the slot's hole. `None` for a node owning no pick, or
@@ -1870,7 +1852,7 @@ class Renderer(validated: Dashboard.Validated) {
     NodePlan(
       node = c,
       tpl = templateOf(c.card),
-      structural = structuralVars(id, shared),
+      structural = structuralVars(id),
       constants = slots.collect { case (k, Planned.Constant(v, _)) => k -> v },
       jsConstants =
         slots.collect { case (k, Planned.Constant(_, js)) => k -> js },

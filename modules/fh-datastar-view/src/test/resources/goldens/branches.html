@@ -25,32 +25,32 @@
   data-signals__ifmissing="{_c_0_1__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_0_1__busy_slow = $_c_0_1__busy"
-  data-class:fh-busy-after="$_c_0_1__busy_slow">Text</a></div><div id="c_0_panel" class="fh-tab-panel">
-<div class="fh-cell fh-row" id="s_c_0_t0__c">
-<article class="fh-cell fh-card fh-toggle fh-tile-card fh-active" id="s_c_0_t0__c_0"
-  data-signals="{_e: {light: {kitchen: {t#1: true, t#2: 'on', t#3: false}}}, _s_c_0_t0__c_0__checked: 'on'}"
+  data-class:fh-busy-after="$_c_0_1__busy_slow">Text</a></div><div class="fh-tab-panel" id="c_0_panel_0">
+<div class="fh-cell fh-row" id="s_c_0_panel_0_t0__c">
+<article class="fh-cell fh-card fh-toggle fh-tile-card fh-active" id="s_c_0_panel_0_t0__c_0"
+  data-signals="{_e: {light: {kitchen: {t#1: true, t#2: 'on', t#3: false}}}, _s_c_0_panel_0_t0__c_0__checked: 'on'}"
   data-class:fh-active="$_e.light.kitchen.t#1"
   data-attr:data-switched="$_e.light.kitchen.t#2"
-  data-class:fh-disabled="$_s_c_0_t0__c_0__busy || $_e.light.kitchen.t#3"
-  data-class:fh-loading="$_s_c_0_t0__c_0__busy"
-  data-class:fh-error="$_s_c_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
-  data-signals__ifmissing="{_s_c_0_t0__c_0__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_0_t0__c_0__busy_slow = $_s_c_0_t0__c_0__busy"
-  data-class:fh-busy-spin="$_s_c_0_t0__c_0__busy_slow"
-  data-attr:aria-busy="$_s_c_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
+  data-class:fh-disabled="$_s_c_0_panel_0_t0__c_0__busy || $_e.light.kitchen.t#3"
+  data-class:fh-loading="$_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-error="$_s_c_0_panel_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_s_c_0_panel_0_t0__c_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_0_panel_0_t0__c_0__busy_slow = $_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-busy-spin="$_s_c_0_panel_0_t0__c_0__busy_slow"
+  data-attr:aria-busy="$_s_c_0_panel_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
-    <input type="checkbox" value="on" checked data-bind="_s_c_0_t0__c_0__checked"
-  data-on:click="$_s_c_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+    <input type="checkbox" value="on" checked data-bind="_s_c_0_panel_0_t0__c_0__checked"
+  data-on:click="$_s_c_0_panel_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_panel_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__error$/}"
-  data-on-signal-patch="$_s_c_0_t0__c_0__error && ($_s_c_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
-  data-indicator="_s_c_0_t0__c_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_t0__c_0__error = ''))"
-  data-fh-node="s_c_0_t0__c_0" />
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__error$/}"
+  data-on-signal-patch="$_s_c_0_panel_0_t0__c_0__error && ($_s_c_0_panel_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
+  data-indicator="_s_c_0_panel_0_t0__c_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_panel_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_panel_0_t0__c_0__error = ''))"
+  data-fh-node="s_c_0_panel_0_t0__c_0" />
     <span></span>
   </label></div></article></div></div></div>
-<div class="fh-cell fh-cols-full" id="c_1"><div class="fh-ifhost" id="c_1_branch">
+<div class="fh-cell fh-ifhost fh-cols-full" id="c_1">
 <div class="fh-cell fh-row" id="s_c_1_t0__c">
 <article class="fh-cell fh-card fh-toggle fh-tile-card fh-active" id="s_c_1_t0__c_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: 'on', t#3: false}}}, _s_c_1_t0__c_0__checked: 'on'}"
@@ -74,7 +74,7 @@
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_1_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_1_t0__c_0__error = ''))"
   data-fh-node="s_c_1_t0__c_0" />
     <span></span>
-  </label></div></article></div></div></div>
+  </label></div></article></div></div>
 <div class="fh-cell fh-col fh-cols-full" id="c_2"
   data-fh-url:view="['v.c_2.view', $_var_c_2__view, 'simple']">
 <div class="fh-cell fh-tabs fh-select" id="c_2_bar_0"><a class=" fh-chosen" id="c_2_bar_0_0"
@@ -102,35 +102,35 @@
   data-on-signal-patch-filter="{include:/^_c_2_bar_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_2_bar_0_1__busy_slow = $_c_2_bar_0_1__busy"
   data-class:fh-busy-after="$_c_2_bar_0_1__busy_slow">detail</a></div>
-<div class="fh-cell fh-cols-full" id="c_2_0"><div class="fh-ifhost" id="c_2_0_branch">
-<div class="fh-cell fh-row" id="s_c_2_0_else__c"><h2 class="fh-cell fh-section fh-text" id="s_c_2_0_else__c_0"><span class="fh-text-run">Simple</span></h2></div></div></div></div></div>
-<!-- ==== as fixtured · surface c_0_t0 ==== -->
-<div class="fh-cell fh-row" id="s_c_0_t0__c">
-<article class="fh-cell fh-card fh-toggle fh-tile-card fh-active" id="s_c_0_t0__c_0"
-  data-signals="{_e: {light: {kitchen: {t#1: true, t#2: 'on', t#3: false}}}, _s_c_0_t0__c_0__checked: 'on'}"
+<div class="fh-cell fh-ifhost fh-cols-full" id="c_2_0">
+<div class="fh-cell fh-row" id="s_c_2_0_else__c"><h2 class="fh-cell fh-section fh-text" id="s_c_2_0_else__c_0"><span class="fh-text-run">Simple</span></h2></div></div></div></div>
+<!-- ==== as fixtured · surface c_0_panel_0_t0 ==== -->
+<div class="fh-cell fh-row" id="s_c_0_panel_0_t0__c">
+<article class="fh-cell fh-card fh-toggle fh-tile-card fh-active" id="s_c_0_panel_0_t0__c_0"
+  data-signals="{_e: {light: {kitchen: {t#1: true, t#2: 'on', t#3: false}}}, _s_c_0_panel_0_t0__c_0__checked: 'on'}"
   data-class:fh-active="$_e.light.kitchen.t#1"
   data-attr:data-switched="$_e.light.kitchen.t#2"
-  data-class:fh-disabled="$_s_c_0_t0__c_0__busy || $_e.light.kitchen.t#3"
-  data-class:fh-loading="$_s_c_0_t0__c_0__busy"
-  data-class:fh-error="$_s_c_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
-  data-signals__ifmissing="{_s_c_0_t0__c_0__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_0_t0__c_0__busy_slow = $_s_c_0_t0__c_0__busy"
-  data-class:fh-busy-spin="$_s_c_0_t0__c_0__busy_slow"
-  data-attr:aria-busy="$_s_c_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
+  data-class:fh-disabled="$_s_c_0_panel_0_t0__c_0__busy || $_e.light.kitchen.t#3"
+  data-class:fh-loading="$_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-error="$_s_c_0_panel_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_s_c_0_panel_0_t0__c_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_0_panel_0_t0__c_0__busy_slow = $_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-busy-spin="$_s_c_0_panel_0_t0__c_0__busy_slow"
+  data-attr:aria-busy="$_s_c_0_panel_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
-    <input type="checkbox" value="on" checked data-bind="_s_c_0_t0__c_0__checked"
-  data-on:click="$_s_c_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+    <input type="checkbox" value="on" checked data-bind="_s_c_0_panel_0_t0__c_0__checked"
+  data-on:click="$_s_c_0_panel_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_panel_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__error$/}"
-  data-on-signal-patch="$_s_c_0_t0__c_0__error && ($_s_c_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
-  data-indicator="_s_c_0_t0__c_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_t0__c_0__error = ''))"
-  data-fh-node="s_c_0_t0__c_0" />
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__error$/}"
+  data-on-signal-patch="$_s_c_0_panel_0_t0__c_0__error && ($_s_c_0_panel_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
+  data-indicator="_s_c_0_panel_0_t0__c_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_panel_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_panel_0_t0__c_0__error = ''))"
+  data-fh-node="s_c_0_panel_0_t0__c_0" />
     <span></span>
   </label></div></article></div>
-<!-- ==== as fixtured · surface c_0_t1 ==== -->
-<div class="fh-cell fh-row" id="s_c_0_t1__c"><h2 class="fh-cell fh-section fh-text" id="s_c_0_t1__c_0"><span class="fh-text-run">Text</span></h2></div>
+<!-- ==== as fixtured · surface c_0_panel_0_t1 ==== -->
+<div class="fh-cell fh-row" id="s_c_0_panel_0_t1__c"><h2 class="fh-cell fh-section fh-text" id="s_c_0_panel_0_t1__c_0"><span class="fh-text-run">Text</span></h2></div>
 <!-- ==== as fixtured · surface c_1_else ==== -->
 <div class="fh-cell fh-row" id="s_c_1_else__c"><h2 class="fh-cell fh-section fh-text" id="s_c_1_else__c_0"><span class="fh-text-run">Off</span></h2></div>
 <!-- ==== as fixtured · surface c_1_t0 ==== -->
@@ -218,31 +218,31 @@
   data-on-signal-patch-filter="{include:/^_c_2_bar_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_2_bar_0_1__busy_slow = $_c_2_bar_0_1__busy"
   data-class:fh-busy-after="$_c_2_bar_0_1__busy_slow">detail</a>
-<!-- ==== as fixtured · patch s_c_0_t0__c_0 ==== -->
-<article class="fh-cell fh-card fh-toggle fh-tile-card" id="s_c_0_t0__c_0"
+<!-- ==== as fixtured · patch s_c_0_panel_0_t0__c_0 ==== -->
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="s_c_0_panel_0_t0__c_0"
   data-class:fh-active="$_e.light.kitchen.t#1"
   data-attr:data-switched="$_e.light.kitchen.t#2"
-  data-class:fh-disabled="$_s_c_0_t0__c_0__busy || $_e.light.kitchen.t#3"
-  data-class:fh-loading="$_s_c_0_t0__c_0__busy"
-  data-class:fh-error="$_s_c_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
-  data-signals__ifmissing="{_s_c_0_t0__c_0__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_0_t0__c_0__busy_slow = $_s_c_0_t0__c_0__busy"
-  data-class:fh-busy-spin="$_s_c_0_t0__c_0__busy_slow"
-  data-attr:aria-busy="$_s_c_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
+  data-class:fh-disabled="$_s_c_0_panel_0_t0__c_0__busy || $_e.light.kitchen.t#3"
+  data-class:fh-loading="$_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-error="$_s_c_0_panel_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_s_c_0_panel_0_t0__c_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_0_panel_0_t0__c_0__busy_slow = $_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-busy-spin="$_s_c_0_panel_0_t0__c_0__busy_slow"
+  data-attr:aria-busy="$_s_c_0_panel_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
-    <input type="checkbox" value="on"  data-bind="_s_c_0_t0__c_0__checked"
-  data-on:click="$_s_c_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+    <input type="checkbox" value="on"  data-bind="_s_c_0_panel_0_t0__c_0__checked"
+  data-on:click="$_s_c_0_panel_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_panel_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__error$/}"
-  data-on-signal-patch="$_s_c_0_t0__c_0__error && ($_s_c_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
-  data-indicator="_s_c_0_t0__c_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_t0__c_0__error = ''))"
-  data-fh-node="s_c_0_t0__c_0" />
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__error$/}"
+  data-on-signal-patch="$_s_c_0_panel_0_t0__c_0__error && ($_s_c_0_panel_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
+  data-indicator="_s_c_0_panel_0_t0__c_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_panel_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_panel_0_t0__c_0__error = ''))"
+  data-fh-node="s_c_0_panel_0_t0__c_0" />
     <span></span>
   </label></div></article>
-<!-- ==== as fixtured · patch s_c_0_t1__c_0 ==== -->
-<h2 class="fh-cell fh-section fh-text" id="s_c_0_t1__c_0"><span class="fh-text-run">Text</span></h2>
+<!-- ==== as fixtured · patch s_c_0_panel_0_t1__c_0 ==== -->
+<h2 class="fh-cell fh-section fh-text" id="s_c_0_panel_0_t1__c_0"><span class="fh-text-run">Text</span></h2>
 <!-- ==== as fixtured · patch s_c_1_else__c_0 ==== -->
 <h2 class="fh-cell fh-section fh-text" id="s_c_1_else__c_0"><span class="fh-text-run">Off</span></h2>
 <!-- ==== as fixtured · patch s_c_1_t0__c_0 ==== -->
@@ -299,33 +299,33 @@
   data-signals__ifmissing="{_c_0_1__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_0_1__busy_slow = $_c_0_1__busy"
-  data-class:fh-busy-after="$_c_0_1__busy_slow">Text</a></div><div id="c_0_panel" class="fh-tab-panel">
-<div class="fh-cell fh-row" id="s_c_0_t0__c">
-<article class="fh-cell fh-card fh-toggle fh-tile-card" id="s_c_0_t0__c_0"
-  data-signals="{_e: {light: {kitchen: {t#1: false, t#2: '', t#3: false}}}, _s_c_0_t0__c_0__checked: ''}"
+  data-class:fh-busy-after="$_c_0_1__busy_slow">Text</a></div><div class="fh-tab-panel" id="c_0_panel_0">
+<div class="fh-cell fh-row" id="s_c_0_panel_0_t0__c">
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="s_c_0_panel_0_t0__c_0"
+  data-signals="{_e: {light: {kitchen: {t#1: false, t#2: '', t#3: false}}}, _s_c_0_panel_0_t0__c_0__checked: ''}"
   data-class:fh-active="$_e.light.kitchen.t#1"
   data-attr:data-switched="$_e.light.kitchen.t#2"
-  data-class:fh-disabled="$_s_c_0_t0__c_0__busy || $_e.light.kitchen.t#3"
-  data-class:fh-loading="$_s_c_0_t0__c_0__busy"
-  data-class:fh-error="$_s_c_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
-  data-signals__ifmissing="{_s_c_0_t0__c_0__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_0_t0__c_0__busy_slow = $_s_c_0_t0__c_0__busy"
-  data-class:fh-busy-spin="$_s_c_0_t0__c_0__busy_slow"
-  data-attr:aria-busy="$_s_c_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
+  data-class:fh-disabled="$_s_c_0_panel_0_t0__c_0__busy || $_e.light.kitchen.t#3"
+  data-class:fh-loading="$_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-error="$_s_c_0_panel_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_s_c_0_panel_0_t0__c_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_0_panel_0_t0__c_0__busy_slow = $_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-busy-spin="$_s_c_0_panel_0_t0__c_0__busy_slow"
+  data-attr:aria-busy="$_s_c_0_panel_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
-    <input type="checkbox" value="on"  data-bind="_s_c_0_t0__c_0__checked"
-  data-on:click="$_s_c_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+    <input type="checkbox" value="on"  data-bind="_s_c_0_panel_0_t0__c_0__checked"
+  data-on:click="$_s_c_0_panel_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_panel_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__error$/}"
-  data-on-signal-patch="$_s_c_0_t0__c_0__error && ($_s_c_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
-  data-indicator="_s_c_0_t0__c_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_t0__c_0__error = ''))"
-  data-fh-node="s_c_0_t0__c_0" />
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__error$/}"
+  data-on-signal-patch="$_s_c_0_panel_0_t0__c_0__error && ($_s_c_0_panel_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
+  data-indicator="_s_c_0_panel_0_t0__c_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_panel_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_panel_0_t0__c_0__error = ''))"
+  data-fh-node="s_c_0_panel_0_t0__c_0" />
     <span></span>
   </label></div></article></div></div></div>
-<div class="fh-cell fh-cols-full" id="c_1"><div class="fh-ifhost" id="c_1_branch">
-<div class="fh-cell fh-row" id="s_c_1_else__c"><h2 class="fh-cell fh-section fh-text" id="s_c_1_else__c_0"><span class="fh-text-run">Off</span></h2></div></div></div>
+<div class="fh-cell fh-ifhost fh-cols-full" id="c_1">
+<div class="fh-cell fh-row" id="s_c_1_else__c"><h2 class="fh-cell fh-section fh-text" id="s_c_1_else__c_0"><span class="fh-text-run">Off</span></h2></div></div>
 <div class="fh-cell fh-col fh-cols-full" id="c_2"
   data-fh-url:view="['v.c_2.view', $_var_c_2__view, 'simple']">
 <div class="fh-cell fh-tabs fh-select" id="c_2_bar_0"><a class=" fh-chosen" id="c_2_bar_0_0"
@@ -353,34 +353,34 @@
   data-on-signal-patch-filter="{include:/^_c_2_bar_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_2_bar_0_1__busy_slow = $_c_2_bar_0_1__busy"
   data-class:fh-busy-after="$_c_2_bar_0_1__busy_slow">detail</a></div>
-<div class="fh-cell fh-cols-full" id="c_2_0"><div class="fh-ifhost" id="c_2_0_branch">
-<div class="fh-cell fh-row" id="s_c_2_0_else__c"><h2 class="fh-cell fh-section fh-text" id="s_c_2_0_else__c_0"><span class="fh-text-run">Simple</span></h2></div></div></div></div></div>
-<!-- ==== flipped · surface c_0_t0 ==== -->
-<div class="fh-cell fh-row" id="s_c_0_t0__c">
-<article class="fh-cell fh-card fh-toggle fh-tile-card" id="s_c_0_t0__c_0"
-  data-signals="{_e: {light: {kitchen: {t#1: false, t#2: '', t#3: false}}}, _s_c_0_t0__c_0__checked: ''}"
+<div class="fh-cell fh-ifhost fh-cols-full" id="c_2_0">
+<div class="fh-cell fh-row" id="s_c_2_0_else__c"><h2 class="fh-cell fh-section fh-text" id="s_c_2_0_else__c_0"><span class="fh-text-run">Simple</span></h2></div></div></div></div>
+<!-- ==== flipped · surface c_0_panel_0_t0 ==== -->
+<div class="fh-cell fh-row" id="s_c_0_panel_0_t0__c">
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="s_c_0_panel_0_t0__c_0"
+  data-signals="{_e: {light: {kitchen: {t#1: false, t#2: '', t#3: false}}}, _s_c_0_panel_0_t0__c_0__checked: ''}"
   data-class:fh-active="$_e.light.kitchen.t#1"
   data-attr:data-switched="$_e.light.kitchen.t#2"
-  data-class:fh-disabled="$_s_c_0_t0__c_0__busy || $_e.light.kitchen.t#3"
-  data-class:fh-loading="$_s_c_0_t0__c_0__busy"
-  data-class:fh-error="$_s_c_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
-  data-signals__ifmissing="{_s_c_0_t0__c_0__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_0_t0__c_0__busy_slow = $_s_c_0_t0__c_0__busy"
-  data-class:fh-busy-spin="$_s_c_0_t0__c_0__busy_slow"
-  data-attr:aria-busy="$_s_c_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
+  data-class:fh-disabled="$_s_c_0_panel_0_t0__c_0__busy || $_e.light.kitchen.t#3"
+  data-class:fh-loading="$_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-error="$_s_c_0_panel_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_s_c_0_panel_0_t0__c_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_0_panel_0_t0__c_0__busy_slow = $_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-busy-spin="$_s_c_0_panel_0_t0__c_0__busy_slow"
+  data-attr:aria-busy="$_s_c_0_panel_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
-    <input type="checkbox" value="on"  data-bind="_s_c_0_t0__c_0__checked"
-  data-on:click="$_s_c_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+    <input type="checkbox" value="on"  data-bind="_s_c_0_panel_0_t0__c_0__checked"
+  data-on:click="$_s_c_0_panel_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_panel_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__error$/}"
-  data-on-signal-patch="$_s_c_0_t0__c_0__error && ($_s_c_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
-  data-indicator="_s_c_0_t0__c_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_t0__c_0__error = ''))"
-  data-fh-node="s_c_0_t0__c_0" />
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__error$/}"
+  data-on-signal-patch="$_s_c_0_panel_0_t0__c_0__error && ($_s_c_0_panel_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
+  data-indicator="_s_c_0_panel_0_t0__c_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_panel_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_panel_0_t0__c_0__error = ''))"
+  data-fh-node="s_c_0_panel_0_t0__c_0" />
     <span></span>
   </label></div></article></div>
-<!-- ==== flipped · surface c_0_t1: as fixtured ==== -->
+<!-- ==== flipped · surface c_0_panel_0_t1: as fixtured ==== -->
 <!-- ==== flipped · surface c_1_else: as fixtured ==== -->
 <!-- ==== flipped · surface c_1_t0 ==== -->
 <div class="fh-cell fh-row" id="s_c_1_t0__c">
@@ -413,8 +413,8 @@
 <!-- ==== flipped · patch c_0_1: as fixtured ==== -->
 <!-- ==== flipped · patch c_2_bar_0_0: as fixtured ==== -->
 <!-- ==== flipped · patch c_2_bar_0_1: as fixtured ==== -->
-<!-- ==== flipped · patch s_c_0_t0__c_0: as fixtured ==== -->
-<!-- ==== flipped · patch s_c_0_t1__c_0: as fixtured ==== -->
+<!-- ==== flipped · patch s_c_0_panel_0_t0__c_0: as fixtured ==== -->
+<!-- ==== flipped · patch s_c_0_panel_0_t1__c_0: as fixtured ==== -->
 <!-- ==== flipped · patch s_c_1_else__c_0: as fixtured ==== -->
 <!-- ==== flipped · patch s_c_1_t0__c_0: as fixtured ==== -->
 <!-- ==== flipped · patch s_c_2_0_else__c_0: as fixtured ==== -->
@@ -446,32 +446,32 @@
   data-signals__ifmissing="{_c_0_1__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_0_1__busy_slow = $_c_0_1__busy"
-  data-class:fh-busy-after="$_c_0_1__busy_slow">Text</a></div><div id="c_0_panel" class="fh-tab-panel">
-<div class="fh-cell fh-row" id="s_c_0_t0__c">
-<article class="fh-cell fh-card fh-toggle fh-tile-card" id="s_c_0_t0__c_0"
-  data-signals="{_e: {light: {kitchen: {t#1: false, t#2: '', t#3: true}}}, _s_c_0_t0__c_0__checked: ''}"
+  data-class:fh-busy-after="$_c_0_1__busy_slow">Text</a></div><div class="fh-tab-panel" id="c_0_panel_0">
+<div class="fh-cell fh-row" id="s_c_0_panel_0_t0__c">
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="s_c_0_panel_0_t0__c_0"
+  data-signals="{_e: {light: {kitchen: {t#1: false, t#2: '', t#3: true}}}, _s_c_0_panel_0_t0__c_0__checked: ''}"
   data-class:fh-active="$_e.light.kitchen.t#1"
   data-attr:data-switched="$_e.light.kitchen.t#2"
-  data-class:fh-disabled="$_s_c_0_t0__c_0__busy || $_e.light.kitchen.t#3"
-  data-class:fh-loading="$_s_c_0_t0__c_0__busy"
-  data-class:fh-error="$_s_c_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
-  data-signals__ifmissing="{_s_c_0_t0__c_0__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_0_t0__c_0__busy_slow = $_s_c_0_t0__c_0__busy"
-  data-class:fh-busy-spin="$_s_c_0_t0__c_0__busy_slow"
-  data-attr:aria-busy="$_s_c_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
+  data-class:fh-disabled="$_s_c_0_panel_0_t0__c_0__busy || $_e.light.kitchen.t#3"
+  data-class:fh-loading="$_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-error="$_s_c_0_panel_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_s_c_0_panel_0_t0__c_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_0_panel_0_t0__c_0__busy_slow = $_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-busy-spin="$_s_c_0_panel_0_t0__c_0__busy_slow"
+  data-attr:aria-busy="$_s_c_0_panel_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
-    <input type="checkbox" value="on"  data-bind="_s_c_0_t0__c_0__checked"
-  data-on:click="$_s_c_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__error$/}"
-  data-on-signal-patch="$_s_c_0_t0__c_0__error && ($_s_c_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
-  data-indicator="_s_c_0_t0__c_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_t0__c_0__error = ''))"
-  data-fh-node="s_c_0_t0__c_0" />
+    <input type="checkbox" value="on"  data-bind="_s_c_0_panel_0_t0__c_0__checked"
+  data-on:click="$_s_c_0_panel_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_panel_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__error$/}"
+  data-on-signal-patch="$_s_c_0_panel_0_t0__c_0__error && ($_s_c_0_panel_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
+  data-indicator="_s_c_0_panel_0_t0__c_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_panel_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_panel_0_t0__c_0__error = ''))"
+  data-fh-node="s_c_0_panel_0_t0__c_0" />
     <span></span>
   </label></div></article></div></div></div>
-<div class="fh-cell fh-cols-full" id="c_1"><div class="fh-ifhost" id="c_1_branch">
-<div class="fh-cell fh-row" id="s_c_1_else__c"><h2 class="fh-cell fh-section fh-text" id="s_c_1_else__c_0"><span class="fh-text-run">Off</span></h2></div></div></div>
+<div class="fh-cell fh-ifhost fh-cols-full" id="c_1">
+<div class="fh-cell fh-row" id="s_c_1_else__c"><h2 class="fh-cell fh-section fh-text" id="s_c_1_else__c_0"><span class="fh-text-run">Off</span></h2></div></div>
 <div class="fh-cell fh-col fh-cols-full" id="c_2"
   data-fh-url:view="['v.c_2.view', $_var_c_2__view, 'simple']">
 <div class="fh-cell fh-tabs fh-select" id="c_2_bar_0"><a class=" fh-chosen" id="c_2_bar_0_0"
@@ -499,33 +499,33 @@
   data-on-signal-patch-filter="{include:/^_c_2_bar_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_2_bar_0_1__busy_slow = $_c_2_bar_0_1__busy"
   data-class:fh-busy-after="$_c_2_bar_0_1__busy_slow">detail</a></div>
-<div class="fh-cell fh-cols-full" id="c_2_0"><div class="fh-ifhost" id="c_2_0_branch">
-<div class="fh-cell fh-row" id="s_c_2_0_else__c"><h2 class="fh-cell fh-section fh-text" id="s_c_2_0_else__c_0"><span class="fh-text-run">Simple</span></h2></div></div></div></div></div>
-<!-- ==== unavailable · surface c_0_t0 ==== -->
-<div class="fh-cell fh-row" id="s_c_0_t0__c">
-<article class="fh-cell fh-card fh-toggle fh-tile-card" id="s_c_0_t0__c_0"
-  data-signals="{_e: {light: {kitchen: {t#1: false, t#2: '', t#3: true}}}, _s_c_0_t0__c_0__checked: ''}"
+<div class="fh-cell fh-ifhost fh-cols-full" id="c_2_0">
+<div class="fh-cell fh-row" id="s_c_2_0_else__c"><h2 class="fh-cell fh-section fh-text" id="s_c_2_0_else__c_0"><span class="fh-text-run">Simple</span></h2></div></div></div></div>
+<!-- ==== unavailable · surface c_0_panel_0_t0 ==== -->
+<div class="fh-cell fh-row" id="s_c_0_panel_0_t0__c">
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="s_c_0_panel_0_t0__c_0"
+  data-signals="{_e: {light: {kitchen: {t#1: false, t#2: '', t#3: true}}}, _s_c_0_panel_0_t0__c_0__checked: ''}"
   data-class:fh-active="$_e.light.kitchen.t#1"
   data-attr:data-switched="$_e.light.kitchen.t#2"
-  data-class:fh-disabled="$_s_c_0_t0__c_0__busy || $_e.light.kitchen.t#3"
-  data-class:fh-loading="$_s_c_0_t0__c_0__busy"
-  data-class:fh-error="$_s_c_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
-  data-signals__ifmissing="{_s_c_0_t0__c_0__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_0_t0__c_0__busy_slow = $_s_c_0_t0__c_0__busy"
-  data-class:fh-busy-spin="$_s_c_0_t0__c_0__busy_slow"
-  data-attr:aria-busy="$_s_c_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
+  data-class:fh-disabled="$_s_c_0_panel_0_t0__c_0__busy || $_e.light.kitchen.t#3"
+  data-class:fh-loading="$_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-error="$_s_c_0_panel_0_t0__c_0__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_s_c_0_panel_0_t0__c_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_s_c_0_panel_0_t0__c_0__busy_slow = $_s_c_0_panel_0_t0__c_0__busy"
+  data-class:fh-busy-spin="$_s_c_0_panel_0_t0__c_0__busy_slow"
+  data-attr:aria-busy="$_s_c_0_panel_0_t0__c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
-    <input type="checkbox" value="on"  data-bind="_s_c_0_t0__c_0__checked"
-  data-on:click="$_s_c_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
-  data-on-signal-patch-filter="{include:/^_s_c_0_t0__c_0__error$/}"
-  data-on-signal-patch="$_s_c_0_t0__c_0__error && ($_s_c_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
-  data-indicator="_s_c_0_t0__c_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_t0__c_0__error = ''))"
-  data-fh-node="s_c_0_t0__c_0" />
+    <input type="checkbox" value="on"  data-bind="_s_c_0_panel_0_t0__c_0__checked"
+  data-on:click="$_s_c_0_panel_0_t0__c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=s_c_0_panel_0_t0__c_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
+  data-on-signal-patch-filter="{include:/^_s_c_0_panel_0_t0__c_0__error$/}"
+  data-on-signal-patch="$_s_c_0_panel_0_t0__c_0__error && ($_s_c_0_panel_0_t0__c_0__checked = $_e.light.kitchen.t#2)"
+  data-indicator="_s_c_0_panel_0_t0__c_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_0_panel_0_t0__c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_s_c_0_panel_0_t0__c_0__error = ''))"
+  data-fh-node="s_c_0_panel_0_t0__c_0" />
     <span></span>
   </label></div></article></div>
-<!-- ==== unavailable · surface c_0_t1: as fixtured ==== -->
+<!-- ==== unavailable · surface c_0_panel_0_t1: as fixtured ==== -->
 <!-- ==== unavailable · surface c_1_else: as fixtured ==== -->
 <!-- ==== unavailable · surface c_1_t0 ==== -->
 <div class="fh-cell fh-row" id="s_c_1_t0__c">
@@ -557,8 +557,8 @@
 <!-- ==== unavailable · patch c_0_1: as fixtured ==== -->
 <!-- ==== unavailable · patch c_2_bar_0_0: as fixtured ==== -->
 <!-- ==== unavailable · patch c_2_bar_0_1: as fixtured ==== -->
-<!-- ==== unavailable · patch s_c_0_t0__c_0: as fixtured ==== -->
-<!-- ==== unavailable · patch s_c_0_t1__c_0: as fixtured ==== -->
+<!-- ==== unavailable · patch s_c_0_panel_0_t0__c_0: as fixtured ==== -->
+<!-- ==== unavailable · patch s_c_0_panel_0_t1__c_0: as fixtured ==== -->
 <!-- ==== unavailable · patch s_c_1_else__c_0: as fixtured ==== -->
 <!-- ==== unavailable · patch s_c_1_t0__c_0: as fixtured ==== -->
 <!-- ==== unavailable · patch s_c_2_0_else__c_0: as fixtured ==== -->

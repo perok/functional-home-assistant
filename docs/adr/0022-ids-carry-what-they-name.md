@@ -41,7 +41,7 @@ every consumer.** Six opaque types over `String` in `model/Ids.scala`:
 | `NodeId` | an addressable node — the log's key space | `LayoutNode.pathId`, `surfacePrefix`, `MemberGraph.memberIdOf` |
 | `SetId <: NodeId` | a candidate-set container, at any nesting depth | `MemberGraph.setContainer` / `innerSetId` |
 | `MemberId <: NodeId` | a materialised set member | `MemberGraph.memberIdOf` |
-| `DomId` | an element a patch TARGETS (`c_2`, `c_2_panel`, `popups`) | `Renderer.elementId`, `Renderer.hostId` |
+| `DomId` | an element a patch TARGETS (`c_2`, `popups`) | `Renderer.elementId`, `Renderer.hostId` |
 | `SignalId` | a slot's value in the client's signal store (ADR 0017) | `Renderer.signalName` |
 
 Three rules make it work.

@@ -74,7 +74,7 @@ class PullReadsSuite extends munit.FunSuite {
           regions = Set("children")
         ),
         "tabs" -> TestCard(
-          """<div id="{{hostId}}">{{{panel}}}</div>""",
+          """{{{panel}}}""",
           regions = Set("panel")
         )
       ),

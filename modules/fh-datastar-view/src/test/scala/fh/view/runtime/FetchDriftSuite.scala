@@ -126,7 +126,7 @@ class FetchDriftSuite extends munit.FunSuite {
           regions = Set("children")
         ),
         "host" -> TestCard(
-          """<div id="{{hostId}}">{{{panel}}}</div>""",
+          """{{{panel}}}""",
           regions = Set("panel")
         )
       ),

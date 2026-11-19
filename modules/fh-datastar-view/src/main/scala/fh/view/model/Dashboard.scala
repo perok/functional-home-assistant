@@ -736,8 +736,8 @@ object LayoutNode:
   val DefaultRegion: String = "children"
 
   /** Leaves and containers alike: a container is a template splicing its
-    * regions, so a new kind needs no Scala. The injected vars are `id`,
-    * `hostId` and `dashboardSlug`.
+    * regions, so a new kind needs no Scala. The injected vars are `id` and
+    * `dashboardSlug`.
     */
   case class Component(
       card: String,
@@ -1000,7 +1000,7 @@ object Surface:
       * one pick (#556).
       */
     def group: NodeId = groupId(host, clause)
-    def hostId: DomId = DomId.derived(s"${host}_$slot")
+    def hostId: DomId = DomId.derived(host)
 
   /** `<host>_k<clause>`: no derived node id has a lone `k<n>` segment, since a
     * step is an index or `<region>_<index>` ([[LayoutNode.segment]]) and an
@@ -1521,19 +1521,13 @@ object Dashboard:
       members: List[String]
   ):
     def group: NodeId = Surface.groupId(host, clause)
-    def hostId: DomId = DomId.derived(s"${host}_$slot")
 
   /** The vars the renderer gives every node, a pure function of its id. Here
     * rather than in `Renderer` so [[injectedStatic]] is derived from it.
     */
-  def structuralVars(
-      id: NodeId,
-      hostId: DomId,
-      slug: String
-  ): Map[String, String] =
+  def structuralVars(id: NodeId, slug: String): Map[String, String] =
     Map(
       "id" -> id,
-      "hostId" -> hostId,
       // For a URL built in a template (the slider's commit); a transform
       // reads the same fact as `dashboard_slug`.
       "dashboardSlug" -> slug
@@ -1543,7 +1537,7 @@ object Dashboard:
     * them.
     */
   val injectedStatic: Set[String] =
-    structuralVars(NodeId.derived(""), DomId.derived(""), "").keySet
+    structuralVars(NodeId.derived(""), "").keySet
 
   /** How a template places a slot's view. */
   def spell(slot: String, view: Templates.View): String = view match

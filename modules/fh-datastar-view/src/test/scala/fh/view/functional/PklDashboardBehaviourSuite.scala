@@ -584,7 +584,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     */
   private val siblingBar = "c_0"
   private val outerBar = "c_1"
-  private val innerBar = "s_c_1_t0__c_0"
+  private val innerBar = "s_c_1_panel_0_t0__c_0"
 
   private def withNestedServer[A](
       f: (TestServer, IO[Set[String]]) => IO[A]

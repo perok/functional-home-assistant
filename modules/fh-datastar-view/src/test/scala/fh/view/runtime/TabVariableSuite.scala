@@ -20,7 +20,7 @@ import scala.concurrent.duration.*
 class TabVariableSuite extends ServerHarness {
 
   private val barCard = TestCard(
-    """<div id="{{hostId}}">{{{buttons}}}{{{panel}}}</div>""",
+    """<div>{{{buttons}}}{{{panel}}}</div>""",
     regions = Set("panel", "buttons")
   )
   private val textCard = TestCard("<p>{{text}}</p>")
@@ -41,13 +41,16 @@ class TabVariableSuite extends ServerHarness {
         if (vars.contains("tab"))
           Map("buttons" -> DashboardBuilders.choices("tab", "0", "1", "5"))
         else Map.empty
-      ) + ("panel" -> Slots.tabs("tab", text("first"), text("second")))
+      ) + ("panel" -> Slots.inGroup(
+        Slots.tabs("tab", text("first"), text("second"))
+      ))
     )
 
   private val dash = Dashboard(
     cards = Map(
       "bar" -> barCard,
       "text" -> textCard,
+      Slots.GroupCard -> Slots.groupCard,
       DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard
     ),
     card = barNode(Map("tab" -> "0"))
@@ -81,8 +84,8 @@ class TabVariableSuite extends ServerHarness {
       } yield {
         assertEquals(result._1, Status.NoContent)
         assertEquals(
-          open.map(_.intersect(Set("bar_t0", "bar_t1"))),
-          Some(Set("bar_t1"))
+          open.map(_.intersect(Set("bar_panel_0_t0", "bar_panel_0_t1"))),
+          Some(Set("bar_panel_0_t1"))
         )
         assert(sent.contains("second"), clue = sent)
         assert(sent.contains("\"_var_bar__tab\":\"1\""), clue = sent)
@@ -128,7 +131,7 @@ class TabVariableSuite extends ServerHarness {
     served { ts =>
       for {
         conn <- ts.load().map(_.conn)
-        result <- post(ts, conn, s"sse/surface/${ts.slug}/open/bar_t1")
+        result <- post(ts, conn, s"sse/surface/${ts.slug}/open/bar_panel_0_t1")
       } yield {
         assertEquals(result._1, Status.Ok)
         assert(result._2.contains("node variable"), clue = result._2)
@@ -167,7 +170,7 @@ class TabVariableSuite extends ServerHarness {
     assertEquals(
       Renderer(dash.validated().fold(e => fail(e.mkString), identity)).vars
         .panelsSelectedBy(VarKey(NodeId.derived("bar"), "tab")),
-      List(NodeId.derived("bar"))
+      List(NodeId.derived("bar_panel_0"))
     )
   }
 }

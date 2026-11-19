@@ -188,9 +188,10 @@ to change puts that markup in a region, as a node — a slider's head is a card 
 its own for exactly this reason — or carries the value as a SIGNAL slot (ADR
 0017), which never becomes bytes in its element.
 
-**The log key is always the node id.** A choice's host `<nodeId>_<slot>` is a
-rendering detail derived from it and nothing maps back, so a DOM id can never
-enter the log, the reverse index, or a cursor (ADR 0022).
+**The log key is always the node id.** A choice's host is its node's root,
+the node id crossed into a DOM id by `Renderer.elementId` and nothing maps
+back, so a DOM id can never enter the log, the reverse index, or a cursor
+(ADR 0022).
 
 A choice's host (`Tabs`, `If`) gets a cell like anything else. Being a layout
 item and being a patch target are different jobs, and denying it the first
@@ -221,9 +222,8 @@ framework-agnostic, and a new look is a sibling module exporting a
   shape (`CardDef.isStructure`).
 - A card that sets no `tag` is two elements, the `div` root and its markup; a
   card moves its markup into the root fields to be one. The library's cards
-  have, except two whose inner host carries an id of its own beside the
-  node's, which one element cannot hold: `if`'s host and a variable cycle's
-  (the regions work settles them). A root may
+  have; a choice's host is its card's root, so an `If` is one element and a
+  tab panel or a variable cycle's face is a `group` of its own. A root may
   still be `display:contents` on purpose, when what it holds is laid out by
   the parent: the slider head's (its label line and track are the card's
   rows) and the slider text's (its two lines are the head's grid items). The

@@ -892,7 +892,15 @@ private[model] object Validate:
       val sets = c.fills.toList.sortBy(_._1).collect { case (n, s: Fill.Set) =>
         n -> s
       }
-      sets.flatMap { (region, s) =>
+      // The card's root is the element a choice's case is patched into.
+      val choices = c.fills.toList.sortBy(_._1).collect {
+        case (n, Fill.Nodes(_: Choice.Chosen[?]))
+            if cards.get(c.card).exists(_.regions != Set(n)) =>
+          s"$setId: the choice in '$n' is not its card's whole template — " +
+            "its case is patched into the card's root, so put the choice in " +
+            "a group of its own"
+      }
+      choices ++ sets.flatMap { (region, s) =>
         val whole =
           Option
             .when(

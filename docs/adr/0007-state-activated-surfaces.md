@@ -26,8 +26,9 @@ and its URL mirror are authoring-layer composition the `tabs` card adds, and
 its selection is a node variable (ADR 0033). So an if/else is a choice whose
 case is picked by a **condition** instead of a viewer's value:
 
-- **No new `LayoutNode` kind.** An `If` is an ordinary host card (`ifhost`,
-  template `<div id="{{id}}">{{{branch}}}</div>`) plus inline surfaces riding
+- **No new `LayoutNode` kind.** An `If` is an ordinary card (`ifhost`, root
+  class `fh-ifhost`, template `{{{branch}}}`, so its root hosts the branch and
+  `.fh-ifhost:empty` collapses it when no branch holds) plus inline surfaces riding
   the generic hoist — branch nodes live in *surface indexes*, never in the
   main page's reverse index, so hidden-branch silence is **structural**
   (inactive surfaces are simply never consulted), not a guard bolted onto the
@@ -148,9 +149,9 @@ A choice is the fill of a nodes slot (`slot.of(nodeMod.iff(cond)…)`,
 slot it fills writes it on the wire as `Fill.Nodes(Choice.Chosen)`: a `by`, a
 case per key holding one node, and an `otherwise`. The backend serves each case
 as a surface (`Dashboard.picks`), case `i` `<host>_t<i>` and the otherwise
-`<host>_else`, hosted at `<host>_<slot>`, so the card's template places one
-element carrying `id="{{hostId}}"` around the slot; R4c of
-`docs/plan-regions.md` moves the host to the card's root. A pick over a
+`<host>_else`, hosted at the card's root: a choice is its card's whole
+template, which the build checks, and one beside other content goes in a
+`group` (`core/group.pkl`). A pick over a
 variable looks the viewer's value up among the keys; one over state reads `by`
 and looks its value up. `c.iff(cond)` returns an
 `If` node, which is such a card and supports both a builder and an amend form

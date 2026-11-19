@@ -70,8 +70,8 @@ class StateSurfaceSuite extends ServerHarness {
         assertEquals(flip.size, 1, clue = flip)
         val p = flip.head
         assert(p.contains("mode inner"), clue = p)
-        // `Surface.hostId`, the id the If's template puts on it.
-        assert(p.contains("selector #c_0_branch"), clue = p)
+        // The If's root.
+        assert(p.contains("selector #c_0\n"), clue = p)
         assert(p.contains("""id="s_c_0_else__c""""), clue = p)
         // Current state: B1, which no client ever saw.
         assert(p.contains("B1"), clue = p)
@@ -147,7 +147,7 @@ class StateSurfaceSuite extends ServerHarness {
       } yield {
         // Without it the host is left empty.
         assert(opening.contains("mode inner"), clue = opening)
-        assert(opening.contains("selector #c_0_branch"), clue = opening)
+        assert(opening.contains("selector #c_0\n"), clue = opening)
         assert(opening.contains("""id="s_c_0_else__c""""), clue = opening)
         assert(opening.contains("B0"), clue = opening)
         assert(!opening.contains(BodyRepaint), clue = opening)
@@ -268,7 +268,7 @@ class StateSurfaceSuite extends ServerHarness {
         innerFlip <- step(v, es("mode.h", "day"))
         _ = assertEquals(innerFlip.size, 1, clue = innerFlip)
         _ = assert(
-          innerFlip.head.contains("selector #s_c_0_t0__c_0_branch"),
+          innerFlip.head.contains("selector #s_c_0_t0__c_0\n"),
           clue = innerFlip
         )
         _ = assert(
@@ -325,12 +325,12 @@ class StateSurfaceSuite extends ServerHarness {
         closed <- without.pull
       } yield {
         assert(
-          !closed.exists(_.render.contains("s_det__c_0_branch")),
+          !closed.exists(_.render.contains("selector #s_det__c_0\n")),
           clue = closed.map(_.render)
         )
         val patches = elementPatches(opened)
         assertEquals(patches.size, 1, clue = patches)
-        assert(patches.head.contains("selector #s_det__c_0_branch"), patches)
+        assert(patches.head.contains("selector #s_det__c_0\n"), patches)
         assert(
           patches.head.contains("""id="s_s_det__c_0_else__c""""),
           clue = patches

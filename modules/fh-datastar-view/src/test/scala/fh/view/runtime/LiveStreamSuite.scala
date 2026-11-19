@@ -113,11 +113,11 @@ class LiveStreamSuite extends ServerHarness {
       ),
       "card" -> TestCard("<span>{{state}}</span>"),
       "ifhost" -> TestCard(
-        template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+        template = """{{{branch}}}""",
         regions = Set("branch")
       ),
       "tabs" -> TestCard(
-        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        template = """{{{panel}}}""",
         regions = Set("panel")
       )
     ),
@@ -165,9 +165,10 @@ class LiveStreamSuite extends ServerHarness {
       ),
       "card" -> TestCard("<span>{{state}}</span>"),
       "tabs" -> TestCard(
-        template = """<div>bar</div><div id="{{hostId}}">{{{panel}}}</div>""",
+        template = """<div>bar</div>{{{panel}}}""",
         regions = Set("panel")
-      )
+      ),
+      Slots.GroupCard -> Slots.groupCard
     ),
     card = LayoutNode.Component("col"),
     surfaces = Map(
@@ -178,8 +179,10 @@ class LiveStreamSuite extends ServerHarness {
             LayoutNode.Component(
               "tabs",
               Map(
-                "panel" -> Slots
-                  .tabs("tab", branchCard("sensor.a"), branchCard("sensor.b"))
+                "panel" -> Slots.inGroup(
+                  Slots
+                    .tabs("tab", branchCard("sensor.a"), branchCard("sensor.b"))
+                )
               ),
               vars = TabDeclared
             )
@@ -288,9 +291,12 @@ class LiveStreamSuite extends ServerHarness {
           removes.head.contains("selector #s_c_0_t0__c"),
           clue = removes.head
         )
-        assert(!removes.head.contains("#c_0_branch"), clue = removes.head)
+        // The If's root is the host.
+        val host =
+          (p: String) => p.linesIterator.exists(_.endsWith("selector #c_0"))
+        assert(!host(removes.head), clue = removes.head)
         assertEquals(refilled.size, 1, clue = refilled)
-        assert(refilled.head.contains("selector #c_0_branch"), clue = refilled)
+        assert(host(refilled.head), clue = refilled)
       }
     }
   }
@@ -363,7 +369,7 @@ class LiveStreamSuite extends ServerHarness {
       "sensor.b" -> es("sensor.b", "B0")
     )
     val host: NodeId = "c_0_bar_0"
-    val mine = Selections(None, Map(NodeId.derived("c_0") -> 1))
+    val mine = Selections(None, Map(NodeId.derived("c_0_panel_0") -> 1))
     // Recorded as holding what a tab-0 connect left behind.
     val log = FragmentLog("w23").touched(host, 5L)
     val holds: Map[NodeId, Held] =
@@ -378,7 +384,7 @@ class LiveStreamSuite extends ServerHarness {
       holds,
       states,
       1L,
-      Set("c_0_t1"),
+      Set("c_0_panel_0_t1"),
       mine
     )
 
@@ -392,7 +398,7 @@ class LiveStreamSuite extends ServerHarness {
     // Owed per viewer because it is a different surface, not because one node
     // has two renderings.
     assert(
-      owed.exists(_.patch.toSse.render.contains("s_c_0_t1__c")),
+      owed.exists(_.patch.toSse.render.contains("s_c_0_panel_0_t1__c")),
       clue = owed.map(_.patch.toSse.render)
     )
     assert(
@@ -408,12 +414,13 @@ class LiveStreamSuite extends ServerHarness {
         "sensor.a" -> es("sensor.a", "A0"),
         "sensor.b" -> es("sensor.b", "B0")
       )
-    val open = Set("det", "s_det__c_0_t1")
-    val mine = Selections(None, Map(NodeId.derived("s_det__c_0") -> 1))
+    val open = Set("det", "s_det__c_0_panel_0_t1")
+    val mine =
+      Selections(None, Map(NodeId.derived("s_det__c_0_panel_0") -> 1))
     // Exactly as `pageResponse` records it.
     val ids =
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds(
-        "s_det__c_0_t1"
+        "s_det__c_0_panel_0_t1"
       )).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
@@ -432,7 +439,9 @@ class LiveStreamSuite extends ServerHarness {
       mine
     )
     assert(
-      !owed.exists(_.patch.toSse.render.contains("s_s_det__c_0_t0__c")),
+      !owed.exists(
+        _.patch.toSse.render.contains("s_s_det__c_0_panel_0_t0__c")
+      ),
       clue = owed.map(_.patch.toSse.render)
     )
     assert(!owed.exists(_.patch.toSse.render.contains("A1")), clue = owed)
@@ -543,11 +552,11 @@ class LiveStreamSuite extends ServerHarness {
       ),
       "card" -> TestCard("<span>{{state}}</span>"),
       "tabs" -> TestCard(
-        template =
-          """<div>{{{bar}}}</div><div id="{{hostId}}">{{{panel}}}</div>""",
+        template = """<div>{{{bar}}}</div>{{{panel}}}""",
         regions = Set("bar", "panel")
       ),
-      "bar" -> TestCard("""<div>{{title}}</div>""")
+      "bar" -> TestCard("""<div>{{title}}</div>"""),
+      Slots.GroupCard -> Slots.groupCard
     ),
     card = LayoutNode.Component(
       "col",
@@ -570,16 +579,8 @@ class LiveStreamSuite extends ServerHarness {
                 )
               )
             )
-          ) + ("panel" -> Slot.Nodes(
-            Fill.Nodes(
-              Choice.Chosen(
-                ValueExpr(Value.Var("tab")),
-                List(
-                  Case(Lit.Text("0"), List(branchCard("sensor.a"))),
-                  Case(Lit.Text("1"), List(branchCard("sensor.b")))
-                )
-              )
-            )
+          ) + ("panel" -> Slots.inGroup(
+            Slots.tabs("tab", branchCard("sensor.a"), branchCard("sensor.b"))
           )),
           vars = TabDeclared
         )
@@ -969,7 +970,7 @@ class LiveStreamSuite extends ServerHarness {
         flip <- world.change("alarm.h", "disarmed") *> client.drain
         _ = assertEquals(
           domEvents(flip),
-          List(("inner", Some("#c_0_branch"), branch("c_0_else", "B1"))),
+          List(("inner", Some("#c_0"), branch("c_0_else", "B1"))),
           clue = flip
         )
 
@@ -977,7 +978,7 @@ class LiveStreamSuite extends ServerHarness {
         back <- world.change("alarm.h", "armed") *> client.drain
         _ = assertEquals(
           domEvents(back),
-          List(("inner", Some("#c_0_branch"), branch("c_0_t0", "A1"))),
+          List(("inner", Some("#c_0"), branch("c_0_t0", "A1"))),
           clue = back
         )
       } yield ()

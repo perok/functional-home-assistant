@@ -160,6 +160,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def tabsDash: Dashboard = {
     val cards = Sets.cards ++ Map(
+      Slots.GroupCard -> Slots.groupCard,
       "btn" ->
         TestCard("<button>{{label}}</button>"),
       "card" ->
@@ -169,7 +170,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "tabs" -> TestCard(
         template = """<div class="tabs">""" +
           """{{{children}}}</div>""" +
-          """<div id="{{hostId}}">{{{panel}}}</div>""",
+          """{{{panel}}}""",
         regions = Set("children", "panel")
       )
     )
@@ -198,7 +199,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
               "btn",
               Slots.values(Map("label" -> TemplateSlot(ValueExpr.literal("B"))))
             )
-        ) + ("panel" -> Slots.tabs("tab", panel("a"), panel("b"))),
+        ) + ("panel" -> Slots.inGroup(
+          Slots.tabs("tab", panel("a"), panel("b"))
+        )),
         vars = TabDeclared
       )
     )
@@ -317,7 +320,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
     ),
     // Pure structure, like `lib/components/base/surface.pkl`'s `If`.
     "ifhost" -> TestCard(
-      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+      template = """{{{branch}}}""",
       regions = Set("branch")
     ),
     "card" -> TestCard("<span>{{state}}</span>"),
@@ -382,7 +385,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       ),
       "card" -> TestCard("<span>{{state}}</span>"),
       "tabs" -> TestCard(
-        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        template = """{{{panel}}}""",
         regions = Set("panel")
       )
     ),

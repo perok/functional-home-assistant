@@ -405,7 +405,7 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
             regions = Set("children")
           ),
           "host" -> TestCard(
-            """<div id="{{hostId}}">{{{panel}}}</div>""",
+            """{{{panel}}}""",
             regions = Set("panel")
           )
         ),

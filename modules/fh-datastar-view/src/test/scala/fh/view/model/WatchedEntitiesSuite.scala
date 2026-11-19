@@ -102,7 +102,7 @@ class WatchedEntitiesSuite extends munit.FunSuite {
 
   private val host = Map(
     "host" -> TestCard(
-      """<div id="{{hostId}}">{{{armed}}}</div>""",
+      """{{{armed}}}""",
       Set("armed")
     )
   )

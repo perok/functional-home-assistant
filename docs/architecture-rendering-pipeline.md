@@ -758,7 +758,7 @@ A node's fill decides how a region is filled:
 | Fill | Filled by | Element id | Rendered |
 |---|---|---|---|
 | fixed nodes | the node's own nodes in that slot | none — they arrive nested | with the parent, in one pass |
-| a choice (`Fill.Nodes(Chosen)`) | the case its PICK shows, served as a SURFACE (`Dashboard.picks`: case `i` is `<host>_t<i>`, the otherwise `<host>_else`); per viewer over a variable, per version over state | `hostId` = `<nodeId>_<slot>` | only the picked case, lazily |
+| a choice (`Fill.Nodes(Chosen)`) | the case its PICK shows, served as a SURFACE (`Dashboard.picks`: case `i` is `<host>_t<i>`, the otherwise `<host>_else`); per viewer over a variable, per version over state | the node's root: the choice is its card's whole template, and one beside other content sits in a `group` | only the picked case, lazily |
 | a set (`Fill.Set`) | the members `MemberGraph` decides (§4b) | the card's root | each member a node of its own |
 
 Laid over one slider and one tabs card:
@@ -774,10 +774,10 @@ flowchart TB
   subgraph TB2["node c_1 · card &quot;tabs&quot; · STRUCTURE"]
     direction TB
     BAR["region children → c_1_0, c_1_1<br/>card &quot;tab&quot; · LEAF each"]
-    PANEL["region panel · A CHOICE<br/>element id c_1_panel<br/>◀ a tab switch is one Inner HERE"]
+    PANEL["region panel → c_1_panel_0<br/>card group · A CHOICE, its whole template<br/>◀ a tab switch is one Inner into its root"]
   end
 
-  SURF[("the pick at c_1<br/>cases c_1_t0, c_1_t1 …<br/>one shown at a time")]
+  SURF[("the pick at c_1_panel_0<br/>cases c_1_panel_0_t0, … _t1 …<br/>one shown at a time")]
   SURF -.->|fillHost| PANEL
 
   classDef struct fill:#fee2e2,stroke:#b91c1c,color:#0f172a

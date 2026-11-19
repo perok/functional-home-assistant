@@ -303,7 +303,8 @@ class NodesSlot extends AnySlot {
   /// members placed straight into its root.
   hidden set: predMod.SetFill? = null
   /// The choice filling it, in place of [[nodes]]: a tab panel, an `If`'s
-  /// branches. The card places the host it is patched into, `id="{{hostId}}"`.
+  /// branches. It is its card's whole template: the card's root is the element
+  /// its case is patched into.
   hidden choice: choiceMod.Choice? = null
   /// What the wire holds of it, [[nodes]] being a fixed fill.
   fixed fill: NodesFill|predMod.SetFill =
