@@ -160,6 +160,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def tabsDash: Dashboard = {
     val cards = Sets.cards ++ Map(
+      Slots.GroupCard -> Slots.groupCard,
       "btn" ->
         TestCard("<button>{{label}}</button>"),
       "card" ->
@@ -169,7 +170,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       "tabs" -> TestCard(
         template = """<div class="tabs">""" +
           """{{{children}}}</div>""" +
-          """<div id="{{hostId}}">{{{panel}}}</div>""",
+          """{{{panel}}}""",
         regions = Set("children", "panel")
       )
     )
@@ -198,7 +199,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
               "btn",
               Slots.values(Map("label" -> TemplateSlot(ValueExpr.literal("B"))))
             )
-        ) + ("panel" -> Slots.tabs("tab", panel("a"), panel("b"))),
+        ) + ("panel" -> Slots.inGroup(
+          Slots.tabs("tab", panel("a"), panel("b"))
+        )),
         vars = TabDeclared
       )
     )
@@ -317,7 +320,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
     ),
     // Pure structure, like `lib/components/base/surface.pkl`'s `If`.
     "ifhost" -> TestCard(
-      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+      template = """{{{branch}}}""",
       regions = Set("branch")
     ),
     "card" -> TestCard("<span>{{state}}</span>"),
@@ -335,7 +338,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
     )
 
   /** An `ifhost` whose branch is `then` while `cond` holds, else `otherwise`:
-    * the surfaces `<id>_t0` and `<id>_else`.
+    * the cases `<id>_branch_0` and `<id>_branch_1`.
     */
   def ifHost(
       cond: ValueExpr,
@@ -347,8 +350,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       Map("branch" -> Slots.iff(cond, `then`, otherwise))
     )
 
-  /** `ifhost` at "c_0". `c_0_t0` shows while alarm.h == armed, and `c_0_else`
-    * otherwise; by default they show sensor.a and sensor.b.
+  /** `ifhost` at "c_0". `c_0_branch_0` shows while alarm.h == armed, and
+    * `c_0_branch_1` otherwise; by default they show sensor.a and sensor.b.
     */
   def ifDash(
       thenContent: LayoutNode = branchCard("sensor.a"),
@@ -372,7 +375,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
   val BodyRepaint = "selector #dashboard"
 
   /** A card on sensor.shared at `c_0` and a tab bar at `c_1` whose panel `i` is
-    * `panels(i)`, the surface `c_1_t<i>`.
+    * `panels(i)`, the case `c_1_panel_<i>`.
     */
   def tabsAt(panels: LayoutNode*): Dashboard = Dashboard(
     cards = Sets.cards ++ Map(
@@ -382,7 +385,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
       ),
       "card" -> TestCard("<span>{{state}}</span>"),
       "tabs" -> TestCard(
-        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
+        template = """{{{panel}}}""",
         regions = Set("panel")
       )
     ),

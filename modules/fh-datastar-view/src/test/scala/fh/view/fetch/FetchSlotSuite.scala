@@ -405,7 +405,7 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
             regions = Set("children")
           ),
           "host" -> TestCard(
-            """<div id="{{hostId}}">{{{panel}}}</div>""",
+            """{{{panel}}}""",
             regions = Set("panel")
           )
         ),
@@ -431,8 +431,8 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
             .getOrElse(fail(s"not a preset: ${r.fetch}"))
         )
         .toSet
-    assertEquals(windows("tabs_t0", light("on")), Set("1h", "24h"))
-    assertEquals(windows("tabs_t1", light("off")), Set("7d", "30d"))
+    assertEquals(windows("tabs_panel_0", light("on")), Set("1h", "24h"))
+    assertEquals(windows("tabs_panel_1", light("off")), Set("7d", "30d"))
   }
 
   private def dashboard(src: TemplateSlot) =

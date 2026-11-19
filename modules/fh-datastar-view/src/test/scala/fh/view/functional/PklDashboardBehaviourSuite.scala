@@ -448,7 +448,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     * `v.<host>.tab` param and the renderer's node id are this one string, and
     * they have silently drifted apart.
     */
-  private val tabsHost = "s_c_1_t0__c_0_1"
+  private val tabsHost = "c_1_branch_0_0_1"
 
   /** A connect carrying this viewer's committed tab, as a reconnect does
     * (`Server.SseInclude`): a stream opened with no page has no session to hold
@@ -584,7 +584,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     */
   private val siblingBar = "c_0"
   private val outerBar = "c_1"
-  private val innerBar = "s_c_1_t0__c_0"
+  private val innerBar = "c_1_panel_0_0_0"
 
   private def withNestedServer[A](
       f: (TestServer, IO[Set[String]]) => IO[A]

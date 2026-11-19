@@ -74,7 +74,7 @@ class PullReadsSuite extends munit.FunSuite {
           regions = Set("children")
         ),
         "tabs" -> TestCard(
-          """<div id="{{hostId}}">{{{panel}}}</div>""",
+          """{{{panel}}}""",
           regions = Set("panel")
         )
       ),
@@ -93,7 +93,7 @@ class PullReadsSuite extends munit.FunSuite {
   private def asked(log: FragmentLog, open: Set[String] = Set.empty) = {
     val snapshot = FetchSnapshot.of(
       renderer
-        .fetchesForPage(Set("charted_t0"), Shared.of(Map.empty), Map.empty)
+        .fetchesForPage(Set("charted_panel_0"), Shared.of(Map.empty), Map.empty)
         .map(_ -> Staged(1L, "<svg/>"))
         .toMap
     )
@@ -134,7 +134,10 @@ class PullReadsSuite extends munit.FunSuite {
     // its read's version — so the tab's chart is asked even when only a light
     // moved, and the body's is not.
     assertEquals(
-      asked(FragmentLog("test").touched("plain", 1L), open = Set("charted_t0")),
+      asked(
+        FragmentLog("test").touched("plain", 1L),
+        open = Set("charted_panel_0")
+      ),
       Set("sensor.tab")
     )
   }

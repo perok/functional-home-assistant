@@ -1,10 +1,11 @@
 package fh.view.runtime
 
-import fh.view.testkit.Slots
+import fh.view.testkit.{Sets, Slots}
 
 import fh.view.model.{
   Dashboard,
   LayoutNode,
+  Lit,
   Value,
   ValueExpr,
   TemplateSlot,
@@ -40,10 +41,40 @@ class StateSurfaceSuite extends ServerHarness {
         shown <- step(v, es("sensor.a", "A1"))
       } yield {
         assertEquals(shown.size, 1, clue = shown)
-        assert(shown.head.contains("""id="s_c_0_t0__c""""), clue = shown)
+        assert(shown.head.contains("""id="c_0_branch_0""""), clue = shown)
         assert(shown.head.contains("A1"), clue = shown)
       }
     }
+  }
+
+  test(
+    "a case nobody shows costs nothing: its entity's churn renders and logs nothing"
+  ) {
+    def silent(dash: Dashboard, states: Map[String, EntityState]) =
+      live(dash, states) { ts =>
+        for {
+          v <- ts.viewer()
+          before <- ts.log.map(logged)
+          quiet <- step(v, es("sensor.b", "B1"))
+          after <- ts.log.map(logged)
+          // The control: the shown case does answer its own entity.
+          shown <- step(v, es("sensor.a", "A1"))
+        } yield {
+          // Never rendered: the page carries the shown case alone.
+          assert(v.document.html.contains("A0"), clue = v.document.html)
+          assert(!v.document.html.contains("B0"), clue = v.document.html)
+          assertEquals(quiet, Nil, clue = quiet)
+          assertEquals(after, before, clue = after)
+          assertEquals(shown.size, 1, clue = shown)
+        }
+      }
+    val states = Map(
+      "alarm.h" -> es("alarm.h", "armed"),
+      "sensor.a" -> es("sensor.a", "A0"),
+      "sensor.b" -> es("sensor.b", "B0")
+    )
+    // An If branch, and a tab panel the viewer has not opened.
+    silent(ifDash(), states) *> silent(tabsDash, states)
   }
 
   test(
@@ -70,9 +101,9 @@ class StateSurfaceSuite extends ServerHarness {
         assertEquals(flip.size, 1, clue = flip)
         val p = flip.head
         assert(p.contains("mode inner"), clue = p)
-        // `Surface.hostId`, the id the If's template puts on it.
-        assert(p.contains("selector #c_0_branch"), clue = p)
-        assert(p.contains("""id="s_c_0_else__c""""), clue = p)
+        // The If's root.
+        assert(p.contains("selector #c_0\n"), clue = p)
+        assert(p.contains("""id="c_0_branch_1""""), clue = p)
         // Current state: B1, which no client ever saw.
         assert(p.contains("B1"), clue = p)
         assert(!p.contains("A1"), clue = p)
@@ -80,9 +111,9 @@ class StateSurfaceSuite extends ServerHarness {
         // The prune still clears hidden-branch staleness, and the new branch's
         // root is recorded as the host's occupant: a Mutation, since it is
         // structure.
-        assert(!cache.keys.exists(_.startsWith("s_c_0_t0__")), clue = cache)
+        assert(!cache.keys.exists(_.startsWith("c_0_branch_0")), clue = cache)
         assert(
-          moved.get("s_c_0_else__c").exists {
+          moved.get("c_0_branch_1").exists {
             case _: Mutation.Placed => true
             case _                  => false
           },
@@ -122,6 +153,53 @@ class StateSurfaceSuite extends ServerHarness {
     }
   }
 
+  test("a match over a state's text switches its case for every viewer") {
+    val dash = Dashboard(
+      cards = Sets.cards ++ ifCards,
+      card = LayoutNode.Component(
+        "col",
+        slots = Slots.kids(
+          LayoutNode.Component(
+            "ifhost",
+            Map(
+              "branch" -> Slots.chosen(
+                ValueExpr(Value.Entity(Some("input_select.m"))),
+                List(
+                  Lit.Text("heat") -> branchCard("sensor.a"),
+                  Lit.Text("cool") -> branchCard("sensor.b")
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+    live(
+      dash,
+      Map(
+        "input_select.m" -> es("input_select.m", "heat"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    ) { ts =>
+      for {
+        v1 <- ts.viewer()
+        v2 <- ts.viewer()
+        _ = List(v1, v2).foreach { v =>
+          assert(v.document.html.contains("A0"), clue = v.document.html)
+          assert(!v.document.html.contains("B0"), clue = v.document.html)
+        }
+        p1 <- step(v1, es("input_select.m", "cool"))
+        // One change to the store; the second viewer pulls the same version.
+        p2 <- v2.pull.map(elementPatches)
+      } yield List(p1, p2).foreach { p =>
+        assertEquals(p.size, 1, clue = p)
+        assert(p.head.contains("B0"), clue = p)
+        assert(!p.head.contains("A0"), clue = p)
+      }
+    }
+  }
+
   /** '''A flip while a client is away must survive the reconnect''' (ADR 0011).
     * `Patches.resume` looked members up by position in `memberEntities`, empty
     * for a state group, so a `Placed` carrying a `Surface` was dropped: the
@@ -147,8 +225,8 @@ class StateSurfaceSuite extends ServerHarness {
       } yield {
         // Without it the host is left empty.
         assert(opening.contains("mode inner"), clue = opening)
-        assert(opening.contains("selector #c_0_branch"), clue = opening)
-        assert(opening.contains("""id="s_c_0_else__c""""), clue = opening)
+        assert(opening.contains("selector #c_0\n"), clue = opening)
+        assert(opening.contains("""id="c_0_branch_1""""), clue = opening)
         assert(opening.contains("B0"), clue = opening)
         assert(!opening.contains(BodyRepaint), clue = opening)
         // A client that applied the flip and one that missed it land on the same
@@ -186,7 +264,7 @@ class StateSurfaceSuite extends ServerHarness {
         reveal <- step(v, es("sensor.a", "on"))
       } yield {
         assertEquals(reveal.size, 1, clue = reveal)
-        assert(reveal.head.contains("""id="s_c_0_t0__c""""), clue = reveal)
+        assert(reveal.head.contains("""id="c_0_branch_0""""), clue = reveal)
         assert(reveal.head.contains("on"), clue = reveal)
       }
     }
@@ -218,7 +296,7 @@ class StateSurfaceSuite extends ServerHarness {
         tick <- step(v, es("light.x", "on2"))
         // "on2" fails the query: a membership change.
         _ = assert(tick.nonEmpty, clue = tick)
-        _ = assert(tick.forall(_.contains("s_c_0_t0__c")), clue = tick)
+        _ = assert(tick.forall(_.contains("c_0_branch_0")), clue = tick)
         _ <- step(v, es("alarm.h", "disarmed")).map(p =>
           assertEquals(p.size, 1)
         )
@@ -268,11 +346,11 @@ class StateSurfaceSuite extends ServerHarness {
         innerFlip <- step(v, es("mode.h", "day"))
         _ = assertEquals(innerFlip.size, 1, clue = innerFlip)
         _ = assert(
-          innerFlip.head.contains("selector #s_c_0_t0__c_0_branch"),
+          innerFlip.head.contains("selector #c_0_branch_0_0\n"),
           clue = innerFlip
         )
         _ = assert(
-          innerFlip.head.contains("""id="s_s_c_0_t0__c_0_else__c""""),
+          innerFlip.head.contains("""id="c_0_branch_0_0_branch_1""""),
           clue = innerFlip
         )
         _ <- step(v, es("alarm.h", "disarmed")).map(p =>
@@ -325,14 +403,14 @@ class StateSurfaceSuite extends ServerHarness {
         closed <- without.pull
       } yield {
         assert(
-          !closed.exists(_.render.contains("s_det__c_0_branch")),
+          !closed.exists(_.render.contains("selector #s_det__c_0\n")),
           clue = closed.map(_.render)
         )
         val patches = elementPatches(opened)
         assertEquals(patches.size, 1, clue = patches)
-        assert(patches.head.contains("selector #s_det__c_0_branch"), patches)
+        assert(patches.head.contains("selector #s_det__c_0\n"), patches)
         assert(
-          patches.head.contains("""id="s_s_det__c_0_else__c""""),
+          patches.head.contains("""id="s_det__c_0_branch_1""""),
           clue = patches
         )
       }

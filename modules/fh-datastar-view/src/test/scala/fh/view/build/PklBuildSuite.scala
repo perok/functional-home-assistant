@@ -1400,17 +1400,9 @@ class PklBuildSuite extends munit.FunSuite {
       clue = d.cards.keySet
     )
     // The picks are derived from the choices' `Chosen` fills.
-    val surfaces = d.lowered.surfaces
-    assert(
-      surfaces.keys.exists(_.endsWith("_t0")) &&
-        surfaces.keys.exists(_.endsWith("_t1")),
-      clue = surfaces.keySet
-    )
-    assert(
-      surfaces.keys.exists(_.endsWith("_t0")) &&
-        surfaces.keys.exists(_.endsWith("_else")),
-      clue = surfaces.keySet
-    )
+    val cases = d.picks.values.flatMap(_.cases).toSet
+    assert(cases.sizeIs >= 2, clue = cases)
+    assert(d.picks.values.exists(_.choice.otherwise.isDefined), clue = d.picks)
   }
 
   private def probeComponent(body: String): LayoutNode.Component = {

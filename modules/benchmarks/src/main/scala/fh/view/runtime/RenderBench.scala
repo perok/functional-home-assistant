@@ -1201,8 +1201,8 @@ class RenderBench {
     val at = flipRot.toLong
     val log = FragmentLog("bench").placed(
       FlipContainer,
-      MemberKey.Surface("c_0_else"),
-      flipped.surfaceContentId("c_0_else"),
+      MemberKey.Surface(FlipElse),
+      FlipElse,
       at
     )
     (1 to clients).toList
@@ -2101,7 +2101,7 @@ object RenderBench {
   def flipDash(signals: Boolean = true): Dashboard =
     Dashboard(
       cards = cards + ("ifhost" -> TestCard(
-        template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+        template = """{{{branch}}}""",
         regions = Set("branch")
       )),
       card = LayoutNode.Component(
@@ -2128,9 +2128,10 @@ object RenderBench {
 
   /** The host of the two branches is the root column's only child, so its id is
     * `c_0` by the same derivation every other node here uses; the branches are
-    * `c_0_t0` and `c_0_else`.
+    * its `branch` slot's nodes, `c_0_branch_0` and the otherwise [[FlipElse]].
     */
   final val FlipContainer: NodeId = NodeId.derived("c_0")
+  final val FlipElse: NodeId = NodeId.derived("c_0_branch_1")
 
   /** The same leaves, as one candidate set: every entity a candidate, each with
     * a single clause rendering the same card. Unguarded, membership is total,
@@ -2259,7 +2260,7 @@ object RenderBench {
   def ifSetDash(leaves: Int): Dashboard =
     Dashboard(
       cards + ("ifhost" -> TestCard(
-        template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+        template = """{{{branch}}}""",
         regions = Set("branch")
       )),
       LayoutNode.Component(

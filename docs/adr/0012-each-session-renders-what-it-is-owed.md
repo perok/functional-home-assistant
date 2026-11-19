@@ -145,8 +145,7 @@ patch an id its DOM lacks.
 
 **A fill is one operation, whoever chose the case.** A tab switch, a popup open and an
 `If` flip all evict a host's occupants, render the arriving surface, and overwrite the
-host. The model already said so: a choice's cases and a popup are all surfaces, and
-`Renderer.hostId` derives a pick's host from its cases' `Surface.hostId`. What differs is
+host, the case's node or the popup's content (`Renderer.renderShownTraced`). What differs is
 who decides (a viewer's node variable vs `by` over entity state, ADR 0007) and where the claim lands: a flip records a `Mutation`,
 because it is server truth every client must be replayed; a tab switch claims into the
 SESSION (`Patches.hostFill`), because one client switching a tab says nothing about

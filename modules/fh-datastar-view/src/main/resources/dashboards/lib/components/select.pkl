@@ -20,6 +20,7 @@
 module components.select
 
 import "../core/choice.pkl" as choiceMod
+import "../core/group.pkl" as groupMod
 import "../core/icon.pkl" as icons
 import "../core/node.pkl" as nodeMod
 import "../core/predicate.pkl" as predMod
@@ -236,7 +237,7 @@ class VarSelectDropdown extends Select {
     tag = "details"
     classes = "fh-select-menu"
     attrs = menuAttrs
-    template = menuTemplate(#"<span id="{{hostId}}">\#(panelSlot)</span>"#)
+    template = menuTemplate(panelSlot.toString())
     css = menuCss
   }
   // A class-level property: a nested body cannot see what `Select` declares.
@@ -244,7 +245,7 @@ class VarSelectDropdown extends Select {
     let (cs = choices)
       panelsOf(target, cs.map((ch) -> new ChoiceLabel { label = ch.label; icon = ch.icon }), cs)
   slots {
-    panelSlot.of(labelChoice)
+    panelSlot.of(new Listing { groupMod.inner("span", "", labelChoice) })
   }
 }
 
@@ -268,12 +269,12 @@ class VarSelectCycle extends Select {
   hidden target: varMod.Variable
   card = "selectVarCycle"
   cardDef = new nodeMod.CardDef {
-    template = #"<div id="{{hostId}}" class="fh-select-cycles">\#(panelSlot)</div>"#
+    template = panelSlot.toString()
     css = cycleCss
   }
   // A class-level property: a nested body cannot see what `Select` declares.
   hidden panelChoice: choiceMod.Match = panelsOf(target, optionNodes, choices)
-  slots { panelSlot.of(panelChoice) }
+  slots { panelSlot.of(new Listing { groupMod.inner("div", "fh-select-cycles", panelChoice) }) }
   cycling = true
   children = new Listing {}
 }

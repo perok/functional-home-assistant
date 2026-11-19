@@ -594,8 +594,8 @@ facts {
   }
 
   ["an If whose branches all fail collapses its cell, rather than leaving a blank band"] {
-    c.cards["ifhost"].template.contains(#"class="fh-ifhost""#)
-    cssMod.baseCss.contains(".fh-cell:has(>.fh-ifhost:empty){display:none}")
+    c.cards["ifhost"].classes == "fh-ifhost"
+    cssMod.baseCss.contains(".fh-ifhost:empty{display:none}")
   }
 
   ["the guard is the tap's: every surface open is guarded, navigate and close are not"] {

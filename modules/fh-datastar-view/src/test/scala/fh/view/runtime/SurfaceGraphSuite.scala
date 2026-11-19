@@ -81,21 +81,22 @@ class SurfaceGraphSuite extends munit.FunSuite {
       roots: Map[String, String] = Map.empty,
       members: MemberGraph = new MemberGraph(Map.empty, Map.empty)
   ): SurfaceGraph =
+    // Case ids are the graph's opaque keys; any spelling does.
     val placed = picks.map { p =>
       val keys = p.choice.cases.indices.map(i => s"t$i") ++
         p.choice.otherwise.as("else")
-      val sids = keys.map(k => s"${p.host}_$k").toList
-      val cases = sids.zipWithIndex.map((sid, i) =>
-        sid -> Surface(
-          col(),
-          pick = Some(Surface.InPick(NodeId.derived(p.host), "p", None, i))
-        )
+      Dashboard.Pick(
+        NodeId.derived(p.host),
+        "p",
+        p.choice,
+        "",
+        None,
+        keys.map(k => NodeId.derived(s"${p.host}_$k")).toList
       )
-      (Dashboard.Pick(NodeId.derived(p.host), "p", None, p.choice, sids), cases)
     }
     new SurfaceGraph(
-      (popups ++ placed.flatMap(_._2)).view.mapValues(compile.surface).toMap,
-      placed.map((p, _) => p.group -> compile.pick(p)).toMap,
+      popups.view.mapValues(compile.surface).toMap,
+      placed.map(p => p.group -> compile.pick(p)).toMap,
       roots.map { case (id, root) => NodeId.derived(id) -> root },
       members
     )

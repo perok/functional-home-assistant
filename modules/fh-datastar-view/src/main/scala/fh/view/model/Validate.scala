@@ -627,9 +627,8 @@ private[model] object Validate:
         .sorted
         .map(n => s"$nodeId: '$n' is both a slot and a call — rename one")
 
-    /** A nodes slot's choice: keys typed by `by`, one node per case, one choice
-      * to a node (its cases' ids name the node, not the slot), and a `by` a
-      * pick can decide: a viewer's variable read alone, or state alone. A
+    /** A nodes slot's choice: keys typed by `by`, one node per case, and a `by`
+      * a pick can decide: a viewer's variable read alone, or state alone. A
       * variable's declared value no case takes would show nothing before anyone
       * chooses.
       */
@@ -638,25 +637,14 @@ private[model] object Validate:
         c: LayoutNode.Component,
         scope: Map[String, String]
     ): List[String] =
-      val chosen = c.fills.toList.sortBy(_._1).collect {
-        case (n, Fill.Nodes(k: Choice.Chosen[List[LayoutNode]] @unchecked)) =>
-          n -> k
-      }
-      val two = Option
-        .when(chosen.sizeIs > 1)(
-          s"$nodeId: nodes slots ${chosen.map(n => s"'${n._1}'").mkString(", ")} " +
-            "are each filled with a choice; a node holds one until its root " +
-            "hosts it (R4c of docs/plan-regions.md)"
-        )
-        .toList
-      two ++ chosen.flatMap { (n, k) =>
+      c.chosen.toList.sortBy(_._1).flatMap { (n, k) =>
         val at = s"$nodeId: nodes slot '$n'"
         val nodes = k.cases.map(_.value) ++ k.otherwise
         val lengths = nodes
           .filter(_.sizeIs != 1)
           .map(_ =>
             s"$at has a case that is not exactly one node (several go in a " +
-              "row; R4c of docs/plan-regions.md lets a case hold a list)"
+              "row)"
           )
           .distinct
         val reads =
@@ -879,7 +867,7 @@ private[model] object Validate:
             valueWhileErrors(nodeId, c.bound) ++
             typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++
-            layoutErrors ++ childErrors(c.regions, prefix, nodeId, here) ++
+            layoutErrors ++ childErrors(c.slotNodes, prefix, nodeId, here) ++
             setErrors(nodeId, c, prefix, scope)
 
     // A set's members are complete nodes, validated as ordinary ones.
@@ -892,7 +880,15 @@ private[model] object Validate:
       val sets = c.fills.toList.sortBy(_._1).collect { case (n, s: Fill.Set) =>
         n -> s
       }
-      sets.flatMap { (region, s) =>
+      // The card's root is the element a choice's case is patched into.
+      val choices = c.fills.toList.sortBy(_._1).collect {
+        case (n, Fill.Nodes(_: Choice.Chosen[?]))
+            if cards.get(c.card).exists(_.regions != Set(n)) =>
+          s"$setId: the choice in '$n' is not its card's whole template — " +
+            "its case is patched into the card's root, so put the choice in " +
+            "a group of its own"
+      }
+      choices ++ sets.flatMap { (region, s) =>
         val whole =
           Option
             .when(
@@ -1116,7 +1112,7 @@ private[model] object Validate:
       ): List[(NodeId, Boolean, Option[String])] =
         (id, inSet, node.authoredId) :: (node match {
           case c: LayoutNode.Component =>
-            LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
+            LayoutNode.steps(c.slotNodes).flatMap { case (step, ch) =>
               walkIds(
                 ch,
                 prefix,
@@ -1305,7 +1301,7 @@ private[model] object Validate:
           surface.content,
           p,
           LayoutNode.rootId(p, surface.content),
-          scopeOf(surface)
+          Map.empty
         ).map(err => s"surface '$sid': $err")
       }
 

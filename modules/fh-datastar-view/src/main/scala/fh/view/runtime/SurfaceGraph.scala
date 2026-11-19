@@ -19,27 +19,42 @@ object Selections {
   * over state is the same for everyone, so its cases hide nothing from anybody.
   * Visibility derives from selection — one fact asked three ways.
   *
-  * @param surfaces
+  * What may be hidden is a CONTAINER: a popup, by its surface id, or a pick's
+  * case, by the case's node id. Every node is in one, the innermost holding it
+  * (`""` for the main page), and is shown while every container up its chain
+  * is: a popup open, a case picked.
+  *
+  * @param popups
   *   not the whole `Dashboard`, which this has no use for.
   * @param picks
-  *   each choice, by its id ([[Surface.InPick.group]]).
+  *   each choice, by its id ([[Surface.groupId]]).
+  * @param containerOfIndexed
+  *   each node of the static trees' container.
   * @param members
   *   for [[rootOf]] of materialised members and nested sets.
   */
 private[runtime] final class SurfaceGraph(
-    surfaces: Map[String, Ready.Surface],
+    popups: Map[String, Ready.Surface],
     picks: Map[NodeId, Ready.Pick],
-    rootOfIndexed: Map[NodeId, String],
+    containerOfIndexed: Map[NodeId, String],
     members: MemberGraph
 ) {
 
-  // A pick's id is its host's, except inside a set member's clause
-  // (`Surface.InPick.group`).
   private val pickHosts: Map[NodeId, (NodeId, Option[Int])] =
-    surfaces.values
-      .flatMap(_.pick)
-      .map(p => p.group -> (p.host, p.clause))
-      .toMap
+    picks.map((gid, p) => gid -> (p.host, p.clause))
+
+  /** case id -> each pick showing it and at which index: one per clause of a
+    * set member, every clause minting the same ids.
+    */
+  private val caseAt: Map[String, List[(NodeId, Int)]] =
+    picks.toList
+      .sortBy(_._1)
+      .flatMap((gid, p) =>
+        p.cases.zipWithIndex.map((c, i) => (c: String) -> (gid, i))
+      )
+      .groupMap(_._1)(_._2)
+
+  private val containers: Set[String] = popups.keySet ++ caseAt.keySet
 
   /** The node a pick fills. */
   def hostOf(gid: NodeId): NodeId = pickHosts.get(gid).fold(gid)(_._1)
@@ -55,7 +70,7 @@ private[runtime] final class SurfaceGraph(
   /** The clause a pick inside a set member belongs to. */
   def clauseOf(gid: NodeId): Option[Int] = pickHosts.get(gid).flatMap(_._2)
 
-  /** A pick's cases' surface ids, the otherwise's last; empty for a node owning
+  /** A pick's cases' node ids, the otherwise's last; empty for a node owning
     * none.
     */
   def cases(gid: NodeId): Vector[String] =
@@ -63,7 +78,17 @@ private[runtime] final class SurfaceGraph(
 
   // Asked per member on every publish, so no `Option` per lookup.
   private val casesOf: Map[NodeId, Vector[String]] =
-    picks.view.mapValues(_.members).toMap
+    picks.view.mapValues(_.cases.map(c => c: String)).toMap
+
+  /** The pick showing case `id` and its index there: in a set member, the pick
+    * of the clause `shared` has it in.
+    */
+  def pickShowing(id: String, shared: Shared): Option[(NodeId, Int)] =
+    caseAt.get(id).flatMap(_.find((gid, _) => groupShown(gid, shared)))
+
+  /** Whether `id` is a case of a pick over a variable: chosen, never opened. */
+  def isVarCase(id: String): Boolean =
+    caseAt.get(id).exists(_.exists((gid, _) => varPicks(gid)))
 
   /** The case of a pick over a variable that `value` picks. */
   def memberAt(gid: NodeId, value: String): Option[Int] =
@@ -122,22 +147,26 @@ private[runtime] final class SurfaceGraph(
   /** If/else hosts: rendered once per slug for every viewer. */
   val statePicks: Set[NodeId] = picks.keySet -- varPicks
 
-  /** `""` for the main page. Not recoverable from the id, which carries only
-    * its own surface's prefix. Members and nested sets answer through the
-    * graph; unknown would read as visible to everyone.
+  /** The innermost container holding `id`, `""` for the main page; a pick's is
+    * its host's. Not recoverable from the id. Members and nested sets answer
+    * through the graph; unknown would read as visible to everyone.
     */
   def rootOf(id: NodeId): Option[String] = {
     val node = hostOf(id)
-    rootOfIndexed
+    containerOfIndexed
       .get(node)
       .orElse(members.rootOfMember(node))
       .orElse(members.rootOfSet(node))
   }
 
-  // A popup has no pick and is absent: it hosts on the main page.
+  // A popup is absent: it hosts on the main page. A case's parent is its
+  // host's container; every clause's host is at one id.
   private val surfaceParent: Map[String, String] =
-    surfaces.flatMap { case (sid, s) =>
-      s.pick.flatMap(p => rootOf(p.host)).filter(_.nonEmpty).map(sid -> _)
+    caseAt.flatMap { (cid, at) =>
+      at.headOption
+        .flatMap((gid, _) => rootOf(gid))
+        .filter(_.nonEmpty)
+        .map(cid -> _)
     }
 
   /** `sid` plus the nested tabs this viewer selected and the cases `shared`
@@ -149,22 +178,14 @@ private[runtime] final class SurfaceGraph(
       selections: Selections
   ): Set[String] = {
     val open = selectedSurfaces(selections)
-    surfaces.keySet.filter(shownUpTo(_, sid, open, shared, Set.empty)) + sid
+    containers.filter(shownUpTo(_, sid, open, shared, Set.empty)) + sid
   }
 
   /** Every surface [[visibleSurface]] with `open`, which is added whole: a page
     * opens on what the viewer chose, shown or not.
     */
   def shownSurfaces(open: Set[String], shared: Shared): Set[String] =
-    open ++ surfaces.keySet.filter(visibleSurface(_, open, shared))
-
-  private def isStateSurface(sid: String): Boolean =
-    surfaces.get(sid).flatMap(_.group).exists(isStatePick)
-
-  private def stateSelected(sid: String, shared: Shared): Boolean =
-    surfaces.get(sid).flatMap(_.group).exists { gid =>
-      decideByState(gid, shared).flatMap(cases(gid).lift).contains(sid)
-    }
+    open ++ containers.filter(visibleSurface(_, open, shared))
 
   /** Whether `sid` is on screen for a viewer with `open` open, as `shared` has
     * it: every surface up its chain is, a user surface opened and a state case
@@ -190,13 +211,15 @@ private[runtime] final class SurfaceGraph(
   ): Boolean = {
     def up(sid: String, seen: Set[String]): Boolean =
       sid == stop || (!sid.isEmpty && !seen(sid) && {
-        val inGroup = surfaces
-          .get(sid)
-          .flatMap(_.group)
-          .forall(gid => !cut(gid) && groupShown(gid, shared))
-        val here =
-          if (isStateSurface(sid)) stateSelected(sid, shared) else open(sid)
-        inGroup && here && up(surfaceParent.getOrElse(sid, ""), seen + sid)
+        val here = caseAt.get(sid) match
+          case None     => open(sid)
+          case Some(at) =>
+            at.exists((gid, i) =>
+              !cut(gid) && groupShown(gid, shared) &&
+                (if (isStatePick(gid)) decideByState(gid, shared).contains(i)
+                 else open(sid))
+            )
+        here && up(surfaceParent.getOrElse(sid, ""), seen + sid)
       })
     up(sid, Set.empty)
   }
@@ -298,9 +321,7 @@ private[runtime] final class SurfaceGraph(
         decideByViewer(gid, selections).flatMap(cases(gid).lift)
       )
     val fromPopups =
-      surfaces.collect {
-        case (sid, s) if s.pick.isEmpty && defaultOpenPopup(s) => sid
-      }.toSet
+      popups.collect { case (sid, s) if defaultOpenPopup(s) => sid }.toSet
     fromPicks ++ fromPopups ++ selections.popup
   }
 
@@ -309,14 +330,20 @@ private[runtime] final class SurfaceGraph(
     * serve.
     */
   def openPopup(requested: Option[String]): Option[String] =
-    requested.filter(sid =>
-      surfaces.get(sid).exists(_.hostId == Dashboard.PopupHostId)
-    )
+    requested.filter(popups.contains)
 
+  /** What `host` can show: every popup at the popup host, else the cases of the
+    * picks hosted there.
+    */
   def surfacesAt(host: DomId): Set[String] =
-    surfaces.collect {
-      case (sid, s) if s.hostId == host => sid
-    }.toSet
+    if (host == Dashboard.PopupHostId) popups.keySet
+    else casesAtHost.getOrElse(host, Set.empty)
+
+  private val casesAtHost: Map[DomId, Set[String]] =
+    picks.values.toList
+      .groupMapReduce(p => DomId.derived(p.host))(
+        _.cases.map(c => c: String).toSet
+      )(_ ++ _)
 
   /** The `ui_popups` entry a swap makes true — only the swap knows what
     * happened, so only it asserts the selection (ADR 0025). `None` for a pick's

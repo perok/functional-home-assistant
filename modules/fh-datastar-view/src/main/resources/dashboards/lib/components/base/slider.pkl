@@ -5,6 +5,7 @@
 module components.base.slider
 
 import "../../core/badge.pkl" as badgeMod
+import "../../core/group.pkl" as groupMod
 import "../../core/icon.pkl" as icons
 import "../../core/node.pkl" as nodeMod
 import "../../core/shell.pkl"
@@ -232,7 +233,7 @@ class SliderControls extends nodeMod.Node {
     // A row of the slider card, not a container's cell, as [[SliderPill]].
     layoutCell = false
     classes = "fh-slider-controls"
-    template = #"<div id="{{hostId}}" class="fh-slider-controls-panel">\#(panelNodesSlot)</div>\#(slotMod.childrenSlot)"#
+    template = "\(panelNodesSlot)\(slotMod.childrenSlot)"
   }
   hidden controls: List<ControlHead>
   /// One head per main control, a case of the node's choice: the shown one is in the
@@ -240,7 +241,7 @@ class SliderControls extends nodeMod.Node {
   hidden heads: Mapping<varMod.Value, nodeMod.LayoutNode> =
     new { for (m in controls) { [m.value] = m.head } }
   slots {
-    panelNodesSlot.of(nodeMod.match(controlVar.value, heads))
+    panelNodesSlot.of(new Listing { groupMod.inner("div", "fh-slider-controls-panel", nodeMod.match(controlVar.value, heads)) })
   }
 }
 
