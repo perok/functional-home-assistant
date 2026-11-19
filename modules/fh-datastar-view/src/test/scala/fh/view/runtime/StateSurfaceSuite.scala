@@ -47,6 +47,33 @@ class StateSurfaceSuite extends ServerHarness {
   }
 
   test(
+    "a case nobody shows costs nothing: its entity's churn renders and logs nothing"
+  ) {
+    def silent(dash: Dashboard, states: Map[String, EntityState]) =
+      live(dash, states) { ts =>
+        for {
+          v <- ts.viewer()
+          before <- ts.log.map(logged)
+          quiet <- step(v, es("sensor.b", "B1"))
+          after <- ts.log.map(logged)
+          // The control: the shown case does answer its own entity.
+          shown <- step(v, es("sensor.a", "A1"))
+        } yield {
+          assertEquals(quiet, Nil, clue = quiet)
+          assertEquals(after, before, clue = after)
+          assertEquals(shown.size, 1, clue = shown)
+        }
+      }
+    val states = Map(
+      "alarm.h" -> es("alarm.h", "armed"),
+      "sensor.a" -> es("sensor.a", "A0"),
+      "sensor.b" -> es("sensor.b", "B0")
+    )
+    // An If branch, and a tab panel the viewer has not opened.
+    silent(ifDash(), states) *> silent(tabsDash, states)
+  }
+
+  test(
     "state flip: ONE overwrite of the host, at CURRENT state"
   ) {
     live(
