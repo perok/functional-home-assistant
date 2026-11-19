@@ -12,6 +12,7 @@ import "../../main/resources/dashboards/lib/core/choice.pkl" as choiceMod
 import "../../main/resources/dashboards/lib/core/group.pkl" as groupMod
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as predMod
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
 import "../../main/resources/dashboards/lib/layout.pkl" as layout
 
 local lamp: hass.LightEntity = new {
@@ -115,8 +116,20 @@ facts {
     w.cases[0].value.length == 1
     w.cases[0].value[0] is layout.Row
   }
-  ["a match over entity state is an error naming R4"] {
-    module.catch(() -> nodeMod.match(c.isOn(lamp), new Mapping { ["on"] = c.title("x") })).contains("R4 of")
+  ["a match over entity state keys its cases by the reading, which is the choice's by"] {
+    local w = chosen(new Host {
+      choice = nodeMod.match(simpleMod.state(), new Mapping { ["heat"] = c.title("h"); ["cool"] = c.title("k") }).otherwise(c.title("off"))
+    })
+    keys(w) == List("heat", "cool")
+    w.by.source is slotMod.EntityRead
+    w.by.steps.isEmpty
+    w.otherwise != null
+  }
+  ["a match over a variable run through steps is an error naming R4d"] {
+    module.catch(() -> nodeMod.match(
+      new slotMod.Reading { source = new slotMod.VarRead { name = "mode" }; steps { simpleMod.cel("value + 'x'") } },
+      new Mapping { ["a"] = c.title("x") }
+    )).contains("R4d")
   }
   ["a tab bar is a match over its variable, filling a group the bar places beside its buttons"] {
     local t = (c.tabs) { tabs { ["A"] { c.title("a") }; ["B"] { c.title("b") } } }

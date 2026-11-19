@@ -1,10 +1,11 @@
 package fh.view.runtime
 
-import fh.view.testkit.Slots
+import fh.view.testkit.{Sets, Slots}
 
 import fh.view.model.{
   Dashboard,
   LayoutNode,
+  Lit,
   Value,
   ValueExpr,
   TemplateSlot,
@@ -149,6 +150,53 @@ class StateSurfaceSuite extends ServerHarness {
           EntityState("sensor.b", "B0", Map("noise" -> Json.fromInt(1)))
         )
       } yield assertEquals(quiet, Nil, clue = quiet)
+    }
+  }
+
+  test("a match over a state's text switches its case for every viewer") {
+    val dash = Dashboard(
+      cards = Sets.cards ++ ifCards,
+      card = LayoutNode.Component(
+        "col",
+        slots = Slots.kids(
+          LayoutNode.Component(
+            "ifhost",
+            Map(
+              "branch" -> Slots.chosen(
+                ValueExpr(Value.Entity(Some("input_select.m"))),
+                List(
+                  Lit.Text("heat") -> branchCard("sensor.a"),
+                  Lit.Text("cool") -> branchCard("sensor.b")
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+    live(
+      dash,
+      Map(
+        "input_select.m" -> es("input_select.m", "heat"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    ) { ts =>
+      for {
+        v1 <- ts.viewer()
+        v2 <- ts.viewer()
+        _ = List(v1, v2).foreach { v =>
+          assert(v.document.html.contains("A0"), clue = v.document.html)
+          assert(!v.document.html.contains("B0"), clue = v.document.html)
+        }
+        p1 <- step(v1, es("input_select.m", "cool"))
+        // One change to the store; the second viewer pulls the same version.
+        p2 <- v2.pull.map(elementPatches)
+      } yield List(p1, p2).foreach { p =>
+        assertEquals(p.size, 1, clue = p)
+        assert(p.head.contains("B0"), clue = p)
+        assert(!p.head.contains("A0"), clue = p)
+      }
     }
   }
 
