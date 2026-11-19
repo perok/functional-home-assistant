@@ -59,6 +59,9 @@ class StateSurfaceSuite extends ServerHarness {
           // The control: the shown case does answer its own entity.
           shown <- step(v, es("sensor.a", "A1"))
         } yield {
+          // Never rendered: the page carries the shown case alone.
+          assert(v.document.html.contains("A0"), clue = v.document.html)
+          assert(!v.document.html.contains("B0"), clue = v.document.html)
           assertEquals(quiet, Nil, clue = quiet)
           assertEquals(after, before, clue = after)
           assertEquals(shown.size, 1, clue = shown)
