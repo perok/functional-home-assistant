@@ -22,7 +22,7 @@ it as `Activation.Var`.
 
 **State:** direction agreed in chat (2026-11-10); the prework is on main (below); R1 is built
 (`slot-classes`), R2 is built (`set-fill`), R3 is built (`choices-in-pkl`), R4a and R4b are built
-(`one-runtime-path`), R4c onward not. The opening describes the shape before
+(`one-runtime-path`), R4c is built (`root-hosts`), R4d onward not. The opening describes the shape before
 R1.
 
 ## What this builds on
@@ -427,8 +427,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      session's values are re-checked once against each new renderer they meet
      (`Renderer.recheck`; agreed 2026-11-18): before, an edit removing a viewer's open tab left
      the value stale, and the group fell back to its first member.
-   - **R4c, the root hosts**, branch `root-hosts` on `the-pick`. Agreed 2026-11-18, in this
-     order:
+   - **R4c, the root hosts**, branch `root-hosts` on `the-pick`. Built (2026-11-19). Agreed
+     2026-11-18, in this order:
      1. `RenderGoldenSuite` becomes one test per fixture, both of its loops over
         `FixtureEntries.all`, before the goldens move: under the full parallel run it sits near
         its 30 s timeout.
@@ -458,6 +458,23 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
 
      The select's label stays a `nodeMod.match`, in a `span` group: a value slot showing the
      variable would sit on a structure card, which refuses a live slot written as bytes.
+
+     What R4c left:
+     - Every golden section's bytes equal R4b's once ids and first-appearance numbering are
+       erased; the goldens render every case in a section of its own.
+     - The renderer's index walks every case and records each node's container (the innermost
+       case, else the popup, else the page); `SurfaceGraph` keys a case by its node id. That is
+       the record R4d's `holds` per host builds on.
+     - Allocation against R4b (`-XX:-DoEscapeAnalysis`, one round): `publishSetOrdered`,
+       `publishSetGuarded` and `publishSetNamedGuard` each +1,440 B/op, one constant, so a
+       per-frame cost of the container lookups, not per member; `leaderRow`, `tickRender` and
+       `validated` equal within error. Not chased: R4d replaces that planning.
+     - Case ids carry no clause, so two clauses of one candidate whose cases each hold an inline
+       popup now collide, which the hoist refuses as it does any two clauses' popups. No fixture
+       does; R5 moves popups onto the pick.
+     - Scala's `validate` refuses a choice on a card placing another region, as it does a set;
+       the exact "whole template" comparison is Pkl's (the wire template carries the root).
+     - `MemberKey.Surface` and ADRs' "state surface" still name a case by its old word.
    - **R4d, the planner.** `holds` keeps each host's keys; the log down to `fragments` (below);
      the variable-read refusals of §4 go, the mixed `by` and set guards included, with a test of
      one guard reading a variable and a state, two viewers on different values.
