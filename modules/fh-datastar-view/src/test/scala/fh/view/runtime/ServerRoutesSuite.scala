@@ -80,10 +80,10 @@ class ServerRoutesSuite extends ServerHarness {
     val r = tabsRenderer
     val env = r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "1"))
     val selections = r.surfaces.selections(None, env)
-    assertEquals(r.surfaces.selectedSurfaces(selections), Set("c_panel_0_t1"))
+    assertEquals(r.surfaces.selectedSurfaces(selections), Set("c_panel_0_1"))
     assert(
       r.renderBody(Map.empty, selections)
-        .contains("""id="s_c_panel_0_t1__c"""")
+        .contains("""id="c_panel_0_1"""")
     )
     assert(
       r.surfaces.selectionAnomalies(env).isEmpty,
@@ -100,7 +100,7 @@ class ServerRoutesSuite extends ServerHarness {
     val env = r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "abc"))
     val selections = r.surfaces.selections(None, env)
     assertEquals(r.surfaces.selectedSurfaces(selections), Set.empty[String])
-    assert(!r.renderBody(Map.empty, selections).contains("s_c_panel_0_t"))
+    assert(!r.renderBody(Map.empty, selections).contains("c_panel_0_"))
     assertEquals(r.surfaces.selectionAnomalies(env).size, 1)
   }
 

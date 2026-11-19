@@ -40,7 +40,7 @@ class StateSurfaceSuite extends ServerHarness {
         shown <- step(v, es("sensor.a", "A1"))
       } yield {
         assertEquals(shown.size, 1, clue = shown)
-        assert(shown.head.contains("""id="s_c_0_t0__c""""), clue = shown)
+        assert(shown.head.contains("""id="c_0_branch_0""""), clue = shown)
         assert(shown.head.contains("A1"), clue = shown)
       }
     }
@@ -72,7 +72,7 @@ class StateSurfaceSuite extends ServerHarness {
         assert(p.contains("mode inner"), clue = p)
         // The If's root.
         assert(p.contains("selector #c_0\n"), clue = p)
-        assert(p.contains("""id="s_c_0_else__c""""), clue = p)
+        assert(p.contains("""id="c_0_branch_1""""), clue = p)
         // Current state: B1, which no client ever saw.
         assert(p.contains("B1"), clue = p)
         assert(!p.contains("A1"), clue = p)
@@ -80,9 +80,9 @@ class StateSurfaceSuite extends ServerHarness {
         // The prune still clears hidden-branch staleness, and the new branch's
         // root is recorded as the host's occupant: a Mutation, since it is
         // structure.
-        assert(!cache.keys.exists(_.startsWith("s_c_0_t0__")), clue = cache)
+        assert(!cache.keys.exists(_.startsWith("c_0_branch_0")), clue = cache)
         assert(
-          moved.get("s_c_0_else__c").exists {
+          moved.get("c_0_branch_1").exists {
             case _: Mutation.Placed => true
             case _                  => false
           },
@@ -148,7 +148,7 @@ class StateSurfaceSuite extends ServerHarness {
         // Without it the host is left empty.
         assert(opening.contains("mode inner"), clue = opening)
         assert(opening.contains("selector #c_0\n"), clue = opening)
-        assert(opening.contains("""id="s_c_0_else__c""""), clue = opening)
+        assert(opening.contains("""id="c_0_branch_1""""), clue = opening)
         assert(opening.contains("B0"), clue = opening)
         assert(!opening.contains(BodyRepaint), clue = opening)
         // A client that applied the flip and one that missed it land on the same
@@ -186,7 +186,7 @@ class StateSurfaceSuite extends ServerHarness {
         reveal <- step(v, es("sensor.a", "on"))
       } yield {
         assertEquals(reveal.size, 1, clue = reveal)
-        assert(reveal.head.contains("""id="s_c_0_t0__c""""), clue = reveal)
+        assert(reveal.head.contains("""id="c_0_branch_0""""), clue = reveal)
         assert(reveal.head.contains("on"), clue = reveal)
       }
     }
@@ -218,7 +218,7 @@ class StateSurfaceSuite extends ServerHarness {
         tick <- step(v, es("light.x", "on2"))
         // "on2" fails the query: a membership change.
         _ = assert(tick.nonEmpty, clue = tick)
-        _ = assert(tick.forall(_.contains("s_c_0_t0__c")), clue = tick)
+        _ = assert(tick.forall(_.contains("c_0_branch_0")), clue = tick)
         _ <- step(v, es("alarm.h", "disarmed")).map(p =>
           assertEquals(p.size, 1)
         )
@@ -268,11 +268,11 @@ class StateSurfaceSuite extends ServerHarness {
         innerFlip <- step(v, es("mode.h", "day"))
         _ = assertEquals(innerFlip.size, 1, clue = innerFlip)
         _ = assert(
-          innerFlip.head.contains("selector #s_c_0_t0__c_0\n"),
+          innerFlip.head.contains("selector #c_0_branch_0_0\n"),
           clue = innerFlip
         )
         _ = assert(
-          innerFlip.head.contains("""id="s_s_c_0_t0__c_0_else__c""""),
+          innerFlip.head.contains("""id="c_0_branch_0_0_branch_1""""),
           clue = innerFlip
         )
         _ <- step(v, es("alarm.h", "disarmed")).map(p =>
@@ -332,7 +332,7 @@ class StateSurfaceSuite extends ServerHarness {
         assertEquals(patches.size, 1, clue = patches)
         assert(patches.head.contains("selector #s_det__c_0\n"), patches)
         assert(
-          patches.head.contains("""id="s_s_det__c_0_else__c""""),
+          patches.head.contains("""id="s_det__c_0_branch_1""""),
           clue = patches
         )
       }

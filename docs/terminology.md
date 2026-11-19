@@ -202,14 +202,19 @@ wire's `cell.layout`) and the node's cell slots (`cellClass`, `cellClassWhen`, `
 layout classes. Layout is the library's job, not each card's. ADR 0008.
 
 **Surface** — a chunk of layout that is shown only sometimes and rendered only while shown: a popup,
-a tab panel, an `if`/`else` branch. Registered separately from the main tree and addressed by id.
+a tab panel, an `if`/`else` branch.
 
 Two kinds, and they are not interchangeable:
 
-- **Owned** — a tab panel, an `If` branch. It is part of one node's definition, only that node
-  refers to it, and it has no meaning apart from it. Authored inline at that node.
+- **Owned** — a tab panel, an `If` branch: a **case** of one node's choice (**pick**, below). It is
+  part of that node's definition, only that node refers to it, and it has no meaning apart from it.
+  Authored inline at that node, and a node of the tree, with the id its slot position gives it.
 - **Triggered** — a popup. It is a dashboard-level thing that any number of taps may open, and its
-  lifetime should not depend on which of them exists.
+  lifetime should not depend on which of them exists. Registered separately from the main tree and
+  addressed by its surface id; the runtime's `surfaces` are these alone.
+
+Either is a **container** to the runtime (`SurfaceGraph`): every node is in the innermost case or
+popup holding it, and is shown while each one up its chain is.
 
 **The registry** (`surfaces { ["detail"] { … } }`) is for the TRIGGERED kind, and that is the whole
 of what it is for. Registering something owned — a tab's panel by hand — throws away the ownership
@@ -395,10 +400,11 @@ declaration.
 **Pick** — deciding a nodes slot's choice: its `by` is read once and its case looked up, else the
 otherwise, else nothing (`Ready.Pick`, `SurfaceGraph`). A `by` that is a node variable (a tab bar,
 a `c.select`, an If over a variable, ADR 0033) is decided per viewer, from the session's
-variables; any other reads state and is decided once per version, in `Shared`. Each case is served
-as a surface, case `i` as `<host>_t<i>` and the otherwise as `<host>_else`, until the card's root
-hosts it. Inside a candidate set's clause, a pick is that clause's: every clause of a member
-shares its nodes' ids, so the clause is part of the pick's id (`<host>_k<clause>`).
+variables; any other reads state and is decided once per version, in `Shared`. Each case is a node
+with the id a fixed node at its index of the slot would have, the otherwise after the cases, and
+the index records which case holds each node below it. Inside a candidate set's clause, a pick is
+that clause's: every clause of a member shares its nodes' ids, so the clause is part of the pick's
+id (`<host>_k<clause>`), not of the cases'.
 
 **Flip** — a pick over state changing which case is shown because *entity state* moved, not
 because a user clicked. Server truth, so every viewer gets it. Only a pick shown before

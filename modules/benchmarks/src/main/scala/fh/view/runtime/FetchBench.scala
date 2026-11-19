@@ -87,7 +87,7 @@ class FetchBench {
     } yield r).unsafeRunSync()
     cache = RenderCache.create.unsafeRunSync()
     // Warm: every read drawn once.
-    val _ = answer(renderer.fetchesForPage(Set("tabs_t0"), st, Map.empty))
+    val _ = answer(renderer.fetchesForPage(Set("tabs_panel_0"), st, Map.empty))
       .unsafeRunSync()
   }
 
@@ -127,7 +127,7 @@ class FetchBench {
 
   @Benchmark
   def pullPlainTabOpen(bh: Blackhole): Unit =
-    bh.consume(pull(PlainId, Set("tabs_t0")))
+    bh.consume(pull(PlainId, Set("tabs_panel_0")))
 
   @Benchmark
   def pullChart(bh: Blackhole): Unit =
@@ -136,14 +136,14 @@ class FetchBench {
   @Benchmark
   def pagePrepass(bh: Blackhole): Unit =
     bh.consume(
-      answer(renderer.fetchesForPage(Set("tabs_t0"), st, Map.empty))
+      answer(renderer.fetchesForPage(Set("tabs_panel_0"), st, Map.empty))
         .unsafeRunSync()
     )
 
   @Benchmark
   def pageWithCharts(bh: Blackhole): Unit = {
     val f =
-      answer(renderer.fetchesForPage(Set("tabs_t0"), st, Map.empty))
+      answer(renderer.fetchesForPage(Set("tabs_panel_0"), st, Map.empty))
         .unsafeRunSync()
     bh.consume(
       renderer.renderPageInto(
@@ -184,7 +184,7 @@ object FetchBench {
     cards = RenderBench.cards ++ Map(
       "chart" -> TestCard("<div>{{{chart}}}</div>"),
       "host" -> TestCard(
-        """<div id="{{hostId}}">{{{panel}}}</div>""",
+        """{{{panel}}}""",
         regions = Set("panel")
       )
     ),

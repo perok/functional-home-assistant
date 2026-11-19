@@ -5,17 +5,13 @@ import fh.view.testkit.Slots
 import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
-  Case,
   CardDef,
   Cell,
-  Choice,
   Dashboard,
-  Fill,
   LayoutNode,
   Lit,
   NodeId,
   Op,
-  Slot,
   Step,
   Value,
   ValueExpr,
@@ -263,8 +259,8 @@ class LiveStreamSuite extends ServerHarness {
         out <- v.pull.map(elementPatches)
       } yield {
         assertEquals(out.size, 1, clue = out)
-        assert(out.head.contains("""id="s_c_0_t0__c""""), clue = out.head)
-        assert(!out.head.contains("""id="s_c_0_else__c""""), clue = out.head)
+        assert(out.head.contains("""id="c_0_branch_0""""), clue = out.head)
+        assert(!out.head.contains("""id="c_0_branch_1""""), clue = out.head)
       }
     }
   }
@@ -288,7 +284,7 @@ class LiveStreamSuite extends ServerHarness {
         val removes = emptied.filter(_.contains("mode remove"))
         assertEquals(removes.size, 1, clue = emptied)
         assert(
-          removes.head.contains("selector #s_c_0_t0__c"),
+          removes.head.contains("selector #c_0_branch_0"),
           clue = removes.head
         )
         // The If's root is the host.
@@ -335,7 +331,7 @@ class LiveStreamSuite extends ServerHarness {
         .hostFill(
           r,
           r.hostId("c_0"),
-          Some("c_0_t0"),
+          Some("c_0_branch_0"),
           Shared.of(armed),
           Viewing(Selections.none, FetchSnapshot.empty)
         )
@@ -343,9 +339,9 @@ class LiveStreamSuite extends ServerHarness {
 
     // Holding exactly what a patch for that node alone would carry, which makes
     // the two comparable.
-    val leaf: NodeId = "s_c_0_t0__c_0"
+    val leaf: NodeId = "c_0_branch_0_0"
     assertEquals(patch.establishes.get(leaf), r.heldFor(leaf, armed))
-    val root = NodeId.derived("s_c_0_t0__c")
+    val root = NodeId.derived("c_0_branch_0")
     assertEquals(
       r.renderNodeById(
         root,
@@ -384,7 +380,7 @@ class LiveStreamSuite extends ServerHarness {
       holds,
       states,
       1L,
-      Set("c_0_panel_0_t1"),
+      Set("c_0_panel_0_1"),
       mine
     )
 
@@ -398,7 +394,7 @@ class LiveStreamSuite extends ServerHarness {
     // Owed per viewer because it is a different surface, not because one node
     // has two renderings.
     assert(
-      owed.exists(_.patch.toSse.render.contains("s_c_0_panel_0_t1__c")),
+      owed.exists(_.patch.toSse.render.contains("c_0_panel_0_1")),
       clue = owed.map(_.patch.toSse.render)
     )
     assert(
@@ -414,13 +410,13 @@ class LiveStreamSuite extends ServerHarness {
         "sensor.a" -> es("sensor.a", "A0"),
         "sensor.b" -> es("sensor.b", "B0")
       )
-    val open = Set("det", "s_det__c_0_panel_0_t1")
+    val open = Set("det", "s_det__c_0_panel_0_1")
     val mine =
       Selections(None, Map(NodeId.derived("s_det__c_0_panel_0") -> 1))
     // Exactly as `pageResponse` records it.
     val ids =
       (r.surfaceNodeIds("det") ++ r.surfaceNodeIds(
-        "s_det__c_0_panel_0_t1"
+        "s_det__c_0_panel_0_1"
       )).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
@@ -440,7 +436,7 @@ class LiveStreamSuite extends ServerHarness {
     )
     assert(
       !owed.exists(
-        _.patch.toSse.render.contains("s_s_det__c_0_panel_0_t0__c")
+        _.patch.toSse.render.contains("s_det__c_0_panel_0_0")
       ),
       clue = owed.map(_.patch.toSse.render)
     )
@@ -510,7 +506,7 @@ class LiveStreamSuite extends ServerHarness {
       "sensor.b" -> es("sensor.b", "B0"),
       "sensor.z" -> es("sensor.z", "Z0")
     )
-    val tab0Node: NodeId = "s_s_c_1_t0__c_t0__c"
+    val tab0Node: NodeId = "c_1_branch_0_panel_0"
     val log = FragmentLog("w13").touched(tab0Node, 5L)
     val owed = resumeNow(
       r,
@@ -518,7 +514,7 @@ class LiveStreamSuite extends ServerHarness {
       Map.empty,
       states,
       1L,
-      Set("c_1_t0", "s_c_1_t0__c_t1"),
+      Set("c_1_branch_0", "c_1_branch_0_panel_1"),
       Selections.none
     )
     assert(
@@ -684,7 +680,7 @@ class LiveStreamSuite extends ServerHarness {
     ) { world =>
       for {
         onT0 <- world.connect()
-        onT1 <- world.connect(onTabs("s_c_1_t0__c" -> 1))
+        onT1 <- world.connect(onTabs("c_1_branch_0" -> 1))
         open0 <- onT0.drain
         open1 <- onT1.drain
         _ = assert(
@@ -841,7 +837,7 @@ class LiveStreamSuite extends ServerHarness {
         firstOnT0 <- world.connect()
         secondOnT0 <- world.connect()
         // So the shared verdict is not simply "everyone".
-        onT1 <- world.connect(onTabs("s_c_1_t0__c" -> 1))
+        onT1 <- world.connect(onTabs("c_1_branch_0" -> 1))
         _ <- firstOnT0.drain
         _ <- secondOnT0.drain
         _ <- onT1.drain
@@ -927,10 +923,8 @@ class LiveStreamSuite extends ServerHarness {
     ) { (world, client) =>
       // The fixture's branch content is one card, so the branch root is the
       // node (the shipped `If` wraps in a Row).
-      def branch(sid: String, inner: String) =
-        Some(
-          s"""<div class="fh-cell" id="s_${sid}__c"><span>$inner</span></div>"""
-        )
+      def branch(id: String, inner: String) =
+        Some(s"""<div class="fh-cell" id="$id"><span>$inner</span></div>""")
       for {
         // 1. No cursor, since it never loaded a document, so the whole body
         // once.
@@ -950,7 +944,7 @@ class LiveStreamSuite extends ServerHarness {
               "outer",
               None,
               Some(
-                """<div class="fh-cell" id="s_c_0_t0__c"><span>A1</span></div>"""
+                """<div class="fh-cell" id="c_0_branch_0"><span>A1</span></div>"""
               )
             )
           ),
@@ -970,7 +964,7 @@ class LiveStreamSuite extends ServerHarness {
         flip <- world.change("alarm.h", "disarmed") *> client.drain
         _ = assertEquals(
           domEvents(flip),
-          List(("inner", Some("#c_0"), branch("c_0_else", "B1"))),
+          List(("inner", Some("#c_0"), branch("c_0_branch_1", "B1"))),
           clue = flip
         )
 
@@ -978,7 +972,7 @@ class LiveStreamSuite extends ServerHarness {
         back <- world.change("alarm.h", "armed") *> client.drain
         _ = assertEquals(
           domEvents(back),
-          List(("inner", Some("#c_0"), branch("c_0_t0", "A1"))),
+          List(("inner", Some("#c_0"), branch("c_0_branch_0", "A1"))),
           clue = back
         )
       } yield ()

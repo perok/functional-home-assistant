@@ -4,12 +4,13 @@ import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.model.{Dashboard, NodeId, SlotRead}
 import fh.view.testkit.{FixtureEntries, PklFixture, TextSnapshot}
 
-/** What the test dashboards render, checked in: each one's body, every surface,
-  * and every node's patch, at the house as fixtured, with every on/off flipped,
-  * and unavailable. The wire snapshots say what Pkl built; these say what a
-  * viewer is sent, so a change to how a slot's value is modelled can be shown
-  * to leave the bytes alone, or name the ones it moves. A section the other
-  * houses render as the fixtured one does is named, not repeated.
+/** What the test dashboards render, checked in: each one's body, every popup,
+  * every choice's every case (shown or not, so none goes untested), and every
+  * node's patch, at the house as fixtured, with every on/off flipped, and
+  * unavailable. The wire snapshots say what Pkl built; these say what a viewer
+  * is sent, so a change to how a slot's value is modelled can be shown to leave
+  * the bytes alone, or name the ones it moves. A section the other houses
+  * render as the fixtured one does is named, not repeated.
   *
   * A display signal's name carries a hash of its transform's key, so each hash
   * is replaced by its order of first appearance: the goldens hold the sharing,
@@ -51,6 +52,7 @@ class RenderGoldenSuite extends munit.FunSuite {
       d.validated().fold(errs => fail(errs.mkString("; ")), identity)
     )
     val surfaceIds = d.surfaces.keys.toList.sorted
+    val caseIds = d.picks.values.toList.flatMap(_.cases).distinct.sorted
     val fresh = RenderGoldenSuite.fresh(r)
     val out = new StringBuilder
     val fixtured = scala.collection.mutable.Map.empty[String, String]
@@ -70,7 +72,7 @@ class RenderGoldenSuite extends munit.FunSuite {
           Viewing(fresh, RenderGoldenSuite.answers(r, d, shared, Nil))
         )
       val nodes =
-        (body.own.keys ++ surfaceIds.flatMap(
+        (body.own.keys ++ (surfaceIds ++ caseIds).flatMap(
           r.surfaceNodeIds
         )).toList.distinct.sorted
       val f = RenderGoldenSuite.answers(r, d, shared, nodes)
@@ -78,6 +80,10 @@ class RenderGoldenSuite extends munit.FunSuite {
       surfaceIds.foreach { sid =>
         r.renderSurfaceTraced(sid, shared, Viewing(fresh, f))
           .foreach(t => section(houseName, s"surface $sid", t.html))
+      }
+      caseIds.foreach { id =>
+        r.renderShownTraced(id, shared, Viewing(fresh, f))
+          .foreach(t => section(houseName, s"case $id", t.html))
       }
       nodes.foreach { id =>
         r.renderNodeById(
@@ -205,7 +211,7 @@ object RenderGoldenSuite {
     val sel = fresh(r)
     val reads: List[SlotRead] =
       r.fetchesForPage(r.surfaces.selectedSurfaces(sel), shared, env) ++
-        d.surfaces.keys.toList.flatMap(
+        (d.surfaces.keys ++ d.picks.values.flatMap(_.cases)).toList.flatMap(
           r.fetchesForSurface(_, shared, sel, env)
         ) ++
         r.readsForPull(nodes, Nil, shared, sel, env)

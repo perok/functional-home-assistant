@@ -84,8 +84,8 @@ class TabVariableSuite extends ServerHarness {
       } yield {
         assertEquals(result._1, Status.NoContent)
         assertEquals(
-          open.map(_.intersect(Set("bar_panel_0_t0", "bar_panel_0_t1"))),
-          Some(Set("bar_panel_0_t1"))
+          open.map(_.intersect(Set("bar_panel_0_0", "bar_panel_0_1"))),
+          Some(Set("bar_panel_0_1"))
         )
         assert(sent.contains("second"), clue = sent)
         assert(sent.contains("\"_var_bar__tab\":\"1\""), clue = sent)
@@ -131,7 +131,7 @@ class TabVariableSuite extends ServerHarness {
     served { ts =>
       for {
         conn <- ts.load().map(_.conn)
-        result <- post(ts, conn, s"sse/surface/${ts.slug}/open/bar_panel_0_t1")
+        result <- post(ts, conn, s"sse/surface/${ts.slug}/open/bar_panel_0_1")
       } yield {
         assertEquals(result._1, Status.Ok)
         assert(result._2.contains("node variable"), clue = result._2)

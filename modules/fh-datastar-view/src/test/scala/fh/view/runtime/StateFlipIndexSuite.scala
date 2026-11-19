@@ -26,7 +26,6 @@ class StateFlipIndexSuite extends munit.FunSuite {
       .hoistInlineSurfaces(parse(wire).fold(e => fail(s"$name: $e"), identity))
       .as[Dashboard]
       .fold(e => fail(s"$name: $e"), identity)
-      .lowered
   }
 
   private def key(e: FixtureEntity) = s"dump.entities.${e.dumpKey}"
@@ -84,12 +83,12 @@ class StateFlipIndexSuite extends munit.FunSuite {
   ): List[NodeId] = {
     def at(root: String) =
       g.statePicks.toList.filter(g.rootOf(_).contains(root))
-    // A popup has no group and opens on the page.
+    // A popup opens on the page; a case is open where its pick is shown.
     def openAt(root: String) = visible.toList.filter { sid =>
-      d.surfaces(sid).group match {
-        case None      => root.isEmpty
-        case Some(gid) => g.rootOf(gid).contains(root) && g.groupShown(gid, now)
-      }
+      if (d.surfaces.contains(sid)) root.isEmpty
+      else
+        g.pickShowing(sid, now)
+          .exists((gid, _) => g.rootOf(gid).contains(root))
     }
     def walk(root: String): List[NodeId] = at(root).flatMap { gid =>
       val sel = g.decideByState(gid, now)
@@ -106,9 +105,8 @@ class StateFlipIndexSuite extends munit.FunSuite {
   private def agree(name: String, d: Dashboard): Unit = {
     val g = graphOf(d)
     assert(g.statePicks.nonEmpty, s"$name has no state group to flip")
-    val userSurfaces = d.surfaces.collect {
-      case (sid, s) if !s.group.exists(g.isStatePick) => sid
-    }.toSet
+    val userSurfaces =
+      d.surfaces.keySet ++ g.varPicks.flatMap(g.cases(_)).toSet
     val rnd = new Random(556)
     val ids = HouseFixture.all.map(_.entityId)
     val start = HouseFixture.all.map(e => e.entityId -> e.toEntityState).toMap

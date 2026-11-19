@@ -194,7 +194,7 @@ layers only look it up.
 | Layer | Once per | Input | What it produces |
 |---|---|---|---|
 | **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL and card templates compiled (`Validated.templates`, the same tree the checks read), fetches parsed, and the tree walked into the compiled one (`Validated.ready`, `Ready.Compile`): every slot, guard, state condition and order beside its run. Everything below reads only that tree |
-| **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's fetching slots with the `valueWhile` each waits for (`Renderer`'s `Index`, one for the body and one per surface; `Component.fetching`), which nodes an entity wakes, every member a candidate can be in each clause with its nodes and fetches (`MemberGraph`, `Member.fetching`), the sets inside each clause (`MemberGraph.setsIn`), each choice's pick and the surfaces its cases are served as (`SurfaceGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
+| **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's fetching slots with the `valueWhile` each waits for (`Renderer`'s `Index`, one for the body and one per popup, a choice's every case included, each node with the container holding it; `Component.fetching`), which nodes an entity wakes, every member a candidate can be in each clause with its nodes and fetches (`MemberGraph`, `Member.fetching`), the sets inside each clause (`MemberGraph.setsIn`), each choice's pick and its cases' node ids (`SurfaceGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
 | **Decisions** | state version | the entity states, and the answers to the fetches a decision reads | what they decide, in that version's `Shared`: which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which case a pick over state shows, its `by` read once (`SurfaceGraph.decideByState`), and whether each `valueWhile` holds. Each is carried from the version before unless the frame between DIRTIED it (an edge in the index, read off the expression that decides it), or made on demand by the first reader that reaches it; every viewer of one version shares them. Beside them, a node's signal values (`Shared.signals`), made by the first session's signal frame and never carried; a node reading a fetch is left out, since its answer is the viewer's (ten clients' signal tick: 341 to 213 µs, `RenderBench.resumeSignalsFanout`). A viewer's own part of a send is its `Viewing`: its `Selections` and its slot answers (§6) |
 
 Three rules keep the layers apart, and building on them is how new work stays cheap:
@@ -758,7 +758,7 @@ A node's fill decides how a region is filled:
 | Fill | Filled by | Element id | Rendered |
 |---|---|---|---|
 | fixed nodes | the node's own nodes in that slot | none — they arrive nested | with the parent, in one pass |
-| a choice (`Fill.Nodes(Chosen)`) | the case its PICK shows, served as a SURFACE (`Dashboard.picks`: case `i` is `<host>_t<i>`, the otherwise `<host>_else`); per viewer over a variable, per version over state | the node's root: the choice is its card's whole template, and one beside other content sits in a `group` | only the picked case, lazily |
+| a choice (`Fill.Nodes(Chosen)`) | the case its PICK shows, a node at the id a fixed node at its index would have, the otherwise after the cases (`Dashboard.picks`); per viewer over a variable, per version over state | the node's root: the choice is its card's whole template, and one beside other content sits in a `group` | only the picked case, lazily |
 | a set (`Fill.Set`) | the members `MemberGraph` decides (§4b) | the card's root | each member a node of its own |
 
 Laid over one slider and one tabs card:
@@ -777,7 +777,7 @@ flowchart TB
     PANEL["region panel → c_1_panel_0<br/>card group · A CHOICE, its whole template<br/>◀ a tab switch is one Inner into its root"]
   end
 
-  SURF[("the pick at c_1_panel_0<br/>cases c_1_panel_0_t0, … _t1 …<br/>one shown at a time")]
+  SURF[("the pick at c_1_panel_0<br/>cases c_1_panel_0_0, c_1_panel_0_1 …<br/>one shown at a time")]
   SURF -.->|fillHost| PANEL
 
   classDef struct fill:#fee2e2,stroke:#b91c1c,color:#0f172a
@@ -815,9 +815,12 @@ set's case and from `renderMemberTraced`.
 
 **`SurfaceGraph` is the same split, for the other decision.** Which case of a pick is
 shown, which tab a viewer is on, and which clients a patch at a given node may reach: selection and
-visibility, decided there and painted here. It reads the same `rootOfIndexed`, plus `MemberGraph`
-for the two node kinds the static index cannot place (a materialised member, a nested set
-container).
+visibility, decided there and painted here. What may be hidden is a CONTAINER: a popup, by its
+surface id, or a pick's case, by the case's node id. Every node is in the innermost one holding
+it, `""` for the page, which the index records as it mints the ids (`containerOfIndexed`), and
+`MemberGraph` answers for the two node kinds the static index cannot place (a materialised member
+or a node in a case below one, and a nested set container). A node is shown while every container
+up its chain is: a popup open, a case picked.
 
 Both are `private[runtime] val`s on the renderer, reached as `renderer.members.…` and
 `renderer.surfaces.…`. Deliberately NOT re-`export`ed: a delegating wrapper reads as though the
@@ -878,8 +881,8 @@ inside a set: a member that is a leaf is its own patch target, and one holding r
 structure, patched through its leaves, with choices of its own (a slider's main controls).
 Lookups by id go through the member's current clause (`MemberGraph.nodeAt`), since every clause
 of a candidate mints the same ids below it; a render key names the clause for the same reason, and
-so does a pick: a choice inside a clause is tagged with it (`Surface.InPick.clause`), its
-id is `<host>_k<clause>` (`Surface.group`, `SurfaceGraph.groupAt`), so two slider clauses keep
+so does a pick: a choice inside a clause carries it (`Dashboard.Pick.within`), its
+id is `<host>_k<clause>` (`Surface.groupId`, `SurfaceGraph.groupAt`), so two slider clauses keep
 their own heads, and a write swaps only the pick of the member's current clause
 (`SurfaceGraph.groupShown`). A member holding nodes has no one element to send, so its arrival and a
 clause switch (a different node, or the same node in another clause) place it whole, rendered per

@@ -44,6 +44,13 @@ every consumer.** Six opaque types over `String` in `model/Ids.scala`:
 | `DomId` | an element a patch TARGETS (`c_2`, `popups`) | `Renderer.elementId`, `Renderer.hostId` |
 | `SignalId` | a slot's value in the client's signal store (ADR 0017) | `Renderer.signalName` |
 
+A choice's case is an ordinary node: its id is the one a fixed node at its index of the slot would
+have, the otherwise after the cases (`LayoutNode.Component.slotNodes`), and the nodes in it take
+`childId` below it. A slot holds one fill, so the two never meet, where a marker such as `t<i>`
+could meet a slot named `t0`. A pick's id is its host's, and `<host>_k<clause>` inside a set
+member's clause (#556), since every clause of a member mints the same node ids: the clause is in
+the pick's id, never in a node's.
+
 Three rules make it work.
 
 **Derivation is one-way and narrow.** `NodeId -> DomId` goes through
