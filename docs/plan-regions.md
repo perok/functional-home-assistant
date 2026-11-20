@@ -480,23 +480,34 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      - **D0.1, one tree index.** Today about eight walks mint ids themselves (`Dashboard.picks`,
        `Dashboard.varScopes`, `Validate.walk`/`walkIds`, `Renderer.Index`, `Member.subtree`,
        `MemberGraph`'s nested-set walk, the build's JSON hoist), and R4c added a second spelling,
-       `LayoutNode.innerCaseId`. One `TreeIndex` gives every node its id, parent, step, tree,
-       member context (clause included), container, and a case's pick and index, with member
-       subtrees per clause. Aim: (A) built once from the wire tree in `validated`;
-       `Ready.Compile` walks the index (minting nothing), and the runtime reads the same index
-       beside the compiled nodes. Only if (A) cannot work: (B) one generic walk run on both
-       trees, plus a test that both give equal ids. Done when only the index (and the JSON hoist,
-       until R5) calls `childId`/`childIdWithin`/`innerSetId`/`memberSegment`/`innerCaseId`;
-       `WalkAt.InMember`, `innerSetId` and `groupAt` fold into it.
-       Spike (2026-11-20, a throwaway suite): (A) works.
+       `LayoutNode.innerCaseId`. One `TreeIndex`, a `lazy val index` on the wire `Dashboard`,
+       numbers every node in pre-order: the page's tree, then each popup's in id order, every
+       clause of every candidate and every case included. A node is its number, an opaque `Ix`
+       over `Int`. By `Ix`, in arrays, the index holds the node's DOM id, parent, step, tree,
+       member context (member, clause, path), container, a case's pick and index, and `end`:
+       `[ix, end(ix))` is its subtree, so whether one node is inside another is one comparison
+       and a subtree is a range, not a walk. A DOM id names a place, not a node: two clauses of
+       one member share theirs, which is what keeps a viewer's choice when the member moves to
+       its other clause (`varScopes`). So `ids(id)` answers every `Ix` with that id, more than
+       one only under clauses.
+       `Ix` belongs to one renderer. What crosses a dashboard swap (`SessionState`, a URL, a
+       signal, the log) keeps DOM ids, since a session can meet the new renderer without a
+       repaint (`Server.checked`); the opt-in stable names (Later, `.urlName(…)`) are for those,
+       never `Ix`.
+       `Ready.Compile` walks the index beside the wire tree, minting nothing, and puts each
+       node's `Ix` and id on its `Ready.Component`; the render walk reads them. Done when only the
+       index (and the JSON hoist, until R5) calls `childId`/`childIdWithin`/`innerSetId`/
+       `memberSegment`/`innerCaseId`; `WalkAt.InMember`, `innerSetId` and `groupAt` fold into
+       it. The spike's comparison stays as the index's test: its ids are the ones the renderer
+       writes, its containers the ones `SurfaceGraph` answers.
+       Spike (2026-11-20, a throwaway suite): one index built from the wire tree works.
        - One walk of the WIRE tree (`Dashboard.picks`' shape: `childIdWithin`, members by
          `memberSegment`, a popup under its prefix) gave every id the runtime renders (body,
          every popup, every case) and the container `SurfaceGraph.rootOf` answers for every
          node, with no disagreement. Checked on the 12 test dashboards, the starter, and a
          snippet with a set nested in a member and an If in a member.
        - Ids are not unique per node: two clauses of one member mint the same ids for their
-         content. The index therefore keeps member subtrees per (member, clause), not a flat
-         map by id. A flat view by id is a list, or is asked with the clause.
+         content. Hence `Ix`.
        - The compile is 1:1 with wire nodes: members are compiled per candidate and clauses
          stay a `Vector` of nodes. So `Ready.Compile` can walk the index beside the wire tree
          and put each node's id on its `Ready.Component`. The render walk then reads it, where
@@ -506,16 +517,20 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          records what it finds (a repeated authored id) rather than failing. That makes it a
          `lazy val index` on the wire `Dashboard`, read by `picks`, `varScopes`, `Validate` and
          `Ready.Compile`.
-       - A popup's container is its bare id today (`"detail"`); D0.3's `s_<sid>` changes that
-         spelling, not any node id.
+       - A popup's container is its bare id today (`"detail"`), which an authored node id can
+         equal; D0.3 changes that spelling, not any node id.
      - **D0.2, the compiled node mirrors the wire's union.** `Ready.Component.content: Content =
        Fixed(regions) | Live(slot, LiveFill)`, `LiveFill = Pick(by, variable, byKey, cases,
        otherwise) | Set(SetFill)`; `isChoice`, `choices`, `set` and `SetFill.region` go, and
        `Ready.Pick`'s host, slot, prefix, within and case ids move to the index.
-     - **D0.3, typed containers.** An opaque `ContainerId <: String` minted only by the index:
-       the page `""`, a popup `s_<sid>`, a case its node id; `validate` refuses an authored id
-       starting `s_`; the kind is `index.kind(c)`, an enum value built once per container.
-       Bench round with `-XX:-DoEscapeAnalysis`.
+     - **D0.3, typed containers.** Inside a renderer a container is the `Ix` of its root: the
+       page's root, a popup's content root, a case's node. Its kind is an array lookup, and
+       `SurfaceGraph` and the hot paths (`Patches.plan`'s `shown`, `visibleNode`,
+       `selectionsIn`) take sets of `Ix`, allocating nothing per id. Where a container crosses a
+       swap (`SessionState.open`, a reconnect's `ui_popups`) it keeps a DOM spelling, read into
+       `Ix` once per step: the page `""`, a popup `s_<sid>` (`surfaceRootId`), a case its node
+       id. `validate` refuses an authored id starting `s_`, so a popup's spelling cannot meet a
+       node's. Bench round with `-XX:-DoEscapeAnalysis`.
      - D0's gate: goldens byte-identical, suites green, `validated`/`tickRender`/`publishSet*`
        equal or better. Authoring stays as §2 has it: a fill plus the whole-template rule, so an
        author's own card can be the host.
