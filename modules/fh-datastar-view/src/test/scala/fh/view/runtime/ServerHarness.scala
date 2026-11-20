@@ -24,7 +24,7 @@ import fh.view.model.{
   ValueExpr,
   TemplateSlot
 }
-import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
+import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, PklFixture}
 import fh.view.testkit.DashboardBuilders.{declared, st}
 import fh.view.testkit.TestAuth
 import fh.view.build.SystemPkl
@@ -158,54 +158,18 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def tabsRenderer: Renderer = Renderer.create(tabsDash)
 
-  def tabsDash: Dashboard = {
-    val cards = Sets.cards ++ Map(
-      Slots.GroupCard -> Slots.groupCard,
-      "btn" ->
-        TestCard("<button>{{label}}</button>"),
-      "card" ->
-        TestCard("<span>{{state}}</span>"),
-      // Shaped like the shipped `Tabs`: the bar is structure, never a patch
-      // target.
-      "tabs" -> TestCard(
-        template = """<div class="tabs">""" +
-          """{{{children}}}</div>""" +
-          """{{{panel}}}""",
-        regions = Set("children", "panel")
-      )
-    )
-    def panel(name: String): LayoutNode.Component =
-      LayoutNode.Component(
-        "card",
-        slots = Slots.values(
-          Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some(s"sensor.$name")))
-            )
-          )
-        )
-      )
-    Dashboard(
-      cards,
-      LayoutNode.Component(
-        "tabs",
-        slots = Slots.kids(
-          LayoutNode.Component(
-            "btn",
-            Slots.values(Map("label" -> TemplateSlot(ValueExpr.literal("A"))))
-          ),
-          LayoutNode
-            .Component(
-              "btn",
-              Slots.values(Map("label" -> TemplateSlot(ValueExpr.literal("B"))))
-            )
-        ) + ("panel" -> Slots.inGroup(
-          Slots.tabs("tab", panel("a"), panel("b"))
-        )),
-        vars = TabDeclared
-      )
-    )
-  }
+  /** The shipped tab bar at the root "c", tab `A` over sensor.a and `B` over
+    * sensor.b.
+    */
+  def tabsDash: Dashboard = PklFixture.snippet(
+    """card = (c.tabs) {
+      |  tabs {
+      |    ["A"] { t.state("sensor.a") }
+      |    ["B"] { t.state("sensor.b") }
+      |  }
+      |}
+      |""".stripMargin
+  )
 
   /** What a tab bar declares: the open tab's index (ADR 0033). */
   val TabDeclared: List[Dashboard.Declaration] = declared("tab" -> "0")
@@ -350,19 +314,29 @@ trait ServerHarness extends munit.CatsEffectSuite {
       Map("branch" -> Slots.iff(cond, `then`, otherwise))
     )
 
-  /** `ifhost` at "c_0". `c_0_branch_0` shows while alarm.h == armed, and
-    * `c_0_branch_1` otherwise; by default they show sensor.a and sensor.b.
+  /** The house plus what [[ifSnippet]] conditions on. */
+  val alarm: FixtureEntity = FixtureEntity("alarm.h", "armed")
+
+  /** The shipped `If`: its row `<host>_branch_0` shows `thenContent` while
+    * alarm.h == armed, and its row `<host>_branch_1` `elseContent` otherwise
+    * (Pkl node expressions).
     */
+  def ifSnippet(
+      thenContent: String = """t.state("sensor.a")""",
+      elseContent: Option[String] = Some("""t.state("sensor.b")""")
+  ): String =
+    s"""c.iff(q.entity(dump.entities.alarm_h).stateIs("armed")).then($thenContent)""" +
+      elseContent.fold("")(e => s".`else`($e)")
+
+  /** An [[ifSnippet]] at "c_0", in a column. */
   def ifDash(
-      thenContent: LayoutNode = branchCard("sensor.a"),
-      elseContent: LayoutNode = branchCard("sensor.b")
+      thenContent: String = """t.state("sensor.a")""",
+      elseContent: Option[String] = Some("""t.state("sensor.b")"""),
+      extras: List[FixtureEntity] = Nil
   ): Dashboard =
-    Dashboard(
-      cards = Sets.cards ++ ifCards,
-      card = LayoutNode.Component(
-        "col",
-        slots = Slots.kids(ifHost(armedCond, thenContent, Some(elseContent)))
-      )
+    PklFixture.snippet(
+      s"card = (c.column) { children { ${ifSnippet(thenContent, elseContent)} } }",
+      (alarm :: extras)*
     )
 
   def es(id: String, state: String): EntityState = st(id, state)

@@ -269,12 +269,7 @@ class LiveStreamSuite extends ServerHarness {
     // The host must survive: every later fill targets it by id, and a patch at
     // a missing id is a silent no-op, so the group would go dead for that
     // client.
-    val d = ifDash().copy(card =
-      LayoutNode.Component(
-        "col",
-        slots = Slots.kids(ifHost(armedCond, branchCard("sensor.a")))
-      )
-    )
+    val d = ifDash(elseContent = None)
     live(d, armedAB - "sensor.b") { ts =>
       for {
         v <- ts.viewer()
@@ -921,10 +916,11 @@ class LiveStreamSuite extends ServerHarness {
         "sensor.b" -> es("sensor.b", "B0")
       )
     ) { (world, client) =>
-      // The fixture's branch content is one card, so the branch root is the
-      // node (the shipped `If` wraps in a Row).
+      // The branch root is the Row the shipped `If` wraps its content in.
       def branch(id: String, inner: String) =
-        Some(s"""<div class="fh-cell" id="$id"><span>$inner</span></div>""")
+        Some(
+          s"""<div class="fh-cell fh-row" id="$id"><div class="fh-cell" id="${id}_0"><span>$inner</span></div></div>"""
+        )
       for {
         // 1. No cursor, since it never loaded a document, so the whole body
         // once.
@@ -944,7 +940,7 @@ class LiveStreamSuite extends ServerHarness {
               "outer",
               None,
               Some(
-                """<div class="fh-cell" id="c_0_branch_0"><span>A1</span></div>"""
+                """<div class="fh-cell" id="c_0_branch_0_0"><span>A1</span></div>"""
               )
             )
           ),

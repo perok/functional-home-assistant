@@ -38,4 +38,15 @@ tests whose input is a refused shape, decoder and wire tests, and the benches (t
 
 ## Findings
 
-(filled in as steps land)
+- **F0: GO.** Local, one tabs + If snippet, decoded, median of 20 after 3 warmups: (a) a cold
+  `buildDashboard` 110 ms; (b) one workspace, an evaluator per snippet 71 ms; (c) one shared
+  evaluator 4 ms (one-off cold start 1.3 s, mostly what the JVM's first Pkl eval costs anyway).
+  The migrated files have ~100 call sites, at most ~60 distinct snippets: ~0.3 s warm with (c).
+  pkl-core is already serialized process-wide (`PklBuild.serialized`), so (c) shares the
+  evaluator under that lock rather than across threads.
+- The leaves stay the `TestCard` templates, written as Pkl cards (`fixture-leaves.pkl`: `t.state`,
+  `t.dot`, `t.label`), so leaf bytes do not move. What moves is structure: the shipped `If` and a
+  tab panel wrap their content in a Row, so a leaf inside one sits a level deeper
+  (`c_0_branch_0_0`); the case ids themselves stay.
+- The shipped tab bar's buttons read the tab variable outside the pick (`fh-chosen`), so a test
+  rendering one passes the viewer's values (`RendererTestOps.renderBody(…, vars)`).
