@@ -1123,56 +1123,25 @@ case class Dashboard(
     * under the same ids.
     */
   lazy val picks: Map[NodeId, Dashboard.Pick] =
-    def walk(
-        node: LayoutNode,
-        prefix: String,
-        id: NodeId,
-        within: Dashboard.Within
-    ): List[Dashboard.Pick] = node match
-      case c: LayoutNode.Component =>
-        val own = c.chosen.toList.sortBy(_._1).map { (slot, k) =>
+    index.all
+      .flatMap { ix =>
+        val kids = index.children(ix)
+        index.node(ix).chosen.toList.sortBy(_._1).map { (slot, k) =>
           Dashboard.Pick(
-            id,
+            index.id(ix),
             slot,
             k,
-            prefix,
-            within,
-            c.slotNodes(slot)
-              .zipWithIndex
-              .map((ch, i) =>
-                LayoutNode.childIdWithin(
-                  prefix,
-                  id,
-                  LayoutNode.Step(slot, i),
-                  ch,
-                  within
-                )
-              )
+            index.prefix(ix),
+            index.within(ix),
+            kids.filter(index.step(_).exists(_.region == slot)).map(index.id)
           )
         }
-        val below = LayoutNode.steps(c.slotNodes).flatMap { (step, ch) =>
-          walk(
-            ch,
-            prefix,
-            LayoutNode.childIdWithin(prefix, id, step, ch, within),
-            within.map((m, cl, path) => (m, cl, path :+ step))
-          )
-        }
-        val members = c.set.toList.flatMap { (_, s) =>
-          s.members.toList.flatMap { (entityId, m) =>
-            val member = NodeId.derived(LayoutNode.memberSegment(id, entityId))
-            m.indexed.flatMap((ci, n) =>
-              walk(n, prefix, member, Some((member, ci, Nil)))
-            )
-          }
-        }
-        own ++ below ++ members
-    val fromCard = walk(card, "", LayoutNode.rootId("", card), None)
-    val fromPopups = surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
-      val p = LayoutNode.surfacePrefix(sid)
-      walk(s.content, p, LayoutNode.rootId(p, s.content), None)
-    }
-    (fromCard ++ fromPopups).map(p => p.group -> p).toMap
+      }
+      .map(p => p.group -> p)
+      .toMap
+
+  /** Every node, the one walk minting ids ([[TreeIndex]]). */
+  lazy val index: TreeIndex = TreeIndex.of(card, surfaces)
 
   /** Human-readable errors, empty when valid. `locateTransform` maps a
     * transform to a source location for the message.
@@ -1276,48 +1245,18 @@ case class Dashboard(
     * a choice survives the member moving to another clause.
     */
   lazy val varScopes: Map[NodeId, Map[String, Dashboard.InScope]] = {
-    type Scope = Map[String, Dashboard.InScope]
-    // `within`: the member a walk is below, its clause and the steps down.
-    def walk(
-        node: LayoutNode,
-        prefix: String,
-        id: NodeId,
-        scope: Scope,
-        within: Option[(NodeId, Int, List[LayoutNode.Step])]
-    ): List[(NodeId, Scope)] =
-      node match
-        case c: LayoutNode.Component =>
-          // A nested declaration replacing the entry is shadowing.
-          val here = scope ++ c.vars.map { d =>
-            d.name -> Dashboard.InScope(id, d)
-          }
-          (id -> here) :: (LayoutNode.steps(c.slotNodes).flatMap {
-            case (step, ch) =>
-              walk(
-                ch,
-                prefix,
-                LayoutNode.childIdWithin(prefix, id, step, ch, within),
-                here,
-                within.map((m, cl, path) => (m, cl, path :+ step))
-              )
-          } ++ c.set.toList.flatMap { (_, s) =>
-            s.members.toList.flatMap { (entityId, m) =>
-              val member =
-                NodeId.derived(LayoutNode.memberSegment(id, entityId))
-              m.indexed.flatMap((ci, n) =>
-                walk(n, prefix, member, here, Some((member, ci, Nil)))
-              )
-            }
-          })
-    def merged(xs: List[(NodeId, Scope)]): Map[NodeId, Scope] =
-      xs.groupMapReduce(_._1)(_._2)(_ ++ _)
-    merged(
-      walk(card, "", LayoutNode.rootId("", card), Map.empty, None) ++
-        surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
-          val p = LayoutNode.surfacePrefix(sid)
-          walk(s.content, p, LayoutNode.rootId(p, s.content), Map.empty, None)
-        }
-    )
+    val scopes =
+      scala.collection.mutable.ArrayBuffer.empty[Map[String, Dashboard.InScope]]
+    // Pre-order: a parent's scope is in before its children's.
+    index.all.foreach { ix =>
+      // A nested declaration replacing the entry is shadowing.
+      scopes += index.parent(ix).fold(Map.empty)(p => scopes(p.toInt)) ++
+        index
+          .node(ix)
+          .vars
+          .map(d => d.name -> Dashboard.InScope(index.id(ix), d))
+    }
+    index.all.toList.groupMapReduce(index.id)(ix => scopes(ix.toInt))(_ ++ _)
   }
 
   /** At declared values. A clause that will not match still contributes: the
