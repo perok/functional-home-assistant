@@ -475,24 +475,49 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      - Scala's `validate` refuses a choice on a card placing another region, as it does a set;
        the exact "whole template" comparison is Pkl's (the wire template carries the root).
      - `MemberKey.Surface` and ADRs' "state surface" still name a case by its old word.
-   - **R4d, the planner.** `holds` keeps each host's keys; the log down to `fragments` (below);
-     the variable-read refusals of §4 go, the mixed `by` and set guards included, with a test of
-     one guard reading a variable and a state, two viewers on different values.
-   - Left for R4d: the planner (§7); `MemberGraph`'s nesting cases; the shared decisions'
-     variable refusals (§4). Popups stay on today's swap.
-   - A test that a case no viewer shows costs nothing: a state change that only an unchosen tab
-     panel or If branch reads renders and sends nothing.
-   - The planner as §7 has it, the log down to `fragments`. Tests:
-     - a model-based one: random state changes and variable writes over two sessions, each
-       session's patches applied to a fake page and compared with a fresh full render;
-     - a page returning within the linger, its position ahead of its cursor included, gets only
-       the members that changed and no set repaint (`FragmentLogSuite`'s refill assertions are
-       rewritten to this);
-     - A → B → A sends A whole.
-   - Bench everything R2 measured, `publishSetOrdered` also with many sessions, and the size of
-     one session's `holds`. Then look at `validated`'s allocation: R2 left it ~6% above R1 on the
-     starter (1.56 → 1.66 MB/op), the `group` card's template and each set validated as a card;
-     build-time only, so left until the model stops moving.
+   - **R4d, the planner**, branch `the-planner` on `pkl-fixtures` (F, #725). Agreed
+     2026-11-19. D0 first, a refactor with no behaviour change, then D1–D6.
+     - **D0.1, one tree index.** Today about eight walks mint ids themselves (`Dashboard.picks`,
+       `Dashboard.varScopes`, `Validate.walk`/`walkIds`, `Renderer.Index`, `Member.subtree`,
+       `MemberGraph`'s nested-set walk, the build's JSON hoist), and R4c added a second spelling,
+       `LayoutNode.innerCaseId`. One `TreeIndex` gives every node its id, parent, step, tree,
+       member context (clause included), container, and a case's pick and index, with member
+       subtrees per clause. Aim: (A) built once from the wire tree in `validated`;
+       `Ready.Compile` walks the index (minting nothing), and the runtime reads the same index
+       beside the compiled nodes. Only if (A) cannot work: (B) one generic walk run on both
+       trees, plus a test that both give equal ids. Done when only the index (and the JSON hoist,
+       until R5) calls `childId`/`childIdWithin`/`innerSetId`/`memberSegment`/`innerCaseId`;
+       `WalkAt.InMember`, `innerSetId` and `groupAt` fold into it. Spike first (below).
+     - **D0.2, the compiled node mirrors the wire's union.** `Ready.Component.content: Content =
+       Fixed(regions) | Live(slot, LiveFill)`, `LiveFill = Pick(by, variable, byKey, cases,
+       otherwise) | Set(SetFill)`; `isChoice`, `choices`, `set` and `SetFill.region` go, and
+       `Ready.Pick`'s host, slot, prefix, within and case ids move to the index.
+     - **D0.3, typed containers.** An opaque `ContainerId <: String` minted only by the index:
+       the page `""`, a popup `s_<sid>`, a case its node id; `validate` refuses an authored id
+       starting `s_`; the kind is `index.kind(c)`, an enum value built once per container.
+       Bench round with `-XX:-DoEscapeAnalysis`.
+     - D0's gate: goldens byte-identical, suites green, `validated`/`tickRender`/`publishSet*`
+       equal or better. Authoring stays as §2 has it: a fill plus the whole-template rule, so an
+       author's own card can be the host.
+     - **D1, a model-based oracle**, green on today's code first (a red there is a bug report,
+       not a silent fix): hedgehog, two sessions, random state changes and variable writes, each
+       session's patches applied to a fake page (jsoup, a test-only dependency) and compared with
+       a fresh render.
+     - **D2, `holds` keeps each host's keys** in the order sent; written, not read. The oracle
+       checks held keys equal the fake page's order.
+     - **D3, the planner** (§7) replaces `MemberGraph.deltas` and the set refill; an A → B → A
+       test sends A whole.
+     - **D4, the log down to `fragments`**; `FragmentLogSuite`'s refill assertions become "a
+       returning page, its position ahead of its cursor included, gets only the members that
+       changed, no set repaint".
+     - **D5, per-session decisions:** §4's variable-read refusals go (the mixed `by`, set guards,
+       `valueWhile`, order keys), with a test of one guard reading a variable and a state, two
+       viewers on different values.
+     - **D6, benches:** everything R2 measured, `publishSetOrdered` also with many sessions, one
+       session's `holds` size; then `validated`'s allocation (R2 left it ~6% above R1 on the
+       starter, 1.56 → 1.66 MB/op).
+     - Docs in each step's commit. Folded in where cheap: `MemberKey.Surface` → a case's name,
+       the ADRs' "state surface" wording. Popups stay on today's swap (R5).
 5. **R5, popups on the pick.**
    - Popups as §7 has them, their taps `SetVar` calls on `popups`: the root's `popups`, its name
      reserved, a popup
