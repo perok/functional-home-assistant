@@ -25,7 +25,7 @@ import fh.view.model.{
   TemplateSlot
 }
 import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, PklFixture}
-import fh.view.testkit.DashboardBuilders.{declared, st}
+import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestAuth
 import fh.view.build.SystemPkl
 import fh.view.telemetry.{Logging, Meters}
@@ -171,9 +171,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
       |""".stripMargin
   )
 
-  /** What a tab bar declares: the open tab's index (ADR 0033). */
-  val TabDeclared: List[Dashboard.Declaration] = declared("tab" -> "0")
-
   /** A stream carrying this viewer's committed tabs, as a reconnect does
     * (`Server.SseInclude`): with no document, nothing else names them.
     */
@@ -268,29 +265,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def elementPatches(batch: List[SseFrame]): List[String] =
     batch.map(_.render).filterNot(_.contains("datastar-patch-signals"))
 
-  // An empty conjunction is vacuously true and reads no entity, so an `else`
-  // needs no subject.
-  val always: ValueExpr = Conds.and(Nil)
-
-  def entityIs(id: String, state: String): ValueExpr =
-    Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
-
-  val armedCond = entityIs("alarm.h", "armed")
-
-  val ifCards = Map(
-    "col" -> TestCard(
-      "<div>{{{children}}}</div>",
-      regions = Set("children")
-    ),
-    // Pure structure, like `lib/components/base/surface.pkl`'s `If`.
-    "ifhost" -> TestCard(
-      template = """{{{branch}}}""",
-      regions = Set("branch")
-    ),
-    "card" -> TestCard("<span>{{state}}</span>"),
-    "dot" -> TestCard("<b>{{state}}</b>")
-  )
-
   def branchCard(entity: String): LayoutNode.Component =
     LayoutNode.Component(
       "card",
@@ -299,19 +273,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
           "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(entity))))
         )
       )
-    )
-
-  /** An `ifhost` whose branch is `then` while `cond` holds, else `otherwise`:
-    * the cases `<id>_branch_0` and `<id>_branch_1`.
-    */
-  def ifHost(
-      cond: ValueExpr,
-      `then`: LayoutNode,
-      otherwise: Option[LayoutNode] = None
-  ): LayoutNode.Component =
-    LayoutNode.Component(
-      "ifhost",
-      Map("branch" -> Slots.iff(cond, `then`, otherwise))
     )
 
   /** The house plus what [[ifSnippet]] conditions on. */
@@ -348,36 +309,27 @@ trait ServerHarness extends munit.CatsEffectSuite {
     */
   val BodyRepaint = "selector #dashboard"
 
-  /** A card on sensor.shared at `c_0` and a tab bar at `c_1` whose panel `i` is
-    * `panels(i)`, the case `c_1_panel_<i>`.
+  /** A card on sensor.shared at `c_0` and the shipped tab bar at `c_1`, whose
+    * tab `i` shows a card on `sensors(i)`: the case `c_1_panel_0_<i>`.
     */
-  def tabsAt(panels: LayoutNode*): Dashboard = Dashboard(
-    cards = Sets.cards ++ Map(
-      "col" -> TestCard(
-        "<div>{{{children}}}</div>",
-        regions = Set("children")
-      ),
-      "card" -> TestCard("<span>{{state}}</span>"),
-      "tabs" -> TestCard(
-        template = """{{{panel}}}""",
-        regions = Set("panel")
-      )
-    ),
-    card = LayoutNode.Component(
-      "col",
-      slots = Slots.kids(
-        branchCard("sensor.shared"),
-        LayoutNode.Component(
-          "tabs",
-          Map("panel" -> Slots.tabs("tab", panels*)),
-          vars = TabDeclared
-        )
-      )
-    )
+  def tabsAt(sensors: String*): Dashboard = PklFixture.snippet(
+    s"""card = (c.column) {
+       |  children {
+       |    t.state("sensor.shared")
+       |    (c.tabs) {
+       |      tabs {
+       |${sensors.zipWithIndex
+        .map((e, i) => s"""        ["T$i"] { t.state("$e") }""")
+        .mkString("\n")}
+       |      }
+       |    }
+       |  }
+       |}
+       |""".stripMargin
   )
 
   /** [[tabsAt]] with one tab, on sensor.a. */
-  def mixedTabsDash: Dashboard = tabsAt(branchCard("sensor.a"))
+  def mixedTabsDash: Dashboard = tabsAt("sensor.a")
 
   /** A server-built event carries `data: ` on its continuation lines; a decoded
     * one, and an [[SseFrame]] read through its parser, do not. Tolerating both
@@ -622,7 +574,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
     } yield ()).timeout(30.seconds)
 
   /** [[tabsAt]] with two tabs, on sensor.a and sensor.b. */
-  def twoTabsDash: Dashboard =
-    tabsAt(branchCard("sensor.a"), branchCard("sensor.b"))
+  def twoTabsDash: Dashboard = tabsAt("sensor.a", "sensor.b")
 
 }

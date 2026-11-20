@@ -380,8 +380,8 @@ class ResumeSuite extends ServerHarness {
         // Reconciled on its own id with no entry at all (`fingerprint !=
         // stored`): otherwise the value never reaches the reconnected DOM.
         assert(opening.contains(">new<"), clue = opening)
-        assert(opening.contains("""id="c_1_panel_0""""), clue = opening)
-        assert(!opening.contains("""class="tabs""""), clue = opening)
+        assert(opening.contains("""id="c_1_panel_0_0_0""""), clue = opening)
+        assert(!opening.contains("""class="fh-tabs""""), clue = opening)
         assert(!opening.contains(BodyRepaint), clue = opening)
       }
     }
