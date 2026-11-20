@@ -258,11 +258,11 @@ class SetMembershipSuite extends ServerHarness {
         forB <- onT1.pull.map(_.map(_.render))
       } yield {
         assert(
-          forB.exists(_.contains("""id="c_panel_0_1"""")),
+          forB.exists(_.contains("""id="c_panel_0_1_0"""")),
           clue = forB
         )
         assert(forB.exists(_.contains("B1")), clue = forB)
-        assert(!forA.exists(_.contains("c_panel_0_1")), clue = forA)
+        assert(!forA.exists(_.contains("c_panel_0_1_0")), clue = forA)
       }
     }
   }

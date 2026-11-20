@@ -17,12 +17,11 @@ import fh.view.model.{
   Op,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Slot
+  TemplateSlot
 }
 import fh.view.fetch.FetchSnapshot
-import fh.view.testkit.DashboardBuilders
-import fh.view.testkit.DashboardBuilders.{declared, st}
+import fh.view.testkit.{FixtureEntity, PklFixture}
+import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 import org.http4s.Status
@@ -33,17 +32,11 @@ import org.http4s.Status
 class MemberNodesSuite extends ServerHarness {
 
   private val cards = Sets.cards ++ Map(
-    DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard,
     "tile" -> TestCard("<b>{{state}}</b>"),
     "col" -> TestCard(
       """<div>{{{children}}}</div>""",
       regions = Set("children")
-    ),
-    "host" -> TestCard(
-      """{{{panel}}}""",
-      regions = Set("panel")
-    ),
-    "text" -> TestCard("<p>{{text}}</p>")
+    )
   )
 
   private def tile(id: String) = LayoutNode.Component(
@@ -186,51 +179,33 @@ class MemberNodesSuite extends ServerHarness {
     }
   }
 
-  private def text(t: String) = LayoutNode.Component(
-    "text",
-    Slots.values(Map("text" -> TemplateSlot(ValueExpr.literal(t))))
+  private val twoLights =
+    List(FixtureEntity("light.a", "on"), FixtureEntity("light.b", "on"))
+
+  // Each member is a group of panels chosen by `tab`, declared above the set.
+  private def memberPanel(choice: String) = PklFixture.snippet(
+    s"""local v = c.variable("tab")
+       |card = (c.column) {
+       |  vars { v.defaultingTo("0") }
+       |  children {
+       |    q.from(List(dump.entities.light_a, dump.entities.light_b))
+       |      .render((e) ->
+       |        let (n = if (e.entity_id == "light.a") "A" else "B")
+       |        groupMod.group("div", "", $choice))
+       |      .build()
+       |    c.button("Second", v.choose("1"))
+       |  }
+       |}
+       |""".stripMargin,
+    twoLights*
   )
 
-  // Each member hosts a panel chosen by `tab`, declared above the set.
-  private def panels(panel: String => Slot) = {
-    val ids = List("light.a", "light.b")
-    Dashboard(
-      cards = cards,
-      card = LayoutNode.Component(
-        "col",
-        vars = declared("tab" -> "0"),
-        slots = Slots.kids(
-          Sets.node(
-            candidates = ids,
-            members = ids.map { id =>
-              id -> Sets.Member(
-                List(
-                  Sets.Clause(
-                    None,
-                    LayoutNode.Component(
-                      "host",
-                      Slots.values(
-                        Map(
-                          "entity_id" -> TemplateSlot(
-                            ValueExpr.literal(id)
-                          )
-                        )
-                      ) + ("panel" -> panel(id))
-                    )
-                  )
-                )
-              )
-            }.toMap
-          ) :: DashboardBuilders.choices("tab", "1")*
-        )
-      )
-    )
-  }
-
-  private val tabbed = panels { id =>
-    val n = if (id == "light.a") "A" else "B"
-    Slots.tabs("tab", text(s"$n first"), text(s"$n second"))
-  }
+  private val tabbed = memberPanel(
+    """nodeMod.match(v.value, new Mapping {
+      |  ["0"] = t.label("\(n) first")
+      |  ["1"] = t.label("\(n) second")
+      |})""".stripMargin
+  )
 
   private val twoOn =
     Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
@@ -271,11 +246,18 @@ class MemberNodesSuite extends ServerHarness {
   }
 
   test("a branch chosen by live state inside a clause builds") {
-    val flipping = panels(_ =>
-      Slots.iff(
-        Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a")),
-        text("A first")
-      )
+    val flipping = PklFixture.snippet(
+      """card = (c.column) {
+        |  children {
+        |    q.from(List(dump.entities.light_a, dump.entities.light_b))
+        |      .render((e) ->
+        |        groupMod.group("div", "",
+        |          nodeMod.iff(q.entity(dump.entities.light_a).stateIs("on")).then(t.label("A first"))))
+        |      .build()
+        |  }
+        |}
+        |""".stripMargin,
+      twoLights*
     )
     assertEquals(flipping.validate(), Nil)
   }

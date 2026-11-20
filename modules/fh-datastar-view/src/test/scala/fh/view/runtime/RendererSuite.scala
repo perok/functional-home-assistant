@@ -6,6 +6,7 @@ import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
+import fh.view.testkit.{FixtureEntity, PklFixture}
 
 import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
@@ -33,7 +34,6 @@ import fh.view.testkit.DashboardBuilders.{
   asComponent,
   classes,
   col,
-  declared,
   lit,
   row,
   st
@@ -66,53 +66,29 @@ class RendererSuite extends munit.FunSuite {
     "row" -> TestCard(
       """<div class="fh-row">{{{children}}}</div>""",
       regions = Set("children")
-    ),
-    // Shaped like the shipped `Tabs`, structure with a bar region and a panel
-    // region its choice fills, because `CardDef.isStructure` is what the engine dispatches
-    // on: a fixture whose shape drifted would be a different kind of card.
-    "tabs" -> TestCard(
-      template = """<div class="fh-col"><div class="fh-row tabbar">""" +
-        """{{{children}}}</div>{{{panel}}}</div>""",
-      regions = Set("children", "panel")
-    ),
-    Slots.GroupCard -> Slots.groupCard,
-    // The live header is a node in the bar region, so a title tick patches that
-    // node and cannot reach the panel.
-    "tabsLive" -> TestCard(
-      template = """<div><div class="tabs">{{{bar}}}</div>{{{panel}}}</div>""",
-      regions = Set("bar", "panel")
-    ),
-    "tabsBar" -> TestCard("""<span>{{title}}</span>""")
+    )
   )
 
-  // As `c.tabs` produces it: the panel slot's group, `c_panel_0`, hosts the
-  // choice.
-  private def tabsDashboard: Dashboard = {
-    def panel(name: String): LayoutNode.Component =
-      LayoutNode.Component(
-        "card",
-        slots = Slots.values(
-          Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some(s"sensor.$name")))
-            )
-          )
-        )
-      )
-    Dashboard(
-      cards,
-      LayoutNode.Component(
-        "tabs",
-        slots = Slots.kids(
-          LayoutNode.Component("btn", Slots.values(Map("label" -> lit("A")))),
-          LayoutNode.Component("btn", Slots.values(Map("label" -> lit("B"))))
-        ) + ("panel" -> Slots.inGroup(
-          Slots.tabs("tab", panel("a"), panel("b"))
-        )),
-        vars = declared("tab" -> "0")
-      )
-    )
-  }
+  // The shipped tab bar: the panel slot's group, `c_panel_0`, hosts the choice,
+  // and each tab is a Row case, `c_panel_0_<i>`.
+  private def tabsDashboard: Dashboard = PklFixture.snippet(
+    """card = (c.tabs) {
+      |  tabs {
+      |    ["A"] { t.state("sensor.a") }
+      |    ["B"] { t.state("sensor.b") }
+      |  }
+      |}
+      |""".stripMargin
+  )
+
+  /** The viewer's values at the declared tab, which the shipped bar's buttons
+    * read outside the pick.
+    */
+  extension (r: Renderer)
+    private def renderTabbed(
+        states: Map[String, EntityState],
+        selections: Selections
+    ): String = r.renderBody(states, selections, r.vars.env(Map.empty))
 
   private def renderer(layout: LayoutNode): Renderer = {
     val d = Dashboard(cards, layout)
@@ -1204,9 +1180,9 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(rr.surfaces.selectedSurfaces(first), Set("c_panel_0_0"))
 
     // Surface-namespaced ids, so a later switch-back is byte-identical.
-    val body = rr.renderBody(states, first)
+    val body = rr.renderTabbed(states, first)
     assert(
-      body.contains("""<div class="fh-cell" id="c_panel_0">"""),
+      body.contains("""<div class="fh-tab-panel" id="c_panel_0">"""),
       clue = body
     )
     assert(body.contains("""id="c_panel_0_0""""), clue = body)
@@ -1222,7 +1198,7 @@ class RendererSuite extends munit.FunSuite {
       .map(_.html)
       .get
     assert(
-      panelB.startsWith("""<div class="fh-cell" id="c_panel_0_1">"""),
+      panelB.startsWith("""<div class="fh-cell fh-row" id="c_panel_0_1">"""),
       clue = panelB
     )
     assert(!panelB.contains("<dialog"), clue = panelB)
@@ -1231,11 +1207,11 @@ class RendererSuite extends munit.FunSuite {
 
     assertEquals(
       rr.surfaceComponentsFor("c_panel_0_0", "sensor.a"),
-      Set("c_panel_0_0")
+      Set("c_panel_0_0_0")
     )
     assertEquals(
       rr.surfaceComponentsFor("c_panel_0_1", "sensor.b"),
-      Set("c_panel_0_1")
+      Set("c_panel_0_1_0")
     )
   }
 
@@ -1263,9 +1239,9 @@ class RendererSuite extends munit.FunSuite {
       "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
-    val body = rr.renderBody(states, picking("c_panel_0" -> 1))
+    val body = rr.renderTabbed(states, picking("c_panel_0" -> 1))
     assert(
-      body.contains("""<div class="fh-cell" id="c_panel_0">"""),
+      body.contains("""<div class="fh-tab-panel" id="c_panel_0">"""),
       clue = body
     )
     assert(body.contains("""id="c_panel_0_1""""), clue = body)
@@ -1623,44 +1599,12 @@ class RendererSuite extends munit.FunSuite {
   ) {
     // A live SSE patch re-renders the node by id; it must not carry the
     // session's tab.
-    def panel(name: String): LayoutNode.Component =
-      LayoutNode.Component(
-        "card",
-        slots = Slots.values(
-          Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some(s"sensor.$name")))
-            )
-          )
-        )
-      )
-    val d = Dashboard(
-      cards,
-      LayoutNode.Component(
-        "tabsLive",
-        slots = Slots.nodes(
-          Map(
-            "bar" -> List(
-              LayoutNode.Component(
-                "tabsBar",
-                slots = Slots.values(
-                  Map(
-                    "title" -> TemplateSlot(
-                      ValueExpr(
-                        Value.Entity(Some("sensor.title"), Part.Whole),
-                        List(Step.Cel("value.state"))
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-        ) + ("panel" -> Slots.inGroup(
-          Slots.tabs("tab", panel("a"), panel("b"))
-        )),
-        vars = declared("tab" -> "0")
-      )
+    val d = PklFixture.snippet(
+      """card = (c.tabs) {
+        |  tabs { ["A"] { t.state("sensor.a") } ["B"] { t.state("sensor.b") } }
+        |  children { t.state("sensor.title") }
+        |}
+        |""".stripMargin
     )
     val rr = Renderer.create(d)
     val states = Map(
@@ -1669,7 +1613,7 @@ class RendererSuite extends munit.FunSuite {
       "sensor.b" -> st("sensor.b", "BB")
     )
     // The header is where the entity is read; the host holds regions.
-    assertEquals(rr.componentsFor("sensor.title"), Set("c_bar_0"))
+    assertEquals(rr.componentsFor("sensor.title"), Set("c_2"))
     assertEquals(
       rr.renderNodeById(
         "c",
@@ -1683,22 +1627,22 @@ class RendererSuite extends munit.FunSuite {
     // panel.
     val patch =
       rr.renderNodeById(
-        "c_bar_0",
+        "c_2",
         Shared.of(states),
         Viewing(Selections.none, FetchSnapshot.empty)
       ).get
     assertEquals(
       patch,
-      """<div class="fh-cell" id="c_bar_0"><span>Live</span></div>"""
+      """<div class="fh-cell" id="c_2"><span>Live</span></div>"""
     )
 
     // Which case shows lives on the document path alone, where the
     // selection still decides.
-    val dflt = rr.renderBody(states, picking("c_panel_0" -> 0))
+    val dflt = rr.renderTabbed(states, picking("c_panel_0" -> 0))
     assert(dflt.contains("<span>AA</span>"), clue = dflt)
     assert(!dflt.contains("<span>BB</span>"), clue = dflt)
 
-    val sel = rr.renderBody(states, picking("c_panel_0" -> 1))
+    val sel = rr.renderTabbed(states, picking("c_panel_0" -> 1))
     assert(sel.contains("<span>BB</span>"), clue = sel)
     assert(!sel.contains("<span>AA</span>"), clue = sel)
   }
@@ -1782,46 +1726,17 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  // An empty conjunction is vacuously true and reads no entity, so an `else`
-  // needs no special casing.
-  private val always: ValueExpr = Conds.and(Nil)
-
-  private def entityIs(id: String, state: String): ValueExpr =
-    Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
-
-  private val ifCards =
-    // Mirrors lib/components.pkl's `If`: its root hosts the one region its
-    // choice fills.
-    cards + ("ifhost" -> TestCard(
-      template = """{{{branch}}}""",
-      regions = Set("branch")
-    ))
-
-  private def ifDashboard(withElse: Boolean = true): Dashboard = {
-    def branch(name: String) = LayoutNode.Component(
-      "card",
-      slots = Slots.values(
-        Map(
-          "state" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some(s"sensor.$name")))
-          )
-        )
-      )
+  /** The shipped `If` at "c" over `alarm.h`: `then` on `sensor.a`, and, when
+    * asked, `else` on `sensor.b`.
+    */
+  private def ifDashboard(withElse: Boolean = true): Dashboard =
+    PklFixture.snippet(
+      s"""card = c.iff(q.entity(dump.entities.alarm_h).stateIs("armed")).then(t.state("sensor.a"))${
+          if (withElse) """.`else`(t.state("sensor.b"))""" else ""
+        }
+         |""".stripMargin,
+      FixtureEntity("alarm.h", "armed")
     )
-    Dashboard(
-      ifCards,
-      LayoutNode.Component(
-        "ifhost",
-        Map(
-          "branch" -> Slots.iff(
-            entityIs("alarm.h", "armed"),
-            branch("a"),
-            Option.when(withElse)(branch("b"))
-          )
-        )
-      )
-    )
-  }
 
   private def armedStates(alarm: String) = Map(
     "alarm.h" -> st("alarm.h", alarm),
@@ -1850,7 +1765,10 @@ class RendererSuite extends munit.FunSuite {
     // The host still renders, empty, so a branch matching later has its patch
     // target in the DOM. Through the document path: an If is structure, so
     // `renderNodeById` refuses it.
-    assertEquals(r.renderBody(states), """<div class="fh-cell" id="c"></div>""")
+    assertEquals(
+      r.renderBody(states),
+      """<div class="fh-cell fh-ifhost fh-cols-full" id="c"></div>"""
+    )
     assertEquals(
       r.renderNodeById(
         "c",
@@ -1864,30 +1782,18 @@ class RendererSuite extends munit.FunSuite {
   // `any`/`none`/`all` as counts over a named set, not every entity in the
   // house.
   test("a state condition counts a named set: any/none/all as comparisons") {
-    val on = Conds.cmp("state", Op.Eq, Json.fromString("on"))
-    def dash(cond: ValueExpr) = Dashboard(
-      ifCards,
-      LayoutNode.Component(
-        "ifhost",
-        Map(
-          "branch" -> Slots.iff(
-            cond,
-            LayoutNode.Component("btn", Slots.values(Map("label" -> lit("x"))))
-          )
-        )
-      )
+    val lights = "q.from(List(dump.entities.l_a, dump.entities.l_b))"
+    def dash(cond: String) = PklFixture.snippet(
+      s"""card = c.iff($cond).then(t.label("x"))""",
+      FixtureEntity("l.a", "on"),
+      FixtureEntity("l.b", "on")
     )
-    def count(op: Op, n: Int) = Conds.count(
-      candidates = List("l.a", "l.b"),
-      when = Map("l.a" -> on, "l.b" -> on),
-      op = op,
-      value = Json.fromInt(n)
-    )
+    val onSet = s"""$lights.where(q.eq(q.stateProp, "on"))"""
     val mixed = Map("l.a" -> st("l.a", "on"), "l.b" -> st("l.b", "off"))
     val allOn = Map("l.a" -> st("l.a", "on"), "l.b" -> st("l.b", "on"))
     val allOff = Map("l.a" -> st("l.a", "off"), "l.b" -> st("l.b", "off"))
 
-    val anyR = Renderer.create(dash(count(Op.Gt, 0)))
+    val anyR = Renderer.create(dash(s"$onSet.any()"))
     assertEquals(
       anyR.surfaces.decideByState("c", Shared.of(mixed)),
       Some(0)
@@ -1897,7 +1803,7 @@ class RendererSuite extends munit.FunSuite {
       None
     )
 
-    val noneR = Renderer.create(dash(count(Op.Eq, 0)))
+    val noneR = Renderer.create(dash(s"$onSet.none()"))
     assertEquals(
       noneR.surfaces.decideByState("c", Shared.of(allOff)),
       Some(0)
@@ -1907,7 +1813,7 @@ class RendererSuite extends munit.FunSuite {
       None
     )
 
-    val allR = Renderer.create(dash(count(Op.Eq, 2)))
+    val allR = Renderer.create(dash(s"$onSet.all()"))
     assertEquals(
       allR.surfaces.decideByState("c", Shared.of(allOn)),
       Some(0)
@@ -1919,7 +1825,9 @@ class RendererSuite extends munit.FunSuite {
 
     // A lone entity is a lookup, so an unrelated entity's state cannot decide
     // it.
-    val oneR = Renderer.create(dash(entityIs("l.a", "on")))
+    val oneR = Renderer.create(
+      dash("""q.entity(dump.entities.l_a).stateIs("on")""")
+    )
     assertEquals(
       oneR.surfaces.decideByState("c", Shared.of(mixed)),
       Some(0)
@@ -2086,22 +1994,14 @@ class RendererSuite extends munit.FunSuite {
     // Two chains off the main page, each two surfaces deep:
     //   main -> c_0_panel_0_0 (tab) -> if host -> b0 (state)
     //   main -> c_1_branch_0 (state) -> tabs    -> u0 (tab)
-    def card(e: String) = LayoutNode.Component(
-      "card",
-      Slots.values(
-        Map("state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e)))))
-      )
-    )
-    def tabs(panel: LayoutNode) = LayoutNode.Component(
-      "tabs",
-      Map("panel" -> Slots.inGroup(Slots.tabs("tab", panel))),
-      vars = declared("tab" -> "0")
-    )
-    def ifHost(branch: LayoutNode) =
-      LayoutNode.Component("ifhost", Map("branch" -> Slots.iff(always, branch)))
-    val d = Dashboard(
-      ifCards,
-      col(tabs(ifHost(card("s.a"))), ifHost(tabs(card("s.b"))))
+    val d = PklFixture.snippet(
+      """card = (c.column) {
+        |  children {
+        |    (c.tabs) { tabs { ["A"] { c.iff(true).then(t.state("s.a")) } } }
+        |    c.iff(true).then((c.tabs) { tabs { ["A"] { t.state("s.b") } } })
+        |  }
+        |}
+        |""".stripMargin
     )
     val r = Renderer.create(d)
     def shown(id: String, open: Set[String]) =
@@ -2109,11 +2009,11 @@ class RendererSuite extends munit.FunSuite {
 
     // A state case hides nothing, so b0 is shown exactly when the tab above it
     // is open, which its id cannot say.
-    val b0 = "c_0_panel_0_0_branch_0"
-    val u0 = "c_1_branch_0_panel_0_0"
+    val b0 = "c_0_panel_0_0_0_branch_0"
+    val u0 = "c_1_branch_0_0_panel_0_0"
     assert(shown(b0, Set("c_0_panel_0_0")))
     assert(!shown(b0, Set.empty))
-    assert(shown(u0, Set("c_1_branch_0_panel_0_0")))
+    assert(shown(u0, Set("c_1_branch_0_0_panel_0_0")))
     assert(!shown(u0, Set.empty))
     assert(shown("c", Set.empty))
   }

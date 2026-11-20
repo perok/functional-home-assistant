@@ -24,8 +24,8 @@ import fh.view.model.{
   ValueExpr,
   TemplateSlot
 }
-import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
-import fh.view.testkit.DashboardBuilders.{declared, st}
+import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, PklFixture}
+import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestAuth
 import fh.view.build.SystemPkl
 import fh.view.telemetry.{Logging, Meters}
@@ -158,57 +158,18 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def tabsRenderer: Renderer = Renderer.create(tabsDash)
 
-  def tabsDash: Dashboard = {
-    val cards = Sets.cards ++ Map(
-      Slots.GroupCard -> Slots.groupCard,
-      "btn" ->
-        TestCard("<button>{{label}}</button>"),
-      "card" ->
-        TestCard("<span>{{state}}</span>"),
-      // Shaped like the shipped `Tabs`: the bar is structure, never a patch
-      // target.
-      "tabs" -> TestCard(
-        template = """<div class="tabs">""" +
-          """{{{children}}}</div>""" +
-          """{{{panel}}}""",
-        regions = Set("children", "panel")
-      )
-    )
-    def panel(name: String): LayoutNode.Component =
-      LayoutNode.Component(
-        "card",
-        slots = Slots.values(
-          Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some(s"sensor.$name")))
-            )
-          )
-        )
-      )
-    Dashboard(
-      cards,
-      LayoutNode.Component(
-        "tabs",
-        slots = Slots.kids(
-          LayoutNode.Component(
-            "btn",
-            Slots.values(Map("label" -> TemplateSlot(ValueExpr.literal("A"))))
-          ),
-          LayoutNode
-            .Component(
-              "btn",
-              Slots.values(Map("label" -> TemplateSlot(ValueExpr.literal("B"))))
-            )
-        ) + ("panel" -> Slots.inGroup(
-          Slots.tabs("tab", panel("a"), panel("b"))
-        )),
-        vars = TabDeclared
-      )
-    )
-  }
-
-  /** What a tab bar declares: the open tab's index (ADR 0033). */
-  val TabDeclared: List[Dashboard.Declaration] = declared("tab" -> "0")
+  /** The shipped tab bar at the root "c", tab `A` over sensor.a and `B` over
+    * sensor.b.
+    */
+  def tabsDash: Dashboard = PklFixture.snippet(
+    """card = (c.tabs) {
+      |  tabs {
+      |    ["A"] { t.state("sensor.a") }
+      |    ["B"] { t.state("sensor.b") }
+      |  }
+      |}
+      |""".stripMargin
+  )
 
   /** A stream carrying this viewer's committed tabs, as a reconnect does
     * (`Server.SseInclude`): with no document, nothing else names them.
@@ -304,29 +265,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def elementPatches(batch: List[SseFrame]): List[String] =
     batch.map(_.render).filterNot(_.contains("datastar-patch-signals"))
 
-  // An empty conjunction is vacuously true and reads no entity, so an `else`
-  // needs no subject.
-  val always: ValueExpr = Conds.and(Nil)
-
-  def entityIs(id: String, state: String): ValueExpr =
-    Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
-
-  val armedCond = entityIs("alarm.h", "armed")
-
-  val ifCards = Map(
-    "col" -> TestCard(
-      "<div>{{{children}}}</div>",
-      regions = Set("children")
-    ),
-    // Pure structure, like `lib/components/base/surface.pkl`'s `If`.
-    "ifhost" -> TestCard(
-      template = """{{{branch}}}""",
-      regions = Set("branch")
-    ),
-    "card" -> TestCard("<span>{{state}}</span>"),
-    "dot" -> TestCard("<b>{{state}}</b>")
-  )
-
   def branchCard(entity: String): LayoutNode.Component =
     LayoutNode.Component(
       "card",
@@ -337,32 +275,29 @@ trait ServerHarness extends munit.CatsEffectSuite {
       )
     )
 
-  /** An `ifhost` whose branch is `then` while `cond` holds, else `otherwise`:
-    * the cases `<id>_branch_0` and `<id>_branch_1`.
-    */
-  def ifHost(
-      cond: ValueExpr,
-      `then`: LayoutNode,
-      otherwise: Option[LayoutNode] = None
-  ): LayoutNode.Component =
-    LayoutNode.Component(
-      "ifhost",
-      Map("branch" -> Slots.iff(cond, `then`, otherwise))
-    )
+  /** The house plus what [[ifSnippet]] conditions on. */
+  val alarm: FixtureEntity = FixtureEntity("alarm.h", "armed")
 
-  /** `ifhost` at "c_0". `c_0_branch_0` shows while alarm.h == armed, and
-    * `c_0_branch_1` otherwise; by default they show sensor.a and sensor.b.
+  /** The shipped `If`: its row `<host>_branch_0` shows `thenContent` while
+    * alarm.h == armed, and its row `<host>_branch_1` `elseContent` otherwise
+    * (Pkl node expressions).
     */
+  def ifSnippet(
+      thenContent: String = """t.state("sensor.a")""",
+      elseContent: Option[String] = Some("""t.state("sensor.b")""")
+  ): String =
+    s"""c.iff(q.entity(dump.entities.alarm_h).stateIs("armed")).then($thenContent)""" +
+      elseContent.fold("")(e => s".`else`($e)")
+
+  /** An [[ifSnippet]] at "c_0", in a column. */
   def ifDash(
-      thenContent: LayoutNode = branchCard("sensor.a"),
-      elseContent: LayoutNode = branchCard("sensor.b")
+      thenContent: String = """t.state("sensor.a")""",
+      elseContent: Option[String] = Some("""t.state("sensor.b")"""),
+      extras: List[FixtureEntity] = Nil
   ): Dashboard =
-    Dashboard(
-      cards = Sets.cards ++ ifCards,
-      card = LayoutNode.Component(
-        "col",
-        slots = Slots.kids(ifHost(armedCond, thenContent, Some(elseContent)))
-      )
+    PklFixture.snippet(
+      s"card = (c.column) { children { ${ifSnippet(thenContent, elseContent)} } }",
+      (alarm :: extras)*
     )
 
   def es(id: String, state: String): EntityState = st(id, state)
@@ -374,36 +309,27 @@ trait ServerHarness extends munit.CatsEffectSuite {
     */
   val BodyRepaint = "selector #dashboard"
 
-  /** A card on sensor.shared at `c_0` and a tab bar at `c_1` whose panel `i` is
-    * `panels(i)`, the case `c_1_panel_<i>`.
+  /** A card on sensor.shared at `c_0` and the shipped tab bar at `c_1`, whose
+    * tab `i` shows a card on `sensors(i)`: the case `c_1_panel_0_<i>`.
     */
-  def tabsAt(panels: LayoutNode*): Dashboard = Dashboard(
-    cards = Sets.cards ++ Map(
-      "col" -> TestCard(
-        "<div>{{{children}}}</div>",
-        regions = Set("children")
-      ),
-      "card" -> TestCard("<span>{{state}}</span>"),
-      "tabs" -> TestCard(
-        template = """{{{panel}}}""",
-        regions = Set("panel")
-      )
-    ),
-    card = LayoutNode.Component(
-      "col",
-      slots = Slots.kids(
-        branchCard("sensor.shared"),
-        LayoutNode.Component(
-          "tabs",
-          Map("panel" -> Slots.tabs("tab", panels*)),
-          vars = TabDeclared
-        )
-      )
-    )
+  def tabsAt(sensors: String*): Dashboard = PklFixture.snippet(
+    s"""card = (c.column) {
+       |  children {
+       |    t.state("sensor.shared")
+       |    (c.tabs) {
+       |      tabs {
+       |${sensors.zipWithIndex
+        .map((e, i) => s"""        ["T$i"] { t.state("$e") }""")
+        .mkString("\n")}
+       |      }
+       |    }
+       |  }
+       |}
+       |""".stripMargin
   )
 
   /** [[tabsAt]] with one tab, on sensor.a. */
-  def mixedTabsDash: Dashboard = tabsAt(branchCard("sensor.a"))
+  def mixedTabsDash: Dashboard = tabsAt("sensor.a")
 
   /** A server-built event carries `data: ` on its continuation lines; a decoded
     * one, and an [[SseFrame]] read through its parser, do not. Tolerating both
@@ -648,7 +574,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
     } yield ()).timeout(30.seconds)
 
   /** [[tabsAt]] with two tabs, on sensor.a and sensor.b. */
-  def twoTabsDash: Dashboard =
-    tabsAt(branchCard("sensor.a"), branchCard("sensor.b"))
+  def twoTabsDash: Dashboard = tabsAt("sensor.a", "sensor.b")
 
 }
