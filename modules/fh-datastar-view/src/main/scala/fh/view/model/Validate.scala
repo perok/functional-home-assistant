@@ -755,15 +755,8 @@ private[model] object Validate:
               " — the value would stop updating"
           )
 
-    def childErrors(
-        kids: Map[String, List[LayoutNode]],
-        prefix: String,
-        id: NodeId,
-        scope: Map[String, String]
-    ): List[String] =
-      LayoutNode.steps(kids).flatMap { case (step, n) =>
-        walk(n, prefix, LayoutNode.childId(prefix, id, step, n), scope)
-      }
+    def childErrors(ix: Ix, scope: Map[String, String]): List[String] =
+      index.children(ix).filter(index.step(_).isDefined).flatMap(walk(_, scope))
 
     // Interpolated into a `class` attribute unescaped.
     def classTokenErrors(nodeId: String, cls: String): List[String] =
@@ -829,13 +822,9 @@ private[model] object Validate:
     ): List[(SlotKey, String, BoundSlot)] =
       slots.toList.map((k, s) => (k, SlotKey.label(k), s)).sortBy(_._2)
 
-    def walk(
-        node: LayoutNode,
-        prefix: String,
-        nodeId: NodeId,
-        scope: Map[String, String]
-    ): List[String] =
-      node match
+    def walk(ix: Ix, scope: Map[String, String]): List[String] =
+      val nodeId = index.id(ix)
+      index.node(ix) match
         case c @ LayoutNode.Component(card, _, cell, _, vars, _, _) =>
           val layoutErrors = Option
             .when(
@@ -867,16 +856,15 @@ private[model] object Validate:
             valueWhileErrors(nodeId, c.bound) ++
             typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++
-            layoutErrors ++ childErrors(c.slotNodes, prefix, nodeId, here) ++
-            setErrors(nodeId, c, prefix, scope)
+            layoutErrors ++ childErrors(ix, here) ++ setErrors(ix, c, scope)
 
     // A set's members are complete nodes, validated as ordinary ones.
     def setErrors(
-        setId: NodeId,
+        ix: Ix,
         c: LayoutNode.Component,
-        prefix: String,
         scope: Map[String, String]
     ): List[String] =
+      val setId = index.id(ix)
       val sets = c.fills.toList.sortBy(_._1).collect { case (n, s: Fill.Set) =>
         n -> s
       }
@@ -971,21 +959,11 @@ private[model] object Validate:
             s"$setId: a member is itself a set — put the set inside a card " +
               "the member renders"
         }.distinct
-        val inside = s.clauseNodes.flatMap { (_, i, n) =>
-          walk(
-            n,
-            prefix,
-            LayoutNode.childId(
-              prefix,
-              setId,
-              LayoutNode.Step(LayoutNode.DefaultRegion, i),
-              n
-            ),
-            scope
-          )
-        }
-        whole ++ order ++ members ++ unmembered ++ readsMember ++ bare ++ inside
-      }
+        whole ++ order ++ members ++ unmembered ++ readsMember ++ bare
+      } ++ index
+        .children(ix)
+        .filter(index.step(_).isEmpty)
+        .flatMap(walk(_, scope))
 
     // Structure is never a patch target, so a live bytes slot on it never
     // reaches the DOM; a signal slot needs no patch target (ADR 0017). The Pkl
@@ -1104,35 +1082,9 @@ private[model] object Validate:
       * asks the tree, so `detail` and `detail_0` may be unrelated.
       */
     val authoredIdErrors: List[String] = {
-      def walkIds(
-          node: LayoutNode,
-          prefix: String,
-          id: NodeId,
-          inSet: Boolean
-      ): List[(NodeId, Boolean, Option[String])] =
-        (id, inSet, node.authoredId) :: (node match {
-          case c: LayoutNode.Component =>
-            LayoutNode.steps(c.slotNodes).flatMap { case (step, ch) =>
-              walkIds(
-                ch,
-                prefix,
-                LayoutNode.childId(prefix, id, step, ch),
-                inSet
-              )
-            } ++
-              // A member node renders once per candidate, so every one would
-              // claim its id.
-              c.set.toList.flatMap((_, s) =>
-                s.nodes.flatMap(walkIds(_, prefix, id, true))
-              )
-        })
-
-      val all =
-        walkIds(card, "", LayoutNode.rootId("", card), false) ++
-          surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
-            val p = LayoutNode.surfacePrefix(sid)
-            walkIds(s.content, p, LayoutNode.rootId(p, s.content), false)
-          }
+      val all = index.all.toList.map(ix =>
+        (index.id(ix), index.within(ix).isDefined, index.node(ix).authoredId)
+      )
       val authored = all.collect { case (id, inSet, Some(name)) =>
         (id, inSet, name)
       }
@@ -1294,15 +1246,10 @@ private[model] object Validate:
       failedLabelErrors ++
       theme.classes.errors ++
       unboundConditions ++
-      walk(card, "", LayoutNode.rootId("", card), Map.empty) ++
-      surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
-        val p = LayoutNode.surfacePrefix(sid)
-        walk(
-          surface.content,
-          p,
-          LayoutNode.rootId(p, surface.content),
-          Map.empty
-        ).map(err => s"surface '$sid': $err")
+      index.all.filter(index.parent(_).isEmpty).toList.flatMap { root =>
+        val errs = walk(root, Map.empty)
+        val sid = index.tree(root)
+        if (sid.isEmpty) errs else errs.map(err => s"surface '$sid': $err")
       }
 
   /** A clause's condition: a bool that bypasses nothing. */
