@@ -884,7 +884,7 @@ structure, patched through its leaves, with choices of its own (a slider's main 
 Lookups by id go through the member's current clause (`MemberGraph.nodeAt`), since every clause
 of a candidate mints the same ids below it; a render key names the clause for the same reason, and
 so does a pick: a choice inside a clause carries it (`Dashboard.Pick.within`), its
-id is `<host>_k<clause>` (`Surface.groupId`, `SurfaceGraph.groupAt`), so two slider clauses keep
+id is `<host>_k<clause>` (`Surface.groupId`, the compiled node's `group`), so two slider clauses keep
 their own heads, and a write swaps only the pick of the member's current clause
 (`SurfaceGraph.groupShown`). A member holding nodes has no one element to send, so its arrival and a
 clause switch (a different node, or the same node in another clause) place it whole, rendered per

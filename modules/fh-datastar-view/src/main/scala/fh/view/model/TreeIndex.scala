@@ -49,6 +49,13 @@ final class TreeIndex private (entries: Vector[TreeIndex.Entry]) {
 
   def within(ix: Ix): Dashboard.Within = entries(ix.toInt).within
 
+  /** The pick it hosts ([[Surface.groupId]], a clause's own); else its id. */
+  def group(ix: Ix): NodeId = {
+    val e = entries(ix.toInt)
+    if (e.node.chosen.isEmpty) e.id
+    else Surface.groupId(e.id, e.within.map(_._2))
+  }
+
   /** The innermost case holding it, else its tree's root. */
   def container(ix: Ix): Ix = Ix(entries(ix.toInt).container)
 

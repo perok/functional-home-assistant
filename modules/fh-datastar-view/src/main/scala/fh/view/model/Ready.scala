@@ -15,12 +15,13 @@ object Ready:
   sealed trait Node extends LayoutNode.Identified:
     def id: NodeId
 
-  /** `id` and `clause` are its [[TreeIndex]] entry's: the render walk reads
-    * them rather than minting ids per paint.
+  /** `id`, `clause` and `group` are its [[TreeIndex]] entry's: the render walk
+    * reads them rather than minting ids per paint.
     */
   final case class Component(
       id: NodeId,
       clause: Option[Int],
+      group: NodeId,
       card: String,
       slots: Map[SlotKey, Slot],
       regions: Map[String, List[Node]],
@@ -280,6 +281,7 @@ object Ready:
         Component(
           i.id(at),
           i.within(at).map(_._2),
+          i.group(at),
           c.card,
           slots.toMap,
           regions.toMap,

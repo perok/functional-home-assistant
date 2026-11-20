@@ -59,14 +59,6 @@ private[runtime] final class SurfaceGraph(
   /** The node a pick fills. */
   def hostOf(gid: NodeId): NodeId = pickHosts.get(gid).fold(gid)(_._1)
 
-  /** The pick `host` owns in a member's `clause`, or `host` itself for a node
-    * owning none there.
-    */
-  def groupAt(host: NodeId, clause: Int): NodeId = {
-    val tagged = Surface.groupId(host, Some(clause))
-    if (pickHosts.contains(tagged)) tagged else host
-  }
-
   /** The clause a pick inside a set member belongs to. */
   def clauseOf(gid: NodeId): Option[Int] = pickHosts.get(gid).flatMap(_._2)
 

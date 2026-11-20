@@ -1259,7 +1259,7 @@ class Renderer(validated: Dashboard.Validated) {
     node match {
       case c: Ready.Component =>
         val id = c.id
-        val gid = c.clause.fold(id)(surfaces.groupAt(id, _))
+        val gid = c.group
         // Resolved once for both forms; what a paint cannot change comes from
         // the plan ([[NodePlan]]).
         val plan = planOf(id, c, shared)
