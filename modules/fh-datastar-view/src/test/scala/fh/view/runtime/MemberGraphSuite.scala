@@ -62,9 +62,8 @@ class MemberGraphSuite extends munit.FunSuite {
     new MemberGraph(Map(gid -> compile.set(gid, s)), Map(gid -> root))
 
   private object compile:
-    /** `s` compiled where the graph places it, so its ids are the graph's. */
     def set(at: NodeId, s: LayoutNode.Component): Ready.SetFill =
-      Conds.compiledAlone(s.copy(id = Some(at))).set.get
+      Conds.compiledSet(at, s)
     def node(n: LayoutNode): Ready.Node = Conds.compiledAlone(n)
 
   extension (g: MemberGraph)

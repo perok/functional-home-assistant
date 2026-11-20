@@ -38,11 +38,18 @@ private[runtime] object Member {
         parent: Option[NodeId],
         in: Option[NodeId]
     ): List[(NodeId, Ready.Component, Option[NodeId], Option[NodeId])] =
-      (n.id, n, parent, in) :: LayoutNode.steps(n.regions).flatMap {
-        case (step, c: Ready.Component) if c.set.isEmpty =>
-          walk(c, Some(n.id), if (n.isChoice(step.region)) Some(c.id) else in)
-        case _ => Nil
-      }
+      (n.id, n, parent, in) :: (n.content match
+        case Ready.Content.Fixed(r) =>
+          LayoutNode.steps(r).flatMap((_, c) => below(c, n, in))
+        case Ready.Content.Live(_, Ready.LiveFill.Pick(cases)) =>
+          cases.flatMap(c => below(c, n, Some(c.id)))
+        case Ready.Content.Live(_, _: Ready.LiveFill.Set) => Nil)
+    def below(c: Ready.Node, parent: Ready.Component, in: Option[NodeId]) =
+      c match
+        case k: Ready.Component =>
+          k.content match
+            case Ready.Content.Live(_, _: Ready.LiveFill.Set) => Nil
+            case _ => walk(k, Some(parent.id), in)
     walk(node, None, None)
   }
 }
@@ -290,8 +297,8 @@ private[runtime] final class MemberGraph(
         root: String
     ): List[Source] = node match {
       case c: Ready.Component =>
-        c.set match {
-          case Some(inner) =>
+        c.content match {
+          case Ready.Content.Live(_, Ready.LiveFill.Set(inner)) =>
             val found = Source(
               c.id,
               MemberSource(inner),
@@ -300,12 +307,13 @@ private[runtime] final class MemberGraph(
               clauseIdx
             )
             found :: nested(found)
-          case None =>
-            LayoutNode.steps(c.regions).flatMap { case (step, child) =>
-              // A set in a choice's case is shown with that case.
-              val in = if (!c.isChoice(step.region)) root else child.id
-              setsIn(member, clauseIdx, child, in)
-            }
+          // A set in a choice's case is shown with that case.
+          case Ready.Content.Live(_, Ready.LiveFill.Pick(cases)) =>
+            cases.flatMap(k => setsIn(member, clauseIdx, k, k.id))
+          case Ready.Content.Fixed(r) =>
+            LayoutNode
+              .steps(r)
+              .flatMap((_, k) => setsIn(member, clauseIdx, k, root))
         }
     }
 

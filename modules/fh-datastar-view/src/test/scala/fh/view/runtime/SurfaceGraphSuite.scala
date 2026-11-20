@@ -106,9 +106,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
     private val walk = Ready.Compile(Evaluator.Scope(""))
     def pick(p: Dashboard.Pick): Ready.Pick = Conds.compiled(walk.pick(p))
 
-    /** `s` compiled where the graph places it, so its ids are the graph's. */
     def set(at: NodeId, s: LayoutNode.Component): Ready.SetFill =
-      Conds.compiledAlone(s.copy(id = Some(at))).set.get
+      Conds.compiledSet(at, s)
 
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap

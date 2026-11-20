@@ -144,10 +144,14 @@ class Renderer(validated: Dashboard.Validated) {
         (id, node, parent, in) :: (node match {
           // A set's members are addressed by `memberId`, not a path.
           case c: Ready.Component =>
-            LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
-              val cid = ch.id
-              walk(ch, cid, Some(id), if (c.isChoice(step.region)) cid else in)
-            }
+            c.content match
+              case Ready.Content.Fixed(r) =>
+                LayoutNode
+                  .steps(r)
+                  .flatMap((_, ch) => walk(ch, ch.id, Some(id), in))
+              case Ready.Content.Live(_, Ready.LiveFill.Pick(cases)) =>
+                cases.flatMap(ch => walk(ch, ch.id, Some(id), ch.id))
+              case Ready.Content.Live(_, _: Ready.LiveFill.Set) => Nil
         })
       walk(root, root.id, None, tree)
     }
@@ -238,10 +242,11 @@ class Renderer(validated: Dashboard.Validated) {
   private lazy val gatesReading: Map[String, Set[String]] = {
     def components(n: Ready.Node): Iterator[Ready.Component] = n match
       case c: Ready.Component =>
-        Iterator(c) ++ c.allChildren.iterator.flatMap(components) ++
-          c.set.iterator.flatMap(
-            _.members.values.iterator.flatMap(_.nodes).flatMap(components)
-          )
+        Iterator(c) ++ (c.content match
+          case Ready.Content.Live(_, Ready.LiveFill.Set(s)) =>
+            s.members.values.iterator.flatMap(_.nodes)
+          case _ => c.allChildren.iterator
+        ).flatMap(components)
     (components(dashboard.card) ++
       dashboard.surfaces.values.iterator.flatMap(s => components(s.content)))
       .flatMap(_.slots.values.flatMap(_.gate))
@@ -632,10 +637,11 @@ class Renderer(validated: Dashboard.Validated) {
     * renderer decided membership.
     */
   private[runtime] val members: MemberGraph = new MemberGraph(
-    allIndexed.collect {
-      case (id, c: Ready.Component) if c.set.isDefined =>
-        id -> c.set.get
-    },
+    allIndexed.collect(Function.unlift { case (id, c: Ready.Component) =>
+      c.content match
+        case Ready.Content.Live(_, Ready.LiveFill.Set(s)) => Some(id -> s)
+        case _                                            => None
+    }),
     containerOfIndexed
   )
 
@@ -1209,12 +1215,14 @@ class Renderer(validated: Dashboard.Validated) {
   // its candidates and members.
   private def nodeCount(node: Ready.Node): Int = node match {
     case c: Ready.Component =>
-      1 + c.regions.view.map { (region, nodes) =>
-        val counts = nodes.map(nodeCount)
-        // One case of a choice renders.
-        if (c.isChoice(region)) counts.maxOption.getOrElse(0) else counts.sum
-      }.sum +
-        c.set.fold(0)(s => math.max(s.candidates.size, s.members.size))
+      1 + (c.content match
+        case Ready.Content.Fixed(r) =>
+          r.values.iterator.flatten.map(nodeCount).sum
+        // One case renders.
+        case Ready.Content.Live(_, Ready.LiveFill.Pick(cases)) =>
+          cases.map(nodeCount).maxOption.getOrElse(0)
+        case Ready.Content.Live(_, Ready.LiveFill.Set(s)) =>
+          math.max(s.candidates.size, s.members.size))
   }
 
   private def traced(
@@ -1270,47 +1278,31 @@ class Renderer(validated: Dashboard.Validated) {
             buf: Sink,
             form: SlotForm
         ): Unit = {
-          if c.regions.isEmpty && c.set.isEmpty then
-            Templates.run(
-              tpl,
-              buf,
-              NodeContext(resolved, form, buf)
-            )
-          else {
-            def child(node: Ready.Node): Unit =
-              tracedInto(buf, node, shared, viewing, trace)
-            // A choice's region holds every case; only the picked one renders.
-            val eager: Map[String, java.io.Writer => Unit] =
-              c.regions.map { (region, nodes) =>
-                region -> { (_: java.io.Writer) =>
-                  if (c.isChoice(region))
-                    pickedCase(gid, viewing.selections, shared)
-                      .foreach(i => nodes.lift(i).foreach(child))
-                  else nodes.foreach(child)
-                }
-              }
+          def child(node: Ready.Node): Unit =
+            tracedInto(buf, node, shared, viewing, trace)
+          def hole(slot: String)(fill: => Unit) =
+            Map(slot -> { (_: java.io.Writer) => fill })
+          val holes: Map[String, java.io.Writer => Unit] = c.content match
+            case Ready.Content.Fixed(r) =>
+              r.map((region, nodes) =>
+                region -> { (_: java.io.Writer) => nodes.foreach(child) }
+              )
+            case Ready.Content.Live(slot, Ready.LiveFill.Pick(cases)) =>
+              hole(slot)(
+                pickedCase(gid, viewing.selections, shared)
+                  .foreach(i => cases.lift(i).foreach(child))
+              )
             // Each member is walked like any node, so the trace holds each
             // patch target inside it; the set's root has no rendering.
-            val withSet: Map[String, java.io.Writer => Unit] =
-              c.set match {
-                case Some(s) =>
-                  val setId = SetId.of(id, s)
-                  eager.updated(
-                    s.region,
-                    { (_: java.io.Writer) =>
-                      members
-                        .membersOf(setId, shared)
-                        .foreach(m => child(m.node))
-                    }
-                  )
-                case None => eager
-              }
-            Templates.run(
-              tpl,
-              buf,
-              NodeContext(resolved, form, buf, withSet)
-            )
-          }
+            case Ready.Content.Live(slot, Ready.LiveFill.Set(s)) =>
+              hole(slot)(
+                members
+                  .membersOf(SetId.of(id, s), shared)
+                  .foreach(m => child(m.node))
+              )
+          if holes.isEmpty then
+            Templates.run(tpl, buf, NodeContext(resolved, form, buf))
+          else Templates.run(tpl, buf, NodeContext(resolved, form, buf, holes))
         }
 
         bodyInto(out, SlotForm.Document)

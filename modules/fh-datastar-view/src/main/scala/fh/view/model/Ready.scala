@@ -24,23 +24,24 @@ object Ready:
       group: NodeId,
       card: String,
       slots: Map[SlotKey, Slot],
-      regions: Map[String, List[Node]],
+      content: Content,
       cell: Option[Cell],
       authoredId: Option[String],
       vars: List[fh.view.model.Dashboard.Declaration],
       subjectEntity: Option[String],
-      calls: Map[String, Placed] = Map.empty,
-      set: Option[SetFill] = None,
-      choices: Set[String] = Set.empty
+      calls: Map[String, Placed] = Map.empty
   ) extends Node:
+
+    /** Every node its nodes slots hold, a pick's every case included; not a
+      * set's members, which are their own.
+      */
+    lazy val regions: Map[String, List[Node]] = content match
+      case Content.Fixed(r)                         => r
+      case Content.Live(slot, LiveFill.Pick(cases)) => Map(slot -> cases)
+      case Content.Live(_, _: LiveFill.Set)         => Map.empty
 
     /** Name order, for a reproducible walk; ids do not come from this. */
     def allChildren: List[Node] = regions.toList.sortBy(_._1).flatMap(_._2)
-
-    /** Whether `region` is a choice's: its nodes are the cases, and only the
-      * one its pick shows renders.
-      */
-    def isChoice(region: String): Boolean = choices.contains(region)
 
     /** The reverse index. Empty means static HTML, never patched. */
     lazy val liveEntities: List[String] =
@@ -79,13 +80,23 @@ object Ready:
         .flatMap(_.bound.variables)
         .toSet
 
-  /** A node's set, filling its nodes slot `region`: `order` is `None` where the
-    * candidates are already in order. Not a case class: `MemberGraph`'s sources
-    * hold it, and hashing one walked every member (`publishSet` 11 µs -> 1.4
-    * ms).
+  /** What a node's nodes slots hold: nodes written down, or one live fill,
+    * which is its card's whole template (`validate`).
+    */
+  enum Content:
+    case Fixed(regions: Map[String, List[Node]])
+    case Live(slot: String, fill: LiveFill)
+
+  enum LiveFill:
+    /** Every case, the otherwise last: its pick shows one. */
+    case Pick(cases: List[Node])
+    case Set(fill: SetFill)
+
+  /** A node's set: `order` is `None` where the candidates are already in order.
+    * Not a case class: `MemberGraph`'s sources hold it, and hashing one walked
+    * every member (`publishSet` 11 µs -> 1.4 ms).
     */
   final class SetFill(
-      val region: String,
       val candidates: List[String],
       val members: Map[String, MemberChoice],
       val order: Option[Evaluator.Keys],
@@ -276,7 +287,7 @@ object Ready:
             .traverse(n => node(i, byStep(LayoutNode.Step(r, n))))
             .map(r -> _)
         ),
-        c.set.traverse((region, s) => set(i, i.clauses(at), region, s))
+        c.set.traverse((slot, s) => set(i, i.clauses(at), s).map(slot -> _))
       ).mapN((slots, regions, filled) =>
         Component(
           i.id(at),
@@ -284,7 +295,7 @@ object Ready:
           i.group(at),
           c.card,
           slots.toMap,
-          regions.toMap,
+          content(c, regions.toMap, filled),
           c.cell.map(_.ready),
           c.id,
           c.vars,
@@ -294,11 +305,21 @@ object Ready:
               c.calls(name).id,
               seen.map((field, _) => field -> Ready.seenSlot(name, field))
             )
-          ),
-          filled,
-          c.chosen.keySet
+          )
         )
       )
+
+    /** A set's or a pick's host holds nothing else (`validate`). */
+    private def content(
+        c: LayoutNode.Component,
+        regions: Map[String, List[Node]],
+        set: Option[(String, SetFill)]
+    ): Content = set match
+      case Some((slot, s)) => Content.Live(slot, LiveFill.Set(s))
+      case None            =>
+        c.chosen.keys.headOption.fold(Content.Fixed(regions))(slot =>
+          Content.Live(slot, LiveFill.Pick(regions(slot)))
+        )
 
     /** Per call the node places, each field of what it does that reads live
       * state, as the slot that holds it: the press is held to what the page
@@ -336,7 +357,6 @@ object Ready:
     def set(
         i: TreeIndex,
         clauses: Map[String, List[Ix]],
-        region: String,
         s: Fill.Set
     ): Built[SetFill] =
       (
@@ -347,7 +367,7 @@ object Ready:
           case Nil   => Right(None)
           case terms => Evaluator.Keys.of(terms, scope).map(Some(_))
       ).mapN((members, order) =>
-        SetFill(region, s.candidates, members.toMap, order, s.limit, s.of)
+        SetFill(s.candidates, members.toMap, order, s.limit, s.of)
       )
 
     private def member(

@@ -804,7 +804,7 @@ from the `Dashboard`: every authored node, keyed by its location-derived id. The
 container's members. `MemberGraph` holds no state: it decides members into a version's `Shared`,
 which carries them to the next version unless a change dirties them (§1a).
 
-**One kind of container feeds it**: a card whose nodes slot holds a `Fill.Set` (`Ready.Component.set`), via `MemberGraph.MemberSource`. The set is its card's whole template, so its root is that card's root (`core/group.pkl`'s `group` for `.build()`), written by the library and walked like any structure card's, its one hole filled with the members.
+**One kind of container feeds it**: a card whose nodes slot holds a `Fill.Set` (its compiled node's `Content.Live(slot, LiveFill.Set(…))`), via `MemberGraph.MemberSource`. The set is its card's whole template, so its root is that card's root (`core/group.pkl`'s `group` for `.build()`), written by the library and walked like any structure card's, its one hole filled with the members.
 
 The two halves are two files, and the seam between them is one sentence: **`MemberGraph` decides
 presence and order, `Renderer` paints.** `MemberGraph` reaches back into the renderer for nothing —
