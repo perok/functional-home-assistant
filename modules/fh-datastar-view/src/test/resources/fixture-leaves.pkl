@@ -33,6 +33,15 @@ class LabelCard extends nodeMod.Node {
   slots { labelSlot.of(text) }
 }
 
+/// Where `PklFixture.Shape.fill` puts a node the test builds by hand. Its card
+/// is the hole's name, dropped with it.
+class Hole extends nodeMod.Node {
+  hidden name: String
+  card = "hole_\(name)"
+  cardDef = new nodeMod.CardDef { template = "" }
+}
+
 function state(id: String): StateCard = new { entityId = id }
+function hole(n: String): Hole = new { name = n }
 function dot(id: String): DotCard = new { entityId = id }
 function label(s: String): LabelCard = new { text = s }

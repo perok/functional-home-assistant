@@ -1,7 +1,7 @@
 package fh.view.testkit
 
 import fh.view.build.{DashboardBuild, PklBuild, PklDump, Site, SourceEval}
-import fh.view.model.Dashboard
+import fh.view.model.{CardDef, Choice, Dashboard, Fill, LayoutNode, Slot}
 import io.circe.{Json, parser}
 import org.pkl.core.{Evaluator, EvaluatorBuilder, ModuleSource, OutputFormat}
 import org.pkl.core.project.Project
@@ -116,6 +116,54 @@ object PklFixture {
         decodeDashboard("fixture", ws.eval(SnippetHeader + body))
       }
     )
+
+  /** A library host whose `t.hole(name)` nodes a test fills with nodes it
+    * builds by hand (a chart, a fetch-reading leaf): the host, its cases and
+    * its markup come from the build, the leaves from the test.
+    */
+  final case class Shape(
+      cards: Map[String, CardDef],
+      card: LayoutNode.Component
+  ):
+    def fill(holes: (String, LayoutNode)*): LayoutNode =
+      Shape.plug(card, holes.toMap)
+
+  object Shape:
+    private val HolePrefix = "hole_"
+
+    private def plug(
+        n: LayoutNode,
+        holes: Map[String, LayoutNode]
+    ): LayoutNode =
+      n match
+        case c: LayoutNode.Component if c.card.startsWith(HolePrefix) =>
+          val name = c.card.stripPrefix(HolePrefix)
+          holes.getOrElse(name, sys.error(s"no node for the hole '$name'"))
+        case c: LayoutNode.Component =>
+          c.copy(slots = c.slots.view.mapValues {
+            case Slot.Nodes(Fill.Nodes(ch)) =>
+              Slot.Nodes(Fill.Nodes(choice(ch)(_.map(plug(_, holes)))))
+            case Slot.Nodes(s: Fill.Set) =>
+              Slot.Nodes(
+                s.copy(members =
+                  s.members.view.mapValues(choice(_)(plug(_, holes))).toMap
+                )
+              )
+            case v => v
+          }.toMap)
+
+    private def choice[A](ch: Choice[A])(f: A => A): Choice[A] = ch match
+      case Choice.Fixed(v)              => Choice.Fixed(f(v))
+      case Choice.Chosen(by, cases, or) =>
+        Choice.Chosen(by, cases.map(c => c.copy(value = f(c.value))), or.map(f))
+
+    def of(d: Dashboard): Shape = d.card match
+      case c: LayoutNode.Component =>
+        Shape(d.cards.filterNot(_._1.startsWith(HolePrefix)), c)
+
+  /** [[snippet]]'s `card`, as a [[Shape]]. */
+  def shape(body: String, extras: FixtureEntity*): Shape =
+    Shape.of(snippet(body, extras*))
 
   private val snippets =
     scala.collection.concurrent.TrieMap
