@@ -30,10 +30,9 @@ private[runtime] object RendererTestOps {
   extension (r: Renderer) {
 
     /** Without the page shell and without the theme: what a repaint or navigate
-      * `inner`-patches into `#dashboard`.
-      */
-    /** `vars`: the viewer's values, which a node reading a variable outside a
-      * pick needs (the shipped tab bar's buttons do).
+      * `inner`-patches into `#dashboard`. `vars` are the viewer's values, which
+      * a node reading a variable outside a pick needs (the shipped tab bar's
+      * buttons do).
       */
     def renderBody(
         states: Map[String, EntityState],
