@@ -106,7 +106,7 @@ object PklFixture {
     * hand-copy it: `body` follows [[SnippetHeader]] (`card = …`, `surfaces`,
     * locals), over the house plus `extras`. Cached per JVM by source, and every
     * snippet over one dump shares a workspace and an evaluator, so a warm one
-    * costs a few ms (`docs/plan-test-fixtures.md`, F0).
+    * costs a few ms where a cold [[buildDashboard]] costs about 110.
     */
   def snippet(body: String, extras: FixtureEntity*): Dashboard =
     snippets.getOrElseUpdate(

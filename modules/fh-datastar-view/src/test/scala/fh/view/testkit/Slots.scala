@@ -30,8 +30,8 @@ object Slots:
     if cs.isEmpty then Map.empty
     else nodes(Map(LayoutNode.DefaultRegion -> cs.toList))
 
-  /** A nodes slot filled with a choice: case `i` is served as the surface
-    * `<host>_t<i>`, the otherwise as `<host>_else`.
+  /** A nodes slot filled with a choice: case `i` is the node a fixed node at
+    * index `i` of that slot would be, the otherwise index `n` after the cases.
     */
   def chosen(
       by: ValueExpr,
