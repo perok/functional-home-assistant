@@ -487,7 +487,27 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        beside the compiled nodes. Only if (A) cannot work: (B) one generic walk run on both
        trees, plus a test that both give equal ids. Done when only the index (and the JSON hoist,
        until R5) calls `childId`/`childIdWithin`/`innerSetId`/`memberSegment`/`innerCaseId`;
-       `WalkAt.InMember`, `innerSetId` and `groupAt` fold into it. Spike first (below).
+       `WalkAt.InMember`, `innerSetId` and `groupAt` fold into it.
+       Spike (2026-11-20, a throwaway suite): (A) works.
+       - One walk of the WIRE tree (`Dashboard.picks`' shape: `childIdWithin`, members by
+         `memberSegment`, a popup under its prefix) gave every id the runtime renders (body,
+         every popup, every case) and the container `SurfaceGraph.rootOf` answers for every
+         node, with no disagreement. Checked on the 12 test dashboards, the starter, and a
+         snippet with a set nested in a member and an If in a member.
+       - Ids are not unique per node: two clauses of one member mint the same ids for their
+         content. The index therefore keeps member subtrees per (member, clause), not a flat
+         map by id. A flat view by id is a list, or is asked with the clause.
+       - The compile is 1:1 with wire nodes: members are compiled per candidate and clauses
+         stay a `Vector` of nodes. So `Ready.Compile` can walk the index beside the wire tree
+         and put each node's id on its `Ready.Component`. The render walk then reads it, where
+         `tracedInto` concatenates every child's id on every render today. That is an
+         allocation the D0 bench round should show going.
+       - `validate` reads the index, so it is built from trees `validate` will refuse and
+         records what it finds (a repeated authored id) rather than failing. That makes it a
+         `lazy val index` on the wire `Dashboard`, read by `picks`, `varScopes`, `Validate` and
+         `Ready.Compile`.
+       - A popup's container is its bare id today (`"detail"`); D0.3's `s_<sid>` changes that
+         spelling, not any node id.
      - **D0.2, the compiled node mirrors the wire's union.** `Ready.Component.content: Content =
        Fixed(regions) | Live(slot, LiveFill)`, `LiveFill = Pick(by, variable, byKey, cases,
        otherwise) | Set(SetFill)`; `isChoice`, `choices`, `set` and `SetFill.region` go, and
