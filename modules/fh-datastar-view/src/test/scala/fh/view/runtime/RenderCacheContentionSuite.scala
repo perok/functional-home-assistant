@@ -17,6 +17,7 @@ import fh.view.model.{
   TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.{declared, st}
+import fh.view.testkit.PklFixture
 import fh.view.testkit.TestIds.given
 
 import java.util.concurrent.atomic.AtomicInteger
@@ -32,49 +33,24 @@ class RenderCacheContentionSuite extends ServerHarness {
   override protected def simulateTime: Boolean = true
 
   /** `c_0` is the tabs host, structure that renders nothing per frame. [[Live]]
-    * is the leaf in its `bar` region, whose bytes mention no selection, so
-    * every viewer shares them.
+    * is the live leaf the bar holds beside its buttons, whose bytes mention no
+    * selection, so every viewer shares them.
     */
-  private val Live: NodeId = "c_0_bar_0"
+  private val Live: NodeId = "c_0_2"
 
-  private def stateCard(entity: String) = LayoutNode.Component(
-    "card",
-    slots = Slots.values(
-      Map("state" -> TemplateSlot(ValueExpr(Value.Entity(Some(entity)))))
-    )
-  )
-
-  private def leafDash = Dashboard(
-    cards = Map(
-      "col" -> TestCard(
-        "<div>{{{children}}}</div>",
-        regions = Set("children")
-      ),
-      "card" -> TestCard("<span>{{state}}</span>"),
-      "tabs" -> TestCard(
-        template = """{{{bar}}}{{{panel}}}""",
-        regions = Set("bar", "panel")
-      ),
-      Slots.GroupCard -> Slots.groupCard
-    ),
-    card = LayoutNode.Component(
-      "col",
-      slots = Slots.kids(
-        LayoutNode.Component(
-          "tabs",
-          slots = Slots.nodes(
-            Map(
-              "bar" -> List(
-                stateCard("sensor.shared")
-              )
-            )
-          ) + ("panel" -> Slots.inGroup(
-            Slots.tabs("tab", stateCard("sensor.a"), stateCard("sensor.b"))
-          )),
-          vars = declared("tab" -> "0")
-        )
-      )
-    )
+  private def leafDash = PklFixture.snippet(
+    """card = (c.column) {
+      |  children {
+      |    (c.tabs) {
+      |      tabs {
+      |        ["A"] { t.state("sensor.a") }
+      |        ["B"] { t.state("sensor.b") }
+      |      }
+      |      children { t.state("sensor.shared") }
+      |    }
+      |  }
+      |}
+      |""".stripMargin
   )
 
   private def plainDash = Dashboard(
@@ -347,7 +323,7 @@ class RenderCacheContentionSuite extends ServerHarness {
     for {
       cache <- RenderCache.create
       _ <- (1L to 50L).toList.traverse_(n =>
-        IO(cache("c_0_bar_0", renderer, v(n))(s"<b>$n</b>"))
+        IO(cache("c_0_2", renderer, v(n))(s"<b>$n</b>"))
       )
       afterChurn <- cache.size
     } yield assertEquals(afterChurn, 1, "50 frames, one entry")

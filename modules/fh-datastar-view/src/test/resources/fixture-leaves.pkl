@@ -9,10 +9,12 @@ import "@fh-dashboard/core/slot.pkl" as slotMod
 const local stateSlot = slotMod.slot("state")
 const local labelSlot = slotMod.slot("label")
 
-/// `<span>{{state}}</span>` over `entityId`'s state.
+/// `<span>{{state}}</span>` over `entityId`'s state, in `el` instead of `span` where a
+/// test swaps the template.
 class StateCard extends nodeMod.Node {
   card = "card"
-  cardDef = new nodeMod.CardDef { template = "<span>\(stateSlot)</span>" }
+  hidden el: String = "span"
+  cardDef = let (e = el) new nodeMod.CardDef { template = "<\(e)>\(stateSlot)</\(e)>" }
   hidden entityId: String
   slots { stateSlot.of(let (e = entityId) new slotMod.Reading { entityId = e }) }
 }

@@ -22,12 +22,7 @@ import fh.view.model.{
   Surface,
   Theme
 }
-import fh.view.testkit.{
-  DashboardBuilders,
-  FakeHomeAssistant,
-  FixtureEntity,
-  TestAuth
-}
+import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, PklFixture, TestAuth}
 import fh.view.testkit.TestIds.given
 import fs2.concurrent.SignallingRef
 import io.circe.Json
@@ -553,45 +548,23 @@ class ResumeSuite extends ServerHarness {
   }
 
   test("a dashboard edit repaints the tab selected now, not at connect") {
-    // The bar with a button choosing the second tab.
-    val withButton = twoTabsDash.card match
-      case col: LayoutNode.Component =>
-        col.copy(slots =
-          Slots.nodes(
-            col.regions.updatedWith(LayoutNode.DefaultRegion)(
-              _.map(_.map {
-                case bar: LayoutNode.Component if bar.card == "tabs" =>
-                  bar.copy(slots =
-                    bar.slots.updatedWith("panel")(
-                      _.map(Slots.inGroup)
-                    ) ++ Slots.nodes(
-                      Map("buttons" -> DashboardBuilders.choices("tab", "1"))
-                    )
-                  )
-                case n => n
-              })
-            )
-          )
-        )
-    def twoTabs(card: String) = twoTabsDash.copy(
-      cards = twoTabsDash.cards
-        .updated("card", TestCard(card))
-        .updated(
-          "tabs",
-          TestCard(
-            """<div class="tabs">{{{buttons}}}{{{panel}}}</div>""",
-            regions = Set(
-              "panel",
-              "buttons"
-            )
-          )
-        )
-        .updated(DashboardBuilders.ChoiceCard, DashboardBuilders.choiceCard)
-        .updated(Slots.GroupCard, Slots.groupCard),
-      card = withButton
+    // The shipped bar at "c_1" under a shared card, `el` the leaf element.
+    def twoTabs(el: String) = PklFixture.snippet(
+      s"""card = (c.column) {
+         |  children {
+         |    (t.state("sensor.shared")) { el = "$el" }
+         |    (c.tabs) {
+         |      tabs {
+         |        ["A"] { (t.state("sensor.a")) { el = "$el" } }
+         |        ["B"] { (t.state("sensor.b")) { el = "$el" } }
+         |      }
+         |    }
+         |  }
+         |}
+         |""".stripMargin
     )
     live(
-      twoTabs("<span>{{state}}</span>"),
+      twoTabs("span"),
       Map(
         "sensor.shared" -> es("sensor.shared", "S0"),
         "sensor.a" -> es("sensor.a", "A0"),
@@ -613,7 +586,7 @@ class ResumeSuite extends ServerHarness {
         slug <- ts.server.liveSlug(ts.slug)
         _ <- slug.renderer.set(
           Server.RendererState.Ready(
-            Renderer.create(twoTabs("<em>{{state}}</em>"))
+            Renderer.create(twoTabs("em"))
           )
         )
         _ <- client.arrived

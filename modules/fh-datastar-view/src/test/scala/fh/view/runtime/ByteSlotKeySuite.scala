@@ -24,10 +24,10 @@ import fh.view.model.{
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Slot
+  TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.{col, declared, lit, st}
+import fh.view.testkit.{FixtureEntity, PklFixture}
 import fh.view.testkit.TestIds.{setId, given}
 import io.circe.Json
 
@@ -44,7 +44,32 @@ import scala.concurrent.duration.*
   */
 class ByteSlotKeySuite extends munit.FunSuite {
 
-  private val cards = Sets.cards ++ Map(
+  private val lightsAB =
+    List(FixtureEntity("light.a", "off"), FixtureEntity("light.b", "off"))
+
+  /** The library's group around its choice, over the hole `then` and `else`. */
+  private val branchShape = PklFixture.shape(
+    """card = groupMod.group("div", "",
+      |  nodeMod.iff(
+      |    q.from(List(dump.entities.light_a, dump.entities.light_b))
+      |      .where(q.eq(q.stateProp, "on")).any())
+      |    .then(t.hole("then")).`else`(t.hole("else")))
+      |""".stripMargin,
+    lightsAB*
+  )
+
+  /** The same group around a choice by the node variable `tab`. */
+  private val tabShape = PklFixture.shape(
+    """local v = c.variable("tab")
+      |card = groupMod.group("div", "",
+      |  nodeMod.match(v.value, new Mapping {
+      |    ["0"] = t.hole("first")
+      |    ["1"] = t.hole("second")
+      |  }))
+      |""".stripMargin
+  )
+
+  private val cards = Sets.cards ++ branchShape.cards ++ tabShape.cards ++ Map(
     "col" -> TestCard(
       """<div>{{{children}}}</div>""",
       regions = Set("children")
@@ -58,7 +83,6 @@ class ByteSlotKeySuite extends munit.FunSuite {
       template = """<div>{{{bar}}}{{{branch}}}</div>""",
       regions = Set("bar", "branch")
     ),
-    Slots.GroupCard -> Slots.groupCard,
     "bannerBar" -> TestCard("""<b>{{title}}</b>"""),
     "btn" -> TestCard("""<button>{{label}}</button>"""),
     // The signal's entity reaches the patch form only as a binding (ADR 0017),
@@ -87,23 +111,12 @@ class ByteSlotKeySuite extends munit.FunSuite {
     )
   )
 
-  private val anyLightOn: ValueExpr =
-    Conds.count(
-      candidates = List("light.a", "light.b"),
-      when = Map(
-        "light.a" -> Conds.cmp("state", Op.Eq, Json.fromString("on")),
-        "light.b" -> Conds.cmp("state", Op.Eq, Json.fromString("on"))
-      ),
-      op = Op.Gt,
-      value = Json.fromInt(0)
-    )
-
   /** `c_2` is a banner bound to sensor.t whose choice is decided by a count of
     * the lights: inputs that appear nowhere in its `entitiesForNode`. `c_3` is
     * a candidate group over lights.
     */
   private val branch =
-    Slots.iff(anyLightOn, bound("sensor.a"), Some(bound("sensor.b")))
+    branchShape.fill("then" -> bound("sensor.a"), "else" -> bound("sensor.b"))
 
   private val dashboard = Dashboard(
     cards,
@@ -125,9 +138,10 @@ class ByteSlotKeySuite extends munit.FunSuite {
                   )
                 )
               )
-            )
+            ),
+            "branch" -> List(branch)
           )
-        ) + ("branch" -> Slots.inGroup(branch))
+        )
       ),
       Sets.node(
         candidates = List("light.a", "light.b"),
@@ -389,9 +403,16 @@ class ByteSlotKeySuite extends munit.FunSuite {
                 .Component("btn", Slots.values(Map("label" -> lit("A"))))
             )
           )
-        ) + ("branch" -> Slots.inGroup(
-          Slots.tabs("tab", bound("sensor.a"), bound("sensor.b"))
-        )),
+        ) ++ Slots.nodes(
+          Map(
+            "branch" -> List(
+              tabShape.fill(
+                "first" -> bound("sensor.a"),
+                "second" -> bound("sensor.b")
+              )
+            )
+          )
+        ),
         vars = declared("tab" -> "0")
       )
     )

@@ -1,11 +1,8 @@
 package fh.view.runtime
 
-import fh.view.testkit.Sets
-
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
-import fh.view.testkit.Conds
 
 import fh.view.history.Windows
 import fh.view.build.DashboardBuild
@@ -15,7 +12,6 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
-  Op,
   FetchTemplate,
   Choice,
   SlotRead,
@@ -23,13 +19,10 @@ import fh.view.model.{
   Value,
   ValueExpr,
   TemplateSlot,
-  Surface,
-  Slot
+  Surface
 }
 import fh.view.fetch.{FetchSnapshot, Staged}
-import fh.view.testkit.HouseFixture
-import fh.view.testkit.DashboardBuilders.declared
-import io.circe.Json
+import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture}
 import io.circe.parser.parse
 
 /** The reads a render is handed are decided BEFORE the walk, by code that is
@@ -94,71 +87,40 @@ class FetchDriftSuite extends munit.FunSuite {
         )
       )
     )
-    // A host is a tab bar's: it declares the variable its panel is chosen by.
-    def host(id: String, panel: Slot) =
-      LayoutNode.Component(
-        "host",
-        Map("panel" -> panel),
-        id = Some(id),
-        vars = declared("tab" -> "0")
-      )
-    def tabs(id: String, panels: LayoutNode*) =
-      host(id, Slots.tabs("tab", panels*))
-    def col(kids: LayoutNode*) =
-      LayoutNode.Component("col", slots = Slots.kids(kids*))
-    val on =
-      Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
-    val plain = LayoutNode.Component(
-      "dot",
-      Slots.values(
-        Map(
-          "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
-          "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
-        )
-      )
+    val library = PklFixture.shape(
+      """card = (c.column) {
+        |  children {
+        |    t.dot("light.a")
+        |    t.hole("main")
+        |    (c.tabs) { id = "tabs"; tabs { ["A"] { t.hole("tab0") } ["B"] { t.hole("tab1") } } }
+        |    (c.iff(q.entity(dump.entities.light_a).stateIs("on"))
+        |      .then((c.column) {
+        |        children {
+        |          t.dot("light.a")
+        |          t.hole("on")
+        |          (c.tabs) { id = "inner"; tabs { ["A"] { t.hole("inner") } } }
+        |        }
+        |      })
+        |      .`else`(t.hole("off"))) { id = "branch" }
+        |    q.from(List(dump.entities.light_a))
+        |      .where(q.eq(q.stateProp, "on"))
+        |      .render((e) -> t.hole("set"))
+        |      .build()
+        |  }
+        |}
+        |""".stripMargin,
+      FixtureEntity("light.a", "on")
     )
     val d = Dashboard(
-      cards = Sets.cards ++ Map(
-        "chart" -> TestCard("<div>{{{chart}}}</div>"),
-        "dot" -> TestCard("<span>{{state}}</span>"),
-        "col" -> TestCard(
-          "<div>{{{children}}}</div>",
-          regions = Set("children")
-        ),
-        "host" -> TestCard(
-          """{{{panel}}}""",
-          regions = Set("panel")
-        )
-      ),
-      card = col(
-        plain,
-        chart("sensor.main"),
-        tabs("tabs", chart("sensor.tab0"), chart("sensor.tab1")),
-        host(
-          "branch",
-          Slots.iff(
-            on,
-            col(
-              plain,
-              chart("sensor.on"),
-              tabs("inner", chart("sensor.inner"))
-            ),
-            Some(chart("sensor.off"))
-          )
-        ),
-        Sets.node(
-          candidates = List("light.a"),
-          members = Map(
-            "light.a" -> Sets.Member(
-              List(
-                Sets.Clause(
-                  Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
-                  chart("sensor.set")
-                )
-              )
-            )
-          )
-        )
+      cards = library.cards + ("chart" -> TestCard("<div>{{{chart}}}</div>")),
+      card = library.fill(
+        "main" -> chart("sensor.main"),
+        "tab0" -> chart("sensor.tab0"),
+        "tab1" -> chart("sensor.tab1"),
+        "on" -> chart("sensor.on"),
+        "inner" -> chart("sensor.inner"),
+        "off" -> chart("sensor.off"),
+        "set" -> chart("sensor.set")
       ),
       surfaces = Map("pop" -> Surface(chart("sensor.pop")))
     )
