@@ -817,7 +817,7 @@ set's case and from `renderMemberTraced`.
 shown, which tab a viewer is on, and which clients a patch at a given node may reach: selection and
 visibility, decided there and painted here. What may be hidden is a CONTAINER: a popup, by its
 surface id, or a pick's case, by the case's node id. Every node is in the innermost one holding
-it, `""` for the page, which the index records as it mints the ids (`containerOfIndexed`), and
+it, `""` for the page, which the renderer's index records (`containerOfIndexed`), and
 `MemberGraph` answers for the two node kinds the static index cannot place (a materialised member
 or a node in a case below one, and a nested set container). A node is shown while every container
 up its chain is: a popup open, a case picked.
@@ -874,9 +874,11 @@ is all it takes for a member to stop being special. `byteSlotValues` keys it (wi
 because nothing needs to recover an entity from an id — the node carries its own binding, as every
 other node does.
 
-**A member's children are nodes too.** Below a member, the walk mints the ids the static tree
-would (`LayoutNode.childId` from the member's id; a nested set's is `innerSetId`, which names the
-clause), and every `Member` indexes its subtree under them (`Member.nodes`). So the card rule holds
+**A member's children are nodes too.** Every compiled node carries its id, given once by
+`TreeIndex`, the one walk that mints them, so no render builds one. Below a member they are the ids
+the static tree would have (`LayoutNode.childId` from the member's id; a nested set's is
+`innerSetId`, which names the clause), and every `Member` indexes its subtree under them
+(`Member.nodes`). So the card rule holds
 inside a set: a member that is a leaf is its own patch target, and one holding regions is
 structure, patched through its leaves, with choices of its own (a slider's main controls).
 Lookups by id go through the member's current clause (`MemberGraph.nodeAt`), since every clause

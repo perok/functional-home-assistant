@@ -95,7 +95,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
       )
     }
     new SurfaceGraph(
-      popups.view.mapValues(compile.surface).toMap,
+      popups.map((sid, s) => sid -> Conds.compiledPopup(sid, s)),
       placed.map(p => p.group -> compile.pick(p)).toMap,
       roots.map { case (id, root) => NodeId.derived(id) -> root },
       members
@@ -103,10 +103,9 @@ class SurfaceGraphSuite extends munit.FunSuite {
 
   private object compile:
     private val walk = Ready.Compile(Evaluator.Scope(""))
-    def surface(s: Surface): Ready.Surface = Conds.compiled(walk.surface(s))
     def pick(p: Dashboard.Pick): Ready.Pick = Conds.compiled(walk.pick(p))
     def set(s: LayoutNode.Component): Ready.SetFill =
-      Conds.compiled(walk.node(s)).set.get
+      Conds.compiledAlone(s).set.get
 
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap

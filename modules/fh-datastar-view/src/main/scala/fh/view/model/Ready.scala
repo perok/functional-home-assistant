@@ -12,9 +12,15 @@ import scala.collection.immutable.ListMap
 object Ready:
 
   /** Shared with [[LayoutNode]], so one id scheme mints both trees' ids. */
-  sealed trait Node extends LayoutNode.Identified
+  sealed trait Node extends LayoutNode.Identified:
+    def id: NodeId
 
+  /** `id` and `clause` are its [[TreeIndex]] entry's: the render walk reads
+    * them rather than minting ids per paint.
+    */
   final case class Component(
+      id: NodeId,
+      clause: Option[Int],
       card: String,
       slots: Map[SlotKey, Slot],
       regions: Map[String, List[Node]],
@@ -214,9 +220,13 @@ object Ready:
     private type Built[A] = Evaluator.Built[A]
 
     def dashboard(d: fh.view.model.Dashboard): Built[Dashboard] =
+      val i = d.index
+      val roots = i.roots.map(r => i.tree(r) -> r).toMap
       (
-        node(d.card),
-        d.surfaces.toList.traverse((k, s) => surface(s).map(k -> _)),
+        node(i, roots("")),
+        d.surfaces.toList.traverse((k, s) =>
+          surface(i, roots(k), s).map(k -> _)
+        ),
         d.calls.toList.traverse((id, decl) => call(decl).map(id -> _)),
         d.varScopes.values.toList
           .flatMap(_.values.flatMap(_.declaration.initialTransform))
@@ -249,20 +259,27 @@ object Ready:
         )
       )
 
-    def node(n: LayoutNode): Built[Component] = n match
-      case c: LayoutNode.Component => component(c)
-
-    def component(c: LayoutNode.Component): Built[Component] =
+    /** The node at `at`, its descendants found by step in the index. */
+    def node(i: TreeIndex, at: Ix): Built[Component] =
+      val c = i.node(at)
+      val kids = i.children(at)
+      val byStep = kids.flatMap(k => i.step(k).map(_ -> k)).toMap
       val placed = placedCalls(c)
       val seenSlots = placed.toList.flatMap((name, seen) =>
         seen.map((field, b) => (Ready.seenSlot(name, field): SlotKey) -> b)
       )
       (
         (c.bound.toList ++ seenSlots).traverse((k, b) => slot(b).map(k -> _)),
-        c.slotNodes.toList.traverse((r, ns) => ns.traverse(node).map(r -> _)),
-        c.set.traverse((region, s) => set(region, s))
+        c.slotNodes.toList.traverse((r, ns) =>
+          ns.indices.toList
+            .traverse(n => node(i, byStep(LayoutNode.Step(r, n))))
+            .map(r -> _)
+        ),
+        c.set.traverse((region, s) => set(i, i.clauses(at), region, s))
       ).mapN((slots, regions, filled) =>
         Component(
+          i.id(at),
+          i.within(at).map(_._2),
           c.card,
           slots.toMap,
           regions.toMap,
@@ -314,9 +331,16 @@ object Ready:
             }
         }
 
-    def set(region: String, s: Fill.Set): Built[SetFill] =
+    def set(
+        i: TreeIndex,
+        clauses: Map[String, List[Ix]],
+        region: String,
+        s: Fill.Set
+    ): Built[SetFill] =
       (
-        s.members.toList.traverse((e, m) => member(m).map(e -> _)),
+        s.members.toList.traverse((e, m) =>
+          member(i, clauses.getOrElse(e, Nil), m).map(e -> _)
+        ),
         s.orderBy match
           case Nil   => Right(None)
           case terms => Evaluator.Keys.of(terms, scope).map(Some(_))
@@ -324,13 +348,17 @@ object Ready:
         SetFill(region, s.candidates, members.toMap, order, s.limit, s.of)
       )
 
-    private def member(m: Choice[LayoutNode]): Built[MemberChoice] = m match
-      case Choice.Fixed(n) =>
-        node(n).map(c => MemberChoice(None, Vector(c), Map.empty))
+    private def member(
+        i: TreeIndex,
+        clauses: List[Ix],
+        m: Choice[LayoutNode]
+    ): Built[MemberChoice] = m match
+      case Choice.Fixed(_) =>
+        node(i, clauses.head).map(c => MemberChoice(None, Vector(c), Map.empty))
       case Choice.Chosen(by, cases, _) =>
         (
           condition(by),
-          cases.traverse(k => node(k.value))
+          clauses.traverse(node(i, _))
         ).mapN((guard, nodes) =>
           MemberChoice(
             Some(guard),
@@ -338,8 +366,12 @@ object Ready:
             cases.zipWithIndex.map((k, i) => k.is.raw -> i).toMap
           )
         )
-    def surface(s: fh.view.model.Surface): Built[Surface] =
-      node(s.content).map(content =>
+    def surface(
+        i: TreeIndex,
+        root: Ix,
+        s: fh.view.model.Surface
+    ): Built[Surface] =
+      node(i, root).map(content =>
         Surface(
           content,
           s.activation match

@@ -28,6 +28,9 @@ final class TreeIndex private (entries: Vector[TreeIndex.Entry]) {
 
   def all: Iterator[Ix] = Iterator.range(0, entries.size).map(Ix(_))
 
+  /** The page's root, then each popup's. */
+  def roots: List[Ix] = all.filter(parent(_).isEmpty).toList
+
   def node(ix: Ix): LayoutNode.Component = entries(ix.toInt).node
 
   def id(ix: Ix): NodeId = entries(ix.toInt).id
@@ -53,6 +56,12 @@ final class TreeIndex private (entries: Vector[TreeIndex.Entry]) {
   def contains(outer: Ix, inner: Ix): Boolean =
     outer.toInt <= inner.toInt && inner.toInt < entries(outer.toInt).end
 
+  /** Its set's clauses by candidate, each candidate's in clause order. */
+  def clauses(ix: Ix): Map[String, List[Ix]] =
+    children(ix)
+      .flatMap(c => entries(c.toInt).candidate.map(_ -> c))
+      .groupMap(_._1)(_._2)
+
   /** Its slots' nodes in step order, then its set's clauses. */
   def children(ix: Ix): List[Ix] = {
     val end = entries(ix.toInt).end
@@ -72,6 +81,7 @@ object TreeIndex {
       tree: String,
       prefix: String,
       within: Dashboard.Within,
+      candidate: Option[String],
       container: Int,
       end: Int
   )
@@ -87,12 +97,24 @@ object TreeIndex {
         tree: String,
         prefix: String,
         within: Dashboard.Within,
+        candidate: Option[String],
         container: Int
     ): Unit = node match {
       case c: LayoutNode.Component =>
         val ix = out.size
         val in = if (container < 0) ix else container
-        out += Entry(c, id, parent, step, tree, prefix, within, in, -1)
+        out += Entry(
+          c,
+          id,
+          parent,
+          step,
+          tree,
+          prefix,
+          within,
+          candidate,
+          in,
+          -1
+        )
         LayoutNode.steps(c.slotNodes).foreach { (st, ch) =>
           walk(
             ch,
@@ -102,6 +124,7 @@ object TreeIndex {
             tree,
             prefix,
             within.map((m, cl, path) => (m, cl, path :+ st)),
+            None,
             if (c.chosen.contains(st.region)) -1 else in
           )
         }
@@ -117,6 +140,7 @@ object TreeIndex {
                 tree,
                 prefix,
                 Some((member, clause, Nil)),
+                Some(entityId),
                 in
               )
             )
@@ -124,7 +148,7 @@ object TreeIndex {
         }
         out(ix) = out(ix).copy(end = out.size)
     }
-    walk(card, LayoutNode.rootId("", card), -1, None, "", "", None, -1)
+    walk(card, LayoutNode.rootId("", card), -1, None, "", "", None, None, -1)
     surfaces.toList.sortBy(_._1).foreach { (sid, s) =>
       val p = LayoutNode.surfacePrefix(sid)
       walk(
@@ -134,6 +158,7 @@ object TreeIndex {
         None,
         sid,
         p,
+        None,
         None,
         -1
       )

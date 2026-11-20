@@ -21,6 +21,7 @@ import fh.view.model.{
   SlotAsk,
   SlotRead,
   Ready,
+  TreeIndex,
   SlotShape,
   Step,
   Value,
@@ -44,8 +45,10 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
 
   private object compile:
     private val walk = Ready.Compile(Evaluator.Scope(""))
-    def component(c: LayoutNode.Component): Ready.Component =
-      Conds.compiled(walk.component(c))
+    def component(c: LayoutNode.Component): Ready.Component = {
+      val i = TreeIndex.of(c, Map.empty)
+      Conds.compiled(walk.node(i, i.roots.head))
+    }
 
   /** A window written down resolves to itself in any environment, so the
     * assertions stay about the fetch slot, not variables. Named by preset.

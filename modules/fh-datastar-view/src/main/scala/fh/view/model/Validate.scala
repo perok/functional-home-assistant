@@ -1246,7 +1246,7 @@ private[model] object Validate:
       failedLabelErrors ++
       theme.classes.errors ++
       unboundConditions ++
-      index.all.filter(index.parent(_).isEmpty).toList.flatMap { root =>
+      index.roots.flatMap { root =>
         val errs = walk(root, Map.empty)
         val sid = index.tree(root)
         if (sid.isEmpty) errs else errs.map(err => s"surface '$sid': $err")

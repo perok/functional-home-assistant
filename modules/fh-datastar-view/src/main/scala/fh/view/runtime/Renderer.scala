@@ -102,26 +102,6 @@ private[runtime] enum SlotForm derives CanEqual {
 /** Per render, never cached on the renderer ([[VarGraph.env]]). */
 type VarEnv = Map[NodeId, Map[String, String]]
 
-/** Where a render walk is: the static tree, or below a set member, with its
-  * clause and the steps down from it, which a nested set's id spells
-  * ([[MemberGraph.innerSetId]]).
-  */
-private[runtime] enum WalkAt derives CanEqual {
-  case Static
-  case InMember(member: MemberId, clause: Int, path: List[LayoutNode.Step])
-
-  def down(step: LayoutNode.Step): WalkAt = this match {
-    case Static      => Static
-    case m: InMember => m.into(step)
-  }
-}
-
-private[runtime] object WalkAt {
-  extension (m: WalkAt.InMember)
-    def into(step: LayoutNode.Step): WalkAt.InMember =
-      m.copy(path = m.path :+ step)
-}
-
 /** Container kinds are templates splicing `children`, not cases here. A popup
   * is a separate tree whose ids are namespaced (`s_<id>__…`); a choice's case
   * is a node of the tree holding it.
@@ -147,14 +127,13 @@ class Renderer(validated: Dashboard.Validated) {
   private val expandCell: java.util.function.Function[String, String] =
     cls => themeClasses.expand(cls).map(" " + _).mkString
 
-  /** One tree's nodes, the body's or a popup's, under the ids its walk mints, a
-    * choice's every case included. Each node is in a container
-    * ([[SurfaceGraph]]): the innermost case holding it, else the tree's own,
-    * `""` for the body or the popup's id.
+  /** One tree's nodes, the body's or a popup's, under their ids, a choice's
+    * every case included. Each node is in a container ([[SurfaceGraph]]): the
+    * innermost case holding it, else the tree's own, `""` for the body or the
+    * popup's id.
     */
-  private class Index(root: Ready.Node, val idPrefix: String, tree: String) {
+  private class Index(root: Ready.Node, tree: String) {
 
-    // Recorded by the walk that mints the ids, so the two cannot disagree.
     private val walked: List[(NodeId, Ready.Node, Option[NodeId], String)] = {
       def walk(
           node: Ready.Node,
@@ -166,11 +145,11 @@ class Renderer(validated: Dashboard.Validated) {
           // A set's members are addressed by `memberId`, not a path.
           case c: Ready.Component =>
             LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
-              val cid = LayoutNode.childId(idPrefix, id, step, ch)
+              val cid = ch.id
               walk(ch, cid, Some(id), if (c.isChoice(step.region)) cid else in)
             }
         })
-      walk(root, LayoutNode.rootId(idPrefix, root), None, tree)
+      walk(root, root.id, None, tree)
     }
 
     val parents: Map[NodeId, NodeId] =
@@ -203,7 +182,7 @@ class Renderer(validated: Dashboard.Validated) {
         .toMap
   }
 
-  private val mainIndex = new Index(dashboard.card, "", "")
+  private val mainIndex = new Index(dashboard.card, "")
 
   /** The head's unpatchable part — linked stylesheets, scripts, `chrome` — so a
     * mismatch reloads the page (ADR 0011); the patchable rest is [[styleHash]].
@@ -280,15 +259,13 @@ class Renderer(validated: Dashboard.Validated) {
 
   private val popupIndexes: Map[String, Index] =
     dashboard.surfaces.map { case (sid, s) =>
-      sid -> new Index(s.content, Renderer.surfacePrefix(sid), sid)
+      sid -> new Index(s.content, sid)
     }
 
   private val indexes: List[Index] = mainIndex :: popupIndexes.values.toList
 
-  private val allIndexed: Map[NodeId, (Ready.Node, String)] =
-    indexes.flatMap { idx =>
-      idx.indexed.map { case (id, n) => id -> (n, idx.idPrefix) }
-    }.toMap
+  private val allIndexed: Map[NodeId, Ready.Node] =
+    indexes.flatMap(_.indexed).toMap
 
   private val containerOfIndexed: Map[NodeId, String] =
     indexes.flatMap(_.containerOf).toMap
@@ -302,10 +279,6 @@ class Renderer(validated: Dashboard.Validated) {
   /** container -> entity -> its static nodes binding it. */
   private val containerEntities: Map[String, Map[String, Set[NodeId]]] =
     indexes.flatMap(_.byEntity).toMap
-
-  /** The id prefix of the tree a container is in. */
-  private val prefixOf: Map[String, String] =
-    indexes.flatMap(idx => idx.inContainer.keys.map(_ -> idx.idPrefix)).toMap
 
   /** Lazy: the member graph, the ancestry and the surface graph are built
     * below.
@@ -472,7 +445,7 @@ class Renderer(validated: Dashboard.Validated) {
 
   /** `id` as it stands now: a set member is its current clause. */
   def componentAt(id: NodeId, shared: Shared): Option[Ready.Component] =
-    nodeAt(id, shared).collect { case (c: Ready.Component, _) => c }
+    nodeAt(id, shared).collect { case c: Ready.Component => c }
 
   /** `call` run now, over `shared` with `posted` in hand: every field, and each
     * field `node` sees as its slot would show it. `Left` names a field that
@@ -579,8 +552,8 @@ class Renderer(validated: Dashboard.Validated) {
       shared: Shared
   ): List[(NodeId, Fetching)] =
     allIndexed.get(id) match {
-      case Some((c: Ready.Component, _)) => c.fetching.map(id -> _)
-      case None                          =>
+      case Some(c: Ready.Component) => c.fetching.map(id -> _)
+      case None                     =>
         members.nodeAt(id, shared) match {
           case Some((m, _)) if m.id == id => memberAsks(m, shared)
           case Some((_, c))               => c.fetching.map(id -> _)
@@ -614,11 +587,10 @@ class Renderer(validated: Dashboard.Validated) {
     * to post one the page has not opened.
     */
   private[runtime] def presses(slug: String): List[(CallDecl, String)] =
-    allIndexed.toList.sortBy(_._1).flatMap {
-      case (id, (c: Ready.Component, _)) =>
-        c.calls.values.toList.map(p =>
-          dashboard.calls(p.id).decl -> s"sse/call/$slug/${p.id}?node=$id"
-        )
+    allIndexed.toList.sortBy(_._1).flatMap { case (id, c: Ready.Component) =>
+      c.calls.values.toList.map(p =>
+        dashboard.calls(p.id).decl -> s"sse/call/$slug/${p.id}?node=$id"
+      )
     }
 
   /** Test seam: the press of the choice of `value` for `key` (`None` clears
@@ -649,20 +621,11 @@ class Renderer(validated: Dashboard.Validated) {
       readOf(_, Map.empty, env.getOrElse(id, Map.empty))
     )
 
-  /** A node and its tree's id prefix: the static tree's, or a member's or a
-    * node below one, as the member's current clause has it.
+  /** A node of the static tree, or a member or a node below one as the member's
+    * current clause has it.
     */
-  private def nodeAt(
-      id: NodeId,
-      shared: Shared
-  ): Option[(Ready.Node, String)] =
-    allIndexed
-      .get(id)
-      .orElse(
-        members
-          .nodeAt(id, shared)
-          .map((m, n) => (n, prefixOf.getOrElse(m.root, "")))
-      )
+  private def nodeAt(id: NodeId, shared: Shared): Option[Ready.Node] =
+    allIndexed.get(id).orElse(members.nodeAt(id, shared).map(_._2))
 
   /** Presence and order in every candidate set. Exposed rather than exported,
     * so a call site says `renderer.members.…` and never reads as though the
@@ -670,7 +633,7 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private[runtime] val members: MemberGraph = new MemberGraph(
     allIndexed.collect {
-      case (id, (c: Ready.Component, _)) if c.set.isDefined =>
+      case (id, c: Ready.Component) if c.set.isDefined =>
         id -> c.set.get
     },
     containerOfIndexed
@@ -705,8 +668,8 @@ class Renderer(validated: Dashboard.Validated) {
       shared: Shared
   ): List[String] =
     nodeAt(id, shared) match {
-      case Some((c: Ready.Component, _)) => c.liveEntities
-      case _                             => Nil
+      case Some(c: Ready.Component) => c.liveEntities
+      case _                        => Nil
     }
 
   /** A member's are its whole subtree's ([[everyClauseAsks]]); a node below one
@@ -714,7 +677,7 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def fetchesForNode(id: NodeId): List[SlotAsk] =
     allIndexed.get(id) match {
-      case Some((c: Ready.Component, _)) =>
+      case Some(c: Ready.Component) =>
         c.fetches
       case _ =>
         everyClauseAsks.getOrElse(id, belowMemberAsks.getOrElse(id, Nil))
@@ -732,8 +695,8 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def variablesForNode(id: NodeId): Set[String] =
     allIndexed.get(id) match {
-      case Some((c: Ready.Component, _)) => c.variables
-      case _                             =>
+      case Some(c: Ready.Component) => c.variables
+      case _                        =>
         variablesBelow.getOrElse(id, Set.empty)
     }
 
@@ -845,13 +808,7 @@ class Renderer(validated: Dashboard.Validated) {
       shared: Shared,
       viewing: Viewing
   ): Traced =
-    traced(
-      dashboard.card,
-      LayoutNode.rootId("", dashboard.card),
-      "",
-      shared,
-      viewing
-    )
+    traced(dashboard.card, shared, viewing)
 
   private[runtime] def pageBytesHint: Int =
     themeStyleTag.length + Renderer.NodeBytesHint * nodeCount(dashboard.card) +
@@ -888,15 +845,7 @@ class Renderer(validated: Dashboard.Validated) {
     // document each (128 kB of a page open's ~3.8 MB).
     val root = dashboard.card
     val bodyInto: java.io.Writer => Unit = _ =>
-      tracedInto(
-        out,
-        root,
-        LayoutNode.rootId("", root),
-        "",
-        shared,
-        viewing,
-        own
-      )
+      tracedInto(out, root, shared, viewing, own)
     val dialogInto: Option[java.io.Writer => Unit] =
       viewing.selections.popup.flatMap(sid =>
         surfaceWalk(out, sid, shared, viewing, own)
@@ -921,16 +870,7 @@ class Renderer(validated: Dashboard.Validated) {
   ): Option[java.io.Writer => Unit] =
     // The writer is ignored: mustache's writer is `out`.
     dashboard.surfaces.get(surfaceId).map { sfc => (_: java.io.Writer) =>
-      val prefix = Renderer.surfacePrefix(surfaceId)
-      tracedInto(
-        out,
-        sfc.content,
-        LayoutNode.rootId(prefix, sfc.content),
-        prefix,
-        shared,
-        viewing,
-        trace
-      )
+      tracedInto(out, sfc.content, shared, viewing, trace)
     }
 
   /** Bare content: the host and any frame live in `theme.chrome`. */
@@ -939,15 +879,9 @@ class Renderer(validated: Dashboard.Validated) {
       shared: Shared,
       viewing: Viewing
   ): Option[Traced] =
-    dashboard.surfaces.get(surfaceId).map { s =>
-      traced(
-        s.content,
-        LayoutNode.rootId(Renderer.surfacePrefix(surfaceId), s.content),
-        Renderer.surfacePrefix(surfaceId),
-        shared,
-        viewing
-      )
-    }
+    dashboard.surfaces
+      .get(surfaceId)
+      .map(s => traced(s.content, shared, viewing))
 
   /** Every log key must resolve here: a resume re-renders. `None` means the key
     * names nothing that exists now, and is dropped rather than failing the
@@ -960,10 +894,8 @@ class Renderer(validated: Dashboard.Validated) {
       form: SlotForm = SlotForm.Patch
   ): Option[String] =
     nodeAt(id, shared)
-      .filter((node, _) => ownRenderingOf(node))
-      .flatMap { case (node, prefix) =>
-        render(node, id, prefix, shared, viewing, form)
-      }
+      .filter(ownRenderingOf)
+      .flatMap(render(_, shared, viewing, form))
 
   /** Whether a member is its own patch target in every clause: a leaf card. A
     * member that can hold nodes is patched through them, and placed whole.
@@ -989,14 +921,7 @@ class Renderer(validated: Dashboard.Validated) {
       shared: Shared,
       viewing: Viewing
   ): Traced =
-    traced(
-      m.node,
-      m.id,
-      prefixOf.getOrElse(m.root, ""),
-      shared,
-      viewing,
-      WalkAt.InMember(m.id, m.clause, Nil)
-    )
+    traced(m.node, shared, viewing)
 
   /** What a container's own static nodes ask, and its sets' present members: a
     * nested container's are asked as it is shown.
@@ -1007,7 +932,7 @@ class Renderer(validated: Dashboard.Validated) {
   ): List[(NodeId, Fetching)] =
     val ids = containerNodes.getOrElse(container, Nil)
     ids.flatMap(id =>
-      allIndexed.get(id).toList.flatMap { case (c: Ready.Component, _) =>
+      allIndexed.get(id).toList.flatMap { case c: Ready.Component =>
         c.fetching.map(id -> _)
       }
     ) ++ ids.flatMap(
@@ -1114,24 +1039,11 @@ class Renderer(validated: Dashboard.Validated) {
       p <- dashboard.picks.get(gid)
       id <- p.cases.lift(i)
       host <- p.within match
-        case None            => allIndexed.get(p.host).map(_._1)
+        case None            => allIndexed.get(p.host)
         case Some((_, k, _)) => members.nodeInClause(p.host, k)
       node <- host match
         case c: Ready.Component => c.regions.get(p.slot).flatMap(_.lift(i))
-    yield id -> traced(
-      node,
-      id,
-      p.prefix,
-      shared,
-      viewing,
-      p.within.fold(WalkAt.Static)((m, k, path) =>
-        WalkAt.InMember(
-          MemberId.of(m),
-          k,
-          path :+ LayoutNode.Step(p.slot, i)
-        )
-      )
-    )
+    yield id -> traced(node, shared, viewing)
 
   /** One derivation for both id sources (the static tree and set members), so a
     * var added to [[Dashboard.structuralVars]] reaches both.
@@ -1188,7 +1100,7 @@ class Renderer(validated: Dashboard.Validated) {
       fragments: FetchSnapshot
   ): Option[ByteValues] =
     allIndexed.get(id) match {
-      case Some((c: Ready.Component, _)) if ownRenderingOf(c) =>
+      case Some(c: Ready.Component) if ownRenderingOf(c) =>
         if (surfaces.cases(id).nonEmpty)
           sys.error(
             s"node $id has its own rendering AND a pick; ADR 0012 holds " +
@@ -1240,7 +1152,7 @@ class Renderer(validated: Dashboard.Validated) {
       values: ByteValues
   ): Option[String] =
     nodeAt(id, shared).collect {
-      case (c: Ready.Component, _) if ownRenderingOf(c) =>
+      case c: Ready.Component if ownRenderingOf(c) =>
         patchOf(planOf(id, c, shared), values)
     }
 
@@ -1267,17 +1179,15 @@ class Renderer(validated: Dashboard.Validated) {
 
   private def render(
       node: Ready.Node,
-      id: NodeId,
-      idPrefix: String,
       shared: Shared,
       viewing: Viewing,
       form: SlotForm
   ): Option[String] = node match {
     case c: Ready.Component if form.isPatch =>
-      val plan = planOf(id, c, shared)
+      val plan = planOf(c.id, c, shared)
       Some(patchOf(plan, valuesOf(plan, shared, viewing.fragments, None)))
     case _ =>
-      Some(traced(node, id, idPrefix, shared, viewing).html)
+      Some(traced(node, shared, viewing).html)
   }
 
   /** The composed rendering and what each node in it now holds, kept from the
@@ -1309,23 +1219,11 @@ class Renderer(validated: Dashboard.Validated) {
 
   private def traced(
       node: Ready.Node,
-      id: NodeId,
-      idPrefix: String,
       shared: Shared,
-      viewing: Viewing,
-      within: WalkAt = WalkAt.Static
+      viewing: Viewing
   ): Traced = {
     val trace = new Trace
-    val html =
-      tracedHtml(
-        node,
-        id,
-        idPrefix,
-        shared,
-        viewing,
-        trace,
-        within
-      )
+    val html = tracedHtml(node, shared, viewing, trace)
     Traced(html, trace.own.asScala.toMap, trace.seeded.asScala.toMap)
   }
 
@@ -1334,74 +1232,39 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def tracedHtml(
       node: Ready.Node,
-      id: NodeId,
-      idPrefix: String,
       shared: Shared,
       viewing: Viewing,
-      trace: Trace,
-      within: WalkAt
+      trace: Trace
   ): String = {
     val out = Sink.buffer(
       Renderer.NodeBytesHint * (node match {
-        case c: Ready.Component => planOf(id, c, shared).nodeCount
+        case c: Ready.Component => planOf(c.id, c, shared).nodeCount
       })
     )
-    tracedInto(
-      out,
-      node,
-      id,
-      idPrefix,
-      shared,
-      viewing,
-      trace,
-      within
-    )
+    tracedInto(out, node, shared, viewing, trace)
     out.result
   }
 
   /** A node's document bytes appended to `out`, and every own-rendering node's
     * byte-slot values into `trace`. An accumulator, not per-level maps merged
     * upward: those allocated per node per paint and re-copied every ancestor's.
-    * `within` is set below a set member: its nodes are ordinary, but a nested
-    * set's id carries the member's clause ([[MemberGraph.innerSetId]]).
     */
   private def tracedInto(
       out: Sink,
       node: Ready.Node,
-      id: NodeId,
-      idPrefix: String,
       shared: Shared,
       viewing: Viewing,
-      trace: Trace,
-      within: WalkAt = WalkAt.Static
+      trace: Trace
   ): Unit =
     node match {
       case c: Ready.Component =>
-        val gid = within match {
-          case WalkAt.Static      => id
-          case m: WalkAt.InMember => surfaces.groupAt(id, m.clause)
-        }
+        val id = c.id
+        val gid = c.clause.fold(id)(surfaces.groupAt(id, _))
         // Resolved once for both forms; what a paint cannot change comes from
         // the plan ([[NodePlan]]).
         val plan = planOf(id, c, shared)
         val resolved = resolvePlanned(plan, shared, viewing.fragments)
         val tpl = plan.tpl
-        def withinOf(region: String, i: Int): WalkAt =
-          within.down(LayoutNode.Step(region, i))
-
-        def childId(region: String, i: Int, child: Ready.Node) =
-          (child, within) match {
-            case (c: Ready.Component, m: WalkAt.InMember) if c.set.isDefined =>
-              val at = m.into(LayoutNode.Step(region, i))
-              members.innerSetId(at.member, at.clause, at.path, c.set.get)
-            case _ =>
-              LayoutNode.childId(
-                idPrefix,
-                id,
-                LayoutNode.Step(region, i),
-                child
-              )
-          }
 
         def bodyInto(
             buf: Sink,
@@ -1414,26 +1277,16 @@ class Renderer(validated: Dashboard.Validated) {
               NodeContext(resolved, form, buf)
             )
           else {
-            def child(region: String, i: Int, node: Ready.Node): Unit =
-              tracedInto(
-                buf,
-                node,
-                childId(region, i, node),
-                idPrefix,
-                shared,
-                viewing,
-                trace,
-                within = withinOf(region, i)
-              )
+            def child(node: Ready.Node): Unit =
+              tracedInto(buf, node, shared, viewing, trace)
             // A choice's region holds every case; only the picked one renders.
             val eager: Map[String, java.io.Writer => Unit] =
               c.regions.map { (region, nodes) =>
                 region -> { (_: java.io.Writer) =>
                   if (c.isChoice(region))
                     pickedCase(gid, viewing.selections, shared)
-                      .foreach(i => nodes.lift(i).foreach(child(region, i, _)))
-                  else
-                    nodes.zipWithIndex.foreach((n, i) => child(region, i, n))
+                      .foreach(i => nodes.lift(i).foreach(child))
+                  else nodes.foreach(child)
                 }
               }
             // Each member is walked like any node, so the trace holds each
@@ -1445,18 +1298,9 @@ class Renderer(validated: Dashboard.Validated) {
                   eager.updated(
                     s.region,
                     { (_: java.io.Writer) =>
-                      members.membersOf(setId, shared).foreach { m =>
-                        tracedInto(
-                          buf,
-                          m.node,
-                          m.id,
-                          idPrefix,
-                          shared,
-                          viewing,
-                          trace,
-                          within = WalkAt.InMember(m.id, m.clause, Nil)
-                        )
-                      }
+                      members
+                        .membersOf(setId, shared)
+                        .foreach(m => child(m.node))
                     }
                   )
                 case None => eager
@@ -1472,11 +1316,8 @@ class Renderer(validated: Dashboard.Validated) {
         bodyInto(out, SlotForm.Document)
 
         val own = Option.when(plan.ownRendering) {
-          val clause = within match
-            case m: WalkAt.InMember => Some(m.clause)
-            case WalkAt.Static      => None
           Painted(
-            byteValues(plan, clause)(s => resolved.paint(s.key)),
+            byteValues(plan, c.clause)(s => resolved.paint(s.key)),
             resolved.signals
           )
         }
@@ -1989,9 +1830,9 @@ class Renderer(validated: Dashboard.Validated) {
       .map {
         // A fetch's answer is the viewer's; a variable cannot reach a signal
         // (validate refuses it).
-        case (c: Ready.Component, _) if c.fetching.isEmpty =>
+        case c: Ready.Component if c.fetching.isEmpty =>
           shared.signals(id)(signalsOfSlots(id, c, shared, fragments))
-        case (node, _) => signalsOfSlots(id, node, shared, fragments)
+        case node => signalsOfSlots(id, node, shared, fragments)
       }
       .getOrElse(Map.empty)
 
@@ -2332,9 +2173,6 @@ object Renderer {
     src.signal.filter(_ => src.constant.isEmpty && src.reads == Reads.Live)
 
   def isSignalSlot(src: Ready.Slot): Boolean = signalBind(src).isDefined
-
-  def surfacePrefix(surfaceId: String): String =
-    LayoutNode.surfacePrefix(surfaceId)
 
   private[runtime] def perRegion[A](children: Map[String, List[LayoutNode]])(
       f: (LayoutNode, LayoutNode.Step) => A
