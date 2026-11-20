@@ -2,7 +2,6 @@ package fh.view.runtime
 
 import fh.view.model.{
   Fetching,
-  Fill,
   IdKind,
   LayoutNode,
   MemberId,
@@ -27,29 +26,24 @@ private[runtime] object Member {
       (c.liveEntities ++ c.allChildren.flatMap(entitiesOf)).distinct
   }
 
-  /** A member's components under the ids the render walk mints below its own
-    * (`LayoutNode.childId`), each with its parent and the innermost choice's
-    * case below the member holding it. Not a nested set's root, which is minted
-    * by [[MemberGraph.innerSetId]], nor its members, which are its own. No
-    * prefix: `validate` refuses an authored id in a clause.
+  /** A member's components, each with its parent and the innermost choice's
+    * case below the member holding it. Not a nested set's root, nor its
+    * members, which are its own.
     */
   def subtree(
-      id: NodeId,
       node: Ready.Component
   ): List[(NodeId, Ready.Component, Option[NodeId], Option[NodeId])] = {
     def walk(
         n: Ready.Component,
-        at: NodeId,
         parent: Option[NodeId],
         in: Option[NodeId]
     ): List[(NodeId, Ready.Component, Option[NodeId], Option[NodeId])] =
-      (at, n, parent, in) :: LayoutNode.steps(n.regions).flatMap {
+      (n.id, n, parent, in) :: LayoutNode.steps(n.regions).flatMap {
         case (step, c: Ready.Component) if c.set.isEmpty =>
-          val cid = LayoutNode.childId("", at, step, c)
-          walk(c, cid, Some(at), if (n.isChoice(step.region)) Some(cid) else in)
+          walk(c, Some(n.id), if (n.isChoice(step.region)) Some(c.id) else in)
         case _ => Nil
       }
-    walk(node, id, None, None)
+    walk(node, None, None)
   }
 }
 
@@ -66,7 +60,7 @@ private[runtime] case class Member(
 
   /** Its own node and every component below it, by id. */
   lazy val nodes: Map[NodeId, Ready.Component] =
-    Member.subtree(id, node).map((at, n, _, _) => at -> n).toMap
+    Member.subtree(node).map((at, n, _, _) => at -> n).toMap
 
   /** What its nodes read, each under its own id, in id order. */
   lazy val fetching: List[(NodeId, Fetching)] =
@@ -221,6 +215,9 @@ private[runtime] final class MemberGraph(
         })
       }
 
+    /** The id `entityId`'s member has in every clause. */
+    def idOf(entityId: String): MemberId = cases(entityId)._2.head.id
+
     /** Every member `entityId` can be, one per case. */
     def clauseMembers(entityId: String): List[Member] =
       cases.get(entityId).toList.flatMap(_._2)
@@ -254,16 +251,11 @@ private[runtime] final class MemberGraph(
       )
   }
 
-  /** From the key, never the position: a positional id would rename every node
-    * after an arrival. Spelled by [[LayoutNode.memberSegment]].
+  /** Its node's: from the candidate, never the position, since a positional id
+    * would rename every node after an arrival ([[LayoutNode.memberSegment]]).
     */
-  private def memberId(setId: SetId, key: MemberKey): MemberId =
-    MemberId.of(
-      NodeId.derived(LayoutNode.memberSegment(setId, sortKey(key)))
-    )
-
   def memberIdOf(setId: SetId, entityId: String): MemberId =
-    memberId(setId, MemberKey.Entity(entityId))
+    sources(setId).idOf(entityId)
 
   // Runs while the graph is built, so it reads the source, not the maps.
   private def member(
@@ -273,19 +265,8 @@ private[runtime] final class MemberGraph(
       clause: Int
   ): Member = {
     val key = MemberKey.Entity(entityId)
-    Member(s.gid, s.root, key, memberId(s.gid, key), node, clause)
+    Member(s.gid, s.root, key, MemberId.of(node.id), node, clause)
   }
-
-  /** [[LayoutNode.innerSetId]], as a set: read by [[sources]] and the
-    * renderer's walk, so the graph and the browser cannot disagree.
-    */
-  def innerSetId(
-      member: MemberId,
-      clauseIdx: Int,
-      path: List[LayoutNode.Step],
-      set: Fill.Set | Ready.SetFill
-  ): SetId =
-    SetId.of(LayoutNode.innerSetId(member, clauseIdx, path), set)
 
   /** Every set, nested ones ("a tile per room") included with the member they
     * hang off. Enumerable up front because candidates are static, which makes
@@ -299,28 +280,20 @@ private[runtime] final class MemberGraph(
           .get(candidate)
           .toList
           .flatMap(_.nodes.zipWithIndex)
-        found <- setsIn(
-          memberId(outer.gid, MemberKey.Entity(candidate)),
-          ci,
-          node,
-          Nil,
-          outer.root
-        )
+        found <- setsIn(MemberId.of(node.id), ci, node, outer.root)
       } yield found
 
     def setsIn(
         member: MemberId,
         clauseIdx: Int,
         node: Ready.Node,
-        path: List[LayoutNode.Step],
         root: String
     ): List[Source] = node match {
       case c: Ready.Component =>
         c.set match {
           case Some(inner) =>
-            val id = innerSetId(member, clauseIdx, path, inner)
             val found = Source(
-              id,
+              c.id,
               MemberSource(inner),
               Some(NodeId.derived(member)),
               root,
@@ -330,15 +303,8 @@ private[runtime] final class MemberGraph(
           case None =>
             LayoutNode.steps(c.regions).flatMap { case (step, child) =>
               // A set in a choice's case is shown with that case.
-              val in =
-                if (!c.isChoice(step.region)) root
-                else
-                  child match
-                    case k: Ready.Component if k.set.isDefined =>
-                      innerSetId(member, clauseIdx, path :+ step, k.set.get)
-                    case _ =>
-                      LayoutNode.innerCaseId(member, path :+ step)
-              setsIn(member, clauseIdx, child, path :+ step, in)
+              val in = if (!c.isChoice(step.region)) root else child.id
+              setsIn(member, clauseIdx, child, in)
             }
         }
     }
@@ -371,7 +337,7 @@ private[runtime] final class MemberGraph(
       sourcesWithOwner.flatMap(s => s.owner.map(s.at -> _)) ++
       memberSlot.toList.flatMap { case (_, (s, e)) =>
         s.clauseMembers(e)
-          .flatMap(m => Member.subtree(m.id, m.node))
+          .flatMap(m => Member.subtree(m.node))
           .flatMap((at, _, parent, _) => parent.map(at -> _))
       }
 
@@ -437,13 +403,13 @@ private[runtime] final class MemberGraph(
     */
   private val dirtiesMembers: Map[String, Set[NodeId]] = {
     def all(s: Source): List[NodeId] =
-      s.src.candidates.toList.map(e => memberId(s.gid, MemberKey.Entity(e)))
+      s.src.candidates.toList.map(s.idOf)
     sourcesWithOwner
       .flatMap { s =>
         val limited = s.src.s.limit.isDefined
         s.src.movedBy.toList.flatMap { (e, cids) =>
           (if (limited) all(s)
-           else cids.map(c => memberId(s.gid, MemberKey.Entity(c))))
+           else cids.map(s.idOf))
             .map(e -> _)
         } ++ (if (limited) s.src.orderEntities.flatMap(e => all(s).map(e -> _))
               else Nil)
@@ -519,7 +485,7 @@ private[runtime] final class MemberGraph(
     */
   private val memberSlot: Map[NodeId, (Source, String)] =
     sourcesWithOwner.flatMap { s =>
-      s.src.candidates.map(e => memberId(s.gid, MemberKey.Entity(e)) -> (s, e))
+      s.src.candidates.map(e => (s.idOf(e): NodeId) -> (s, e))
     }.toMap
 
   /** Every member id the candidates allow, present or not: the id space is
@@ -698,7 +664,7 @@ private[runtime] final class MemberGraph(
   private lazy val caseIn: Map[NodeId, NodeId] =
     memberSlot.toList.flatMap { case (_, (s, e)) =>
       s.clauseMembers(e)
-        .flatMap(m => Member.subtree(m.id, m.node))
+        .flatMap(m => Member.subtree(m.node))
         .collect { case (at, _, _, Some(c)) => at -> c }
     }.toMap
 

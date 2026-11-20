@@ -58,11 +58,13 @@ class MemberGraphSuite extends munit.FunSuite {
   private def graphOf(
       s: LayoutNode.Component,
       root: String = ""
-  ): MemberGraph = new MemberGraph(Map(gid -> compile.set(s)), Map(gid -> root))
+  ): MemberGraph =
+    new MemberGraph(Map(gid -> compile.set(gid, s)), Map(gid -> root))
 
   private object compile:
-    def set(s: LayoutNode.Component): Ready.SetFill =
-      Conds.compiledAlone(s).set.get
+    /** `s` compiled where the graph places it, so its ids are the graph's. */
+    def set(at: NodeId, s: LayoutNode.Component): Ready.SetFill =
+      Conds.compiledAlone(s.copy(id = Some(at))).set.get
     def node(n: LayoutNode): Ready.Node = Conds.compiledAlone(n)
 
   extension (g: MemberGraph)
@@ -404,10 +406,12 @@ class MemberGraphSuite extends munit.FunSuite {
       )
     )
     val g = graphOf(outer, root = "detail")
-    val innerId = g.innerSetId(
-      g.memberIdOf(gid, "light.a"),
-      0,
-      List(LayoutNode.Step(LayoutNode.DefaultRegion, 0)),
+    val innerId = SetId.of(
+      LayoutNode.innerSetId(
+        g.memberIdOf(gid, "light.a"),
+        0,
+        List(LayoutNode.Step(LayoutNode.DefaultRegion, 0))
+      ),
       Sets.of(inner).get
     )
     assert(

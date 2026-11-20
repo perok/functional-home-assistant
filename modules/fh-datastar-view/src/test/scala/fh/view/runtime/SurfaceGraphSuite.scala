@@ -18,6 +18,7 @@ import fh.view.model.{
   NodeId,
   Op,
   Ready,
+  SetId,
   Step,
   Surface,
   Value,
@@ -104,8 +105,10 @@ class SurfaceGraphSuite extends munit.FunSuite {
   private object compile:
     private val walk = Ready.Compile(Evaluator.Scope(""))
     def pick(p: Dashboard.Pick): Ready.Pick = Conds.compiled(walk.pick(p))
-    def set(s: LayoutNode.Component): Ready.SetFill =
-      Conds.compiledAlone(s).set.get
+
+    /** `s` compiled where the graph places it, so its ids are the graph's. */
+    def set(at: NodeId, s: LayoutNode.Component): Ready.SetFill =
+      Conds.compiledAlone(s.copy(id = Some(at))).set.get
 
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap
@@ -381,7 +384,10 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
     val outer: NodeId = "s_det__c"
     val members =
-      new MemberGraph(Map(outer -> compile.set(setNode)), Map(outer -> "det"))
+      new MemberGraph(
+        Map(outer -> compile.set(outer, setNode)),
+        Map(outer -> "det")
+      )
     val g = graphOf(
       popups = Map("det" -> Surface(col())),
       roots = Map("c" -> ""),
@@ -390,10 +396,12 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val setId = members.setContainer(outer).get
     val states = snapshot(st("light.a", "on"))
     val member = members.membersOf(setId, Shared.of(states)).head
-    val innerId = members.innerSetId(
-      member.id,
-      0,
-      List(LayoutNode.Step(LayoutNode.DefaultRegion, 0)),
+    val innerId = SetId.of(
+      LayoutNode.innerSetId(
+        member.id,
+        0,
+        List(LayoutNode.Step(LayoutNode.DefaultRegion, 0))
+      ),
       Sets.of(nestedSet).get
     )
 
@@ -420,7 +428,10 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
     val outer: NodeId = "s_det__c"
     val members =
-      new MemberGraph(Map(outer -> compile.set(setNode)), Map(outer -> "det"))
+      new MemberGraph(
+        Map(outer -> compile.set(outer, setNode)),
+        Map(outer -> "det")
+      )
     val g = graphOf(popups = Map("det" -> Surface(col())), members = members)
     val setId = members.setContainer(outer).get
     val off = snapshot(st("light.a", "off"))
@@ -432,7 +443,14 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
   }
 
-  private def nestedSet = Sets.node(candidates = List("light.b"))
+  private def nestedSet = Sets.node(
+    candidates = List("light.b"),
+    members = Map(
+      "light.b" -> Sets.Member(
+        List(Sets.Clause(None, LayoutNode.Component("tile")))
+      )
+    )
+  )
 
   test("a committed selection round-trips through the state that reads it") {
     // Whatever `committedSelection` says after a swap must be what `openPopup`
