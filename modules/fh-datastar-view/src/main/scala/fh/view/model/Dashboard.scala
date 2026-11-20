@@ -1131,7 +1131,6 @@ case class Dashboard(
             index.id(ix),
             slot,
             k,
-            index.prefix(ix),
             index.within(ix),
             kids.filter(index.step(_).exists(_.region == slot)).map(index.id)
           )
@@ -1387,15 +1386,14 @@ object Dashboard:
     */
   type Within = Option[(NodeId, Int, List[LayoutNode.Step])]
 
-  /** The choice filling `host`'s nodes slot `slot`, in the tree of id prefix
-    * `prefix` and `within` a set member's clause where it is in one, and its
-    * cases' node ids in order, the otherwise's last.
+  /** The choice filling `host`'s nodes slot `slot`, `within` a set member's
+    * clause where it is in one, and its cases' node ids in order, the
+    * otherwise's last.
     */
   final case class Pick(
       host: NodeId,
       slot: String,
       choice: Choice.Chosen[List[LayoutNode]],
-      prefix: String,
       within: Within,
       cases: List[NodeId]
   ):

@@ -90,7 +90,7 @@ private[runtime] final class SurfaceGraph(
   def memberValues(gid: NodeId): List[String] =
     picks
       .get(gid)
-      .fold(Nil)(_.byKey.toList.sortBy(_._2).map(_._1.toString))
+      .fold(Nil)(_.choice.byKey.toList.sortBy(_._2).map(_._1.toString))
 
   /** A popup open from the first paint. */
   private def defaultOpenPopup(s: Ready.Surface): Boolean = s.defaultOpen

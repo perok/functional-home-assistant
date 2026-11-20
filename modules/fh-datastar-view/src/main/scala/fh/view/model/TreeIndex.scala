@@ -45,8 +45,6 @@ final class TreeIndex private (entries: Vector[TreeIndex.Entry]) {
   /** The popup whose tree holds it, `""` for the page. */
   def tree(ix: Ix): String = entries(ix.toInt).tree
 
-  def prefix(ix: Ix): String = entries(ix.toInt).prefix
-
   def within(ix: Ix): Dashboard.Within = entries(ix.toInt).within
 
   /** The pick it hosts ([[Surface.groupId]], a clause's own); else its id. */
@@ -86,7 +84,6 @@ object TreeIndex {
       parent: Int,
       step: Option[LayoutNode.Step],
       tree: String,
-      prefix: String,
       within: Dashboard.Within,
       candidate: Option[String],
       container: Int,
@@ -116,7 +113,6 @@ object TreeIndex {
           parent,
           step,
           tree,
-          prefix,
           within,
           candidate,
           in,

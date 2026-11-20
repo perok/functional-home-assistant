@@ -41,7 +41,7 @@ private[runtime] object Member {
       (n.id, n, parent, in) :: (n.content match
         case Ready.Content.Fixed(r) =>
           LayoutNode.steps(r).flatMap((_, c) => below(c, n, in))
-        case Ready.Content.Live(_, Ready.LiveFill.Pick(cases)) =>
+        case Ready.Content.Live(_, Ready.LiveFill.Pick(cases, _, _, _, _)) =>
           cases.flatMap(c => below(c, n, Some(c.id)))
         case Ready.Content.Live(_, _: Ready.LiveFill.Set) => Nil)
     def below(c: Ready.Node, parent: Ready.Component, in: Option[NodeId]) =
@@ -308,7 +308,7 @@ private[runtime] final class MemberGraph(
             )
             found :: nested(found)
           // A set in a choice's case is shown with that case.
-          case Ready.Content.Live(_, Ready.LiveFill.Pick(cases)) =>
+          case Ready.Content.Live(_, Ready.LiveFill.Pick(cases, _, _, _, _)) =>
             cases.flatMap(k => setsIn(member, clauseIdx, k, k.id))
           case Ready.Content.Fixed(r) =>
             LayoutNode
@@ -675,13 +675,6 @@ private[runtime] final class MemberGraph(
         .flatMap(m => Member.subtree(m.node))
         .collect { case (at, _, _, Some(c)) => at -> c }
     }.toMap
-
-  /** `id`, a member or a node below one, as its member's `clause` has it. */
-  def nodeInClause(id: NodeId, clause: Int): Option[Ready.Component] =
-    memberOwning(id)
-      .flatMap(memberSlot.get)
-      .flatMap((s, e) => s.clauseMembers(e).find(_.clause == clause))
-      .flatMap(_.nodes.get(id))
 
   /** Without this a nested set's fill or removal reads as main-page and reaches
     * clients without the surface open.

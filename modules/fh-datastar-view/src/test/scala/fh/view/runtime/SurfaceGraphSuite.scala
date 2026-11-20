@@ -13,12 +13,14 @@ import fh.view.model.{
   Choice,
   Dashboard,
   DomId,
+  Fill,
   LayoutNode,
   Lit,
   NodeId,
   Op,
   Ready,
   SetId,
+  Slot,
   Step,
   Surface,
   Value,
@@ -86,26 +88,41 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val placed = picks.map { p =>
       val keys = p.choice.cases.indices.map(i => s"t$i") ++
         p.choice.otherwise.as("else")
-      Dashboard.Pick(
-        NodeId.derived(p.host),
-        "p",
-        p.choice,
-        "",
-        None,
-        keys.map(k => NodeId.derived(s"${p.host}_$k")).toList
+      val host = Conds.compiledAlone(
+        LayoutNode.Component(
+          "p",
+          Map("p" -> Slot.Nodes(Fill.Nodes(p.choice))),
+          id = Some(p.host)
+        )
       )
+      host.content match
+        case Ready.Content.Live(slot, k: Ready.LiveFill.Pick) =>
+          val cases = k.cases.zip(keys).map { case (c: Ready.Component, key) =>
+            c.copy(id = NodeId.derived(s"${p.host}_$key"))
+          }
+          // `new`: an enum case's `copy` is typed as the enum.
+          val pick =
+            new Ready.LiveFill.Pick(
+              cases,
+              k.by,
+              k.variable,
+              k.byKey,
+              k.otherwise
+            )
+          host.group -> Ready.Pick(
+            host.copy(content = Ready.Content.Live(slot, pick)),
+            pick
+          )
+        case other => fail(s"not a pick: $other")
     }
     new SurfaceGraph(
       popups.map((sid, s) => sid -> Conds.compiledPopup(sid, s)),
-      placed.map(p => p.group -> compile.pick(p)).toMap,
+      placed.toMap,
       roots.map { case (id, root) => NodeId.derived(id) -> root },
       members
     )
 
   private object compile:
-    private val walk = Ready.Compile(Evaluator.Scope(""))
-    def pick(p: Dashboard.Pick): Ready.Pick = Conds.compiled(walk.pick(p))
-
     def set(at: NodeId, s: LayoutNode.Component): Ready.SetFill =
       Conds.compiledSet(at, s)
 

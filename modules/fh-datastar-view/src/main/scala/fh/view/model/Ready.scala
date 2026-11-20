@@ -36,9 +36,9 @@ object Ready:
       * set's members, which are their own.
       */
     lazy val regions: Map[String, List[Node]] = content match
-      case Content.Fixed(r)                         => r
-      case Content.Live(slot, LiveFill.Pick(cases)) => Map(slot -> cases)
-      case Content.Live(_, _: LiveFill.Set)         => Map.empty
+      case Content.Fixed(r)                     => r
+      case Content.Live(slot, p: LiveFill.Pick) => Map(slot -> p.cases)
+      case Content.Live(_, _: LiveFill.Set)     => Map.empty
 
     /** Name order, for a reproducible walk; ids do not come from this. */
     def allChildren: List[Node] = regions.toList.sortBy(_._1).flatMap(_._2)
@@ -88,8 +88,16 @@ object Ready:
     case Live(slot: String, fill: LiveFill)
 
   enum LiveFill:
-    /** Every case, the otherwise last: its pick shows one. */
-    case Pick(cases: List[Node])
+    /** Every case, the otherwise last, and what shows one: `by` read once, a
+      * node `variable` per viewer, and its case looked up ([[Ready.Pick]]).
+      */
+    case Pick(
+        cases: List[Node],
+        by: Condition,
+        variable: Option[String],
+        byKey: Map[Any, Int],
+        otherwise: Option[Int]
+    )
     case Set(fill: SetFill)
 
   /** A node's set: `order` is `None` where the candidates are already in order.
@@ -168,34 +176,25 @@ object Ready:
   /** A popup, `defaultOpen` from its activation. */
   final case class Surface(content: Node, defaultOpen: Boolean)
 
-  /** A choice ready to decide: `by` read once and its case looked up
-    * ([[decide]]). A `by` that is a node `variable` is decided per viewer, by a
-    * lookup of its value; any other reads state, once per version. Where it is
-    * as [[fh.view.model.Dashboard.Pick]] has it; `cases`: the cases' node ids,
-    * the otherwise's last.
+  /** A pick where it stands: its host `node`, whose id, clause and cases' ids
+    * are the pick's, and what decides it. Its key is the host's `group`.
     */
-  final case class Pick(
-      host: NodeId,
-      slot: String,
-      prefix: String,
-      within: fh.view.model.Dashboard.Within,
-      by: Condition,
-      variable: Option[String],
-      cases: Vector[NodeId],
-      byKey: Map[Any, Int],
-      otherwise: Option[Int]
-  ):
-    def clause: Option[Int] = within.map(_._2)
+  final case class Pick(node: Component, choice: LiveFill.Pick):
+    def host: NodeId = node.id
+    def clause: Option[Int] = node.clause
+    val cases: Vector[NodeId] = choice.cases.map(_.id).toVector
+    def by: Condition = choice.by
+    def variable: Option[String] = choice.variable
 
-    /** The member `read` picks: the case keyed by it, else the otherwise, else
+    /** The case `read` picks: the one keyed by it, else the otherwise, else
       * none. Keyed by the raw value, as [[MemberChoice.pick]] is.
       */
     def decide(read: Any): Option[Int] =
       (read match
         case i: java.lang.Integer =>
-          byKey.get(java.lang.Long.valueOf(i.longValue))
-        case _ => byKey.get(read)
-      ).orElse(otherwise)
+          choice.byKey.get(java.lang.Long.valueOf(i.longValue))
+        case _ => choice.byKey.get(read)
+      ).orElse(choice.otherwise)
 
   /** A declared call ready to run at the press. */
   sealed trait Call:
@@ -247,15 +246,16 @@ object Ready:
           .traverse(k => scope.program(k).map(k -> _)),
         d.choiceBys.traverse(by =>
           Evaluator.compile(by, scope).map(by.inputKey -> _.run)
-        ),
-        d.picks.toList.traverse((gid, p) => pick(p).map(gid -> _))
-      ).mapN((card, surfaces, calls, initials, choices, picks) =>
+        )
+      ).mapN((card, surfaces, calls, initials, choices) =>
         Dashboard(
           d.cards,
           card,
           d.theme,
           surfaces.toMap,
-          picks.toMap,
+          (picksIn(card) ++ surfaces.flatMap((_, s) =>
+            picksIn(s.content)
+          )).toMap,
           d.slug,
           d.title,
           d.css,
@@ -287,15 +287,18 @@ object Ready:
             .traverse(n => node(i, byStep(LayoutNode.Step(r, n))))
             .map(r -> _)
         ),
-        c.set.traverse((slot, s) => set(i, i.clauses(at), s).map(slot -> _))
-      ).mapN((slots, regions, filled) =>
+        c.set.traverse((slot, s) => set(i, i.clauses(at), s).map(slot -> _)),
+        c.chosen.toList.traverse((slot, k) =>
+          condition(k.by).map(slot -> (k, _))
+        )
+      ).mapN((slots, regions, filled, chosen) =>
         Component(
           i.id(at),
           i.within(at).map(_._2),
           i.group(at),
           c.card,
           slots.toMap,
-          content(c, regions.toMap, filled),
+          content(regions.toMap, filled, chosen.headOption),
           c.cell.map(_.ready),
           c.id,
           c.vars,
@@ -311,15 +314,35 @@ object Ready:
 
     /** A set's or a pick's host holds nothing else (`validate`). */
     private def content(
-        c: LayoutNode.Component,
         regions: Map[String, List[Node]],
-        set: Option[(String, SetFill)]
-    ): Content = set match
-      case Some((slot, s)) => Content.Live(slot, LiveFill.Set(s))
-      case None            =>
-        c.chosen.keys.headOption.fold(Content.Fixed(regions))(slot =>
-          Content.Live(slot, LiveFill.Pick(regions(slot)))
+        set: Option[(String, SetFill)],
+        pick: Option[(String, (Choice.Chosen[List[LayoutNode]], Condition))]
+    ): Content = (set, pick) match
+      case (Some((slot, s)), _)          => Content.Live(slot, LiveFill.Set(s))
+      case (None, Some((slot, (k, by)))) =>
+        Content.Live(
+          slot,
+          LiveFill.Pick(
+            regions(slot),
+            by,
+            Choice.plainVariable(k.by),
+            k.cases.zipWithIndex.map((kc, i) => kc.is.raw -> i).toMap,
+            k.otherwise.map(_ => k.cases.size)
+          )
         )
+      case (None, None) => Content.Fixed(regions)
+
+    /** Every pick in `n`'s tree, a set member's every clause included, by the
+      * host's `group`.
+      */
+    private def picksIn(n: Node): List[(NodeId, Pick)] = n match
+      case c: Component =>
+        c.content match
+          case Content.Live(_, p: LiveFill.Pick) =>
+            (c.group -> Pick(c, p)) :: p.cases.flatMap(picksIn)
+          case Content.Live(_, LiveFill.Set(s)) =>
+            s.members.values.toList.flatMap(_.nodes).flatMap(picksIn)
+          case Content.Fixed(r) => r.values.toList.flatten.flatMap(picksIn)
 
     /** Per call the node places, each field of what it does that reads live
       * state, as the slot that holds it: the press is held to what the page
@@ -398,21 +421,6 @@ object Ready:
           content,
           s.activation match
             case fh.view.model.Activation.User(d) => d
-        )
-      )
-
-    def pick(p: fh.view.model.Dashboard.Pick): Built[Pick] =
-      condition(p.choice.by).map(by =>
-        Pick(
-          p.host,
-          p.slot,
-          p.prefix,
-          p.within,
-          by,
-          Choice.plainVariable(p.choice.by),
-          p.cases.toVector,
-          p.choice.cases.zipWithIndex.map((k, i) => k.is.raw -> i).toMap,
-          p.choice.otherwise.map(_ => p.choice.cases.size)
         )
       )
 

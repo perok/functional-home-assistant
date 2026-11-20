@@ -149,7 +149,8 @@ class Renderer(validated: Dashboard.Validated) {
                 LayoutNode
                   .steps(r)
                   .flatMap((_, ch) => walk(ch, ch.id, Some(id), in))
-              case Ready.Content.Live(_, Ready.LiveFill.Pick(cases)) =>
+              case Ready.Content
+                    .Live(_, Ready.LiveFill.Pick(cases, _, _, _, _)) =>
                 cases.flatMap(ch => walk(ch, ch.id, Some(id), ch.id))
               case Ready.Content.Live(_, _: Ready.LiveFill.Set) => Nil
         })
@@ -1041,15 +1042,10 @@ class Renderer(validated: Dashboard.Validated) {
       shared: Shared,
       viewing: Viewing
   ): Option[(NodeId, Traced)] =
-    for
-      p <- dashboard.picks.get(gid)
-      id <- p.cases.lift(i)
-      host <- p.within match
-        case None            => allIndexed.get(p.host)
-        case Some((_, k, _)) => members.nodeInClause(p.host, k)
-      node <- host match
-        case c: Ready.Component => c.regions.get(p.slot).flatMap(_.lift(i))
-    yield id -> traced(node, shared, viewing)
+    dashboard.picks
+      .get(gid)
+      .flatMap(_.choice.cases.lift(i))
+      .map(node => node.id -> traced(node, shared, viewing))
 
   /** One derivation for both id sources (the static tree and set members), so a
     * var added to [[Dashboard.structuralVars]] reaches both.
@@ -1219,7 +1215,7 @@ class Renderer(validated: Dashboard.Validated) {
         case Ready.Content.Fixed(r) =>
           r.values.iterator.flatten.map(nodeCount).sum
         // One case renders.
-        case Ready.Content.Live(_, Ready.LiveFill.Pick(cases)) =>
+        case Ready.Content.Live(_, Ready.LiveFill.Pick(cases, _, _, _, _)) =>
           cases.map(nodeCount).maxOption.getOrElse(0)
         case Ready.Content.Live(_, Ready.LiveFill.Set(s)) =>
           math.max(s.candidates.size, s.members.size))
@@ -1287,7 +1283,8 @@ class Renderer(validated: Dashboard.Validated) {
               r.map((region, nodes) =>
                 region -> { (_: java.io.Writer) => nodes.foreach(child) }
               )
-            case Ready.Content.Live(slot, Ready.LiveFill.Pick(cases)) =>
+            case Ready.Content
+                  .Live(slot, Ready.LiveFill.Pick(cases, _, _, _, _)) =>
               hole(slot)(
                 pickedCase(gid, viewing.selections, shared)
                   .foreach(i => cases.lift(i).foreach(child))
