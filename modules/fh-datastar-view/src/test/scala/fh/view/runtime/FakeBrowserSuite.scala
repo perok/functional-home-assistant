@@ -34,6 +34,21 @@ class FakeBrowserSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("an entity leaving HA reaches the page") {
+    server.use { ts =>
+      for {
+        a <- FakeBrowser.open(ts)
+        before <- IO(a.page.view)
+        _ <- ts.recordRemoval("light.kitchen")
+        _ <- a.deliver
+        r <- a.check
+      } yield {
+        assert(!failed(r), r)
+        assertNotEquals(a.page.view, before)
+      }
+    }
+  }
+
   test("a page that missed a frame does not") {
     server.use { ts =>
       for {

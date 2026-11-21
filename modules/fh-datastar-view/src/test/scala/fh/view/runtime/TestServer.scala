@@ -347,13 +347,21 @@ final class TestServer(
     * or a connection's.
     */
   def record(entities: FixtureEntity*): IO[Unit] =
+    recorded(fake.emitFrame(entities.toList))
+
+  /** [[record]] of `entityId` leaving HA. */
+  def recordRemoval(entityId: String): IO[Unit] =
+    recorded(fake.remove(entityId))
+
+  /** `emit` must move the store, or this times out. */
+  private def recorded(emit: IO[Unit]): IO[Unit] =
     for {
       // A topic delivers only to current subscribers, and the recorder starts
       // asynchronously, so a frame that beats it is never recorded and every
       // later gate times out. Connecting a client does not imply it.
       _ <- awaitChangeSubscribers(1).timeout(15.seconds)
       before <- store.version
-      _ <- fake.emitFrame(entities.toList)
+      _ <- emit
       now <- TestServer.poll(store.version)(_ > before)
       live <- server.liveSlug(slug)
       _ <- TestServer.poll(live.doorbell.get)(_ >= now)

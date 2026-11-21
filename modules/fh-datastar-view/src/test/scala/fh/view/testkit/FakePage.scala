@@ -609,7 +609,8 @@ object FakePage {
     * class, attribute, style property or text), so a value only a handler or a
     * computed expression keeps live is not compared at its stale first paint. A
     * `data-bind` control's `value` and `checked` are left out too: the handlers
-    * beside it own them.
+    * beside it own them. So are the seeds, a morph not having to resend one
+    * whose values a signals frame moved.
     */
   object Paint {
     def apply(root: Element, signals: JsonObject): Unit =
@@ -650,6 +651,8 @@ object FakePage {
         if (e.hasAttr("data-bind")) {
           val _ = e.removeAttr("value").removeAttr("checked")
         }
+        // Folded into `signals`, which is what the page shows through them.
+        SeedKeys.foreach(k => { val _ = e.removeAttr(k) })
       }
 
     private def style(

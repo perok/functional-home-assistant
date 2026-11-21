@@ -270,6 +270,11 @@ final class FakeHomeAssistant private (
         .flatMap(changed => deltas.offer(EntitiesEvent(changed = changed)))
     }
 
+  /** The entity leaves HA, as a `subscribe_entities` removal frame says. */
+  def remove(entityId: String): IO[Unit] =
+    clock.update(_ + 1) *> stateRef.update(_ - entityId) *>
+      deltas.offer(EntitiesEvent(removed = List(entityId)))
+
   /** The registry-watch analogue of [[emit]]. */
   def pushRawEvent(eventType: String, payload: Json): IO[Unit] =
     queueFor(eventType).flatMap(_.offer(payload))
