@@ -278,9 +278,11 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
   session:
   - The log keeps only `fragments`, which node or host changed at which version; `mutations`,
     `horizon` and the set refill go (ADR 0011). `completeFrom`, for a gap nobody watched, stays.
-  - A session's `holds` keeps, beside each node's inputs and signals, each host's keys in the
-    order sent. That is one reference per member per session, bounded by the static ids, where
-    the log's `mutations` grew until pruned.
+  - A session's `holds` keeps, beside each node's inputs and signals, what each host shows, in
+    the order sent: the `Ix` of each shown root, which is the key and its case in one int (a
+    member's clauses and a pick's cases each have their own). That is one int per member per
+    session, bounded by the index, where the log's `mutations` grew until pruned. `holds` is
+    keyed by `Ix` and stamped with the renderer it was painted by (D2a).
   - On a pull or a variable write, each touched host's decided keys are compared with its held
     ones, skipped when equal. One planner turns the difference into `Remove`/`Before`/`Append`
     per key, a switch replacing what a key shows, sent back to front so each anchor is on the
@@ -289,7 +291,8 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
   - A key that leaves takes its nodes' entries and its inner hosts' key lists with it, so an
     absent entry always means "not on the page, send it whole". `holds` is trusted only when the
     cursor is at or above `told`, as today.
-  - A set's key is its member's root, `<host>_<key>`; nodes inside get ids per case.
+  - A set's key is its member's root, `<host>_<key>`. Its clauses keep sharing DOM ids:
+    `holds` and the render cache tell them apart by `Ix`, so no id changes.
   - Not chosen: the log recording which members' order inputs changed, so only those are placed
     again, with no search. Cheaper, but right only if the log never misses one, and a write to a
     variable an order reads moves members it cannot name. Worth it only if the bench shows the
@@ -475,9 +478,9 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        does; R5 moves popups onto the pick.
      - Scala's `validate` refuses a choice on a card placing another region, as it does a set;
        the exact "whole template" comparison is Pkl's (the wire template carries the root).
-     - `MemberKey.Surface` and ADRs' "state surface" still name a case by its old word.
+     - ADRs' "state surface" still name a case by its old word.
    - **R4d, the planner**, branch `the-planner` on `pkl-fixtures` (F, #725). Agreed
-     2026-11-19. D0 first, a refactor with no behaviour change, then D1–D6.
+     2026-11-19. D0 first, a refactor with no behaviour change, then D1, D2a, D2b, D3, D5, D6 (D4 merged into D3).
      - **D0.1, one tree index.** Today about eight walks mint ids themselves (`Dashboard.picks`,
        `Dashboard.varScopes`, `Validate.walk`/`walkIds`, `Renderer.Index`, `Member.subtree`,
        `MemberGraph`'s nested-set walk, the build's JSON hoist), and R4c added a second spelling,
@@ -598,28 +601,75 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          reconnect: its `datastar` parameter is never `{}`, since the shell seeds `conn` and
          `ui_popups`, both in `SseInclude`. So every page load logs "reconnect carried a
          signal store with no readable cursor" and resumes from V instead of V + 1, a resend
-         at most. Natural with D4, which reads the cursor at reconnect.
+         at most. Lands in D3, which reads the cursor at reconnect.
        - **Time: 16 s locally, aim 20 s on CI.** It was 28 s: each `charts` run's first chart
          started a GraalJS engine and ECharts (~270 ms), now one per suite through
          `ServerApp.Edges.chart`; and `TestServer.record` took 15.5 ms, `poll` sleeping 5 ms
          before each check, now 1.3 ms. What is left is ~25 ms per run (a boot, two loads, two
          fresh GETs); fewer, longer runs would cut it, kept at 50 × 15 for now.
-     - **D2, `holds` keeps each host's keys** in the order sent; written, not read. The oracle
-       checks held keys equal the fake page's order.
-     - **D3, the planner** (§7) replaces `MemberGraph.deltas` and the set refill; an A → B → A
-       test sends A whole.
-     - **D4, the log down to `fragments`**; `FragmentLogSuite`'s refill assertions become "a
-       returning page, its position ahead of its cursor included, gets only the members that
-       changed, no set repaint".
+     - Order agreed 2026-11-21: nothing merges before the whole lands, so no step builds what a
+       later one replaces. The `Ix` key is decided now rather than measured in D6, D3 and D4 are
+       one step, and nothing popup-specific is written before R5.
+     - **D2a, `holds` and the render cache keyed by `Ix`; `holds` stamped.** No behaviour
+       change, goldens byte-identical; bench `page`/`tickRender`/`publishSet*` before and after.
+       - `holds: Map[Ix, Held]`; `Trace`, `morph`, `signalFrame`, `placed`, claims, repaint and
+         the opening write and read `Ix`. A clause's root has its own `Ix`, so
+         `ByteValues.clause` goes; `RenderCache` keys by `Ix` (`install` clears it, and an entry
+         carries `Renderer.generation`).
+       - `holds` is stamped with what painted it: the renderer's generation and the page's head
+         and style hashes. `TreeIndex`'s rule becomes "a session holds an `Ix` only under that
+         stamp".
+       - The stamp is the swap's one mechanism: every step compares it first and, on a mismatch,
+         answers as a swap does today (a reload when the head moved or to/from the error page,
+         else the repaint), never a diff. `install` rings the doorbell so an idle session steps;
+         `reloadRepaints`' watcher goes. This closes a step that ran on the new renderer before
+         the watcher's repaint (a pull between, a tap while the stream is down). Check first:
+         the repaint reads the open popup through the previous renderer; `open` is spelled by
+         root DOM id so the new one can read it, and a popup it lacks is closed
+         (`orphanedPopup`).
+     - **D2b, `holds` keeps what each host shows**, in the order sent (§7), written and not yet
+       read.
+       - `Held.shows: Option[IArray[Ix]]` on the host node (one host per node, §2).
+       - The structural patches name their host and key, so one value gives the bytes and the
+         change to `holds`: `Patch.Fill(host, html, shows)` (inner), `Place(host, html, shown,
+         before)` (before/append), `Leave(host, key)` (remove). `applied`: a `Fill` drops what
+         is under the host and sets its list; a `Place` inserts before its anchor, an anchor the
+         list lacks making it `None`; a `Leave` drops the key's subtree (by `[ix, end)`) and the
+         key. `Patch.Insert` and `invalidates` stay only for `#popups` (R5).
+       - The `Trace` walk records each live hole's shown roots, so fills and placed members bring
+         their inner hosts' lists.
+       - Oracle: after every settle, every set or pick host on the fake page has a list, equal to
+         the page's child order and to the list the session of a fresh page load holds (cases
+         included, which DOM ids cannot show). Bench `page` (one list per host).
+     - **D3, the planner, and the log down to `fragments`** (§7), one step: the planner makes
+       the replay dead, so it goes here. Per session from the start (`Shared` decisions and the
+       viewer's), and a variable write goes through it too, so a tab stops using `hostFill`.
+       Goes: `MemberGraph.deltas`, the set refill, `mutations`, `horizon`, `MemberKey`,
+       `NodeAncestry` and `MemberGraph.parentEdges` (containment is the index's range); the
+       log keys by `Ix` (check first: Origin's doc says a write rotates the log, `TreeIndex`'s
+       that the log outlives a swap). An A → B → A test sends A whole; `FragmentLogSuite`'s
+       refill assertions become "a returning page, its position ahead of its cursor included,
+       gets only the members that changed, no set repaint". D1's two open items land here: the
+       host fill's seed skip, and `hasSignals` reading a first connect as a reconnect.
      - **D5, per-session decisions:** §4's variable-read refusals go (the mixed `by`, set guards,
        `valueWhile`, order keys), with a test of one guard reading a variable and a state, two
-       viewers on different values.
-     - **D6, benches:** everything R2 measured, `publishSetOrdered` also with many sessions, one
-       session's `holds` size; then `validated`'s allocation (R2 left it ~6% above R1 on the
-       starter, 1.56 → 1.66 MB/op).
-     - Docs in each step's commit. Folded in where cheap: `MemberKey.Surface` → a case's name,
-       the ADRs' "state surface" wording. Popups stay on today's swap (R5).
+       viewers on different values. It adds deciders to D3's per-session path, no reshape.
+     - **D6, benches** that span steps: everything R2 measured, `publishSetOrdered` also with
+       many sessions, one session's `holds` size; then `validated`'s allocation (R2 left it ~6%
+       above R1 on the starter, 1.56 → 1.66 MB/op). Each step keeps its own bench gate.
+     - Docs in each step's commit. Folded in where cheap: the ADRs' "state surface" wording.
 5. **R5, popups on the pick.**
+   - **`#popups` is an ordinary node:** the build adds a `group` (`core/group.pkl`) with the
+     authored id `popups`, holding the root's `nodeMod.match(popups, …)`; the chrome places it
+     through a hole instead of writing `id="popups"` (ADR 0002, 0020: the chrome warning becomes
+     a template check). It is its own root in the index, outside `#dashboard`, its scope
+     starting at the page root. Goes: `PopupHostId` as a special case, `swapHost`'s popup branch,
+     repaint's popup case, `Patch.Insert`, `invalidates`; the oracle's list check covers it.
+   - **A popup's value is a name**, since every open becomes a history entry and an edit that
+     moves a card must not break Back into its popup. The Pkl library derives it (a more-info's
+     from its entity; equal popups merge) or the author names it (`.named(…)`), and the wire
+     carries only the one generic name, whatever derived it. Settle first: two different
+     more-info contents for one entity.
    - Popups as §7 has them, their taps `SetVar` calls on `popups`: the root's `popups`, its name
      reserved, a popup
      starting with the root's scope (`NodeVariablesSuite`'s "a SURFACE is its own scope root"
@@ -679,13 +729,10 @@ variables and the tap routes. This plan is deleted when the work lands.
   run-time half: decided once at set level, an unchanged answer touches no member, where today a
   change to the entity it names re-decides every one (`publishSetNamedGuard`, about 0.9 µs a
   member). Raise after R4, with a real dashboard's numbers.
-- **Stable popup ids and variable URL names.** An inline popup is sugar for one in the root's
-  collection, hoisted there by the build, so its id is the build's: its position, which moves when
-  a card is inserted above it, and after R5 that id is the `popups` value a link or a held session
-  names. Derive it from what the popup shows (a more-info's from its entity, merging equal ones),
-  with an opt-in `.named(…)` for the rest. A variable's URL name, `v.<declarer id>.<name>`, moves
-  the same way; an opt-in `.urlName(…)`, unique per dashboard, would keep tab links working while
-  node ids stay derived.
+- **Variable URL names.** A variable's URL name, `v.<declarer id>.<name>`, moves when its
+  declarer does (popup values are R5's). Check before adding `.urlName(…)`: the declarer is
+  spelled by its node id, so an authored id on it already makes the URL position-free, and one
+  name could be the DOM id, the URL prefix and a popup's name.
 
 ## Open questions
 
