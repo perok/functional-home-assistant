@@ -574,8 +574,9 @@ class RenderBench {
     */
   private def checkFillShape(): Unit = {
     val one = pullFlip(1).head
-    val filled = one.collect { case Addressed(Patch.Insert(html, _, _), _, _) =>
-      html
+    val filled = one.collect {
+      case Addressed(Patch.Fill(_, _, html, _), _, _) =>
+        html
     }
     if (filled.sizeIs != 1)
       sys.error(s"resumeFlip must emit exactly one host fill; got $one")
