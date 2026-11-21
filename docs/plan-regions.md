@@ -556,29 +556,58 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        that is strictly better (D0.1 + D0.2: `page` −5%, `publishSetOrdered` −8%, `validated`
        +0.2% for the index, accepted 2026-11-21). Authoring stays as §2 has it: a fill plus the
        whole-template rule, so an author's own card can be the host.
-     - **D1, a model-based oracle**, green on today's code first (a red there is a bug report,
-       not a silent fix). What it holds, whatever D2–D5 change: everything a viewer was sent,
-       applied to its page in order, is the page a fresh render gives now.
-       - The real server, in process: `TestServer.resource` (`ServerApp.assemble` with only its
-         `Edges` stubbed; no port), one per run, so a shrunk run replays from the same state
-         (a warm boot is 15 ms, a page 3 ms, a connect 21 ms; the first in a JVM ~1 s).
-       - Two viewers. Steps (hedgehog): an entity changes or leaves, a viewer chooses a
-         variable value, a popup opens or closes, and a viewer's stream drops and reconnects
-         with the cursor its page last applied, both while its session lingers and after it
-         is forgotten, with changes in between.
-       - The fake page: the page GET parsed with jsoup (a test-only dependency), applying
-         `patch-elements` by id (outer, inner, remove, before, append) and `patch-signals` into
-         a signal map.
-       - Equal: once the run settles, the fake page and a fresh GET at the same choices, each
-         with its `data-signals` seeds folded into the signal map and every signal binding
-         painted from it (bare `$path` reads; a pending-or-committed read as committed), compare
-         `#dashboard` and the popup host node for node. `conn`, the cursor and the toast are
-         left out.
-       - Dashboards: the `FixtureEntries` ones with sets, picks, popups or variables, plus one
-         with a set nested in a member and an If in a member. ~50 runs of up to 15 steps each;
-         aim at 20 s on CI. A red run names its seed.
-       - Lead: the fake page and the equality. Sonnet: the generators and the per-dashboard
-         wiring, against that API.
+     - **D1, a model-based oracle.** Built: `OracleSuite`, `testkit/FakePage`,
+       `FakeBrowser`. What it holds, whatever D2–D5 change: everything a viewer was sent,
+       applied to its page in order, is the page a fresh render gives now. A red is a bug
+       report, not a silent fix.
+       - The real server, in process: `TestServer.resource`, one per run, so a shrunk run
+         replays from the same state. `FakeBrowser` opens every stream through the real route
+         (the opening block up to its cursor, a reload followed) and plays the connection loop
+         by hand in between: `Server.pull`, then the session's backlog, which holds every
+         step's frames in the order they ran.
+       - Two viewers. Steps (hedgehog, up to 15; the size grows over the 50 runs, so a run
+         averages about 4): an entity changes or leaves (and may come back), a viewer presses a
+         choice or a popup its page shows, a stream drops and reconnects with what its page
+         carries, every session is forgotten.
+       - The fake page: the page GET in jsoup (a test-only dependency), `patch-elements` by
+         mode, `patch-signals` merged into a signal map. A seed applies when its element
+         arrives or its text changes, since the bundle's morph sets only an attribute that
+         differs. A refresh is made at the URL its `data-fh-url` mirrors write; a reconnect
+         carries the signals `data-init`'s filter lets through.
+       - Equal: once the run settles, each page against a fresh GET at its own URL,
+         `#dashboard` and the popup host node for node, every binding painted from the signal
+         map (a pending-or-committed read as committed). Left out: the seeds themselves
+         (folded into the map), whatever an expression the fake page cannot read paints, a
+         binding on a signal some handler assigns (the fake page runs none; `_e.*` and a
+         pending ask excepted), a `data-bind` control's `value` and `checked`. A patch with no
+         target fails the run.
+       - Dashboards: `sets`, `branches`, `taps`, `slider-groups`, `light-controls`, `charts`,
+         and one in the suite with a set nested in a member and an If in a member; 50 runs
+         each.
+       - **Known red — fix before D3.** A page whose session was forgotten (an idle tab past
+         its linger, a restart) reconnects to a document-form repaint, and a seed that comes
+         back with the text the element already carries is not applied again. A signal a
+         frame moved since then stays stale: a light goes off, every session is forgotten, it
+         comes back on, and the page shows it off. Pinned by `OracleSuite`'s `known:` test,
+         marked `.fail` so it turns red once fixed; until then the property holds the house
+         still while a forgotten viewer is down. Before D3 because D3 and D4 rewrite this path
+         (the refill, a returning page), and the skip leaves the oracle blind to it there.
+         Likely shape, not yet investigated: a document-form repaint onto elements the page
+         already has also sends a signals frame for the display values it carries. The fix
+         removes the skip and the `known:` test.
+       - **Also found — fix any time, cheap.** `Server.hasSignals` reads a first connect as a
+         reconnect: its `datastar` parameter is never `{}`, since the shell seeds `conn` and
+         `ui_popups`, both in `SseInclude`. So every page load logs "reconnect carried a
+         signal store with no readable cursor" and resumes from V instead of V + 1, a resend
+         at most. Natural with D4, which reads the cursor at reconnect.
+       - **Time: 27–29 s locally against 20 s on CI.** Measured per phase: `charts` is ~14 s
+         of it, each run's first chart starting a GraalJS engine and ECharts (~270 ms, where
+         the other dashboards' first page is 2–3 ms). `TestServer.record` is 15.5 ms, of
+         which ~14 ms is `poll` sleeping 5 ms before each check (spiked: checking first, then
+         1 ms sleeps, makes it 1.3 ms). The rest is ~25 ms per run: a boot, two loads, two
+         fresh GETs. Two small fixes, together an estimated ~14 s locally: `ServerApp.Edges`
+         takes the chart renderer, so `TestServer` shares one engine per JVM, and the
+         check-first `poll`. Fewer, longer runs would cut the per-run part.
      - **D2, `holds` keeps each host's keys** in the order sent; written, not read. The oracle
        checks held keys equal the fake page's order.
      - **D3, the planner** (§7) replaces `MemberGraph.deltas` and the set refill; an A → B → A
