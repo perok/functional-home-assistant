@@ -500,6 +500,11 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        `memberSegment`/`innerCaseId`; `WalkAt.InMember`, `innerSetId` and `groupAt` fold into
        it. The spike's comparison stays as the index's test: its ids are the ones the renderer
        writes, its containers the ones `SurfaceGraph` answers.
+       Built. Two visible changes, both in `validate`: its messages name a member's nodes by
+       their runtime id (where they said `<set>_<i>`), and an authored id on a set's host is
+       accepted, where the old walk gave its members the host's id and refused it as repeated.
+       `AuthoredIdSuite` holds the
+       authored-id rules.
        Spike (2026-11-20, a throwaway suite): one index built from the wire tree works.
        - One walk of the WIRE tree (`Dashboard.picks`' shape: `childIdWithin`, members by
          `memberSegment`, a popup under its prefix) gave every id the runtime renders (body,
