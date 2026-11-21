@@ -22,7 +22,8 @@ it as `Activation.Var`.
 
 **State:** direction agreed in chat (2026-11-10); the prework is on main (below); R1 is built
 (`slot-classes`), R2 is built (`set-fill`), R3 is built (`choices-in-pkl`), R4a and R4b are built
-(`one-runtime-path`), R4c is built (`root-hosts`), R4d onward not. The opening describes the shape before
+(`one-runtime-path`), R4c is built (`root-hosts`), R4d's D0.1 and D0.2 are built (`the-planner`),
+the rest not. The opening describes the shape before
 R1.
 
 ## What this builds on
@@ -527,18 +528,29 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      - **D0.2, the compiled node mirrors the wire's union.** `Ready.Component.content: Content =
        Fixed(regions) | Live(slot, LiveFill)`, `LiveFill = Pick(by, variable, byKey, cases,
        otherwise) | Set(SetFill)`; `isChoice`, `choices`, `set` and `SetFill.region` go, and
-       `Ready.Pick`'s host, slot, prefix, within and case ids move to the index.
-     - **D0.3, typed containers.** Inside a renderer a container is the `Ix` of its root: the
-       page's root, a popup's content root, a case's node. Its kind is an array lookup, and
-       `SurfaceGraph` and the hot paths (`Patches.plan`'s `shown`, `visibleNode`,
-       `selectionsIn`) take sets of `Ix`, allocating nothing per id. Where a container crosses a
-       swap (`SessionState.open`, a reconnect's `ui_popups`) it keeps a DOM spelling, read into
-       `Ix` once per step: the page `""`, a popup `s_<sid>` (`surfaceRootId`), a case its node
-       id. `validate` refuses an authored id starting `s_`, so a popup's spelling cannot meet a
-       node's. Bench round with `-XX:-DoEscapeAnalysis`.
-     - D0's gate: goldens byte-identical, suites green, `validated`/`tickRender`/`publishSet*`
-       equal or better. Authoring stays as §2 has it: a fill plus the whole-template rule, so an
-       author's own card can be the host.
+       `Ready.Pick`'s host, slot, prefix, within and case ids move to the index. Built.
+     - **D0.3, containers are nodes.** A container is the root node of the page, of a popup's
+       content, or of a case, and nothing about it says popup or panel. Inside a renderer it is
+       that node's `Ix` (`TreeIndex.container`) and an open set is a `BitSet`. `SurfaceGraph`
+       and the hot paths (`Patches.plan`'s `shown`, `visibleNode`, `selectionsIn`) read node
+       `Ix`s, the entity reverse index included, so they allocate nothing per id; a `NodeId` is
+       spelled only where bytes are written. `containerOfIndexed`, `caseAt` and `surfaceParent`
+       become index lookups.
+       Where a container crosses a swap (`SessionState.open`, `Mutation.container`, the
+       recorder's `openSets`) it is spelled by its root's DOM id, read into `Ix` once per step:
+       a popup is `s_detail__c`, not its key `detail`. Under clauses one id reads as one
+       `Ix` per clause, which is what `caseAt` means today. One kind of name needs no prefix
+       rule: `validate` already refuses an authored id equal to any other id in the index,
+       popups' included.
+       The wire does not move: `ui_popups`, its URL parameter and the open route keep the
+       surface key, read into its root at the route. The popup branches that remain
+       (`Selections.popup`, `committedSelection`, the popup host in `surfacesAt`) are what R5
+       deletes, so D0.3 does not rewrite them first. Bench round with `-XX:-DoEscapeAnalysis`.
+     - D0's gate: goldens byte-identical, suites green, `page`/`tickRender`/`publishSet*` equal
+       or better. Render time and allocation come first; `validated` may pay for a structure
+       that is strictly better (D0.1 + D0.2: `page` −5%, `publishSetOrdered` −8%, `validated`
+       +0.2% for the index, accepted 2026-11-21). Authoring stays as §2 has it: a fill plus the
+       whole-template rule, so an author's own card can be the host.
      - **D1, a model-based oracle**, green on today's code first (a red there is a bug report,
        not a silent fix): hedgehog, two sessions, random state changes and variable writes, each
        session's patches applied to a fake page (jsoup, a test-only dependency) and compared with
@@ -567,6 +579,15 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      `.inHistory()`, the popstate re-read of the URL and the mirror's own-entry marking, and the
      `v.<root>.popups` parameter. Also check why two of the spike's pulls sent nothing (a member
      leaving, a tab switch, both on a session with no stream).
+   - **`SessionState.open` goes.** With the popup a variable, every container a viewer shows
+     follows from its variables and the state, so each step computes D0.3's `BitSet` from them.
+     Nothing spelled as a container then crosses a swap, only `VarKey`s, which `recheck` already
+     checks. Check first: the recorder reads `openSets` outside any step, `Sessions.reveal` widens
+     the open set before a fill, and `selectionsShown` gives a pick in a member's clause the
+     variable's value only once that clause is shown.
+   - **`defaultOpen`** becomes the `popups` default: that popup's id, not no value. Today
+     `selectedSurfaces` adds every `defaultOpen` popup while `#popups` holds one, so what two of
+     them mean is settled before this is built.
    - Smoke tests (CI) for Back and Forward over a popup, over two history variables, and from a
      link naming both.
    - R4's costs-nothing test for a popup. Bench a popup open and close, and state changes with
