@@ -66,7 +66,8 @@ private[runtime] final class SurfaceGraph(
   private val popupRoots: Map[String, Ix] =
     popups.map((sid, s) => sid -> s.content.ix)
 
-  private val popupBySpelling: Map[String, String] =
+  /** Each popup's root spelled, to its surface key. */
+  private[runtime] val popupBySpelling: Map[String, String] =
     popupRoots.map((sid, r) => (index.id(r): String) -> sid)
 
   /** Every container but the page's root. */
@@ -404,9 +405,7 @@ private[runtime] final class SurfaceGraph(
     Map(Dashboard.PopupHostId -> openPopupIn(open).getOrElse(""))
 
   private def openPopupIn(open: Set[String]): Option[String] =
-    popupBySpelling.toList.sorted.collectFirst {
-      case (spelled, sid) if open(spelled) => sid
-    }
+    SurfaceGraph.popupIn(popupBySpelling, open)
 
   /** [[selectionsIn]], where a pick none of whose cases `open` holds takes
     * `env`'s: a pick in a set member's clause is first shown when the member
@@ -433,4 +432,18 @@ private[runtime] final class SurfaceGraph(
         }
       }.toMap
     )
+}
+
+private[runtime] object SurfaceGraph {
+
+  /** The popup `open` holds, through one renderer's spellings: the swap reads
+    * it through the renderer that painted `open` ([[Renderer.Stamp]]).
+    */
+  def popupIn(
+      bySpelling: Map[String, String],
+      open: Set[String]
+  ): Option[String] =
+    bySpelling.toList.sorted.collectFirst {
+      case (spelled, sid) if open(spelled) => sid
+    }
 }

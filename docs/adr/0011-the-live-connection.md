@@ -121,7 +121,8 @@ log where 500 names nothing. The log carries a UUID minted with it and a cursor
 quoting a different one is rejected outright rather than reasoned about. It also
 subsumes "is this even the same dashboard", which is why `headHash` does *not* gate
 the resume — a dashboard change arrives via a renderer swap, and a swap rotates the
-log id, so the cursor is already rejected before any hash is consulted. `logId`
+log id, so the cursor is already rejected before any hash is consulted (and in the moment
+before the log rotates, the session's stamp refuses the resume: ADR 0012). `logId`
 decides *is this comparable*; `headHash` decides *does the browser need a reload*.
 Neither can answer the other's question, and `headHash` is stable across restarts
 BY DESIGN — which is precisely why it cannot double as `logId`.

@@ -936,9 +936,9 @@ Three properties hold it up, and each fails silently if broken:
 
 The recorder's `Shared` is kept off the renderer on purpose (the renderer's `Decided` only lends
 readers the newest two, and its identity never moves). Three things key on renderer IDENTITY —
-`publisherFor` rotates the changelog on a renderer emission, `reloadRepaints` repaints every
-connection on one (and decides what counts as "one" with `eq`, `Server.sameRenderer`), and
-`RenderCache` compares renderer generations with `eq` and empties on a swap — so a membership
+`publisherFor` rotates the changelog on a renderer emission, every session's step compares the
+generation that painted its `holds` with `eq` and repaints on a mismatch (`Server.swapAnswer`),
+and `RenderCache` compares renderer generations with `eq` and empties on a swap — so a membership
 change that produced a new renderer
 would rotate the log, repaint every browser and flush the cache on exactly the case the graph
 exists to make cheap. It lives in the recorder's `evalMapAccumulate` for one renderer arm instead,
@@ -1698,7 +1698,7 @@ Live list — delete an entry when it is answered, and say where the answer land
   What it wins, so the work can be judged: a body render is 17 µs a node — 5.7 ms for a 200-card
   page whose HTML is 257 kB, 0.2 ms for the shipped starter. Ten coincident loads of the big one
   cost 57 ms of CPU while shipping 2.5 MB, so the render is ~2 % of the work it feeds. Real, and
-  not urgent. `reloadRepaints` is N × the same body render and fires on a manual dashboard edit.
+  not urgent. The swap's repaint is N × the same body render and fires on a manual dashboard edit.
 
 - ~~**The document does not stream, and the server's target is a Raspberry Pi 4.**~~ *Closed by
   §6a.* The walk writes through a `Sink` straight to the response body; the peak a page open holds

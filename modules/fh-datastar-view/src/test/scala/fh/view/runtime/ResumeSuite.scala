@@ -528,7 +528,7 @@ class ResumeSuite extends ServerHarness {
         )
         _ <- kept.arrived *> closed.arrived *> kept.drain *> closed.drain
         slug <- ts.server.liveSlug(ts.slug)
-        _ <- slug.renderer.set(
+        _ <- slug.install(
           Server.RendererState.Ready(
             Renderer.create(popupDash("<em>{{state}}</em>"))
           )
@@ -543,6 +543,51 @@ class ResumeSuite extends ServerHarness {
         assert(closedSent.contains(BodyRepaint), clue = closedSent)
         assert(!closedSent.contains(hostSelector), clue = closedSent)
         assert(!closedSent.contains("<em>B0</em>"), clue = closedSent)
+      }
+    }
+  }
+
+  /** Nothing waits for a repaint: a pull between `install` and it, or a press
+    * while the stream is down, diffed the new renderer against what the old one
+    * painted.
+    */
+  test("a step after a swap answers with the repaint or reload, never a diff") {
+    val scripted = liveLeafDash.copy(cards =
+      liveLeafDash.cards.updatedWith("card")(
+        _.map(_.copy(script = Some("void 0;")))
+      )
+    )
+    def text(fs: List[SseFrame]) = fs.flatMap(_.data).mkString("\n")
+    live(
+      popupDash("<i>{{state}}</i>"),
+      Map("sensor.a" -> es("sensor.a", "cold"))
+    ) { ts =>
+      for {
+        pulled <- ts.viewer()
+        pressed <- ts.viewer()
+        slug <- ts.server.liveSlug(ts.slug)
+        _ <- slug.install(
+          Server.RendererState.Ready(
+            Renderer.create(popupDash("<em>{{state}}</em>"))
+          )
+        )
+        pullSent <- pulled.step(FixtureEntity("sensor.a", "hot")).map(text)
+        _ <- ts.post(
+          s"sse/popup/${ts.slug}/close",
+          body = s"""{"${Server.ConnSignal}":"${pressed.document.conn}"}"""
+        )
+        pressSent <- pressed.session.takeBacklog.map(text)
+        _ <- slug.install(Server.RendererState.Ready(Renderer.create(scripted)))
+        reloadSent <- pulled.pull.map(text)
+        // Told once: the page is reloading, so nothing more is sent.
+        after <- pulled.step(FixtureEntity("sensor.a", "cold")).map(text)
+      } yield {
+        assert(pullSent.contains(BodyRepaint), clue = pullSent)
+        assert(pullSent.contains(">hot<"), clue = pullSent)
+        assert(pressSent.contains(BodyRepaint), clue = pressSent)
+        assert(reloadSent.contains(Server.ReloadSignal), clue = reloadSent)
+        assert(!reloadSent.contains(BodyRepaint), clue = reloadSent)
+        assertEquals(after, "")
       }
     }
   }
@@ -584,7 +629,7 @@ class ResumeSuite extends ServerHarness {
         _ <- ts.choose(conn, VarKey(NodeId.derived("c_1"), "tab"), Some("1"))
         _ <- client.arrived *> client.drain
         slug <- ts.server.liveSlug(ts.slug)
-        _ <- slug.renderer.set(
+        _ <- slug.install(
           Server.RendererState.Ready(
             Renderer.create(twoTabs("em"))
           )
@@ -608,7 +653,7 @@ class ResumeSuite extends ServerHarness {
   private def swapTo(ts: TestServer, d: Dashboard) =
     ts.server
       .liveSlug(ts.slug)
-      .flatMap(_.renderer.set(Server.RendererState.Ready(Renderer.create(d))))
+      .flatMap(_.install(Server.RendererState.Ready(Renderer.create(d))))
 
   test("an edit removing the open tab moves its viewer to the declared one") {
     live(twoTabsDash, abStates) { ts =>

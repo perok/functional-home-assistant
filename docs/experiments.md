@@ -92,7 +92,7 @@ the previous entry.
 
 Measured on #130, recorded here 2026-10-24. **Not worth doing.**
 
-**Question.** After a dashboard edit, `reloadRepaints` renders the body once per connected session,
+**Question.** After a dashboard edit, the swap's repaint renders the body once per connected session,
 and N browsers loading at once each render the whole page. Would one shared render (the cache, or
 one memoised body per set of viewer inputs) be worth having?
 

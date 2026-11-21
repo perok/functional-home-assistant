@@ -48,6 +48,7 @@ enum Tenure derives CanEqual {
   *     leaves this low, which loses the check rather than breaking anything.
   *   - `checkedBy`: the [[Renderer.generation]] `vars` and `initialValues` were
   *     last checked against ([[Renderer.recheck]]).
+  *   - `painter`: what `holds` was painted under ([[Painter]]).
   *
   * '''`position` may run ahead of the client's cursor''' (the signal can ride
   * the keepalive). Safe because the client's cursor is the authority at
@@ -62,13 +63,30 @@ final case class SessionState(
     position: Long,
     told: Long,
     initialValues: Map[VarKey, String] = Map.empty,
-    checkedBy: Option[AnyRef] = None
+    checkedBy: Option[AnyRef] = None,
+    painter: Painter = Painter.Unpainted
 ) {
 
   /** What this viewer is shown: a choice, else the start; [[VarGraph]] fills
     * the declared value under both.
     */
   def values: Map[VarKey, String] = initialValues ++ vars
+}
+
+/** What a session's `holds` was painted under. A step under any other installed
+  * renderer answers as a swap does, a repaint or a reload, and never diffs: an
+  * `Ix` is one renderer's ([[Server.swapAnswer]]).
+  */
+enum Painter {
+
+  /** Nothing yet: `holds` is empty. */
+  case Unpainted
+  case By(stamp: Renderer.Stamp)
+
+  /** Told to reload while `installed` was (a renderer's stamp or a failure);
+    * `holds` is empty, and nothing more is sent until that changes.
+    */
+  case Reloading(installed: AnyRef)
 }
 
 object SessionState {

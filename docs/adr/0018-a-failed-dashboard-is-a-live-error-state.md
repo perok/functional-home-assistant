@@ -72,8 +72,8 @@ the seam.
   — the page keeps the last message it rendered until the next state change.
   Closing it would need the page to tell the server which message it last
   showed (a `_`-prefixed signal serializing into the reconnect URL), which is
-  client state the design deliberately avoids; the live-connection path that
-  always sees every transition ([[Server.reloadRepaints]]) does not miss it.
+  client state the design deliberately avoids; a live connection's next step
+  meets every transition (`Server.swapAnswer`) and does not miss it.
 - **Repair is live.** `reloadSite` re-evaluates the entrypoint on each source
   edit and sets **every** slug's state: a proven dashboard → `Ready`, one that
   failed to decode or validate → `Failed(message)`. A dashboard broken since
@@ -105,8 +105,8 @@ all keep taking a concrete `Renderer`. Exactly five seams match on the state:
 |---|---|---|
 | `rendererFor` | the renderer | `None` → 404 for non-HTML consumers |
 | `publisherFor` | record frames | an empty stream (nothing to record) |
-| `openingPatches` | the narrowest patch | `None` → a `reload` patch (defensive: only a stale connection or a direct SSE URL reaches it — the error page opens the `recover` stream) |
-| `reloadRepaints` | repaint connections | `reload` patch across the transition |
+| `openingPatches` | the narrowest patch | a `reload` patch (defensive: only a stale connection or a direct SSE URL reaches it — the error page opens the `recover` stream) |
+| `swapAnswer` (every step) | a repaint for a session painted by another renderer | a `reload` patch across the transition, once |
 | `recoverStream` | an immediate `reload` on open (the fix landed between render and connect) | the inert `recover-open` comment on open; a `reload` on each `Failed -> Ready` and on a changed `Failed` message |
 | `pageResponse` | the page | the self-contained error page |
 

@@ -234,7 +234,7 @@ reason to keep it rather than raise the guards:
 
 - a displacement `interruptWhen` applied INSIDE `Server.untilRevoked`'s merge, so the response body
   of a displaced client never ended;
-- `reloadRepaints` inferring transitions with `.drop(1)`, which discarded a renderer swap that
+- a swap watcher inferring transitions with `.drop(1)`, which discarded a renderer swap that
   landed before its subscription — a client left on a dashboard that no longer exists.
 
 So: **a suite failure that runs its FULL timeout guard is "the event never arrived", not "slow

@@ -114,11 +114,6 @@ type VarEnv = Map[NodeId, Map[String, String]]
   */
 class Renderer(validated: Dashboard.Validated) {
 
-  /** This renderer's identity for [[RenderCache]], which must not hold the
-    * renderer itself: an entry would pin a whole replaced dashboard.
-    */
-  private[runtime] val generation: AnyRef = new Object
-
   private val dashboard = validated.ready
   private val templates = validated.templates
   // Here, not beside the renderer, so a reload swaps rule and dashboard as one
@@ -656,6 +651,13 @@ class Renderer(validated: Dashboard.Validated) {
       dashboard.picks,
       members
     )
+
+  /** This renderer's identity, which a session's `holds` and a [[RenderCache]]
+    * entry are stamped with. Not the renderer itself: either would pin a whole
+    * replaced dashboard.
+    */
+  private[runtime] val generation: Renderer.Stamp =
+    Renderer.Stamp(headHash, styleHash, surfaces.popupBySpelling)
 
   /** The page's own static nodes, in no popup or case: which members bind an
     * entity depends on a version's membership ([[MemberGraph.binding]]).
@@ -1989,6 +1991,20 @@ class Renderer(validated: Dashboard.Validated) {
 }
 
 object Renderer {
+
+  /** What painted a session's `holds`, compared by reference: they are read
+    * only under it ([[Painter]]). It keeps what a swap's answer reads of the
+    * renderer it replaces: whether the head moved, and which popup `open`
+    * named, since the new renderer cannot read a popup it lacks.
+    */
+  private[runtime] final class Stamp(
+      val headHash: String,
+      val styleHash: String,
+      popups: Map[String, String]
+  ) {
+    def popupIn(open: Set[String]): Option[String] =
+      SurfaceGraph.popupIn(popups, open)
+  }
 
   /** A declared call as the press found it ([[Renderer.press]]). */
   final case class Pressed(

@@ -93,5 +93,6 @@ system — the opposite regime.
 - **The finding that an input-keyed `holds` must not outlive its template**:
   the render cache evicts on renderer identity, and `holds` must too, or a
   client keeps stale bytes across a dashboard change, silently. It holds
-  today because a renderer swap repaints every session's body (or reloads
-  the page) and replaces its `holds` (`Server.reloadRepaints`).
+  because `holds` is stamped with the renderer that painted it, and a step
+  under another repaints the body (or reloads the page) before anything else
+  (`Server.swapAnswer`, ADR 0012).

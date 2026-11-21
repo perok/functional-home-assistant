@@ -494,8 +494,8 @@ anything). A patch that writes a whole subtree, like a tab switch, uses both.
 **Position / cursor** — how far a reader has got through the log. A session's `position` is what the
 server last sent it; a **cursor** is what a reconnecting client claims to have.
 
-**Doorbell** — the single wake-up signal per dashboard. The recorder rings it once; every connected
-session wakes and pulls for itself. Coalescing is free — two rings before anyone wakes are one wake.
+**Doorbell** — the single wake-up signal per dashboard. The recorder rings it once per version, and a
+renderer swap once at the same version; every connected session wakes and pulls for itself. Coalescing is free — two rings before anyone wakes are one wake.
 
 **Pull** — a session computing its own updates from its own position. A live tick and a reconnect
 are the same call with a different cursor.

@@ -28,13 +28,13 @@ class FailedDashboardSuite extends ServerHarness {
     * written before `use` runs.
     */
   private def withLiveServer(start: Option[Server.RendererState])(
-      use: (TestServer, SignallingRef[IO, Server.RendererState]) => IO[Unit]
+      use: (TestServer, Server.RendererState => IO[Unit]) => IO[Unit]
   ): IO[Unit] =
     live(liveLeafDash, Map("sensor.a" -> es("sensor.a", "a0"))) { ts =>
       for {
-        ref <- ts.server.liveSlug(ts.slug).map(_.renderer)
-        _ <- start.traverse_(ref.set)
-        _ <- use(ts, ref)
+        slug <- ts.server.liveSlug(ts.slug)
+        _ <- start.traverse_(slug.install)
+        _ <- use(ts, slug.install)
       } yield ()
     }
 
@@ -98,7 +98,7 @@ class FailedDashboardSuite extends ServerHarness {
   test(
     "a live connection is told to reload when its slug breaks, and recovers"
   ) {
-    withLiveServer(None) { (ts, ref) =>
+    withLiveServer(None) { (ts, install) =>
       for {
         seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
         resp <- ts.gatedApp.run(
@@ -121,8 +121,8 @@ class FailedDashboardSuite extends ServerHarness {
               .timeout(15.seconds) *>
             // The error document has no #dashboard or head to patch, so a
             // reload.
-            ref.set(failed) *> awaitReloads(seen, 1) *>
-            ref.set(
+            install(failed) *> awaitReloads(seen, 1) *>
+            install(
               Server.RendererState.Ready(Renderer.create(liveLeafDash))
             ) *>
             awaitReloads(seen, 2)
@@ -182,7 +182,7 @@ class FailedDashboardSuite extends ServerHarness {
     * page must show.
     */
   private def recoveryReload(flip: Server.RendererState): IO[Unit] =
-    withLiveServer(Some(failed)) { (ts, ref) =>
+    withLiveServer(Some(failed)) { (ts, install) =>
       for {
         seen <- Ref[IO].of(Vector.empty[ServerSentEvent])
         resp <- ts.gatedApp.run(
@@ -201,7 +201,7 @@ class FailedDashboardSuite extends ServerHarness {
             // here would loop, since the page just loaded.
             awaitMarker(seen) *>
             assertNothing(seen) *>
-            ref.set(flip) *>
+            install(flip) *>
             awaitReloads(seen, 1)
         }
         reloads <- seen.get

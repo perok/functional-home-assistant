@@ -73,10 +73,18 @@ construction. So one value answers both questions:
   another (a different chart window, a variable) replaces it in place, one entry per node however
   many values are posted.
 
-**`holds` never outlives its renderer.** A dashboard edit repaints every session's body, or
-reloads the page, and replaces its `holds` (`Server.reloadRepaints`), so values held under one
-template are never taken for another's bytes (`ResumeSuite`: an edit that moves only markup
-reaches the client).
+**`holds` never outlives its renderer.** A session's `holds` is stamped with what painted it
+(`SessionState.painter`: the renderer's generation, which carries its head and style hashes and
+its popup spellings), and every step compares the stamp first (`Server.swapAnswer`): a pull, a
+press, the opening. Under another renderer the step answers as a swap — a reload when the head's
+unpatchable part moved or the page goes to or from the error page, else a repaint that replaces
+`holds` — and never diffs, so values held under one template are never taken for another's
+bytes (`ResumeSuite`: an edit that moves only markup reaches the client; a pull or a press between
+the swap and the repaint gets the repaint). The stamp is the swap's one mechanism: `install` rings
+the doorbell at the same version so an idle session steps, and no separate watcher repaints. It
+keeps what the swap reads of the renderer it replaces, since the new one cannot read a popup it
+lacks, and nothing that would pin that dashboard. A session told to reload sends nothing more
+until the next swap.
 
 Compared as `SlotValue`s, not their text, since a section reads `false` and `"false"`
 differently. Unequal values usually mean new bytes but need not: a slot read only as a section's

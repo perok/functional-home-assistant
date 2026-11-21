@@ -440,7 +440,7 @@ class Server(
     * [[Patches.resume]] (ADR 0012).
     *
     * A change landing in the reload `switchMap` window may be dropped: every
-    * connection repaints on reload ([[reloadRepaints]]).
+    * session repaints under the new renderer ([[swapAnswer]]).
     */
   private def publisherFor(
       slug: String,
@@ -615,7 +615,6 @@ class Server(
       healthPatch = (h: Boolean) =>
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
 
-      reloads = reloadRepaints(session, rendererOpt)
       // Only when it differs from what the document rendered: health can move
       // between that render and this connect, and the next transition may be
       // hours away.
@@ -658,7 +657,6 @@ class Server(
               .concurrently(
                 l.doorbell.discrete
                   .evalMap(pull(l, session, _) *> outlet.drained)
-                  .merge(reloads)
                   .merge(keepAlive)
               )
               .merge(haDown)
@@ -781,61 +779,75 @@ class Server(
       version: Long
   ): IO[List[SseFrame]] =
     session.run { was =>
-      if (version <= was.position) IO.pure(Session.Step(was, Nil, Nil))
-      else
-        (for
-          renderer <- OptionT(live.renderer.get.map(_.rendererOf))
-          s <- OptionT.liftF(checked(renderer, was))
-          log <- OptionT.liftF(live.log.get)
-          store <- OptionT.liftF(stateStore.current)
-        yield (renderer, s, log, store))
-          .flatMap { (renderer, s, log, store) =>
-            val env = renderer.vars.env(s.values)
-            Patches
-              .resume(
-                renderer,
-                live.cache,
-                log,
-                s.holds,
-                renderer.shared(store),
-                decisionAnswers,
-                answer(_, env),
-                env,
-                s.position + 1,
-                s.open,
-                // Live, not the arriving selection: a tab select moves it.
-                renderer.surfaces.selectionsShown(s.open, env)
-              )
-              .map { patches =>
-                // The cursor rides LAST, which makes it an ack: a client echoing
-                // it applied what came before. A silent frame announces nothing,
-                // so `told` does not move for it; the keepalive carries the
-                // cursor instead ([[SessionState]]).
-                val frames =
-                  if (patches.isEmpty) Nil
-                  else
-                    // Through `encode`, so it merges with a trailing signal frame
-                    // and stays a separate event after an element one.
-                    Patches.encode(
-                      patches :+ Addressed(Server.versionPatch(version))
-                    )
-                Session.Step(
-                  s.copy(
-                    holds = patches
-                      .foldLeft(s.holds)(
-                        Patches.applied(renderer.index, _, _)
-                      ),
-                    position = version,
-                    told = if (patches.isEmpty) s.told else version
-                  ),
-                  frames,
-                  frames
-                )
-              }
-              .pipe(OptionT.liftF)
-          }
-          .getOrElse(Session.Step(was, Nil, Nil))
+      live.renderer.get.flatMap(installed =>
+        // First, and before the version: `install` rings at the same one.
+        swapAnswer(live, session, installed, was) match
+          case Some(swap) =>
+            swap.map(st => Session.Step(st.next, st.frames, st.frames))
+          case None => owed(live, version, installed, was)
+      )
     }
+
+  private def owed(
+      live: Server.LiveSlug,
+      version: Long,
+      installed: Server.RendererState,
+      was: SessionState
+  ): IO[Session.Step[List[SseFrame]]] =
+    if (version <= was.position) IO.pure(Session.Step(was, Nil, Nil))
+    else
+      (for
+        renderer <- OptionT.fromOption[IO](installed.rendererOf)
+        s <- OptionT.liftF(checked(renderer, was))
+        log <- OptionT.liftF(live.log.get)
+        store <- OptionT.liftF(stateStore.current)
+      yield (renderer, s, log, store))
+        .flatMap { (renderer, s, log, store) =>
+          val env = renderer.vars.env(s.values)
+          Patches
+            .resume(
+              renderer,
+              live.cache,
+              log,
+              s.holds,
+              renderer.shared(store),
+              decisionAnswers,
+              answer(_, env),
+              env,
+              s.position + 1,
+              s.open,
+              // Live, not the arriving selection: a tab select moves it.
+              renderer.surfaces.selectionsShown(s.open, env)
+            )
+            .map { patches =>
+              // The cursor rides LAST, which makes it an ack: a client echoing
+              // it applied what came before. A silent frame announces nothing,
+              // so `told` does not move for it; the keepalive carries the
+              // cursor instead ([[SessionState]]).
+              val frames =
+                if (patches.isEmpty) Nil
+                else
+                  // Through `encode`, so it merges with a trailing signal frame
+                  // and stays a separate event after an element one.
+                  Patches.encode(
+                    patches :+ Addressed(Server.versionPatch(version))
+                  )
+              Session.Step(
+                s.copy(
+                  holds = patches
+                    .foldLeft(s.holds)(
+                      Patches.applied(renderer.index, _, _)
+                    ),
+                  position = version,
+                  told = if (patches.isEmpty) s.told else version
+                ),
+                frames,
+                frames
+              )
+            }
+            .pipe(OptionT.liftF)
+        }
+        .getOrElse(Session.Step(was, Nil, Nil))
 
   /** What a (re)connecting client is sent first (ADR 0011): '''reload''' when
     * the head's unpatchable part moved ([[Renderer.headHash]]), '''resume'''
@@ -855,17 +867,19 @@ class Server(
       selections: Selections,
       s: SessionState
   ): IO[Session.Step[Unit]] =
-    (for
-      covered <- OptionT.liftF(live.doorbell.get)
-      renderer <- OptionT(live.renderer.get.map(_.rendererOf))
-      log <- OptionT.liftF(live.log.get)
-      store <- OptionT.liftF(stateStore.current)
-    yield (covered, renderer, log, store))
-      .flatMap { (covered, renderer, log, store) =>
-        val cursor = Server.cursorOf(req)
-        if (cursor.exists(_.headHash != renderer.headHash))
-          OptionT.pure[IO](Session.Step(s, List(Server.reloadPatch), ()))
-        else {
+    (
+      live.doorbell.get,
+      live.renderer.get,
+      live.log.get,
+      stateStore.current
+    ).flatMapN { (covered, installed, log, store) =>
+      val cursor = Server.cursorOf(req)
+      installed.rendererOf match
+        // A failed slug: the error page is a reload away.
+        case None => IO.pure(Server.reloaded(s, installed))
+        case Some(renderer) if cursor.exists(_.headHash != renderer.headHash) =>
+          IO.pure(Server.reloaded(s, renderer.generation))
+        case Some(renderer) =>
           val env = renderer.vars.env(s.values)
           val shared = renderer.shared(store)
           val head =
@@ -878,9 +892,13 @@ class Server(
           // ([[FragmentLog.reaches]]) — or one behind `told`. `holds` records
           // what was SENT; a cursor rides last in its batch, so an echo behind
           // `told` means claimed bytes were lost.
+          // And never across a swap: `holds` is one renderer's.
+          val heldHere = s.painter match
+            case Painter.By(p) => p eq renderer.generation
+            case _             => true
           val resumedIO = cursor
             .filter(c =>
-              c.logId == log.id && c.version <= store.version &&
+              heldHere && c.logId == log.id && c.version <= store.version &&
                 log.reaches(c.version) && c.version >= s.told
             )
             .traverse(c =>
@@ -905,7 +923,7 @@ class Server(
               Patches.repaint(renderer, at, Viewing(selections, fragments))
             )
           val orphan = Server.orphanedPopup(renderer, Server.popupOf(req))
-          OptionT.liftF(resumedIO.flatMap { resumed =>
+          resumedIO.flatMap { resumed =>
             val claim = resumed.fold(store.version)(_ => covered)
             resumed
               .fold(painted)(patches =>
@@ -919,7 +937,12 @@ class Server(
               )
               .map { (sent, held) =>
                 Session.Step(
-                  s.copy(holds = held, position = claim, told = claim),
+                  s.copy(
+                    holds = held,
+                    position = claim,
+                    told = claim,
+                    painter = Painter.By(renderer.generation)
+                  ),
                   head ++ sent ++ orphan :+
                     // With the selections: a stream that died between a swap's
                     // patch and its signal left them disagreeing.
@@ -934,11 +957,8 @@ class Server(
                   ()
                 )
               }
-          })
-        }
-      }
-      // A failed slug: the error page is a reload away.
-      .getOrElse(Session.Step(s, List(Server.reloadPatch), ()))
+          }
+    }
 
   /** The first step of a stream. A forgotten session's carried variables are
     * adopted first, so it keeps its tabs, and the popup it still has open is
@@ -967,50 +987,38 @@ class Server(
         openingPatches(slug, live, req, selections, opened)
       )
 
-  /** Repaint this connection's body on every renderer swap, or reload the page
-    * when the head's unpatchable part moved ([[Renderer.headHash]]): a morph
-    * leaves old stylesheets and scripts in place.
+  /** A step under a renderer other than the one `s.holds` was painted under
+    * answers as a swap: a reload when the head's unpatchable part moved
+    * ([[Renderer.headHash]], a morph leaves old stylesheets and scripts in
+    * place) or to or from the error page, which has no `#dashboard`; else the
+    * repaint. `None` when `holds` is this renderer's, or empty.
     */
-  private def reloadRepaints(
+  private def swapAnswer(
+      live: Server.LiveSlug,
       session: Session,
-      // The renderer the handler read. Seeded, not taken from the
-      // subscription: this merges after the opening block and `discrete` hands
-      // a late subscriber only the current value, so a swap in between would
-      // look like no change and leave the client on a dead dashboard.
-      served: Option[Renderer]
-  ): Stream[IO, Unit] = {
-    val reload =
-      session.run(s => IO.pure(Session.Step(s, List(Server.reloadPatch), ())))
-    Stream
-      .eval(liveFor(session.slug))
-      .unNone
-      .flatMap { live =>
-        (Stream.emit(served) ++ live.renderer.discrete.map(
-          _.rendererOf
-        )).zipWithPrevious
-          .drop(1)
-          .collect { case (Some(previous), current) => (previous, current) }
-          .filterNot(Server.sameRenderer)
-          .evalMap {
-            // To or from the error page, which has no `#dashboard`.
-            case (_, None) | (None, _)                                => reload
-            case (Some(prev), Some(r)) if prev.headHash != r.headHash => reload
-            case (Some(prev), Some(r))                                =>
-              session.run(repaint(live, session, prev, r))
-          }
-      }
-  }
+      installed: Server.RendererState,
+      s: SessionState
+  ): Option[IO[Session.Step[Unit]]] =
+    val stamp: AnyRef = installed.rendererOf.fold(installed)(_.generation)
+    (s.painter, installed.rendererOf) match
+      case (Painter.Unpainted, _)                  => None
+      case (Painter.By(p), _) if p eq stamp        => None
+      case (Painter.Reloading(i), _) if i eq stamp =>
+        Some(IO.pure(Session.Step(s, Nil, ())))
+      case (Painter.By(p), Some(r)) if p.headHash == r.headHash =>
+        Some(repaint(live, session, p, r)(s))
+      case _ => Some(IO.pure(Server.reloaded(s, stamp)))
 
   private def repaint(
       live: Server.LiveSlug,
       session: Session,
-      prev: Renderer,
+      prev: Renderer.Stamp,
       r: Renderer
   )(was: SessionState): IO[Session.Step[Unit]] = checked(r, was).flatMap { s =>
     // What is selected NOW, not what this stream connected with: popups since
     // have moved `open`, and tab presses the session's variables.
     val env = r.vars.env(s.values)
-    val popup = prev.surfaces.selectionsIn(s.open).popup
+    val popup = prev.popupIn(s.open)
     val ui = r.surfaces.selections(popup, env)
     val open = r.surfaces.selectedSurfaces(ui)
     session.reveal(open) *> (stateStore.current, live.log.get).flatMapN {
@@ -1029,7 +1037,8 @@ class Server(
               open = open,
               holds = held,
               position = store.version,
-              told = store.version
+              told = store.version,
+              painter = Painter.By(r.generation)
             ),
             head ++ painted ++ Server.orphanedPopup(r, popup) ++
               // A value the edit refused is the declared one again, which the
@@ -1391,13 +1400,30 @@ class Server(
             actionRefused(req, Server.WrongSlugMessage, pending)
           case Some(session) =>
             session.run(was =>
-              checked(renderer, was).flatMap(s =>
-                f(
-                  session,
-                  renderer,
-                  selectionsOf(renderer, requested, s.values)
-                )(s)
-              )
+              (checked(renderer, was), liveFor(slug)).flatMapN { (s, live) =>
+                // A press while the stream is down meets a swap first; the
+                // press still runs, on what the swap left.
+                live
+                  .flatMap(
+                    swapAnswer(
+                      _,
+                      session,
+                      Server.RendererState.Ready(renderer),
+                      s
+                    )
+                  )
+                  .getOrElse(IO.pure(Session.Step(s, Nil, ())))
+                  .flatMap { swap =>
+                    f(
+                      session,
+                      renderer,
+                      selectionsOf(renderer, requested, swap.next.values)
+                    )(swap.next)
+                      .map(step =>
+                        step.copy(frames = swap.frames ++ step.frames)
+                      )
+                  }
+              }
             ) *> NoContent()
         }
       }
@@ -1725,7 +1751,8 @@ class Server(
               open = open,
               vars = choices,
               initialValues = initialValues,
-              checkedBy = Some(renderer.generation)
+              checkedBy = Some(renderer.generation),
+              painter = Painter.By(renderer.generation)
             )
         )
         .flatTap(_.haDown.set(Some(!live)))
@@ -2082,10 +2109,11 @@ object Server {
     /** Empties the cache after the swap, not before, or a pull that read the
       * old renderer just ahead of the set refills it. One already rendering can
       * still install afterwards; its entry holds its bytes, not the renderer
-      * ([[Renderer.generation]]).
+      * ([[Renderer.generation]]). Then rings, at the same version, so an idle
+      * session steps and meets the swap ([[swapAnswer]]).
       */
     def install(state: RendererState): IO[Unit] =
-      renderer.set(state) *> cache.clear
+      renderer.set(state) *> cache.clear *> doorbell.update(identity)
   }
 
   private[runtime] object LiveSlug {
@@ -2791,18 +2819,19 @@ object Server {
   ): Stream[IO, SseFrame] =
     events.mergeHaltBoth(allowed.find(!_).as(reloadPatch))
 
-  /** By reference: a rebuild with identical bytes is a new instance and still
-    * repaints.
-    */
-  private[runtime] val sameRenderer
-      : ((Option[Renderer], Option[Renderer])) => Boolean = {
-    case (None, None)       => true
-    case (Some(a), Some(b)) => a eq b
-    case _                  => false
-  }
-
   private[runtime] val reloadPatch: SseFrame =
     Datastar.patchSignals(s"""{"$ReloadSignal":true}""")
+
+  /** `s` told to reload while `installed` is: nothing it holds is kept. */
+  private[runtime] def reloaded(
+      s: SessionState,
+      installed: AnyRef
+  ): Session.Step[Unit] =
+    Session.Step(
+      s.copy(holds = Map.empty, painter = Painter.Reloading(installed)),
+      List(reloadPatch),
+      ()
+    )
 
   /** What a reconnecting browser claims its DOM holds. */
   private[runtime] case class Cursor(
