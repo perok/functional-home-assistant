@@ -629,19 +629,30 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          `resumeMorphs` −0.2%, `resumeMorphsFanout` −0.5%, `publishSet`/`publishSetOrdered`
          equal; times within error.
      - **D2b, `holds` keeps what each host shows**, in the order sent (§7), written and not yet
-       read.
+       read. BUILT (0e9e2f61, c16033d2); two items open. Goldens byte-identical; non-Slow 1430
+       green.
        - `Held.shows: Option[IArray[Ix]]` on the host node (one host per node, §2).
        - The structural patches name their host and key, so one value gives the bytes and the
-         change to `holds`: `Patch.Fill(host, html, shows)` (inner), `Place(host, html, shown,
-         before)` (before/append), `Leave(host, key)` (remove). `applied`: a `Fill` drops what
-         is under the host and sets its list; a `Place` inserts before its anchor, an anchor the
-         list lacks making it `None`; a `Leave` drops the key's subtree (by `[ix, end)`) and the
-         key. `Patch.Insert` and `invalidates` stay only for `#popups` (R5).
+         change to `holds`: `Patch.Fill(host, target, html, shows)` (inner), `Place(host,
+         target, html, shown, before)` (before/append), `Leave(host, key: NodeId)` (remove,
+         every clause of the key, since a caller cannot say which one the client holds).
+         `applied`: a `Fill` drops what is under the host and sets its list; a `Place` inserts
+         before its anchor, an anchor the list lacks making it `None`; a `Leave` drops each
+         clause's subtree (by `[ix, end)`) and the key. `Patch.Remove` is gone; `Patch.Insert`
+         and `invalidates` stay only for `#popups` (R5).
        - The `Trace` walk records each live hole's shown roots, so fills and placed members bring
          their inner hosts' lists.
-       - Oracle: after every settle, every set or pick host on the fake page has a list, equal to
-         the page's child order and to the list the session of a fresh page load holds (cases
-         included, which DOM ids cannot show). Bench `page` (one list per host).
+       - Oracle: after every settle and at the end, each list a session holds is its host's
+         children on the fake page, in order. Found: the oracle's runs reach no `Place` (every
+         membership change in them fills), so `SetMembershipSuite` places a member between two.
+       - Open: the oracle's "every host has a list, equal to a fresh page load's session's" fails
+         after a forget, by design: a forgotten page resumes, and its new session's `holds` is
+         empty (ADR 0011). Either the oracle exempts a rebuilt session, or D3 fills a host it has
+         no list for.
+       - Open: bench (B/op, EA off, vs 4457da90) `page` +1.7%, `pageSet` +1.3%, over the 1% gate:
+         the lists' own arrays and the merge in `Trace.held`. `tickRender`, `publishSet`,
+         `publishSetOrdered` equal; `resumeMorphs` +0.04%, `resumeMorphsFanout` +0.08%; times
+         within error.
      - **D3, the planner, and the log down to `fragments`** (§7), one step: the planner makes
        the replay dead, so it goes here. Per session from the start (`Shared` decisions and the
        viewer's), and a variable write goes through it too, so a tab stops using `hostFill`.
