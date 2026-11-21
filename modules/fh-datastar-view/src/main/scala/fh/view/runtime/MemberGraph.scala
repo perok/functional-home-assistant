@@ -65,9 +65,9 @@ private[runtime] case class Member(
     nodes.toList.sortBy(_._1).flatMap((at, n) => n.fetching.map(at -> _))
 
   /** entity -> the nodes here binding it: what a tick on it re-renders. */
-  lazy val byEntity: Map[String, List[NodeId]] =
-    nodes.toList
-      .flatMap((at, n) => n.liveEntities.map(_ -> at))
+  lazy val byEntity: Map[String, List[Ready.Component]] =
+    nodes.values.toList
+      .flatMap(n => n.liveEntities.map(_ -> n))
       .groupMap(_._1)(_._2)
 }
 
@@ -453,12 +453,17 @@ private[runtime] final class MemberGraph(
       .iterator
       .filter(s => within(s.root) && ownerPresent(s, shared))
       .flatMap(s =>
-        groupOf(s.gid, shared).binding.getOrElse(entityId, Vector.empty)
-      )
-      .flatMap(m =>
-        m.byEntity
-          .getOrElse(entityId, Nil)
-          .filter(id => within(index.container(m.nodes(id).ix)))
+        groupOf(s.gid, shared).binding
+          .getOrElse(entityId, Vector.empty)
+          .iterator
+          .flatMap(_.byEntity.getOrElse(entityId, Nil))
+          .collect {
+            // Outside any case below its member, it is in the set's own.
+            case n
+                if index.container(n.ix) == s.root ||
+                  within(index.container(n.ix)) =>
+              n.id
+          }
       )
       .toSet
 
