@@ -213,8 +213,8 @@ Two kinds, and they are not interchangeable:
   lifetime should not depend on which of them exists. Registered separately from the main tree and
   addressed by its surface id; the runtime's `surfaces` are these alone.
 
-Either is a **container** to the runtime (`SurfaceGraph`): every node is in the innermost case or
-popup holding it, and is shown while each one up its chain is.
+Either is a **container** to the runtime (`SurfaceGraph`, "Container" below): every node is in the
+innermost case or popup holding it, and is shown while each one up its chain is.
 
 **The registry** (`surfaces { ["detail"] { … } }`) is for the TRIGGERED kind, and that is the whole
 of what it is for. Registering something owned — a tab's panel by hand — throws away the ownership
@@ -422,6 +422,14 @@ another pick that flips, is in that placement instead. ADR 0007.
 parents, each node's fetching slots, which nodes an entity wakes, every member a candidate can be.
 The second of three layers (build, index, decisions; the pipeline doc's §1a). Not the build's
 **bind** pass, which runs before any renderer exists.
+
+**Container** — what may be hidden: the page's root, a popup's root, a pick's case. Every node is
+in the innermost one holding it, and is shown while each container up its chain is. A container is
+a node of the tree **index**: inside a renderer it is that node's `Ix` and an open set is a
+`BitSet` of them. Where it crosses a renderer swap (`SessionState.open`) it is **spelled** by its
+root's DOM id — a popup `s_detail__c`, a case its node id — and read into `Ix` once per step; under
+a set member's clauses one spelled id is one `Ix` per clause. The popup's wire name (`ui_popups`,
+its URL parameter, the open route) is its surface key, not that spelling.
 
 **Decisions** — what one state version decides: which members a set holds and in which clause,
 which branch a state group shows, whether each `valueWhile` holds. Held in that version's

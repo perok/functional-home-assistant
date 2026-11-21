@@ -91,7 +91,7 @@ Per state change, the recording pass does two things:
    that touches no condition costs a lookup per entity however many `If`s the
    page holds. A pick flips when its case differs before and after and it
    is shown both times: its root visible past no other pick flipping
-   (`SurfaceGraph.visibleSurface`), and, inside a set member, the member
+   (`SurfaceGraph.visibleContainer`), and, inside a set member, the member
    present in that clause. A member arriving or switching clause is
    placed whole with the branch its state picks, and a pick below another that
    flips is inside that one's fill, so neither is a flip. Record where the
@@ -105,8 +105,8 @@ Per state change, the recording pass does two things:
    node: the node's own HTML embeds the branch, so morphing it would weld host
    to content, which is exactly what the leaf/structure split prevents (ADR
    0008).
-2. **Active-member liveness** (`SurfaceGraph.visibleSurface`, per surface
-   binding a changed entity): a surface contributes its affected components and
+2. **Active-member liveness** (`SurfaceGraph.visibleContainer`, per container
+   binding a changed entity): a container contributes its affected components and
    sets only if it is visible and no pick above it is flipping. A set member's
    bindings and a set's moves are asked the same of the surface they sit in,
    so a frame asks only what reads a changed entity, never every active
@@ -120,7 +120,7 @@ Per state change, the recording pass does two things:
    one more step, because `selectedSurfaces` reports a selection for every pick
    over a variable whether or not it is on screen, so `open` alone would keep recording
    it. The recorder therefore filters each session's open set through
-   `SurfaceGraph.visibleSurface`, the visibility CHAIN (ADR 0012): every user
+   `SurfaceGraph.onScreen` (`visibleContainer` per container), the visibility CHAIN (ADR 0012): every user
    surface above a node selected AND every state surface above it active, and
    inside a set member, the member in that clause. It is the one test of
    "shown": the flips, the liveness above and page open all ask it. A

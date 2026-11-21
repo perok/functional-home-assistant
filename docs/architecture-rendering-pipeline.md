@@ -177,7 +177,7 @@ old renderer cannot be resumed.
 |---|---|---|
 | Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `frames` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON), and the fetch side: `FetchResolver` with its stage cache, `History` with its series cache, the one `ChartRenderer` |
 | Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the recorder's `Shared` (held in its fold, reset per renderer) and the renderer's `Decided` (the two newest versions' `Shared`, which every viewer reads), the `FragmentLog`, the doorbell, the `RenderCache` |
-| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream that names a `conn` this process does not have (a tap naming one is refused, ADR 0024), empty (slug, and a `SessionState`: open surfaces, `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back — and that viewer's node-variable choices, `vars`, over where its document opened them, `initialValues`), the SSE stream and its `Outlet`. ONE OWNER fiber per session moves the state: a pull, a selection write, the opening, a repaint and the keepalive are each a step (`Session.run`), run one at a time, and a step's frames reach the outlet in the order the steps ran — returned to separate branches of a merge, a pull made after a write could reach the client before it. A step that raises keeps nothing and sends nothing. The owner lives on the server's supervisor and ends when the session is reaped (a supervisor holds a fiber until it completes, and an owner waiting on its inbox never does); a step asked of it after that is refused (`Session.ended`). Others (the recorder's `openSets`, pruning's `floor`) read the last state a step left, except that a step `reveal`s a surface it opens before it reads the store |
+| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream that names a `conn` this process does not have (a tap naming one is refused, ADR 0024), empty (slug, and a `SessionState`: open containers (spelled by root DOM id), `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back — and that viewer's node-variable choices, `vars`, over where its document opened them, `initialValues`), the SSE stream and its `Outlet`. ONE OWNER fiber per session moves the state: a pull, a selection write, the opening, a repaint and the keepalive are each a step (`Session.run`), run one at a time, and a step's frames reach the outlet in the order the steps ran — returned to separate branches of a merge, a pull made after a write could reach the client before it. A step that raises keeps nothing and sends nothing. The owner lives on the server's supervisor and ends when the session is reaped (a supervisor holds a fiber until it completes, and an owner waiting on its inbox never does); a step asked of it after that is refused (`Session.ended`). Others (the recorder's `openSets`, pruning's `floor`) read the last state a step left, except that a step `reveal`s a surface it opens before it reads the store |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
 creates the store, `Server.fromFeed` takes `feed.store`. Dashboards are views over one shared state,
@@ -633,7 +633,7 @@ server itself last sent.
 
 Nothing here renders. Everything it needs is state: a flip's selection is `decideByState`,
 `plan` found the flips from the changed entities (`SurfaceGraph.affectedStateGroups`) and kept a
-surface's nodes only where `SurfaceGraph.visibleSurface` says it is shown, so a hidden branch is never
+container's nodes only where `SurfaceGraph.visibleContainer` says it is shown, so a hidden branch is never
 asked, and membership arrives already decided — `MemberGraph.deltas` reads each affected set in
 the "before" and "after" `Shared`, and hands `record` its list before and after plus the members
 whose case was replaced.
@@ -808,19 +808,27 @@ which carries them to the next version unless a change dirties them (§1a).
 
 The two halves are two files, and the seam between them is one sentence: **`MemberGraph` decides
 presence and order, `Renderer` paints.** `MemberGraph` reaches back into the renderer for nothing —
-it is constructed from the sets of the nodes in the static index plus each indexed id's layout root, and
+it is constructed from the sets of the nodes in the static index plus the dashboard's `TreeIndex`, and
 answers membership questions with no template, no mustache context and no document walk. The
 painting stayed behind: a member is walked by the same `tracedInto` as the static tree, from the
 set's case and from `renderMemberTraced`.
 
 **`SurfaceGraph` is the same split, for the other decision.** Which case of a pick is
 shown, which tab a viewer is on, and which clients a patch at a given node may reach: selection and
-visibility, decided there and painted here. What may be hidden is a CONTAINER: a popup, by its
-surface id, or a pick's case, by the case's node id. Every node is in the innermost one holding
-it, `""` for the page, which the renderer's index records (`containerOfIndexed`), and
-`MemberGraph` answers for the two node kinds the static index cannot place (a materialised member
-or a node in a case below one, and a nested set container). A node is shown while every container
-up its chain is: a popup open, a case picked.
+visibility, decided there and painted here. What may be hidden is a CONTAINER: the page's root, a popup's root or a pick's case.
+Every node is in the innermost one holding it, which the `TreeIndex` records, members' nodes
+included. A node is shown while every container up its chain is: a popup open, a case picked.
+
+**A container is a node, so inside a renderer it is its `Ix`**: an open set is a `BitSet`, and
+`SurfaceGraph`, `MemberGraph` and the renderer's per-container maps (static nodes, the entity
+reverse index) are keyed by it; the page's root is `SurfaceGraph.pageRoot`, always shown and never
+in an open set. **Across a renderer swap it is SPELLED by its root's DOM id**, because
+`SessionState.open` outlives the renderer whose `Ix` numbering it would otherwise carry: a popup is
+`s_<sid>__c` (`SurfaceGraph.popupSpelling`), a case is its node id. A step reads the spelling into
+`Ix` once (`SurfaceGraph.openOf`); under a set member's clauses one spelled id is one `Ix` per
+clause, and a name the new renderer lacks drops out. The wire is not this spelling: `ui_popups`,
+its URL parameter, `Selections.popup` and the open route keep the surface key, which the route
+reads into the root's spelling (`popupNamed` reads it back).
 
 Both are `private[runtime] val`s on the renderer, reached as `renderer.members.…` and
 `renderer.surfaces.…`. Deliberately NOT re-`export`ed: a delegating wrapper reads as though the
@@ -900,7 +908,7 @@ Three properties hold it up, and each fails silently if broken:
   bind the entity (`MemberGraph.binding`: a static entity-to-sets index, then each shown set's
   decision in `Shared`; a nested set only while its owner is present) to `componentsFor`'s static nodes, so a member's node re-renders because something it binds moved — the group's query is asked
   about MEMBERSHIP alone. Two consequences: a case slot naming a second entity ticks (it never
-  did, silently), and `rootOf` must resolve a member through its group or a member inside a
+  did, silently), and a member's container must be placed through the index or a member inside a
   surface reaches clients who do not have it open. The one case the index cannot cover is a
   switch to a card binding nothing live: no edge names it, so `deltas` reports the members
   it REPLACED and the recorder touches those by id.
@@ -1571,7 +1579,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `binding`, `deltas`, `dirtied`, `membersOf`, `setsIn`, `innerSetId` |
 | what a version decides, once | `runtime/Shared.scala` · `Shared` (members, state branches, `valueWhile`s; carried + fills; signal values, fills only), `Shared.Run` (one decide run's answers and needs), `Decided` (the two newest versions, `advance`), `Viewing`; `runtime/Renderer.scala` · `decide`, `advance`, `gateHolds`, `withheld` |
 | what a render reads before its walk | `runtime/Renderer.scala` · `fetchesForPage`, `fetchesForSurface`, `readsForPull`, `presentAt`, `setAsks`; `model/Dashboard.scala` · `Component.fetching`, `Fetching` |
-| which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selections`/`selectionsIn` (one viewer's popup and panels), `cases`, `decideByViewer` (per viewer) / `decideByState` (per version), `selectedSurfaces`, `visibleNode`, `visibleSurface` (the one test of shown: a tick, a flip and page open), `shownSurfaces`, `rootOf` |
+| which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selections`/`selectionsIn` (one viewer's popup and panels), `cases`, `decideByViewer` (per viewer) / `decideByState` (per version), `selectedSurfaces`, `visibleNode`, `visibleContainer` (the one test of shown, by `Ix`: a tick, a flip and page open), `onScreen`, `shownSurfaces`, `pageRoot`, `openOf` / `popupSpelling` (the spelling across a swap) |
 | node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
 | evaluating any reading: a slot, a guard, an activation condition, an order term, a CEL input | `runtime/Evaluator.scala` · `compile`, `holds`, `inputs`, `Keys` (an ordering's keys, read once per member per sort, used by `MemberGraph`) · `runtime/Steps.scala` · what each simple step makes of its value (`formatWith`, `kleene`); the language is ADR 0035 |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.cached` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |

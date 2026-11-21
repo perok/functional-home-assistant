@@ -168,19 +168,19 @@ Three silent failure modes are worth naming, because all three were real bugs:
   set is not in the static index — it hangs off a member — so selecting from the
   index meant the inner set synced, its members moved, and nothing recorded it:
   correct ids, correct HTML, zero patches.
-- **Where a nested set LIVES comes from `MemberGraph.sourceRoot`, not from the
-  static index — for the members AND for the container.** That root decides
-  which clients a patch may reach, and a nested set is (again) absent from the
-  static index, so both halves read as `""` — the main page — and went to every
-  connected client whether or not they had the surface open. Two distinct
-  leaks, found one after the other: the member's, which the reverse index
-  selects, and the container's, which a host fill and a departing member's
-  `remove` both name directly. `SurfaceGraph.rootOf` falls through to the graph
-  for each, and the graph places a member from its set whether or not it is
-  present — a departed member's `remove` is scoped like a present one's. Both
-  roots are fixed when the graph is built: a nested set inherits its owner's.
-  Worth noting how they were found, because it generalises: a unit
-  assertion on `Member.root` pinned the first and was blind to the second; the
+- **Where a nested set LIVES is its host's container in the dashboard's
+  `TreeIndex` — for the members AND for the container.** That container decides
+  which clients a patch may reach: a patch goes only to a viewer who has it
+  shown. Two distinct leaks were found one after the other when a nested set
+  read as the main page and went to every connected client whether or not they
+  had the surface open: the member's, which the reverse index selects, and the
+  container's, which a host fill and a departing member's `remove` both name
+  directly. Each member's nodes are nodes of the index, so both are placed by
+  it whether or not the member is present — a departed member's `remove` is
+  scoped like a present one's. A nested set's is its own host's, which may be
+  a case inside the member owning it.
+  Worth noting how they were found, because it generalises: a unit assertion
+  on one placement pinned the first and was blind to the second; the
   two-viewer test in `SetMembershipSuite` — one tab open, one not, one frame —
   is what states the actual property and caught the rest.
 
