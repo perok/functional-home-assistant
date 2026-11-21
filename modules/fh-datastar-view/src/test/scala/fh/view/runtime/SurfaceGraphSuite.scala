@@ -1,6 +1,5 @@
 package fh.view.runtime
 
-import cats.syntax.functor.*
 import fh.view.testkit.Sets
 
 import fh.view.testkit.Slots
@@ -9,16 +8,17 @@ import fh.view.testkit.Conds
 
 import fh.view.model.{
   Activation,
+  CardDef,
   Case,
   Choice,
   Dashboard,
   DomId,
   Fill,
+  Ix,
   LayoutNode,
   Lit,
   NodeId,
   Op,
-  Ready,
   SetId,
   Slot,
   Step,
@@ -27,7 +27,10 @@ import fh.view.model.{
   ValueExpr,
   ValueType
 }
-import fh.view.testkit.DashboardBuilders.st
+import fh.view.testkit.DashboardBuilders.{declared, st}
+import fh.view.testkit.TestCard
+
+import scala.collection.immutable.BitSet
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 
@@ -45,26 +48,51 @@ class SurfaceGraphSuite extends munit.FunSuite {
   private def isOn(e: String): ValueExpr =
     Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(e))
 
-  /** The choice at `host`: case `i` is the surface `<host>_t<i>`, the otherwise
-    * `<host>_else`.
-    */
-  final case class P(host: String, choice: Choice.Chosen[List[LayoutNode]])
+  private val cards: Map[String, CardDef] = Sets.cards ++ Map(
+    "host" -> TestCard("{{{branch}}}", regions = Set("branch")),
+    "col" -> TestCard(
+      "{{{children}}}",
+      regions = Set(LayoutNode.DefaultRegion)
+    ),
+    "tile" -> TestCard(
+      "{{{children}}}",
+      regions = Set(LayoutNode.DefaultRegion)
+    )
+  )
 
-  /** A tab bar's panel over `tab` (ADR 0033): case `"<i>"` for each of `n`. */
-  private def tabsAt(host: String, n: Int): P =
-    P(
-      host,
+  private def host(
+      choice: Choice.Chosen[List[LayoutNode]],
+      vars: List[Dashboard.Declaration] = Nil
+  ) = LayoutNode.Component(
+    "host",
+    Map("branch" -> Slot.Nodes(Fill.Nodes(choice))),
+    vars = vars
+  )
+
+  /** A tab bar's panel over `tab` (ADR 0033): case `"<i>"` for each of `n`,
+    * `inCase` holding what a case holds.
+    */
+  private def tabsAt(
+      n: Int,
+      inCase: Map[Int, LayoutNode] = Map.empty
+  ): LayoutNode.Component =
+    host(
       Choice.Chosen(
         ValueExpr(Value.Var("tab")),
-        (0 until n).toList.map(i => Case(Lit.Text(i.toString), List(col()))),
+        (0 until n).toList.map(i =>
+          Case(Lit.Text(i.toString), List(inCase.getOrElse(i, col())))
+        ),
         None
-      )
+      ),
+      declared("tab" -> "0")
     )
 
   /** An If chain over state: the first condition holding, else `otherwise`. */
-  private def chain(host: String, otherwise: Boolean, when: ValueExpr*): P =
-    P(
-      host,
+  private def chain(
+      otherwise: Boolean,
+      when: ValueExpr*
+  ): LayoutNode.Component =
+    host(
       Choice.Chosen(
         ValueExpr(
           Value.List(ValueType.Bool, when.toList),
@@ -75,83 +103,52 @@ class SurfaceGraphSuite extends munit.FunSuite {
       )
     )
 
-  /** `SurfaceGraph` is handed each indexed id's root, so the map is stated
-    * directly.
-    */
-  private def graphOf(
-      picks: List[P] = Nil,
-      popups: Map[String, Surface] = Map.empty,
-      roots: Map[String, String] = Map.empty,
-      members: MemberGraph = new MemberGraph(Map.empty, Map.empty)
-  ): SurfaceGraph =
-    // Case ids are the graph's opaque keys; any spelling does.
-    val placed = picks.map { p =>
-      val keys = p.choice.cases.indices.map(i => s"t$i") ++
-        p.choice.otherwise.as("else")
-      val host = Conds.compiledAlone(
-        LayoutNode.Component(
-          "p",
-          Map("p" -> Slot.Nodes(Fill.Nodes(p.choice))),
-          id = Some(p.host)
-        )
-      )
-      host.content match
-        case Ready.Content.Live(slot, k: Ready.LiveFill.Pick) =>
-          val cases = k.cases.zip(keys).map { case (c: Ready.Component, key) =>
-            c.copy(id = NodeId.derived(s"${p.host}_$key"))
-          }
-          // `new`: an enum case's `copy` is typed as the enum.
-          val pick =
-            new Ready.LiveFill.Pick(
-              cases,
-              k.by,
-              k.variable,
-              k.byKey,
-              k.otherwise
-            )
-          host.group -> Ready.Pick(
-            host.copy(content = Ready.Content.Live(slot, pick)),
-            pick
-          )
-        case other => fail(s"not a pick: $other")
-    }
-    new SurfaceGraph(
-      popups.map((sid, s) => sid -> Conds.compiledPopup(sid, s)),
-      placed.toMap,
-      roots.map { case (id, root) => NodeId.derived(id) -> root },
-      members
-    )
+  private def rendererOf(
+      card: LayoutNode = col(),
+      popups: Map[String, Surface]
+  ): Renderer =
+    Renderer.create(Dashboard(cards = cards, card = card, surfaces = popups))
 
-  private object compile:
-    def set(at: NodeId, s: LayoutNode.Component): Ready.SetFill =
-      Conds.compiledSet(at, s)
+  private def graphOf(
+      card: LayoutNode = col(),
+      popups: Map[String, Surface] = Map.empty
+  ): SurfaceGraph = rendererOf(card, popups).surfaces
+
+  extension (g: SurfaceGraph)
+    /** The one pick a graph built around a single host has. */
+    private def gid: NodeId = (g.statePicks ++ g.varPicks).head
+
+    /** The container a case id spells, the one clause a static case has. */
+    private def ix(spelled: String): Ix = g.containersSpelled(spelled).head
 
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap
 
-  private val gid: NodeId = "c"
-
   test("a pick's cases are in their order, the otherwise last") {
-    val g = graphOf(List(chain("c", true, isOn("light.a"), isOn("light.b"))))
-    assertEquals(g.cases(gid), Vector("c_t0", "c_t1", "c_else"))
+    val g = graphOf(chain(true, isOn("light.a"), isOn("light.b")))
+    assertEquals(
+      g.cases(g.gid),
+      Vector("c_branch_0", "c_branch_1", "c_branch_2")
+    )
   }
 
   test("cases is empty for anything that is not a pick's host") {
-    assertEquals(graphOf().cases(gid), Vector.empty)
+    assertEquals(graphOf().cases("c"), Vector.empty)
   }
 
   test("a pick over a variable is per viewer, one over state shared") {
-    val u = graphOf(List(tabsAt("c", 1)))
-    val s = graphOf(List(chain("c", false, isOn("light.a"))))
-    assert(!u.isStatePick(gid))
-    assert(s.isStatePick(gid))
-    assertEquals(u.varPicks, Set("c"))
-    assertEquals(u.statePicks, Set.empty[String])
-    assertEquals(s.statePicks, Set("c"))
-    assertEquals(s.varPicks, Set.empty[String])
+    val u = graphOf(tabsAt(1))
+    val s = graphOf(chain(false, isOn("light.a")))
+    assert(!u.isStatePick(u.gid))
+    assert(s.isStatePick(s.gid))
+    assertEquals(u.varPicks, Set(u.gid))
+    assertEquals(u.statePicks, Set.empty[NodeId])
+    assertEquals(s.statePicks, Set(s.gid))
+    assertEquals(s.varPicks, Set.empty[NodeId])
   }
 
-  private def tabs = graphOf(List(tabsAt("c", 3)))
+  private lazy val tabs = graphOf(tabsAt(3))
+  private lazy val gid: NodeId = tabs.gid
 
   private def tabAt(raw: String): VarEnv = Map(gid -> Map("tab" -> raw))
 
@@ -186,12 +183,16 @@ class SurfaceGraphSuite extends munit.FunSuite {
   }
 
   test("a state group's variable is not an anomaly — no choice exists") {
-    val g = graphOf(List(chain("c", false, isOn("light.a"))))
-    assertEquals(g.selectionAnomalies(tabAt("banana")), Nil)
+    val g = graphOf(chain(false, isOn("light.a")))
+    assertEquals(
+      g.selectionAnomalies(Map(g.gid -> Map("tab" -> "banana"))),
+      Nil
+    )
   }
 
   test("a chain over state picks its FIRST holding case, else the otherwise") {
-    val g = graphOf(List(chain("c", true, isOn("light.a"), isOn("light.b"))))
+    val g = graphOf(chain(true, isOn("light.a"), isOn("light.b")))
+    val gid = g.gid
     val both = snapshot(st("light.a", "on"), st("light.b", "on"))
     val onlyB = snapshot(st("light.a", "off"), st("light.b", "on"))
     val neither = snapshot(st("light.a", "off"), st("light.b", "off"))
@@ -201,18 +202,16 @@ class SurfaceGraphSuite extends munit.FunSuite {
   }
 
   test("nothing holding and no otherwise picks NO case — the host is empty") {
-    val g = graphOf(List(chain("c", false, isOn("light.a"))))
+    val g = graphOf(chain(false, isOn("light.a")))
     assertEquals(
-      g.decideByState(gid, Shared.of(snapshot(st("light.a", "off")))),
+      g.decideByState(g.gid, Shared.of(snapshot(st("light.a", "off")))),
       None
     )
   }
 
   test("a flip is reported only when the SELECTION actually moved") {
-    val g = graphOf(
-      List(chain("c", true, isOn("light.a"))),
-      roots = Map("c" -> "")
-    )
+    val g = graphOf(chain(true, isOn("light.a")))
+    val gid = g.gid
     val on = snapshot(st("light.a", "on"))
     val off = snapshot(st("light.a", "off"))
     def flips(before: Map[String, EntityState], now: Map[String, EntityState]) =
@@ -229,10 +228,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
 
   test("a change to an entity no condition READS cannot flip anything") {
     // The changed entities decide, not the surfaces.
-    val g = graphOf(
-      List(chain("c", false, isOn("light.a"))),
-      roots = Map("c" -> "")
-    )
+    val g = graphOf(chain(false, isOn("light.a")))
     val before = snapshot(st("light.a", "on"), st("sensor.z", "1"))
     val now = snapshot(st("light.a", "on"), st("sensor.z", "2"))
     assertEquals(
@@ -248,37 +244,48 @@ class SurfaceGraphSuite extends munit.FunSuite {
   }
 
   test("the selected branch is shown, and a cut group's is not") {
-    val g = graphOf(
-      List(chain("c", true, isOn("light.a"))),
-      roots = Map("c" -> "")
-    )
+    val g = graphOf(chain(true, isOn("light.a")))
+    val t0 = g.cases(g.gid)(0)
     val on = snapshot(st("light.a", "on"))
-    assertEquals(g.shownSurfaces(Set.empty, Shared.of(on)), Set("c_t0"))
+    assertEquals(
+      g.shownSurfaces(BitSet.empty, Shared.of(on)),
+      g.openOf(Set(t0))
+    )
     // A group already flipping renders its member wholesale; patching its parts
     // too would double-emit.
-    assert(!g.visibleSurface("c_t0", Set.empty, Shared.of(on), cut = Set(gid)))
+    assert(
+      !g.visibleContainer(
+        g.ix(t0),
+        BitSet.empty,
+        Shared.of(on),
+        cut = Set(g.gid)
+      )
+    )
   }
 
   test("a user surface is visible only to a client that has it open") {
-    val g = graphOf(List(tabsAt("c", 2)))
-    assert(g.visibleSurface("c_t0", Set("c_t0"), Shared.of(Map.empty)))
-    assert(!g.visibleSurface("c_t0", Set("c_t1"), Shared.of(Map.empty)))
+    val g = graphOf(tabsAt(2))
+    val List(t0, t1) = g.cases(g.gid).toList: @unchecked
+    val shared = Shared.of(Map.empty)
+    assert(g.visibleContainer(g.ix(t0), g.openOf(Set(t0)), shared))
+    assert(!g.visibleContainer(g.ix(t0), g.openOf(Set(t1)), shared))
   }
 
   test("a STATE surface is visible on state alone — `open` says nothing") {
     // Its liveness belongs to the shared pass, so it never enters an open set.
-    val g = graphOf(List(chain("c", false, isOn("light.a"))))
+    val g = graphOf(chain(false, isOn("light.a")))
+    val t0 = g.ix(g.cases(g.gid)(0))
     assert(
-      g.visibleSurface(
-        "c_t0",
-        Set.empty,
+      g.visibleContainer(
+        t0,
+        BitSet.empty,
         Shared.of(snapshot(st("light.a", "on")))
       )
     )
     assert(
-      !g.visibleSurface(
-        "c_t0",
-        Set("c_t0"),
+      !g.visibleContainer(
+        t0,
+        BitSet(t0.toInt),
         Shared.of(snapshot(st("light.a", "off")))
       )
     )
@@ -287,39 +294,35 @@ class SurfaceGraphSuite extends munit.FunSuite {
   test("a state surface is TRANSPARENT: the user tab above it decides") {
     // Visibility walks through a state branch to what encloses it: an If's
     // branch hides nothing.
-    val g = graphOf(
-      List(tabsAt("c", 1), chain("inner", false, isOn("light.a"))),
-      roots = Map("c" -> "", "inner" -> "c_t0")
-    )
+    val g = graphOf(tabsAt(1, Map(0 -> chain(false, isOn("light.a")))))
+    val outer = g.cases(g.varPicks.head)(0)
+    val inner = g.ix(g.cases(g.statePicks.head)(0))
     val on = snapshot(st("light.a", "on"))
-    assert(g.visibleSurface("inner_t0", Set("c_t0"), Shared.of(on)))
-    assert(!g.visibleSurface("inner_t0", Set.empty, Shared.of(on)))
+    assert(g.visibleContainer(inner, g.openOf(Set(outer)), Shared.of(on)))
+    assert(!g.visibleContainer(inner, BitSet.empty, Shared.of(on)))
   }
 
   test("a node inside a closed tab is not visible; on the main page it is") {
-    val g = graphOf(
-      List(tabsAt("c", 2)),
-      roots = Map("c" -> "", "s_c_t1__c_0" -> "c_t1")
-    )
-    assert(
-      g.visibleNode("c", Set.empty, Shared.of(Map.empty)),
-      "main page is visible"
-    )
-    assert(g.visibleNode("s_c_t1__c_0", Set("c_t1"), Shared.of(Map.empty)))
-    assert(!g.visibleNode("s_c_t1__c_0", Set("c_t0"), Shared.of(Map.empty)))
+    val g = graphOf(tabsAt(2))
+    val List(t0, t1) = g.cases(g.gid).toList: @unchecked
+    val shared = Shared.of(Map.empty)
+    assert(g.visibleNode(g.gid, BitSet.empty, shared), "main page is visible")
+    assert(g.visibleNode(t1, g.openOf(Set(t1)), shared))
+    assert(!g.visibleNode(t1, g.openOf(Set(t0)), shared))
   }
 
   test("an id the graph cannot place counts as VISIBLE") {
     // The safe direction: over-sending costs bytes, under-sending loses an
     // update.
-    val g = graphOf(List(tabsAt("c", 1)), roots = Map("c" -> ""))
-    assert(g.visibleNode("who_knows", Set.empty, Shared.of(Map.empty)))
+    val g = graphOf(tabsAt(1))
+    assert(g.visibleNode("who_knows", BitSet.empty, Shared.of(Map.empty)))
   }
 
   test("selectedSurfaces and selectionsIn are inverses over chosen groups") {
     val chosen = Selections(None, Map(gid -> 1))
-    assertEquals(tabs.selectedSurfaces(chosen), Set("c_t1"))
-    assertEquals(tabs.selectionsIn(Set("c_t1")), chosen)
+    val t1 = tabs.cases(gid)(1)
+    assertEquals(tabs.selectedSurfaces(chosen), Set[String](t1))
+    assertEquals(tabs.selectionsIn(Set(t1)), chosen)
     val none = tabs.selectedSurfaces(Selections.none)
     assertEquals(none, Set.empty[String])
     assertEquals(tabs.selectionsIn(none), Selections.none)
@@ -330,10 +333,11 @@ class SurfaceGraphSuite extends munit.FunSuite {
   test("state-selected branches never enter a session's open set") {
     // `Patches.Addressed` relies on this: tagging a patch with a state surface
     // would hide it from everybody.
-    val g = graphOf(List(chain("c", true, isOn("light.a")), tabsAt("d", 1)))
+    val g = graphOf(col(chain(true, isOn("light.a")), tabsAt(1)))
+    val tabsGid = g.varPicks.head
     assertEquals(
-      g.selectedSurfaces(Selections(None, Map(NodeId.derived("d") -> 0))),
-      Set("d_t0")
+      g.selectedSurfaces(Selections(None, Map(tabsGid -> 0))),
+      Set[String](g.cases(tabsGid)(0))
     )
   }
 
@@ -344,7 +348,10 @@ class SurfaceGraphSuite extends munit.FunSuite {
         "hidden" -> Surface(col(), activation = Activation.User(false))
       )
     )
-    assertEquals(g.selectedSurfaces(Selections.none), Set("shown"))
+    assertEquals(
+      g.selectedSurfaces(Selections.none),
+      Set(g.popupSpelling("shown").get)
+    )
   }
 
   private def popups = graphOf(popups =
@@ -367,19 +374,21 @@ class SurfaceGraphSuite extends munit.FunSuite {
   test("an open popup is part of the selection") {
     assertEquals(
       popups.selectedSurfaces(popups.selections(Some("detail"), Map.empty)),
-      Set("detail")
+      Set(popups.popupSpelling("detail").get)
     )
   }
 
   test("surfacesAt names every surface sharing a host — the eviction group") {
     assertEquals(
       popups.surfacesAt(Dashboard.PopupHostId),
-      Set("detail", "other")
+      Set("detail", "other").map(popups.popupSpelling(_).get)
     )
     assertEquals(popups.surfacesAt(DomId.derived("elsewhere")), Set.empty)
   }
 
-  test("rootOf answers for the static index first, then the member graph") {
+  test(
+    "a member and a nested set in a popup are visible only while it is open"
+  ) {
     // A materialised member and a nested set container, which the static index
     // cannot place, both leaked a surface's patches to every client before.
     val setNode = Sets.node(
@@ -389,29 +398,19 @@ class SurfaceGraphSuite extends munit.FunSuite {
           List(
             Sets.Clause(
               None,
-              LayoutNode.Component(
-                "tile",
-                Slots.kids(nestedSet)
-              )
+              LayoutNode.Component("tile", Slots.kids(nestedSet))
             )
           )
         )
       )
     )
-    val outer: NodeId = "s_det__c"
-    val members =
-      new MemberGraph(
-        Map(outer -> compile.set(outer, setNode)),
-        Map(outer -> "det")
-      )
-    val g = graphOf(
-      popups = Map("det" -> Surface(col())),
-      roots = Map("c" -> ""),
-      members = members
-    )
+    val r = rendererOf(popups = Map("det" -> Surface(setNode)))
+    val (g, members) = (r.surfaces, r.members)
+    val spelled = g.popupSpelling("det").get
+    val outer = NodeId.derived(spelled)
     val setId = members.setContainer(outer).get
-    val states = snapshot(st("light.a", "on"))
-    val member = members.membersOf(setId, Shared.of(states)).head
+    val shared = Shared.of(snapshot(st("light.a", "on")))
+    val member = members.membersOf(setId, shared).head
     val innerId = SetId.of(
       LayoutNode.innerSetId(
         member.id,
@@ -421,13 +420,19 @@ class SurfaceGraphSuite extends munit.FunSuite {
       Sets.of(nestedSet).get
     )
 
-    assertEquals(g.rootOf("c"), Some(""), "static index")
-    assertEquals(g.rootOf(member.id), Some("det"), "materialised member")
-    assertEquals(g.rootOf(innerId), Some("det"), "nested set container")
-    assertEquals(g.rootOf("nothing_here"), None)
+    val open = g.openOf(Set(spelled))
+    List(
+      "the popup's set" -> outer,
+      "materialised member" -> member.id,
+      "nested set container" -> innerId
+    ).foreach { (what, id) =>
+      assert(!g.visibleNode(id, BitSet.empty, shared), what)
+      assert(g.visibleNode(id, open, shared), what)
+    }
+    assert(g.visibleNode("nothing_here", BitSet.empty, shared))
   }
 
-  test("rootOf places a member that is not present") {
+  test("a member that is not present is placed with its popup") {
     // A departing member's patch names it after the frame that removed it.
     val setNode = Sets.node(
       candidates = List("light.a"),
@@ -442,21 +447,16 @@ class SurfaceGraphSuite extends munit.FunSuite {
         )
       )
     )
-    val outer: NodeId = "s_det__c"
-    val members =
-      new MemberGraph(
-        Map(outer -> compile.set(outer, setNode)),
-        Map(outer -> "det")
-      )
-    val g = graphOf(popups = Map("det" -> Surface(col())), members = members)
-    val setId = members.setContainer(outer).get
-    val off = snapshot(st("light.a", "off"))
+    val r = rendererOf(popups = Map("det" -> Surface(setNode)))
+    val (g, members) = (r.surfaces, r.members)
+    val spelled = g.popupSpelling("det").get
+    val setId = members.setContainer(NodeId.derived(spelled)).get
+    val off = Shared.of(snapshot(st("light.a", "off")))
 
-    assertEquals(members.membersOf(setId, Shared.of(off)), Vector.empty)
-    assertEquals(
-      g.rootOf(members.memberIdOf(setId, "light.a")),
-      Some("det")
-    )
+    assertEquals(members.membersOf(setId, off), Vector.empty)
+    val gone = members.memberIdOf(setId, "light.a")
+    assert(!g.visibleNode(gone, BitSet.empty, off))
+    assert(g.visibleNode(gone, g.openOf(Set(spelled)), off))
   }
 
   private def nestedSet = Sets.node(
@@ -472,18 +472,20 @@ class SurfaceGraphSuite extends munit.FunSuite {
     // Whatever `committedSelection` says after a swap must be what `openPopup`
     // reads back. They were written apart, and a shape only one understands
     // would re-open the URL/DOM disagreement pending signals exist to remove.
-    val g = graphOf(List(tabsAt("c", 2)), popups = Map("det" -> Surface(col())))
+    val g = graphOf(tabsAt(2), popups = Map("det" -> Surface(col())))
+    val t1 = g.cases(g.gid)(1)
+    val det = g.popupSpelling("det").get
     // A tab's commit is its variable's, sent by the write (`Server.setVar`).
     assertEquals(
-      g.committedSelection(DomId.derived("c_p"), Some("c_t1")),
+      g.committedSelection(DomId.derived("c_p"), Some(t1)),
       None
     )
     assertEquals(
-      g.committedSelections(Set("c_t1")).keySet,
+      g.committedSelections(Set[String](t1)).keySet,
       Set[String](Dashboard.PopupHostId)
     )
 
-    val popup = g.committedSelection(Dashboard.PopupHostId, Some("det"))
+    val popup = g.committedSelection(Dashboard.PopupHostId, Some(det))
     assertEquals(popup, Some(Dashboard.PopupHostId -> "det"))
     assertEquals(g.openPopup(popup.map(_._2)), Some("det"))
 
@@ -499,7 +501,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
   test("nothing is committed where the client has no say") {
     // A state branch is shared server truth, so asserting a selection would put
     // a `ui_*` on the wire nothing reads.
-    val g = graphOf(List(chain("c", true, isOn("light.a"))))
+    val g = graphOf(chain(true, isOn("light.a")))
     val host = DomId.derived("c_p")
     assertEquals(g.committedSelection(host, Some("c_else")), None)
     assertEquals(g.committedSelection(host, Some("stranger")), None)

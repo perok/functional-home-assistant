@@ -1,10 +1,11 @@
 package fh.view.runtime
 
 import fh.view.build.DashboardBuild
-import fh.view.model.{Dashboard, NodeId}
+import fh.view.model.{Dashboard, Ix, NodeId, Ready}
 import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture}
 import io.circe.parser.parse
 
+import scala.collection.immutable.BitSet
 import scala.util.Random
 
 /** [[SurfaceGraph.affectedStateGroups]] finds flips from the changed entities.
@@ -13,9 +14,6 @@ import scala.util.Random
   * hold: for random frames the two must name the same groups.
   */
 class StateFlipIndexSuite extends munit.FunSuite {
-
-  private def graphOf(d: Dashboard): SurfaceGraph =
-    Renderer(d.validated().fold(e => fail(e.mkString("; ")), identity)).surfaces
 
   private def fixture(name: String): Dashboard = {
     val wire = os.read(
@@ -75,38 +73,44 @@ class StateFlipIndexSuite extends munit.FunSuite {
   )
 
   private def reference(
-      d: Dashboard,
+      ready: Ready.Dashboard,
       g: SurfaceGraph,
       before: Shared,
       now: Shared,
-      visible: Set[String]
+      visible: BitSet
   ): List[NodeId] = {
-    def at(root: String) =
-      g.statePicks.toList.filter(g.rootOf(_).contains(root))
+    val index = ready.index
+    def containerOf(gid: NodeId) = index.container(ready.picks(gid).node.ix)
+    def at(root: Ix) =
+      g.statePicks.toList.filter(containerOf(_) == root)
     // A popup opens on the page; a case is open where its pick is shown.
-    def openAt(root: String) = visible.toList.filter { sid =>
-      if (d.surfaces.contains(sid)) root.isEmpty
+    def openAt(root: Ix) = visible.toList.map(Ix(_)).filter { c =>
+      if (index.parent(c).isEmpty) root == g.pageRoot
       else
-        g.pickShowing(sid, now)
-          .exists((gid, _) => g.rootOf(gid).contains(root))
+        g.pickShowing(index.id(c), now)
+          .exists((gid, _) => containerOf(gid) == root)
     }
-    def walk(root: String): List[NodeId] = at(root).flatMap { gid =>
+    def walk(root: Ix): List[NodeId] = at(root).flatMap { gid =>
       val sel = g.decideByState(gid, now)
       if (!g.groupShown(gid, now)) Nil
       else if (g.groupShown(gid, before) && g.decideByState(gid, before) != sel)
         List(gid)
-      else sel.toList.flatMap(i => walk(g.cases(gid)(i)))
+      else sel.toList.flatMap(i => walk(ready.picks(gid).choice.cases(i).ix))
     } ++ openAt(root).flatMap(walk)
-    walk("").distinct.sorted
+    walk(g.pageRoot).distinct.sorted
   }
 
   private val alphabet = List("on", "off", "locked", "unlocked")
 
   private def agree(name: String, d: Dashboard): Unit = {
-    val g = graphOf(d)
+    val validated = d.validated().fold(e => fail(e.mkString("; ")), identity)
+    val g = Renderer(validated).surfaces
     assert(g.statePicks.nonEmpty, s"$name has no state group to flip")
     val userSurfaces =
-      d.surfaces.keySet ++ g.varPicks.flatMap(g.cases(_)).toSet
+      g.openOf(
+        d.surfaces.keySet.flatMap(g.popupSpelling) ++
+          g.varPicks.flatMap(g.cases(_)).toSet
+      )
     val rnd = new Random(556)
     val ids = HouseFixture.all.map(_.entityId)
     val start = HouseFixture.all.map(e => e.entityId -> e.toEntityState).toMap
@@ -118,7 +122,7 @@ class StateFlipIndexSuite extends munit.FunSuite {
         }
         val changes =
           moved.map(id => StateChange.Moved(id, states.get(id), now(id)))
-        val found = List(Set.empty[String], userSurfaces).flatMap { visible =>
+        val found = List(BitSet.empty, userSurfaces).flatMap { visible =>
           val flips = g.affectedStateGroups(
             changes,
             Shared.of(states),
@@ -127,7 +131,13 @@ class StateFlipIndexSuite extends munit.FunSuite {
           )
           assertEquals(
             flips,
-            reference(d, g, Shared.of(states), Shared.of(now), visible),
+            reference(
+              validated.ready,
+              g,
+              Shared.of(states),
+              Shared.of(now),
+              visible
+            ),
             clue = s"$name, frame $frame, moved $moved, visible $visible"
           )
           flips

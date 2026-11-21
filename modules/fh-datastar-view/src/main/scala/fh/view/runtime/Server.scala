@@ -57,6 +57,7 @@ import org.typelevel.otel4s.Attribute
 import org.typelevel.otel4s.trace.Tracer
 
 import java.nio.charset.StandardCharsets.UTF_8
+import scala.collection.immutable.BitSet
 
 import scala.concurrent.duration.*
 
@@ -553,11 +554,9 @@ class Server(
                 // Only surfaces some client can see: a tab inside a hidden
                 // `If` is selected but on no screen. Filtered per session
                 // before the union, because a chain is one client's.
-                val visible = opens
-                  .flatMap(o =>
-                    o.filter(renderer.surfaces.visibleSurface(_, o, now))
-                  )
-                  .toSet
+                val visible = opens.foldLeft(BitSet.empty)(
+                  _ | renderer.surfaces.onScreen(_, now)
+                )
                 Patches.plan(renderer, was, now, frame.changes, visible)
               }
               // Written and pruned in one update, so a concurrent write
@@ -1071,13 +1070,17 @@ class Server(
         FHError.notFound(s"no surface '$id' on this dashboard — reload")
       )
     else
-      swapHost(session, renderer, Dashboard.PopupHostId, Some(id), selections)(
-        s
-      )
+      swapHost(
+        session,
+        renderer,
+        Dashboard.PopupHostId,
+        renderer.surfaces.popupSpelling(id),
+        selections
+      )(s)
 
-  /** The one open/switch/close primitive: make `newSurface` the sole occupant
-    * of `host` (`None` closes a popup) and patch the DOM. No server state
-    * tracks whether a popup is open.
+  /** The one open/switch/close primitive: make `newSurface`, a container as
+    * `open` spells it, the sole occupant of `host` (`None` closes a popup) and
+    * patch the DOM. No server state tracks whether a popup is open.
     *
     * One client's choice, so unlike a state-group flip it records no
     * [[Mutation]]: the trace goes to this session alone. Ends by committing
@@ -1183,7 +1186,8 @@ class Server(
     for {
       store <- stateStore.current
       reached <- decided(renderer, store) { at =>
-        val shown = renderer.surfaces.visibleNode(_, s.open, at)
+        val open = renderer.surfaces.openOf(s.open)
+        val shown = renderer.surfaces.visibleNode(_, open, at)
         (
           shown(key.declarer),
           groups.filter(gid =>

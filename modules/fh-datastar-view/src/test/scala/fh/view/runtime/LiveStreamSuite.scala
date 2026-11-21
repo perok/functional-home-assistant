@@ -332,12 +332,13 @@ class LiveStreamSuite extends ServerHarness {
         "sensor.a" -> es("sensor.a", "A0"),
         "sensor.b" -> es("sensor.b", "B0")
       )
-    val open = Set("det", "s_det__c_0_panel_0_1")
+    val det = r.surfaces.popupSpelling("det").get
+    val open = Set(det, "s_det__c_0_panel_0_1")
     val mine =
       Selections(None, Map(NodeId.derived("s_det__c_0_panel_0") -> 1))
     // Exactly as `pageResponse` records it.
     val ids =
-      (r.surfaceNodeIds("det") ++ r.surfaceNodeIds(
+      (r.surfaceNodeIds(det) ++ r.surfaceNodeIds(
         "s_det__c_0_panel_0_1"
       )).toList.sorted
     val seeded = FragmentLog("w18")

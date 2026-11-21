@@ -546,6 +546,11 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        surface key, read into its root at the route. The popup branches that remain
        (`Selections.popup`, `committedSelection`, the popup host in `surfacesAt`) are what R5
        deletes, so D0.3 does not rewrite them first. Bench round with `-XX:-DoEscapeAnalysis`.
+       Built. `Ready.Dashboard` carries the index and every compiled node its `Ix`; the graphs
+       read containers off it, so `MemberGraph`'s `rootOfMember`/`rootOfSet`, `Member.root` and
+       its case map went too. The visibility walk reads arrays by `Ix`. `selectionsIn`,
+       `selectionsShown` and `committedSelections` still read the spelled set: they answer the
+       wire's questions, and R5 removes them with `open`.
      - D0's gate: goldens byte-identical, suites green, `page`/`tickRender`/`publishSet*` equal
        or better. Render time and allocation come first; `validated` may pay for a structure
        that is strictly better (D0.1 + D0.2: `page` −5%, `publishSetOrdered` −8%, `validated`

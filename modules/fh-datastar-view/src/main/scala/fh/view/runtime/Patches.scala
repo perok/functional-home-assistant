@@ -7,6 +7,7 @@ import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
   Dashboard,
   DomId,
+  Ix,
   NodeId,
   SetId,
   SignalId,
@@ -16,7 +17,7 @@ import fh.view.model.{
 import fh.view.model.DomId.selector
 import io.circe.Json
 
-import scala.collection.immutable.HashMap
+import scala.collection.immutable.{BitSet, HashMap}
 
 /** One DOM patch, rendered to SSE only at the edge. A `Morph` carries its
   * target's id inside `html`; `Signals` touches no element (ADR 0017). Targets
@@ -76,28 +77,30 @@ private[runtime] object Patches {
     * Flipped state groups are recorded as [[Mutation]]s and excluded below (the
     * fill re-renders them). A surface binding a changed entity contributes only
     * if it is shown from the page or a visible surface
-    * ([[SurfaceGraph.visibleSurface]]), so a hidden branch never gets updates.
-    * No viewer's [[Selections]] are read. `prev` is the version before, so its
-    * decisions are what viewers were sent.
+    * ([[SurfaceGraph.visibleContainer]]), so a hidden branch never gets
+    * updates. No viewer's [[Selections]] are read. `prev` is the version
+    * before, so its decisions are what viewers were sent.
     */
   def plan(
       renderer: Renderer,
       prev: Shared,
       next: Shared,
       changes: List[StateChange],
-      visible: Set[String]
+      visible: BitSet
   ): DiffRequest = {
     val flips =
       renderer.surfaces.affectedStateGroups(changes, prev, next, visible)
     val flipped = flips.toSet
     // Per frame: every changed entity a branch binds asks of the same surface,
     // and each asking evaluates the conditions above it (`publishFlip`).
-    val reached = scala.collection.mutable.HashMap.empty[String, Boolean]
-    val shown: String => Boolean = sid =>
-      reached.getOrElseUpdate(
-        sid,
-        renderer.surfaces.visibleSurface(sid, visible, next, flipped)
-      )
+    val asked = scala.collection.mutable.BitSet.empty
+    val reached = scala.collection.mutable.BitSet.empty
+    val shown: Ix => Boolean = c =>
+      if (asked.add(c.toInt)) {
+        val r = renderer.surfaces.visibleContainer(c, visible, next, flipped)
+        if (r) reached += c.toInt
+        r
+      } else reached(c.toInt)
     // First: `deltas` makes `next`'s set decisions incrementally, where a
     // `binding` reading them first would rebuild each from scratch.
     val membership = renderer.members.deltas(
@@ -344,8 +347,9 @@ private[runtime] object Patches {
       log: FragmentLog,
       shared: Shared,
       v: Long,
-      open: Set[String]
+      spelled: Set[String]
   ): Owing = {
+    val open = renderer.surfaces.openOf(spelled)
     val all = log.since(v, renderer.ancestry)
     // Only what this client can see; the rest would cost only bytes.
     val owed = all.copy(
@@ -361,9 +365,10 @@ private[runtime] object Patches {
     }
     // Dropped when a mutation or refill re-supplies an ancestor.
     val fromOpenIds = open.toList
+      .map(Ix(_))
       // `open` includes a tab panel inside a hidden `If`.
-      .filter(renderer.surfaces.visibleSurface(_, open, shared))
-      .flatMap(renderer.surfaceNodeIds)
+      .filter(renderer.surfaces.visibleContainer(_, open, shared))
+      .flatMap(renderer.containerNodeIds)
       .distinct
       .filterNot(id =>
         owed.nodes.contains(id) || owed.moved.exists(_._1 == id) ||
@@ -686,7 +691,7 @@ private[runtime] object Patches {
     val popup = hostFill(
       renderer,
       Dashboard.PopupHostId,
-      viewing.selections.popup,
+      viewing.selections.popup.flatMap(renderer.surfaces.popupSpelling),
       shared,
       viewing
     ).map(_._1)

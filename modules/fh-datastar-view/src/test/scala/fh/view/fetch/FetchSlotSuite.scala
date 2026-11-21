@@ -364,7 +364,7 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
     val r = Renderer.create(d)
     assertEquals(
       r.fetchesForSurface(
-        "popup",
+        r.surface("popup").get.content.id,
         sharedOf(Map.empty),
         Selections.none,
         Map.empty

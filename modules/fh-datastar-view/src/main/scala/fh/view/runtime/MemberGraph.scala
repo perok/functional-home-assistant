@@ -8,7 +8,9 @@ import fh.view.model.{
   NodeId,
   Ready,
   SetId,
-  SlotRead
+  Ix,
+  SlotRead,
+  TreeIndex
 }
 
 /** A candidate set member materialised as an ordinary node. Its node is
@@ -26,38 +28,27 @@ private[runtime] object Member {
       (c.liveEntities ++ c.allChildren.flatMap(entitiesOf)).distinct
   }
 
-  /** A member's components, each with its parent and the innermost choice's
-    * case below the member holding it. Not a nested set's root, nor its
-    * members, which are its own.
+  /** A member's components, each with its parent. Not a nested set's root, nor
+    * its members, which are its own.
     */
   def subtree(
       node: Ready.Component
-  ): List[(NodeId, Ready.Component, Option[NodeId], Option[NodeId])] = {
+  ): List[(NodeId, Ready.Component, Option[NodeId])] = {
     def walk(
         n: Ready.Component,
-        parent: Option[NodeId],
-        in: Option[NodeId]
-    ): List[(NodeId, Ready.Component, Option[NodeId], Option[NodeId])] =
-      (n.id, n, parent, in) :: (n.content match
-        case Ready.Content.Fixed(r) =>
-          LayoutNode.steps(r).flatMap((_, c) => below(c, n, in))
-        case Ready.Content.Live(_, Ready.LiveFill.Pick(cases, _, _, _, _)) =>
-          cases.flatMap(c => below(c, n, Some(c.id)))
-        case Ready.Content.Live(_, _: Ready.LiveFill.Set) => Nil)
-    def below(c: Ready.Node, parent: Ready.Component, in: Option[NodeId]) =
-      c match
-        case k: Ready.Component =>
-          k.content match
-            case Ready.Content.Live(_, _: Ready.LiveFill.Set) => Nil
-            case _ => walk(k, Some(parent.id), in)
-    walk(node, None, None)
+        parent: Option[NodeId]
+    ): List[(NodeId, Ready.Component, Option[NodeId])] =
+      (n.id, n, parent) :: n.allChildren.flatMap { case k: Ready.Component =>
+        k.content match
+          case Ready.Content.Live(_, _: Ready.LiveFill.Set) => Nil
+          case _ => walk(k, Some(n.id))
+      }
+    walk(node, None)
   }
 }
 
 private[runtime] case class Member(
     gid: SetId,
-    // `""` for the main page, else the surface id: who its patch may reach.
-    root: String,
     key: MemberKey,
     id: MemberId,
     node: Ready.Component,
@@ -67,7 +58,7 @@ private[runtime] case class Member(
 
   /** Its own node and every component below it, by id. */
   lazy val nodes: Map[NodeId, Ready.Component] =
-    Member.subtree(node).map((at, n, _, _) => at -> n).toMap
+    Member.subtree(node).map((at, n, _) => at -> n).toMap
 
   /** What its nodes read, each under its own id, in id order. */
   lazy val fetching: List[(NodeId, Fetching)] =
@@ -113,9 +104,8 @@ private object GroupMembers {
   def of(members: Vector[Member]): GroupMembers =
     GroupMembers(
       members,
-      members.toList.collect {
-        case Member(_, _, MemberKey.Entity(e), _, _, _) =>
-          e
+      members.toList.collect { case Member(_, MemberKey.Entity(e), _, _, _) =>
+        e
       }
     )
 }
@@ -126,12 +116,12 @@ private object GroupMembers {
   *
   * @param setNodes
   *   the statically indexed sets; nested ones are discovered from these.
-  * @param rootOfIndexed
-  *   static node id -> its layout tree (`""` for the main page).
+  * @param index
+  *   where each set's host sits: its container is who a patch may reach.
   */
 private[runtime] final class MemberGraph(
     setNodes: Map[NodeId, Ready.SetFill],
-    rootOfIndexed: Map[NodeId, String]
+    index: TreeIndex
 ) {
 
   private case class MemberSource(s: Ready.SetFill) {
@@ -196,8 +186,8 @@ private[runtime] final class MemberGraph(
     private def entityOf(m: Member): String = sortKey(m.key)
   }
 
-  /** `owner`: the member a nested set hangs off. `root`: `""` for the main
-    * page, else the surface its patches may reach.
+  /** `owner`: the member a nested set hangs off. `root`: its host's container,
+    * which its patches may reach only while shown.
     *
     * Not a case class: a frame dedups these, and structural hashing walks the
     * whole `SetFill` (`publishSet` 11 µs -> 1.4 ms).
@@ -206,7 +196,7 @@ private[runtime] final class MemberGraph(
       val at: NodeId,
       val src: MemberSource,
       val owner: Option[NodeId],
-      val root: String,
+      val root: Ix,
       // The owner's clause it is inside; 0 for a set no member owns.
       val clause: Int = 0
   ) {
@@ -272,7 +262,7 @@ private[runtime] final class MemberGraph(
       clause: Int
   ): Member = {
     val key = MemberKey.Entity(entityId)
-    Member(s.gid, s.root, key, MemberId.of(node.id), node, clause)
+    Member(s.gid, key, MemberId.of(node.id), node, clause)
   }
 
   /** Every set, nested ones ("a tile per room") included with the member they
@@ -287,14 +277,13 @@ private[runtime] final class MemberGraph(
           .get(candidate)
           .toList
           .flatMap(_.nodes.zipWithIndex)
-        found <- setsIn(MemberId.of(node.id), ci, node, outer.root)
+        found <- setsIn(MemberId.of(node.id), ci, node)
       } yield found
 
     def setsIn(
         member: MemberId,
         clauseIdx: Int,
-        node: Ready.Node,
-        root: String
+        node: Ready.Node
     ): List[Source] = node match {
       case c: Ready.Component =>
         c.content match {
@@ -303,22 +292,20 @@ private[runtime] final class MemberGraph(
               c.id,
               MemberSource(inner),
               Some(NodeId.derived(member)),
-              root,
+              index.container(c.ix),
               clauseIdx
             )
             found :: nested(found)
-          // A set in a choice's case is shown with that case.
           case Ready.Content.Live(_, Ready.LiveFill.Pick(cases, _, _, _, _)) =>
-            cases.flatMap(k => setsIn(member, clauseIdx, k, k.id))
+            cases.flatMap(setsIn(member, clauseIdx, _))
           case Ready.Content.Fixed(r) =>
-            LayoutNode
-              .steps(r)
-              .flatMap((_, k) => setsIn(member, clauseIdx, k, root))
+            LayoutNode.steps(r).flatMap((_, k) => setsIn(member, clauseIdx, k))
         }
     }
 
+    // A static host is one node.
     val roots = setNodes.toList.map { case (id, s) =>
-      Source(id, MemberSource(s), None, rootOfIndexed.getOrElse(id, ""))
+      Source(id, MemberSource(s), None, index.container(index.ixsOf(id).head))
     }
     roots ++ roots.flatMap(nested)
   }
@@ -346,7 +333,7 @@ private[runtime] final class MemberGraph(
       memberSlot.toList.flatMap { case (_, (s, e)) =>
         s.clauseMembers(e)
           .flatMap(m => Member.subtree(m.node))
-          .flatMap((at, _, parent, _) => parent.map(at -> _))
+          .flatMap((at, _, parent) => parent.map(at -> _))
       }
 
   /** id below a member -> the member. Each member indexes its own subtree
@@ -380,10 +367,6 @@ private[runtime] final class MemberGraph(
     memberOwning(id).flatMap(memberSlot.get).toList.flatMap { (s, e) =>
       s.clauseMembers(e).flatMap(_.nodes.get(id))
     }
-
-  // A nested set inherits its owner's, which the walk carries down.
-  private val sourceRoot: Map[NodeId, String] =
-    sourcesWithOwner.map(s => s.at -> s.root).toMap
 
   /** entity -> every set's candidates it can decide, so a frame visits only the
     * sets it touched.
@@ -457,11 +440,12 @@ private[runtime] final class MemberGraph(
   /** The nodes inside present members under a root `within` holds that bind
     * `entityId`: each re-renders because something it binds moved, as a static
     * node does. A nested set counts only while its owner is present, in the
-    * clause holding it.
+    * clause holding it, and a node in a case below the member only while
+    * `within` holds that case.
     */
   def binding(
       entityId: String,
-      within: String => Boolean,
+      within: Ix => Boolean,
       shared: Shared
   ): Set[NodeId] =
     readingSets
@@ -471,8 +455,11 @@ private[runtime] final class MemberGraph(
       .flatMap(s =>
         groupOf(s.gid, shared).binding.getOrElse(entityId, Vector.empty)
       )
-      .flatMap(_.byEntity.getOrElse(entityId, Nil))
-      .filter(id => caseIn.get(id).forall(c => within(c)))
+      .flatMap(m =>
+        m.byEntity
+          .getOrElse(entityId, Nil)
+          .filter(id => within(index.container(m.nodes(id).ix)))
+      )
       .toSet
 
   // Off the owner's set, which every walk decides, not `memberAt`: a member's
@@ -657,37 +644,13 @@ private[runtime] final class MemberGraph(
     case MemberKey.Surface(id) => id
   }
 
-  /** Present or not: a departed member's patch is scoped like a present one's.
-    * A node in a choice's case below it is in that case.
-    */
-  def rootOfMember(id: NodeId): Option[String] =
-    caseIn
-      .get(id)
-      .map(c => c: String)
-      .orElse(memberOwning(id).flatMap(memberSlot.get).map(_._1.root))
-
-  /** id below a member -> the innermost choice's case below the member holding
-    * it, every clause's: one path is one id in each.
-    */
-  private lazy val caseIn: Map[NodeId, NodeId] =
-    memberSlot.toList.flatMap { case (_, (s, e)) =>
-      s.clauseMembers(e)
-        .flatMap(m => Member.subtree(m.node))
-        .collect { case (at, _, _, Some(c)) => at -> c }
-    }.toMap
-
-  /** Without this a nested set's fill or removal reads as main-page and reaches
-    * clients without the surface open.
-    */
-  def rootOfSet(id: NodeId): Option[String] = sourceRoot.get(id)
-
   /** The sets under a root `within` holds whose membership a change can move; a
     * member that ticked is found by the reverse index. Off [[sources]], for the
     * reason [[setContainer]] gives.
     */
   def affectedSetsWithin(
       changes: List[StateChange],
-      within: String => Boolean
+      within: Ix => Boolean
   ): List[SetId] =
     changes
       .flatMap(c => dirtiesSets.getOrElse(c.entityId, Nil))

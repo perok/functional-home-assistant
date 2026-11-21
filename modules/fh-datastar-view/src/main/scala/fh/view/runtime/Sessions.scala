@@ -31,8 +31,9 @@ enum Tenure derives CanEqual {
   * written only where bytes are sent to this client, never from what another
   * client or a shared structure believes.
   *
-  *   - `open`: selected tab panels and popup; only these are recorded and
-  *     rendered, so a closed popup costs nothing.
+  *   - `open`: selected tab panels and popup, each by its root's DOM id, since
+  *     it crosses a renderer swap ([[SurfaceGraph.openOf]]); only these are
+  *     recorded and rendered, so a closed popup costs nothing.
   *   - `vars`: the viewer's node-variable choices, here because a pull has no
   *     request to read them off (issue #209).
   *   - `initialValues`: where the document opened a variable that has an

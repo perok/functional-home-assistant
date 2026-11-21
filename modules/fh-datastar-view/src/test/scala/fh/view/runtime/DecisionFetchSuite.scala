@@ -15,7 +15,7 @@ import fh.view.history.Windows
 import fh.view.model.*
 import fh.view.testkit.Conds
 
-import scala.collection.immutable.ListMap
+import scala.collection.immutable.{BitSet, ListMap}
 import scala.collection.mutable.ListBuffer
 
 /** A decision made outside a render reads a fetch: a set's clause and order, a
@@ -209,12 +209,13 @@ class DecisionFetchSuite extends munit.FunSuite {
         )
       )
     assertEquals(d.decisionFetches, List("the choice at 'c'" -> history))
+    // Compiled past `validate`, which refuses a decision made by a fetch.
     val ready = Conds.compiled(Ready.Compile(Evaluator.Scope("")).dashboard(d))
     val g = new SurfaceGraph(
+      ready.index,
       ready.surfaces,
       ready.picks,
-      Map.empty,
-      new MemberGraph(Map.empty, Map.empty)
+      new MemberGraph(Map.empty, ready.index)
     )
     val gid = NodeId.derived("c")
     val read = SlotAsk(history, Step.Json).fixed
@@ -372,7 +373,7 @@ class DecisionFetchSuite extends munit.FunSuite {
           before.asking(run),
           after.asking(run),
           frame.changes,
-          Set.empty
+          BitSet.empty
         )
       )
       .unsafeRunSync()

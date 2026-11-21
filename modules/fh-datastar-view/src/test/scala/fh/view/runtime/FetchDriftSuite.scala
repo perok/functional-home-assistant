@@ -187,7 +187,15 @@ class FetchDriftSuite extends munit.FunSuite {
         states,
         Viewing(
           ui,
-          answered(r, r.fetchesForSurface(sid, states, ui, defaults(r)))
+          answered(
+            r,
+            r.fetchesForSurface(
+              r.surfaces.popupSpelling(sid).get,
+              states,
+              ui,
+              defaults(r)
+            )
+          )
         )
       )
     }
@@ -198,7 +206,9 @@ class FetchDriftSuite extends munit.FunSuite {
       val r = c.renderer
       val painted: List[NodeId] =
         (r.surfaces.statePicks.toList ++
-          c.dashboard.surfaces.keys.toList.flatMap(r.surfaceNodeIds) ++
+          c.dashboard.surfaces.keys.toList
+            .flatMap(r.surfaces.popupSpelling)
+            .flatMap(r.surfaceNodeIds) ++
           c.houses.flatMap(states =>
             r.renderPageInto(
               Sink.buffer(r.pageBytesHint),

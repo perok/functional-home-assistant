@@ -18,6 +18,7 @@ import fh.view.model.{
   FetchTemplate,
   Fetching,
   IdKind,
+  Ix,
   LayoutNode,
   MemberId,
   NodeId,
@@ -127,34 +128,25 @@ class Renderer(validated: Dashboard.Validated) {
   private val expandCell: java.util.function.Function[String, String] =
     cls => themeClasses.expand(cls).map(" " + _).mkString
 
-  /** One tree's nodes, the body's or a popup's, under their ids, a choice's
-    * every case included. Each node is in a container ([[SurfaceGraph]]): the
-    * innermost case holding it, else the tree's own, `""` for the body or the
-    * popup's id.
+  /** One tree's static nodes, the body's or a popup's, under their ids, a
+    * choice's every case included; a set's members are its own. Each is in its
+    * container ([[TreeIndex.container]]).
     */
-  private class Index(root: Ready.Node, tree: String) {
+  private class Index(root: Ready.Node) {
 
-    private val walked: List[(NodeId, Ready.Node, Option[NodeId], String)] = {
+    private val walked: List[(NodeId, Ready.Node, Option[NodeId], Ix)] = {
       def walk(
           node: Ready.Node,
-          id: NodeId,
-          parent: Option[NodeId],
-          in: String
-      ): List[(NodeId, Ready.Node, Option[NodeId], String)] =
-        (id, node, parent, in) :: (node match {
-          // A set's members are addressed by `memberId`, not a path.
-          case c: Ready.Component =>
-            c.content match
-              case Ready.Content.Fixed(r) =>
-                LayoutNode
-                  .steps(r)
-                  .flatMap((_, ch) => walk(ch, ch.id, Some(id), in))
-              case Ready.Content
-                    .Live(_, Ready.LiveFill.Pick(cases, _, _, _, _)) =>
-                cases.flatMap(ch => walk(ch, ch.id, Some(id), ch.id))
-              case Ready.Content.Live(_, _: Ready.LiveFill.Set) => Nil
-        })
-      walk(root, root.id, None, tree)
+          parent: Option[NodeId]
+      ): List[(NodeId, Ready.Node, Option[NodeId], Ix)] =
+        (node.id, node, parent, dashboard.index.container(node.ix)) ::
+          (node match {
+            case c: Ready.Component =>
+              c.content match
+                case Ready.Content.Live(_, _: Ready.LiveFill.Set) => Nil
+                case _ => c.allChildren.flatMap(walk(_, Some(c.id)))
+          })
+      walk(root, None)
     }
 
     val parents: Map[NodeId, NodeId] =
@@ -163,11 +155,8 @@ class Renderer(validated: Dashboard.Validated) {
     val indexed: Map[NodeId, Ready.Node] =
       walked.map((id, n, _, _) => id -> n).toMap
 
-    val containerOf: Map[NodeId, String] =
-      walked.map((id, _, _, in) => id -> in).toMap
-
     /** Each container's nodes, in id order. */
-    val inContainer: Map[String, List[NodeId]] =
+    val inContainer: Map[Ix, List[NodeId]] =
       walked
         .groupMap(_._4)(_._1)
         .view
@@ -175,7 +164,7 @@ class Renderer(validated: Dashboard.Validated) {
         .toMap
 
     /** container -> entity -> its nodes binding it. */
-    val byEntity: Map[String, Map[String, Set[NodeId]]] =
+    val byEntity: Map[Ix, Map[String, Set[NodeId]]] =
       walked
         .collect { case (id, c: Ready.Component, _, in) =>
           c.liveEntities.map(e => (in, e, id))
@@ -187,7 +176,7 @@ class Renderer(validated: Dashboard.Validated) {
         .toMap
   }
 
-  private val mainIndex = new Index(dashboard.card, "")
+  private val mainIndex = new Index(dashboard.card)
 
   /** The head's unpatchable part — linked stylesheets, scripts, `chrome` — so a
     * mismatch reloads the page (ADR 0011); the patchable rest is [[styleHash]].
@@ -263,27 +252,20 @@ class Renderer(validated: Dashboard.Validated) {
 
   private lazy val markedGates: Set[String] = gatesReading.values.flatten.toSet
 
-  private val popupIndexes: Map[String, Index] =
-    dashboard.surfaces.map { case (sid, s) =>
-      sid -> new Index(s.content, sid)
-    }
-
-  private val indexes: List[Index] = mainIndex :: popupIndexes.values.toList
+  private val indexes: List[Index] =
+    mainIndex :: dashboard.surfaces.values.toList.map(s => new Index(s.content))
 
   private val allIndexed: Map[NodeId, Ready.Node] =
     indexes.flatMap(_.indexed).toMap
 
-  private val containerOfIndexed: Map[NodeId, String] =
-    indexes.flatMap(_.containerOf).toMap
-
   /** Each container's static nodes, in id order: a popup's or a case's own, not
     * those of the containers inside it.
     */
-  private val containerNodes: Map[String, List[NodeId]] =
+  private val containerNodes: Map[Ix, List[NodeId]] =
     indexes.flatMap(_.inContainer).toMap
 
   /** container -> entity -> its static nodes binding it. */
-  private val containerEntities: Map[String, Map[String, Set[NodeId]]] =
+  private val containerEntities: Map[Ix, Map[String, Set[NodeId]]] =
     indexes.flatMap(_.byEntity).toMap
 
   /** Lazy: the member graph, the ancestry and the surface graph are built
@@ -643,7 +625,7 @@ class Renderer(validated: Dashboard.Validated) {
         case Ready.Content.Live(_, Ready.LiveFill.Set(s)) => Some(id -> s)
         case _                                            => None
     }),
-    containerOfIndexed
+    dashboard.index
   )
 
   /** From the id-minting walks plus the member graph's edges, not from how ids
@@ -657,9 +639,9 @@ class Renderer(validated: Dashboard.Validated) {
   /** Selection and visibility, exposed on the same terms as [[members]]. */
   private[runtime] val surfaces: SurfaceGraph =
     new SurfaceGraph(
+      dashboard.index,
       dashboard.surfaces,
       dashboard.picks,
-      containerOfIndexed,
       members
     )
 
@@ -667,7 +649,7 @@ class Renderer(validated: Dashboard.Validated) {
     * entity depends on a version's membership ([[MemberGraph.binding]]).
     */
   def componentsFor(entityId: String): Set[NodeId] =
-    surfaceComponentsFor("", entityId)
+    surfaceComponentsFor(surfaces.pageRoot, entityId)
 
   /** Empty for a candidate set (its members have ids of their own). */
   def entitiesForNode(
@@ -727,25 +709,25 @@ class Renderer(validated: Dashboard.Validated) {
   def watchedEntities: Set[String] = dashboard.watchedEntities
 
   /** The containers, popups and cases, whose static nodes bind `entityId`: the
-    * candidates a tick asks [[SurfaceGraph.visibleSurface]] of, rather than
+    * candidates a tick asks [[SurfaceGraph.visibleContainer]] of, rather than
     * every shown one.
     */
-  def surfacesBinding(entityId: String): List[String] =
+  def surfacesBinding(entityId: String): List[Ix] =
     surfacesByEntity.getOrElse(entityId, Nil)
 
-  private lazy val surfacesByEntity: Map[String, List[String]] =
+  private lazy val surfacesByEntity: Map[String, List[Ix]] =
     containerEntities.toList
-      .filter(_._1.nonEmpty)
-      .flatMap((sid, byEntity) => byEntity.keys.map(_ -> sid))
+      .filter(_._1 != surfaces.pageRoot)
+      .flatMap((c, byEntity) => byEntity.keys.map(_ -> c))
       .groupMap(_._1)(_._2)
       .view
-      .mapValues(_.sorted)
+      .mapValues(_.sortBy(_.toInt))
       .toMap
 
-  /** A container's own static nodes binding `entityId`; `""` is the page's. */
-  def surfaceComponentsFor(surfaceId: String, entityId: String): Set[NodeId] =
+  /** A container's own static nodes binding `entityId`. */
+  def surfaceComponentsFor(container: Ix, entityId: String): Set[NodeId] =
     containerEntities
-      .get(surfaceId)
+      .get(container)
       .fold(Set.empty)(_.getOrElse(entityId, Set.empty))
 
   def surface(surfaceId: String): Option[Ready.Surface] =
@@ -934,7 +916,7 @@ class Renderer(validated: Dashboard.Validated) {
     * nested container's are asked as it is shown.
     */
   private def asksOfSurface(
-      container: String,
+      container: Ix,
       shared: Shared
   ): List[(NodeId, Fetching)] =
     val ids = containerNodes.getOrElse(container, Nil)
@@ -963,8 +945,7 @@ class Renderer(validated: Dashboard.Validated) {
     surfaces
       .shownWithin(surfaceId, shared, selections)
       .toList
-      .sorted
-      .flatMap(asksOfSurface(_, shared))
+      .flatMap(i => asksOfSurface(Ix(i), shared))
 
   /** The body, this viewer's open surfaces and each state group's branch. An
     * unselected tab is fetched when switched to.
@@ -975,12 +956,11 @@ class Renderer(validated: Dashboard.Validated) {
       env: VarEnv
   ): List[SlotRead] =
     ask(
-      asksOfSurface("", shared) ++
+      asksOfSurface(surfaces.pageRoot, shared) ++
         surfaces
-          .shownSurfaces(open, shared)
+          .shownSurfaces(surfaces.openOf(open), shared)
           .toList
-          .sorted
-          .flatMap(asksOfSurface(_, shared)),
+          .flatMap(i => asksOfSurface(Ix(i), shared)),
       shared,
       env
     )
@@ -988,8 +968,12 @@ class Renderer(validated: Dashboard.Validated) {
   /** The resume's second candidate set: nothing may have recorded an open
     * surface while nobody viewed it, so only re-rendering can tell.
     */
-  def surfaceNodeIds(surfaceId: String): Set[NodeId] =
-    containerNodes.getOrElse(surfaceId, Nil).toSet
+  def containerNodeIds(container: Ix): List[NodeId] =
+    containerNodes.getOrElse(container, Nil)
+
+  /** [[containerNodeIds]] of every container `spelled` names. */
+  def surfaceNodeIds(spelled: String): Set[NodeId] =
+    surfaces.containersSpelled(spelled).flatMap(containerNodeIds).toSet
 
   /** A fill of either container: a set's members, in DOM order, or a state
     * group's branch.
@@ -1018,20 +1002,24 @@ class Renderer(validated: Dashboard.Validated) {
           )
     }
 
-  /** What a host fill inserts: a popup's content, or a case under its node id,
-    * through the pick showing it as `shared` has its member's clause.
+  /** What a host fill inserts, by the container's spelling: a popup's content,
+    * or a case under its node id, through the pick showing it as `shared` has
+    * its member's clause.
     */
   private[runtime] def renderShownTraced(
       id: String,
       shared: Shared,
       viewing: Viewing
   ): Option[Traced] =
-    renderSurfaceTraced(id, shared, viewing).orElse(
-      surfaces
-        .pickShowing(id, shared)
-        .flatMap((gid, i) => renderCaseTraced(gid, i, shared, viewing))
-        .map(_._2)
-    )
+    surfaces
+      .popupNamed(id)
+      .flatMap(renderSurfaceTraced(_, shared, viewing))
+      .orElse(
+        surfaces
+          .pickShowing(id, shared)
+          .flatMap((gid, i) => renderCaseTraced(gid, i, shared, viewing))
+          .map(_._2)
+      )
 
   /** Case `i` of the pick `gid`, under its node id, as the host's walk would
     * place it.

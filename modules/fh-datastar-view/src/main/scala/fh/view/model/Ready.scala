@@ -13,12 +13,14 @@ object Ready:
 
   /** Shared with [[LayoutNode]], so one id scheme mints both trees' ids. */
   sealed trait Node extends LayoutNode.Identified:
+    def ix: Ix
     def id: NodeId
 
-  /** `id`, `clause` and `group` are its [[TreeIndex]] entry's: the render walk
-    * reads them rather than minting ids per paint.
+  /** `ix`, `id`, `clause` and `group` are its [[TreeIndex]] entry's: the render
+    * walk reads them rather than minting ids per paint.
     */
   final case class Component(
+      ix: Ix,
       id: NodeId,
       clause: Option[Int],
       group: NodeId,
@@ -249,6 +251,7 @@ object Ready:
         )
       ).mapN((card, surfaces, calls, initials, choices) =>
         Dashboard(
+          i,
           d.cards,
           card,
           d.theme,
@@ -293,6 +296,7 @@ object Ready:
         )
       ).mapN((slots, regions, filled, chosen) =>
         Component(
+          at,
           i.id(at),
           i.within(at).map(_._2),
           i.group(at),
@@ -465,6 +469,7 @@ object Ready:
 
   /** The wire's whole-dashboard facts, read off it once by the walk. */
   final case class Dashboard(
+      index: TreeIndex,
       cards: Map[String, CardDef],
       card: Node,
       theme: Theme,

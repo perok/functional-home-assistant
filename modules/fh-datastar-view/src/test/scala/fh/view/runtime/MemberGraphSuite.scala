@@ -7,6 +7,8 @@ import fh.view.testkit.Slots
 import fh.view.testkit.Conds
 
 import fh.view.model.{
+  CardDef,
+  Dashboard,
   IdKind,
   SortTerm,
   LayoutNode,
@@ -15,11 +17,13 @@ import fh.view.model.{
   Op,
   Ready,
   SetId,
+  Surface,
   Value,
   ValueExpr,
   TemplateSlot
 }
-import fh.view.testkit.DashboardBuilders.{lit, st}
+import fh.view.testkit.DashboardBuilders.{col, lit, st}
+import fh.view.testkit.TestCard
 import io.circe.Json
 
 /** Presence and order, with no server: which candidates render, in what order,
@@ -28,7 +32,7 @@ import io.circe.Json
   */
 class MemberGraphSuite extends munit.FunSuite {
 
-  private val gid: SetId = SetId.of(NodeId.derived("c_0"), Sets.fill())
+  private val gid: SetId = SetId.of(NodeId.derived("c"), Sets.fill())
 
   private def card(e: String, kind: String): LayoutNode.Component =
     LayoutNode.Component(kind, Slots.values(Map("entity_id" -> lit(e))))
@@ -55,21 +59,47 @@ class MemberGraphSuite extends munit.FunSuite {
       limit = limit
     )
 
-  private def graphOf(
+  private val cards: Map[String, CardDef] = Sets.cards ++
+    List("entity", "slider", "pill").map(_ -> TestCard("{{entity_id}}")) ++
+    Map(
+      "tile" -> TestCard("{{{children}}}", regions = Set(Sets.SlotName)),
+      "col" -> TestCard("{{{children}}}", regions = Set(Sets.SlotName))
+    )
+
+  /** A real compiled dashboard holding `s` on the page, or as the popup
+    * `detail` under an empty page.
+    */
+  private def rendererOf(
       s: LayoutNode.Component,
-      root: String = ""
-  ): MemberGraph =
-    new MemberGraph(Map(gid -> compile.set(gid, s)), Map(gid -> root))
+      popup: Boolean = false
+  ): Renderer =
+    Renderer.create(
+      if (popup)
+        Dashboard(
+          cards = cards,
+          card = col(),
+          surfaces = Map("detail" -> Surface(s))
+        )
+      else Dashboard(cards = cards, card = s)
+    )
+
+  private def graphOf(s: LayoutNode.Component): MemberGraph =
+    rendererOf(s).members
+
+  private def popupSpelling(r: Renderer): String =
+    r.surfaces.popupSpelling("detail").get
+
+  /** The set the popup `detail` is. */
+  private def popupSet(r: Renderer): SetId =
+    SetId.of(NodeId.derived(popupSpelling(r)), Sets.fill())
 
   private object compile:
-    def set(at: NodeId, s: LayoutNode.Component): Ready.SetFill =
-      Conds.compiledSet(at, s)
     def node(n: LayoutNode): Ready.Node = Conds.compiledAlone(n)
 
   extension (g: MemberGraph)
-    // The main page's: a root of `""`.
+    // Every graph here but the popup's has the page as its one tree.
     private def affectedSets(changes: List[StateChange]): List[SetId] =
-      g.affectedSetsWithin(changes, _.isEmpty)
+      g.affectedSetsWithin(changes, _ => true)
 
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap
@@ -344,16 +374,21 @@ class MemberGraphSuite extends munit.FunSuite {
   }
 
   test("affectedSets is scoped to the layout tree the set lives in") {
-    val g = graphOf(set(List("light.a")), root = "detail")
+    val r = rendererOf(set(List("light.a")), popup = true)
+    val popupGid = popupSet(r)
+    val inPopup = r.surfaces.containersSpelled(popupSpelling(r)).toSet
     val ch = List(StateChange.Moved("light.a", None, st("light.a", "on")))
-    assertEquals(g.affectedSets(ch), Nil)
-    assertEquals(g.affectedSetsWithin(ch, _ == "detail"), List(gid))
+    assertEquals(
+      r.members.affectedSetsWithin(ch, _ == r.surfaces.pageRoot),
+      Nil
+    )
+    assertEquals(r.members.affectedSetsWithin(ch, inPopup), List(popupGid))
   }
 
   test("a member id is derived from its KEY, sanitized") {
     assertEquals(
       g0.memberIdOf(gid, "light.kitchen_1"): String,
-      "c_0_light_kitchen_1"
+      "c_light_kitchen_1"
     )
   }
 
@@ -387,9 +422,7 @@ class MemberGraphSuite extends munit.FunSuite {
   private val g0 = graphOf(set(List("light.kitchen_1")))
 
   test("a set nested in a member is enumerated, and inherits its tile's tree") {
-    // The root decides who a member's patch may reach. A nested set is not in
-    // the static index, which answered "" and leaked a surface's patches to
-    // everyone.
+    // A nested set in a popup must not reach a viewer without the popup open.
     val inner = set(List("light.b"))
     val outer = Sets.node(
       candidates = List("light.a"),
@@ -404,10 +437,11 @@ class MemberGraphSuite extends munit.FunSuite {
         )
       )
     )
-    val g = graphOf(outer, root = "detail")
+    val r = rendererOf(outer, popup = true)
+    val g = r.members
     val innerId = SetId.of(
       LayoutNode.innerSetId(
-        g.memberIdOf(gid, "light.a"),
+        g.memberIdOf(popupSet(r), "light.a"),
         0,
         List(LayoutNode.Step(LayoutNode.DefaultRegion, 0))
       ),
@@ -418,9 +452,10 @@ class MemberGraphSuite extends munit.FunSuite {
       s"$innerId should be a set container"
     )
 
-    val states = snapshot(st("light.a", "on"), st("light.b", "on"))
-    val innerMember = g.membersOf(innerId, Shared.of(states)).head
-    assertEquals(innerMember.root, "detail")
+    val ch = List(StateChange.Moved("light.b", None, st("light.b", "on")))
+    val inPopup = r.surfaces.containersSpelled(popupSpelling(r)).toSet
+    assertEquals(g.affectedSetsWithin(ch, inPopup), List(innerId))
+    assertEquals(g.affectedSetsWithin(ch, _ == r.surfaces.pageRoot), Nil)
   }
 
   test(

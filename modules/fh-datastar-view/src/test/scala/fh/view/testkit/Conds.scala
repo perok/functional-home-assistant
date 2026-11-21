@@ -4,13 +4,11 @@ import fh.view.runtime.Evaluator
 import fh.view.model.{
   LayoutNode,
   Lit,
-  NodeId,
   Op,
   Part,
   Ready,
   SortTerm,
   Step,
-  Surface,
   TreeIndex,
   Value,
   ValueExpr,
@@ -33,20 +31,6 @@ object Conds {
   def compiledAlone(n: LayoutNode): Ready.Component = {
     val i = TreeIndex.of(n, Map.empty)
     compiled(Ready.Compile(Evaluator.Scope("")).node(i, i.roots.head))
-  }
-
-  /** The set `s` fills, compiled where a graph places it, so its ids are the
-    * graph's.
-    */
-  def compiledSet(at: NodeId, s: LayoutNode.Component): Ready.SetFill =
-    compiledAlone(s.copy(id = Some(at))).content match
-      case Ready.Content.Live(_, Ready.LiveFill.Set(f)) => f
-      case other => throw AssertionError(s"not a set: $other")
-
-  def compiledPopup(sid: String, s: Surface): Ready.Surface = {
-    val i = TreeIndex.of(s.content, Map(sid -> s))
-    val root = i.roots.filter(i.tree(_) == sid).head
-    compiled(Ready.Compile(Evaluator.Scope("")).surface(i, root, s))
   }
 
   /** What compiled, as the walk would have it. */

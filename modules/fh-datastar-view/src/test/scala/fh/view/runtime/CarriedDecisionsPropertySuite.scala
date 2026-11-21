@@ -88,9 +88,9 @@ class CarriedDecisionsPropertySuite extends HedgehogSuite {
             RenderGoldenSuite.answers(f.r, f.d, shared, Nil)
           )
         )
-        val nodes = (body.own.keys ++ f.surfaceIds.flatMap(
-          f.r.surfaceNodeIds
-        )).toList.distinct.sorted
+        val nodes = (body.own.keys ++ f.surfaceIds
+          .flatMap(f.r.surfaces.popupSpelling)
+          .flatMap(f.r.surfaceNodeIds)).toList.distinct.sorted
         val answers = RenderGoldenSuite.answers(f.r, f.d, shared, nodes)
         (body.html ::
           f.surfaceIds.flatMap(

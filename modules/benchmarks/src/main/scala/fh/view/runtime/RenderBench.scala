@@ -486,7 +486,10 @@ class RenderBench {
     }
     // After `checkPublishShape`, whose frame left `set`'s membership held.
     tickMemberIds = tickEntities.flatMap(
-      set.members.binding(_, _.isEmpty, heldBy(set)).toList.sorted
+      set.members
+        .binding(_, _ == set.surfaces.pageRoot, heldBy(set))
+        .toList
+        .sorted
     )
     checkTickShapes()
     clauseSet = Renderer.create(Dashboard(cards, clauseSetTree(Leaves)))
@@ -1487,7 +1490,13 @@ class RenderBench {
       fh.view.runtime.Frame(changes, StoreState(states, pubRot.toLong))
     )
     heldBy(renderer) = next
-    val req = Patches.plan(renderer, prev, next, changes, Set.empty)
+    val req = Patches.plan(
+      renderer,
+      prev,
+      next,
+      changes,
+      scala.collection.immutable.BitSet.empty
+    )
     Patches.record(renderer, FragmentLog("bench"), req)
   }
 

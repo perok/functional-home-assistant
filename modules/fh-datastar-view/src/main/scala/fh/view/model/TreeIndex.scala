@@ -10,9 +10,9 @@ import scala.collection.mutable.ArrayBuffer
 opaque type Ix = Int
 
 object Ix {
-  private[model] def apply(i: Int): Ix = i
+  private[view] def apply(i: Int): Ix = i
 
-  extension (ix: Ix) private[model] def toInt: Int = ix
+  extension (ix: Ix) private[view] def toInt: Int = ix
 
   given CanEqual[Ix, Ix] = CanEqual.derived
 }
@@ -56,6 +56,19 @@ final class TreeIndex private (entries: Vector[TreeIndex.Entry]) {
 
   /** The innermost case holding it, else its tree's root. */
   def container(ix: Ix): Ix = Ix(entries(ix.toInt).container)
+
+  /** A page root, a popup's root, or a case: what may be hidden. */
+  def isContainer(ix: Ix): Boolean = entries(ix.toInt).container == ix.toInt
+
+  /** The container its container's root sits in; none for a tree's root. */
+  def containerAbove(c: Ix): Option[Ix] = parent(c).map(container)
+
+  /** Every node spelled `id`: one per clause where a member's clauses share it.
+    */
+  def ixsOf(id: NodeId): List[Ix] = byId.getOrElse(id, Nil)
+
+  private lazy val byId: Map[NodeId, List[Ix]] =
+    all.toList.groupBy(id)
 
   /** Whether `inner` is `outer` or below it: `[outer, end)` is its subtree. */
   def contains(outer: Ix, inner: Ix): Boolean =

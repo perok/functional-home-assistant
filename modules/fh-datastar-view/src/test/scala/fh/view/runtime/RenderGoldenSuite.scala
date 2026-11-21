@@ -72,9 +72,9 @@ class RenderGoldenSuite extends munit.FunSuite {
           Viewing(fresh, RenderGoldenSuite.answers(r, d, shared, Nil))
         )
       val nodes =
-        (body.own.keys ++ (surfaceIds ++ caseIds).flatMap(
-          r.surfaceNodeIds
-        )).toList.distinct.sorted
+        (body.own.keys ++
+          (surfaceIds.flatMap(r.surfaces.popupSpelling) ++ caseIds)
+            .flatMap(r.surfaceNodeIds)).toList.distinct.sorted
       val f = RenderGoldenSuite.answers(r, d, shared, nodes)
       section(houseName, "body", body.html)
       surfaceIds.foreach { sid =>
@@ -211,7 +211,8 @@ object RenderGoldenSuite {
     val sel = fresh(r)
     val reads: List[SlotRead] =
       r.fetchesForPage(r.surfaces.selectedSurfaces(sel), shared, env) ++
-        (d.surfaces.keys ++ d.picks.values.flatMap(_.cases)).toList.flatMap(
+        (d.surfaces.keys.flatMap(r.surfaces.popupSpelling) ++
+          d.picks.values.flatMap(_.cases)).toList.flatMap(
           r.fetchesForSurface(_, shared, sel, env)
         ) ++
         r.readsForPull(nodes, Nil, shared, sel, env)

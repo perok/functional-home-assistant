@@ -44,9 +44,8 @@ import io.circe.Json
 class RendererSuite extends munit.FunSuite {
 
   extension (r: Renderer)
-    // The main page's: a root of `""`.
     private def affectedSets(changes: List[StateChange]): List[SetId] =
-      r.members.affectedSetsWithin(changes, _.isEmpty)
+      r.members.affectedSetsWithin(changes, _ == r.surfaces.pageRoot)
     private def affectedSetIds(change: StateChange): List[String] =
       r.affectedSets(List(change))
 
@@ -1155,7 +1154,12 @@ class RendererSuite extends munit.FunSuite {
       clue = r.componentsFor("sensor.t")
     )
     assertEquals(
-      r.surfaceComponentsFor("detail", "sensor.t"),
+      r.surfaceComponentsFor(
+        r.surfaces
+          .containersSpelled(r.surfaces.popupSpelling("detail").get)
+          .head,
+        "sensor.t"
+      ),
       Set("s_detail__c")
     )
     assertEquals(
@@ -1206,11 +1210,17 @@ class RendererSuite extends munit.FunSuite {
     assert(panelB.contains("<span>BB</span>"), clue = panelB)
 
     assertEquals(
-      rr.surfaceComponentsFor("c_panel_0_0", "sensor.a"),
+      rr.surfaceComponentsFor(
+        rr.surfaces.containersSpelled("c_panel_0_0").head,
+        "sensor.a"
+      ),
       Set("c_panel_0_0_0")
     )
     assertEquals(
-      rr.surfaceComponentsFor("c_panel_0_1", "sensor.b"),
+      rr.surfaceComponentsFor(
+        rr.surfaces.containersSpelled("c_panel_0_1").head,
+        "sensor.b"
+      ),
       Set("c_panel_0_1_0")
     )
   }
@@ -2005,7 +2015,11 @@ class RendererSuite extends munit.FunSuite {
     )
     val r = Renderer.create(d)
     def shown(id: String, open: Set[String]) =
-      r.surfaces.visibleNode(NodeId.derived(id), open, Shared.of(Map.empty))
+      r.surfaces.visibleNode(
+        NodeId.derived(id),
+        r.surfaces.openOf(open),
+        Shared.of(Map.empty)
+      )
 
     // A state case hides nothing, so b0 is shown exactly when the tab above it
     // is open, which its id cannot say.

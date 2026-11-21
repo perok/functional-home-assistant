@@ -658,7 +658,7 @@ class ServerRoutesSuite extends ServerHarness {
     assert(
       r.surfaces
         .selectedSurfaces(r.surfaces.selections(Some("det"), Map.empty))
-        .contains("det")
+        .contains(r.surfaces.popupSpelling("det").get)
     )
   }
 

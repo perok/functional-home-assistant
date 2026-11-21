@@ -44,10 +44,6 @@ class TreeIndexSuite extends munit.FunSuite {
         )
       )
 
-  /** A container as the runtime spells it: `""`, a popup's id, a case's id. */
-  private def spelled(d: Dashboard, c: Ix): String =
-    if (d.index.parent(c).isEmpty) d.index.tree(c) else d.index.id(c)
-
   dashboards.foreach { (slug, build, states) =>
     test(s"the index has every id a render writes, in its container: $slug") {
       val d = build()
@@ -69,13 +65,12 @@ class TreeIndexSuite extends munit.FunSuite {
             .flatMap(_.own.keySet)
       val byId: Map[NodeId, List[Ix]] = d.index.all.toList.groupBy(d.index.id)
       assertEquals(rendered -- byId.keySet, Set.empty[NodeId])
+      // A container is the page's root, a popup's root or a pick's case.
+      val containers: Set[Ix] =
+        d.index.roots.toSet ++
+          d.picks.values.flatMap(_.cases).flatMap(d.index.ixsOf)
       val wrong = byId.toList.flatMap { (id, ixs) =>
-        r.surfaces
-          .rootOf(id)
-          .filterNot(c =>
-            ixs.exists(ix => spelled(d, d.index.container(ix)) == c)
-          )
-          .map(id -> _)
+        ixs.filterNot(ix => containers(d.index.container(ix))).map(id -> _)
       }
       assertEquals(wrong, Nil)
     }
