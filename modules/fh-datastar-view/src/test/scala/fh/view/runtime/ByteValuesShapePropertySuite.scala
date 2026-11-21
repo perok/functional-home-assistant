@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.keyOf
+
 import fh.view.testkit.Sets
 
 import fh.view.testkit.Slots
@@ -279,15 +281,19 @@ object ByteValuesShapePropertySuite {
     private lazy val r = Renderer.create(shape.dashboard)
     private lazy val id = shape.target(r)
 
-    def values(w: World): Option[ByteValues] =
-      r.byteSlotValues(id, w.shared, w.fragments(r))
+    // The cache's key: the node's place beside its values, since two clauses
+    // of one member mint one id.
+    def values(w: World): Option[(Ix, ByteValues)] =
+      r.keyOf(id, w.shared, w.fragments(r))
     def bytes(w: World): Option[String] =
       r.renderNodeById(id, w.shared, w.viewing(r))
-    def walked(w: World): Option[ByteValues] =
-      r.renderBodyTraced(w.shared, w.viewing(r)).own.get(id).map(_.values)
+    def walked(w: World): Option[(Ix, ByteValues)] =
+      r.renderBodyTraced(w.shared, w.viewing(r)).painted.collectFirst {
+        case (ix, p) if r.index.id(ix) == id => (ix, p.values)
+      }
 
-    lazy val v1: Option[ByteValues] = values(w1)
-    lazy val v2: Option[ByteValues] = values(w2)
+    lazy val v1: Option[(Ix, ByteValues)] = values(w1)
+    lazy val v2: Option[(Ix, ByteValues)] = values(w2)
 
     override def toString: String = s"$shape\n  $w1\n  $w2"
   }

@@ -577,7 +577,7 @@ private[runtime] object Patches {
         IO(
           Some(
             Addressed(
-              Patch.Morph(cached(renderer, cache, id, own.values, shared)),
+              Patch.Morph(cached(renderer, cache, id, own, shared)),
               Map(own.ix -> Held(Some(own.values)))
             )
           )
@@ -596,11 +596,11 @@ private[runtime] object Patches {
       renderer: Renderer,
       cache: RenderCache,
       id: NodeId,
-      values: ByteValues,
+      own: Own,
       shared: Shared
   ): String =
-    cache(id, renderer, values)(
-      mustRender(renderer.renderPatch(id, shared, values), id)
+    cache(own.ix, renderer, own.values)(
+      mustRender(renderer.renderPatch(id, shared, own.values), id)
     )
 
   /** What a placed member inserts and claims. A member that is a leaf comes
@@ -619,7 +619,7 @@ private[runtime] object Patches {
         renderer
           .ownValues(id, shared, viewing.fragments)
           .map(own =>
-            cached(renderer, cache, id, own.values, shared) ->
+            cached(renderer, cache, id, own, shared) ->
               Map(own.ix -> Held(Some(own.values)))
           )
       else

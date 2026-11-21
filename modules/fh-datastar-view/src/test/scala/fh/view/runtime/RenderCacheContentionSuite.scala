@@ -19,6 +19,7 @@ import fh.view.model.{
 import fh.view.testkit.DashboardBuilders.{declared, st}
 import fh.view.testkit.PklFixture
 import fh.view.testkit.TestIds.given
+import fh.view.runtime.RendererTestOps.ixOf
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.jdk.CollectionConverters.*
@@ -37,6 +38,7 @@ class RenderCacheContentionSuite extends ServerHarness {
     * selection, so every viewer shares them.
     */
   private val Live: NodeId = "c_0_2"
+  private val LiveIx = Renderer.create(leafDash).ixOf(Live)
 
   private def leafDash = PklFixture.snippet(
     """card = (c.column) {
@@ -299,14 +301,14 @@ class RenderCacheContentionSuite extends ServerHarness {
 
   test("one entry per node, however many values are posted") {
     val renderer = Renderer.create(varDash)
-    val on = (v: String) => ByteValues(Map("window" -> v), None)
+    val on = (v: String) => ByteValues(Map("window" -> v))
     for {
       cache <- RenderCache.create
       _ <- (1 to 50).toList.traverse_(i =>
-        IO(cache("c_0", renderer, on(s"v$i"))(s"<b>$i</b>"))
+        IO(cache(LiveIx, renderer, on(s"v$i"))(s"<b>$i</b>"))
       )
       gens <- cache.size
-      again <- IO(cache("c_0", renderer, on("v50"))("<b>never</b>"))
+      again <- IO(cache(LiveIx, renderer, on("v50"))("<b>never</b>"))
     } yield {
       assertEquals(gens, 1, "50 values, one entry")
       assertEquals(again, "<b>50</b>", "the last value's install stands")
@@ -323,13 +325,13 @@ class RenderCacheContentionSuite extends ServerHarness {
     for {
       cache <- RenderCache.create
       _ <- (1L to 50L).toList.traverse_(n =>
-        IO(cache("c_0_2", renderer, v(n))(s"<b>$n</b>"))
+        IO(cache(LiveIx, renderer, v(n))(s"<b>$n</b>"))
       )
       afterChurn <- cache.size
     } yield assertEquals(afterChurn, 1, "50 frames, one entry")
   }
 
-  private def at(v: Long): ByteValues = ByteValues(Map("state" -> s"v$v"), None)
+  private def at(v: Long): ByteValues = ByteValues(Map("state" -> s"v$v"))
 
   /** Sessions pull on their own fibers, so they do not render from one
     * snapshot. The straggler's install evicts the newer entry: the next session
@@ -343,9 +345,9 @@ class RenderCacheContentionSuite extends ServerHarness {
     for {
       cache <- RenderCache.create
       renderer = Renderer.create(leafDash)
-      newest <- IO(cache(Live, renderer, at(2))(render("<b>v2</b>")))
-      late <- IO(cache(Live, renderer, at(1))(render("<b>v1</b>")))
-      third <- IO(cache(Live, renderer, at(2))(render("<b>v2 again</b>")))
+      newest <- IO(cache(LiveIx, renderer, at(2))(render("<b>v2</b>")))
+      late <- IO(cache(LiveIx, renderer, at(1))(render("<b>v1</b>")))
+      third <- IO(cache(LiveIx, renderer, at(2))(render("<b>v2 again</b>")))
       gens <- cache.size
     } yield {
       assertEquals(newest, "<b>v2</b>")
@@ -364,9 +366,9 @@ class RenderCacheContentionSuite extends ServerHarness {
     for {
       cache <- RenderCache.create
       renderer = Renderer.create(leafDash)
-      _ <- IO(cache(Live, renderer, at(1))(render("<b>v1</b>")))
-      _ <- IO(cache(Live, renderer, at(2))(render("<b>v2</b>")))
-      hit <- IO(cache(Live, renderer, at(2))(render("<b>never</b>")))
+      _ <- IO(cache(LiveIx, renderer, at(1))(render("<b>v1</b>")))
+      _ <- IO(cache(LiveIx, renderer, at(2))(render("<b>v2</b>")))
+      hit <- IO(cache(LiveIx, renderer, at(2))(render("<b>never</b>")))
       gens <- cache.size
     } yield {
       assertEquals(hit, "<b>v2</b>")
@@ -382,9 +384,9 @@ class RenderCacheContentionSuite extends ServerHarness {
 
     for {
       cache <- RenderCache.create
-      old <- IO(cache(Live, before, at(1L))("<b>old</b>"))
+      old <- IO(cache(LiveIx, before, at(1L))("<b>old</b>"))
       first <- cache.size
-      fresh <- IO(cache(Live, after, at(1L))("<b>new</b>"))
+      fresh <- IO(cache(LiveIx, after, at(1L))("<b>new</b>"))
       afterSwap <- cache.size
     } yield {
       assertEquals(old, "<b>old</b>")

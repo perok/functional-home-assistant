@@ -29,6 +29,14 @@ private[runtime] object RendererTestOps {
 
   def popupOpen(sid: String): Selections = Selections(Some(sid), Map.empty)
 
+  extension (t: Renderer#Traced) {
+
+    /** What each own-rendering node painted, by the id a suite names it with.
+      */
+    def own: Map[NodeId, Painted] =
+      t.painted.map { case (ix, p) => t.index.id(ix) -> p }
+  }
+
   extension (r: Renderer) {
 
     /** Without the page shell and without the theme: what a repaint or navigate
@@ -64,6 +72,16 @@ private[runtime] object RendererTestOps {
     def ixOf(id: NodeId): Ix = r.index.ixsOf(id) match
       case List(only) => only
       case other      => throw AssertionError(s"'$id' is not one node: $other")
+
+    /** What keys a node's render in the cache: its place and its byte-slot
+      * values, which alone cannot tell two clauses of one member apart.
+      */
+    def keyOf(
+        id: NodeId,
+        shared: Shared,
+        fragments: FetchSnapshot
+    ): Option[(Ix, ByteValues)] =
+      r.ownValues(id, shared, fragments).map(o => (o.ix, o.values))
 
     /** The whole document into a buffer, bytes and trace both. */
     def renderPageTraced(

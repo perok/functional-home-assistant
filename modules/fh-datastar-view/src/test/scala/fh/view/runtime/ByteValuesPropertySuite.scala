@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.own
+
 import fh.view.testkit.Sets
 
 import fh.view.testkit.Slots
@@ -12,7 +14,7 @@ import hedgehog.*
 import hedgehog.munit.HedgehogSuite
 
 /** A node's byte-slot values are its render key and what a session compares
-  * (ADR 0012): `holds` is seeded from [[Renderer.Traced.own]], and
+  * (ADR 0012): `holds` is seeded from [[Renderer.Traced.painted]], and
   * `Patches.morph` compares against [[Renderer.byteSlotValues]]. So the two
   * must agree, and equal values must mean equal bytes; pinned over generated
   * shapes from an awkward-character pool (the escape set, mustache tags,

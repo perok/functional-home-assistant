@@ -1,17 +1,17 @@
 package fh.view.runtime
 
 import cats.effect.IO
-import fh.view.model.NodeId
+import fh.view.model.Ix
 
 import java.util.concurrent.ConcurrentHashMap
 
-/** Node bytes shared by the sessions one tick wakes, keyed by the values they
-  * were rendered from ([[Renderer.byteSlotValues]], ADR 0012). Per slug, and
-  * emptied by a swap ([[Server.LiveSlug.install]]). An entry names its renderer
-  * by [[Renderer.generation]], not by reference: a pull still on the old
-  * renderer can install after the swap empties the cache, and its entry would
-  * otherwise keep that whole dashboard alive for as long as its node id is
-  * never rendered again, which a removed or renumbered node never is.
+/** Node bytes shared by the sessions one tick wakes, keyed by the node's `Ix`
+  * and the values they were rendered from ([[Renderer.byteSlotValues]], ADR
+  * 0012). Per slug, and emptied by a swap ([[Server.LiveSlug.install]]). An
+  * entry names its renderer by [[Renderer.generation]], not by reference: a
+  * pull still on the old renderer can install after the swap empties the cache,
+  * and its entry would otherwise keep that whole dashboard alive for as long as
+  * its `Ix` is never rendered again.
   *
   * '''One entry per node, replaced in place.''' A selection is not in the key:
   * only structure reads one, and structure is never cached. A fetch answer or a
@@ -26,21 +26,21 @@ import java.util.concurrent.ConcurrentHashMap
   * render, never wrong bytes.
   */
 private[runtime] final class RenderCache(
-    live: ConcurrentHashMap[NodeId, RenderCache.Entry]
+    live: ConcurrentHashMap[Ix, RenderCache.Entry]
 ) {
 
   /** A failed `render` installs nothing, so the next caller renders again. */
-  def apply(id: NodeId, renderer: Renderer, values: ByteValues)(
+  def apply(ix: Ix, renderer: Renderer, values: ByteValues)(
       render: => String
   ): String =
-    live.get(id) match {
+    live.get(ix) match {
       case e: RenderCache.Entry
           if (e.generation eq renderer.generation) && e.values == values =>
         e.html
       case _ =>
         val html = render
         val _ =
-          live.put(id, RenderCache.Entry(renderer.generation, values, html))
+          live.put(ix, RenderCache.Entry(renderer.generation, values, html))
         html
     }
 
@@ -59,5 +59,5 @@ private[runtime] object RenderCache {
   )
 
   def create: IO[RenderCache] =
-    IO(new RenderCache(new ConcurrentHashMap[NodeId, Entry]()))
+    IO(new RenderCache(new ConcurrentHashMap[Ix, Entry]()))
 }

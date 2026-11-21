@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.own
+
 import fh.view.model.Dashboard
 import fh.view.testkit.{FixtureEntries, PklFixture}
 import hedgehog.*

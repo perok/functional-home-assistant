@@ -191,7 +191,7 @@ class ResumePatchesSuite extends munit.FunSuite {
   }
 
   private def held(bytes: String): Held = Held(
-    Some(ByteValues(Map("v" -> bytes), None))
+    Some(ByteValues(Map("v" -> bytes)))
   )
 
   /** The dangerous direction is claiming values the client lacks. A fill

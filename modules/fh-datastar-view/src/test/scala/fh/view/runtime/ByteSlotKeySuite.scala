@@ -303,10 +303,10 @@ class ByteSlotKeySuite extends munit.FunSuite {
       rb = Renderer.create(dashboard)
       id = ra.members.memberIdOf(setId("c_3"), entity)
       key <- ra
-        .byteSlotValues(id, Shared.of(a), fragments = FetchSnapshot.empty)
+        .keyOf(id, Shared.of(a), fragments = FetchSnapshot.empty)
         .toList
       if rb
-        .byteSlotValues(id, Shared.of(b), fragments = FetchSnapshot.empty)
+        .keyOf(id, Shared.of(b), fragments = FetchSnapshot.empty)
         .contains(key)
     } assertEquals(
       ra.renderNodeById(
@@ -524,8 +524,8 @@ class ByteSlotKeySuite extends munit.FunSuite {
       )
     assertNotEquals(bytes("on"), bytes("off"))
     assertNotEquals(
-      r.byteSlotValues(id, at("on"), FetchSnapshot.empty),
-      r.byteSlotValues(id, at("off"), FetchSnapshot.empty)
+      r.keyOf(id, at("on"), FetchSnapshot.empty),
+      r.keyOf(id, at("off"), FetchSnapshot.empty)
     )
   }
 

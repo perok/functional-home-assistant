@@ -45,14 +45,13 @@ import fh.view.model.{
 import scala.collection.immutable.ListMap
 import scala.jdk.CollectionConverters.*
 
-/** What a node's patch form is rendered from, and so the render cache's key and
-  * what a session's `holds` compares (ADR 0012): each byte slot's value, and
-  * below a set member its clause. Every clause of a candidate mints the same
-  * ids, and the clause picks the card and the host id the bytes spell.
+/** What a node's patch form is rendered from, and so, beside the node's `Ix`,
+  * the render cache's key and what a session's `holds` compares (ADR 0012):
+  * each byte slot's value. The clause is not here: every clause of a candidate
+  * mints the same ids, but each has its own `Ix`.
   */
 private[runtime] final case class ByteValues(
-    slots: Map[SlotKey, SlotValue],
-    clause: Option[Int]
+    slots: Map[SlotKey, SlotValue]
 ) derives CanEqual
 
 /** One node as a wholesale render left it: the byte-slot values its patch form
@@ -1123,28 +1122,22 @@ class Renderer(validated: Dashboard.Validated) {
               "structure). A session's byte-value check cannot see a " +
               "selection, so this must be fixed rather than tolerated."
           )
-        Some(
-          Own(c.ix, valuesOf(planOf(id, c, shared), shared, fragments, None))
-        )
+        Some(Own(c.ix, valuesOf(planOf(id, c, shared), shared, fragments)))
       case Some(_) => None
       case None    =>
         members.nodeAt(id, shared).collect {
-          case (m, c) if ownRenderingOf(c) =>
-            Own(
-              c.ix,
-              valuesOf(planOf(id, c, shared), shared, fragments, Some(m.clause))
-            )
+          case (_, c) if ownRenderingOf(c) =>
+            Own(c.ix, valuesOf(planOf(id, c, shared), shared, fragments))
         }
     }
 
   private def valuesOf(
       plan: NodePlan,
       shared: Shared,
-      fragments: FetchSnapshot,
-      clause: Option[Int]
+      fragments: FetchSnapshot
   ): ByteValues = {
     val in = lookupAt(fragments, plan.id, shared.states)
-    byteValues(plan, clause)(s =>
+    byteValues(plan)(s =>
       resolveSlotValue(s.entity, s.live, shared, fragments, plan.id, in)
     )
   }
@@ -1153,12 +1146,12 @@ class Renderer(validated: Dashboard.Validated) {
     * `holds` and for the live path that compares with them: two builders could
     * drift, and a session would then skip a node whose bytes moved.
     */
-  private def byteValues(plan: NodePlan, clause: Option[Int])(
+  private def byteValues(plan: NodePlan)(
       valueOf: ByteSlot => SlotValue
   ): ByteValues = {
     val b = Map.newBuilder[SlotKey, SlotValue]
     plan.byteSlots.foreach(s => b += ((s.key, valueOf(s))))
-    ByteValues(b.result(), clause)
+    ByteValues(b.result())
   }
 
   /** A node's patch form, painted from the values [[byteSlotValues]] answered
@@ -1205,14 +1198,14 @@ class Renderer(validated: Dashboard.Validated) {
   ): Option[String] = node match {
     case c: Ready.Component if form.isPatch =>
       val plan = planOf(c.id, c, shared)
-      Some(patchOf(plan, valuesOf(plan, shared, viewing.fragments, None)))
+      Some(patchOf(plan, valuesOf(plan, shared, viewing.fragments)))
     case _ =>
       Some(traced(node, shared, viewing).html)
   }
 
   /** The composed rendering and what each node in it now holds, kept from the
-    * one walk so a fill or page load need not re-walk the subtree. `own` holds
-    * exactly the nodes with their own rendering.
+    * one walk so a fill or page load need not re-walk the subtree. `painted`
+    * holds exactly the nodes with their own rendering.
     */
   private[runtime] case class Traced(
       html: String,
@@ -1224,9 +1217,8 @@ class Renderer(validated: Dashboard.Validated) {
       painted.map { case (ix, p) => ix -> p.held } ++
         seededAt.map { case (ix, s) => ix -> Held(signals = s) }
 
-    /** By node id, for a test that names a node as the dashboard does. */
-    def own: Map[NodeId, Painted] =
-      painted.map { case (ix, p) => dashboard.index.id(ix) -> p }
+    /** The tree its [[Ix]] keys are in. */
+    private[runtime] def index: TreeIndex = Renderer.this.index
   }
 
   // A static floor for sizing a buffer; a set's live membership is bounded by
@@ -1328,7 +1320,7 @@ class Renderer(validated: Dashboard.Validated) {
 
         val own = Option.when(plan.ownRendering) {
           Painted(
-            byteValues(plan, c.clause)(s => resolved.paint(s.key)),
+            byteValues(plan)(s => resolved.paint(s.key)),
             resolved.signals
           )
         }

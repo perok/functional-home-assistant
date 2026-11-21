@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.own
+
 import fh.view.model.{Dashboard, Ix, NodeId}
 import fh.view.testkit.{FixtureEntries, PklFixture}
 

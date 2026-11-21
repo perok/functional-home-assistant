@@ -483,8 +483,8 @@ the node's bytes were rendered from, and its signal values (`Held`). The answer 
 client already have this?", asked per session and nowhere else: equal values, equal bytes, so
 "unchanged" is decided without rendering or keeping the bytes.
 
-**Byte-slot values** — a node's resolved byte-slot values (not its signal slots'), plus a member's
-clause: what its patch form is rendered from, so both what a session holds and the render cache's
+**Byte-slot values** — a node's resolved byte-slot values (not its signal slots'): what its patch form
+is rendered from, so, beside the node's `Ix`, both what a session holds and the render cache's
 key (`Renderer.byteSlotValues`, ADR 0012).
 
 **Claims / invalidates** — what a patch reports about itself: the nodes whose bytes it just wrote

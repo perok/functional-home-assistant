@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.own
+
 import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.model.{Dashboard, NodeId, SlotRead}
 import fh.view.testkit.{FixtureEntries, PklFixture, TextSnapshot}

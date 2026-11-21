@@ -39,8 +39,8 @@ shared structure believes. The changelog holds no content at all: node to the ve
 last moved at, plus membership mutations.
 
 **N viewers still cost one render, via a cache rather than a shared pass.** `RenderCache`
-is per slug, keyed by node id and holding the renderer that produced it plus the byte-slot values
-it was rendered from. N sessions woken by one ring of the doorbell render each node once between
+is per slug, keyed by the node's `Ix` and holding the renderer that produced it plus the byte-slot
+values it was rendered from. N sessions woken by one ring of the doorbell render each node once between
 them. The renderer is in the key because a dashboard edit changes the markup while the values stay
 exactly where they were.
 
@@ -58,8 +58,8 @@ resolved values of its BYTE slots (`Renderer.byteSlotValues`, the value after th
 chain: read, CEL, default, formatting). Everything else it reads is fixed per renderer (template,
 constants, `dashboardSlug`), and a fetch answer or a node variable reaches the bytes only through a
 slot (ADR 0031, ADR 0033). Signal slots are left out: the patch form does not carry their values
-(ADR 0017). Below a set member the CLAUSE is part of the key too (`ByteValues.clause`), since every
-clause of a candidate mints the same ids and the clause picks the card and the host id. The live
+(ADR 0017). Every clause of a candidate mints the same ids, and the clause picks the card and the
+host id, so both `holds` and the cache key by the node's `Ix`, one per clause, not by its id. The live
 path renders from the values it compared: `Renderer.renderPatch` paints the patch form from the
 `ByteValues` alone, so a miss resolves nothing twice and the bytes are a function of the key by
 construction. So one value answers both questions:
