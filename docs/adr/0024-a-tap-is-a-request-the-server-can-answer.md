@@ -70,13 +70,18 @@ A `conn` held by a session viewing a *different* dashboard is refused too, not
 resolved: re-registering would unroute that live page, and no honest client can
 produce it, since a `conn` is minted per document and a document is one slug.
 
+A tap pressed on a page a dashboard edit has since replaced is refused as well
+(`Server.DashboardChangedMessage`), after the session is repainted (ADR 0012): the
+old page may have meant something else by the same control. Swaps are rare, so a
+tap that would have meant the same is refused too rather than compared.
+
 **3. A tap that cannot be served says so — as page state, not as a status.**
 204 was indistinguishable from success. Every refusal now answers **200 carrying
 `datastar-patch-signals`**: HA rejecting the service call, a call this dashboard
 does not declare or the pressed node does not place, a press whose node showed
 the call otherwise (ADR 0023's `seen`), a posted value of the wrong type, a
 surface id this build no longer has, a `conn` this process does not hold or
-another slug holds. One function answers all of them (`Server.actionRefused`), so
+another slug holds, a press on a page a dashboard edit replaced. One function answers all of them (`Server.actionRefused`), so
 "an action reports its refusal" is a rule rather than a habit each route
 follows.
 

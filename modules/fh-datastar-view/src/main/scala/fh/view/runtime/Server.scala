@@ -1399,32 +1399,33 @@ class Server(
           case Some(session) if session.slug != slug =>
             actionRefused(req, Server.WrongSlugMessage, pending)
           case Some(session) =>
-            session.run(was =>
-              (checked(renderer, was), liveFor(slug)).flatMapN { (s, live) =>
-                // A press while the stream is down meets a swap first; the
-                // press still runs, on what the swap left.
-                live
-                  .flatMap(
+            session
+              .run(was =>
+                (checked(renderer, was), liveFor(slug)).flatMapN { (s, live) =>
+                  // Pressed on the page the old renderer painted, which may
+                  // have meant something else by it: repainted, not run.
+                  live.flatMap(
                     swapAnswer(
                       _,
                       session,
                       Server.RendererState.Ready(renderer),
                       s
                     )
-                  )
-                  .getOrElse(IO.pure(Session.Step(s, Nil, ())))
-                  .flatMap { swap =>
-                    f(
-                      session,
-                      renderer,
-                      selectionsOf(renderer, requested, swap.next.values)
-                    )(swap.next)
-                      .map(step =>
-                        step.copy(frames = swap.frames ++ step.frames)
-                      )
-                  }
-              }
-            ) *> NoContent()
+                  ) match
+                    case Some(swap) =>
+                      swap.map(st => Session.Step(st.next, st.frames, false))
+                    case None =>
+                      f(
+                        session,
+                        renderer,
+                        selectionsOf(renderer, requested, s.values)
+                      )(s).map(st => Session.Step(st.next, st.frames, true))
+                }
+              )
+              .flatMap(ran =>
+                if ran then NoContent()
+                else actionRefused(req, Server.DashboardChangedMessage, pending)
+              )
         }
       }
       // A 4xx becomes a refusal; a 5xx is our bug and stays with
@@ -2678,6 +2679,10 @@ object Server {
     */
   private[runtime] val NotConnectedMessage: String =
     "Not connected — press again once the page has reconnected"
+
+  /** A press on a page a dashboard edit has since replaced ([[swapAnswer]]). */
+  private[runtime] val DashboardChangedMessage: String =
+    "The dashboard changed — press again"
 
   /** What an action says about itself: the pressed control, filled at click
     * time (`core/tap.pkl`).

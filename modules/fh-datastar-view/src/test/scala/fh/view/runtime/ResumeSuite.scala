@@ -572,11 +572,14 @@ class ResumeSuite extends ServerHarness {
           )
         )
         pullSent <- pulled.step(FixtureEntity("sensor.a", "hot")).map(text)
-        _ <- ts.post(
+        close = ts.postResult(
           s"sse/popup/${ts.slug}/close",
           body = s"""{"${Server.ConnSignal}":"${pressed.document.conn}"}"""
         )
+        // Pressed on the old page: repainted and refused, not run.
+        stale <- close
         pressSent <- pressed.session.takeBacklog.map(text)
+        again <- close
         _ <- slug.install(Server.RendererState.Ready(Renderer.create(scripted)))
         reloadSent <- pulled.pull.map(text)
         // Told once: the page is reloading, so nothing more is sent.
@@ -585,6 +588,8 @@ class ResumeSuite extends ServerHarness {
         assert(pullSent.contains(BodyRepaint), clue = pullSent)
         assert(pullSent.contains(">hot<"), clue = pullSent)
         assert(pressSent.contains(BodyRepaint), clue = pressSent)
+        assert(stale._2.contains(Server.DashboardChangedMessage), clue = stale)
+        assertEquals(again._1, Status.NoContent, clue = again)
         assert(reloadSent.contains(Server.ReloadSignal), clue = reloadSent)
         assert(!reloadSent.contains(BodyRepaint), clue = reloadSent)
         assertEquals(after, "")

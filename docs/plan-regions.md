@@ -620,7 +620,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          step (pull, press, opening) compares it first (`Server.swapAnswer`): under another
          renderer a reload when the head moved or to/from the error page, else the repaint,
          never a diff. A session told to reload sends nothing more until the next swap; a press
-         after a swap still runs, after the repaint. `install` rings the doorbell at the same
+         on the replaced page is repainted and refused (`DashboardChangedMessage`, ADR 0024). `install` rings the doorbell at the same
          version; `reloadRepaints` and `sameRenderer` are gone.
        - The check-first finding: the new renderer cannot read a popup it lacks (its spelling
          maps to no surface key there), so `orphanedPopup` would never fire. The stamp carries

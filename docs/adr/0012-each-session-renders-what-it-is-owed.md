@@ -80,7 +80,7 @@ press, the opening. Under another renderer the step answers as a swap — a relo
 unpatchable part moved or the page goes to or from the error page, else a repaint that replaces
 `holds` — and never diffs, so values held under one template are never taken for another's
 bytes (`ResumeSuite`: an edit that moves only markup reaches the client; a pull or a press between
-the swap and the repaint gets the repaint). The stamp is the swap's one mechanism: `install` rings
+the swap and the repaint gets the repaint, and the press is refused rather than run, ADR 0024). The stamp is the swap's one mechanism: `install` rings
 the doorbell at the same version so an idle session steps, and no separate watcher repaints. It
 keeps what the swap reads of the renderer it replaces, since the new one cannot read a popup it
 lacks, and nothing that would pin that dashboard. A session told to reload sends nothing more
