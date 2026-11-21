@@ -6,6 +6,7 @@ import fh.view.runtime.RendererTestOps.*
 import fh.view.testkit.Conds
 
 import fh.view.model.{
+  Ix,
   SlotType,
   SortTerm,
   ValueType,
@@ -296,16 +297,16 @@ class RenderBench {
   private var wireRot = 0
   // The pull benches' fixture: what one client holds after a page open, and
   // the node each of the tick's entities is shown on.
-  private var heldAfterPaint: Map[NodeId, Held] = null
+  private var heldAfterPaint: Map[Ix, Held] = null
   // The same for [[set]]: the members the tick's entities are.
-  private var heldAfterSetPaint: Map[NodeId, Held] = null
+  private var heldAfterSetPaint: Map[Ix, Held] = null
   private var tickMemberIds: Vector[NodeId] = null
   private var tickNodeIds: Vector[NodeId] = null
   private var tickEntities: Vector[String] = null
   // The signal-only variant: same dashboard, name held as a literal, so no
   // slot reads the entity as bytes and the cache key cannot move.
   private var pure: Renderer = null
-  private var heldPure: Map[NodeId, Held] = null
+  private var heldPure: Map[Ix, Held] = null
   private var pureNodeIds: Vector[NodeId] = null
   // The SLUG's cache, not the op's — see [[pull]].
   private var liveCache: RenderCache = null
@@ -433,15 +434,15 @@ class RenderBench {
     // "unknown, send it" and would make every pull a morph, which is exactly
     // the case the suppression exists to avoid measuring.
     val paint = signalled.renderPageTraced(st)
-    heldAfterPaint = paint.own.map { case (id, p) =>
-      id -> p.held
+    heldAfterPaint = paint.painted.map { case (ix, p) =>
+      ix -> p.held
     }
     tickEntities = Vector.tabulate(TickEntities)(entityId)
     tickNodeIds = tickEntities.flatMap(signalled.componentsFor(_).toList)
     pure = Renderer.create(Dashboard(cards, tree(Leaves, 4, signalOnly = true)))
     val purePaint = pure.renderPageTraced(st)
-    heldPure = purePaint.own.map { case (id, p) =>
-      id -> p.held
+    heldPure = purePaint.painted.map { case (ix, p) =>
+      ix -> p.held
     }
     pureNodeIds = tickEntities.flatMap(pure.componentsFor(_).toList)
     liveCache = RenderCache.create.unsafeRunSync()
@@ -481,8 +482,8 @@ class RenderBench {
       sys.error("publishSetIfsFlip flips no member's If")
     checkFillShape()
     checkPublishShape()
-    heldAfterSetPaint = set.renderPageTraced(st).own.map { case (id, p) =>
-      id -> p.held
+    heldAfterSetPaint = set.renderPageTraced(st).painted.map { case (ix, p) =>
+      ix -> p.held
     }
     // After `checkPublishShape`, whose frame left `set`'s membership held.
     tickMemberIds = tickEntities.flatMap(
@@ -532,7 +533,7 @@ class RenderBench {
   private def checkTickShapes(): Unit = {
     def kinds(
         r: Renderer,
-        held: Map[NodeId, Held],
+        held: Map[Ix, Held],
         ids: Vector[NodeId],
         tick: Int => Map[String, EntityState]
     ): List[Patch] = {
@@ -1592,7 +1593,7 @@ class RenderBench {
     */
   private def pull(
       renderer: Renderer,
-      held: Map[NodeId, Held],
+      held: Map[Ix, Held],
       nodeIds: Vector[NodeId],
       moved: Map[String, EntityState],
       clients: Int
