@@ -107,6 +107,39 @@ class FakePageSuite extends munit.FunSuite {
     assertEquals(stale.view, fresh.view)
   }
 
+  test("a seed copying a signal reads it") {
+    val p = page(
+      """<b id="a" data-signals="{_e: {v: 7}}"></b><b id="n" data-signals__ifmissing="{_slide: $_e.v}"></b>"""
+    )
+    assertEquals(
+      p.signal("_slide").flatMap(_.asNumber).map(_.toDouble),
+      Some(7.0)
+    )
+  }
+
+  test(
+    "a binding on a signal a handler writes is left out, a pending ask is not"
+  ) {
+    val handler = """data-on-signal-patch="$_k__h = $_e.h""""
+    val stale = page(
+      s"""<b id="k" $handler style="--h: 30deg" data-style:--h="$$_k__h"></b>""" +
+        """<b id="c" class="on" data-on:click="$_v__pending = 'a'" data-class:on="String(($_v__pending || $_v)) === 'a'"></b>"""
+    )
+    val fresh = page(
+      s"""<b id="k" $handler style="--h: 0deg" data-style:--h="$$_k__h"></b>""" +
+        """<b id="c" class="on" data-on:click="$_v__pending = 'a'" data-class:on="String(($_v__pending || $_v)) === 'a'"></b>"""
+    )
+    signals(stale, """{"_v":"a"}""")
+    signals(fresh, """{"_v":"b"}""")
+    val both = FakePage.matches(stale, fresh)
+    assert(both.toString.contains("Failure"), both)
+    assert(
+      dashboard(fresh).linesIterator.exists(l =>
+        l.contains("""id="k"""") && !l.contains("--h:")
+      )
+    )
+  }
+
   test("the query is what the mirrors write, a declared value left out") {
     val p = page(
       """<div id="m" data-signals="{_var_c__tab: '0', ui_popups: ''}"

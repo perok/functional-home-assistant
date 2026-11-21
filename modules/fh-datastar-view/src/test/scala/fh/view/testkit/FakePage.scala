@@ -79,7 +79,11 @@ final class FakePage private (doc: Document) {
       .map(_.group(1))
       .getOrElse(throw IllegalStateException(s"no stream in data-init: $init"))
     def pattern(name: String) =
-      s"$name:'([^']*)'".r.findFirstMatchIn(init).map(_.group(1).r)
+      // A JS string literal, unescaped as JS does: the `\.` the server writes
+      // reaches RegExp as `.`.
+      s"$name:'([^']*)'".r
+        .findFirstMatchIn(init)
+        .map(_.group(1).replaceAll("""\\(.)""", "$1").r)
     val include = pattern("include").getOrElse(".*".r)
     val exclude = pattern("exclude").getOrElse("(^|\\.)_".r)
     def keep(o: JsonObject, prefix: String): JsonObject =
@@ -240,7 +244,7 @@ final class FakePage private (doc: Document) {
   private def seed(key: String, value: String): Unit =
     signals = FakePage.merge(
       signals,
-      FakePage.Seed.parse(value),
+      FakePage.Seed.parse(value, signals),
       onlyIfMissing = key == "data-signals__ifmissing"
     )
 
@@ -286,12 +290,17 @@ final class FakePage private (doc: Document) {
   private def enc(s: String) = URLEncoder.encode(s, UTF_8)
 
   /** `#dashboard`, then the popup host, painted and in canonical form. */
-  def view: String =
+  def view: String = viewLeaving(clientOwned)
+
+  private[testkit] def clientOwned: Set[String] = FakePage.clientOwned(doc)
+
+  /** Two pages are compared leaving out what either's handlers own. */
+  private[testkit] def viewLeaving(owned: Set[String]): String =
     List("dashboard", "popups")
       .flatMap(id => Option(doc.getElementById(id)).map(id -> _))
       .map { (id, e) =>
         val c = e.clone()
-        FakePage.Paint(c, signals)
+        FakePage.Paint(c, signals, owned)
         s"#$id\n" + FakePage.canonical(c)
       }
       .mkString("\n")
@@ -308,15 +317,18 @@ object FakePage {
   /** The oracle's equality: nothing sent missed its target, and the page is the
     * one `fresh`, a new GET at its [[query]], gives.
     */
-  def matches(page: FakePage, fresh: FakePage): hedgehog.Result =
+  def matches(page: FakePage, fresh: FakePage): hedgehog.Result = {
+    val owned = page.clientOwned ++ fresh.clientOwned
+    val (a, b) = (page.viewLeaving(owned), fresh.viewLeaving(owned))
     hedgehog.Result
       .assert(page.misses.isEmpty)
       .log(page.misses.mkString("missed:\n", "\n", ""))
       .and(
         hedgehog.Result
-          .diff(page.view, fresh.view)(_ == _)
-          .log(firstDifference(page.view, fresh.view))
+          .diff(a, b)(_ == _)
+          .log(firstDifference(a, b))
       )
+  }
 
   private def firstDifference(a: String, b: String): String = {
     val (as, bs) = (a.linesIterator.toVector, b.linesIterator.toVector)
@@ -346,6 +358,22 @@ object FakePage {
       }
 
   private val GetUrl = """@get\('([^']*)'""".r
+  private val Reads = """\$([\w#.]+)""".r
+  private val Writes = """\$([\w#.]+)\s*=(?!=)""".r
+
+  /** Every signal a handler on the page assigns, except a choice's pending ask
+    * (absent here, so a choice reads as committed) and the server's display
+    * signals (`_e.*`, which a drag's effect also writes, ADR 0017).
+    */
+  private def clientOwned(doc: Document): Set[String] =
+    doc
+      .select("*")
+      .asScala
+      .iterator
+      .flatMap(_.attributes.asScala.map(_.getValue))
+      .flatMap(Writes.findAllMatchIn(_).map(_.group(1)))
+      .filterNot(s => s.endsWith("__pending") || s.startsWith("_e."))
+      .toSet
   private val PostUrl = """@post\('([^']*)'""".r
 
   private val SeedKeys = List("data-signals", "data-signals__ifmissing")
@@ -433,8 +461,8 @@ object FakePage {
     * page cannot read would make it diverge silently.
     */
   object Seed {
-    def parse(src: String): JsonObject = {
-      val p = Lit(src)
+    def parse(src: String, signals: JsonObject): JsonObject = {
+      val p = Lit(src, signals)
       p.ws()
       val j = p.value()
       p.ws()
@@ -443,7 +471,7 @@ object FakePage {
     }
   }
 
-  private final class Lit(src: String) {
+  private final class Lit(src: String, signals: JsonObject = JsonObject.empty) {
     var i = 0
     def done: Boolean = i >= src.length
     def peek: Char = if (done) '\u0000' else src.charAt(i)
@@ -497,7 +525,15 @@ object FakePage {
         case _ if word("true")  => Json.True
         case _ if word("false") => Json.False
         case _ if word("null")  => Json.Null
-        case _                  => number().getOrElse(fail("value expected"))
+        // A seed may copy a signal (`_x__slide: $_e…`); a missing one reads
+        // `undefined`, which assigns nothing, as the merge's null does.
+        case '$' =>
+          i += 1
+          val start = i
+          while (!done && (peek.isLetterOrDigit || "_#.".contains(peek))) i += 1
+          lookup(signals, src.substring(start, i).split('.').toList)
+            .getOrElse(Json.Null)
+        case _ => number().getOrElse(fail("value expected"))
     }
 
     private def obj(): Json = {
@@ -626,13 +662,24 @@ object FakePage {
     * `data-bind` control's `value` and `checked` are left out too: the handlers
     * beside it own them. So are the seeds, a morph not having to resend one
     * whose values a signals frame moved.
+    *
+    * The fake page runs no handler, so a binding reading a signal some handler
+    * assigns (`clientOwned`) is left out the same way: a colour wheel's knob
+    * paints copies its `data-on-signal-patch` takes of the server's values.
     */
   object Paint {
-    def apply(root: Element, signals: JsonObject): Unit =
+    def apply(
+        root: Element,
+        signals: JsonObject,
+        clientOwned: Set[String]
+    ): Unit =
       root.select("*").asScala.foreach { e =>
         val attrs = e.attributes.asScala.toList.map(a => a.getKey -> a.getValue)
         attrs.foreach { (k, v) =>
-          lazy val value = Expr.eval(v, signals)
+          lazy val value =
+            if (Reads.findAllMatchIn(v).exists(m => clientOwned(m.group(1))))
+              None
+            else Expr.eval(v, signals)
           if (k == "data-text")
             value match
               case Some(x) => val _ = e.text(x.text)
