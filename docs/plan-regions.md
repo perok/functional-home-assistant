@@ -557,9 +557,28 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        +0.2% for the index, accepted 2026-11-21). Authoring stays as §2 has it: a fill plus the
        whole-template rule, so an author's own card can be the host.
      - **D1, a model-based oracle**, green on today's code first (a red there is a bug report,
-       not a silent fix): hedgehog, two sessions, random state changes and variable writes, each
-       session's patches applied to a fake page (jsoup, a test-only dependency) and compared with
-       a fresh render.
+       not a silent fix). What it holds, whatever D2–D5 change: everything a viewer was sent,
+       applied to its page in order, is the page a fresh render gives now.
+       - The real server, in process: `TestServer.resource` (`ServerApp.assemble` with only its
+         `Edges` stubbed; no port), one per run, so a shrunk run replays from the same state
+         (a warm boot is 15 ms, a page 3 ms, a connect 21 ms; the first in a JVM ~1 s).
+       - Two viewers. Steps (hedgehog): an entity changes or leaves, a viewer chooses a
+         variable value, a popup opens or closes, and a viewer's stream drops and reconnects
+         with the cursor its page last applied, both while its session lingers and after it
+         is forgotten, with changes in between.
+       - The fake page: the page GET parsed with jsoup (a test-only dependency), applying
+         `patch-elements` by id (outer, inner, remove, before, append) and `patch-signals` into
+         a signal map.
+       - Equal: once the run settles, the fake page and a fresh GET at the same choices, each
+         with its `data-signals` seeds folded into the signal map and every signal binding
+         painted from it (bare `$path` reads; a pending-or-committed read as committed), compare
+         `#dashboard` and the popup host node for node. `conn`, the cursor and the toast are
+         left out.
+       - Dashboards: the `FixtureEntries` ones with sets, picks, popups or variables, plus one
+         with a set nested in a member and an If in a member. ~50 runs of up to 15 steps each;
+         aim at 20 s on CI. A red run names its seed.
+       - Lead: the fake page and the equality. Sonnet: the generators and the per-dashboard
+         wiring, against that API.
      - **D2, `holds` keeps each host's keys** in the order sent; written, not read. The oracle
        checks held keys equal the fake page's order.
      - **D3, the planner** (§7) replaces `MemberGraph.deltas` and the set refill; an A → B → A
