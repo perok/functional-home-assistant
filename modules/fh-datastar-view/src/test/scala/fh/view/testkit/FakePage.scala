@@ -289,6 +289,12 @@ final class FakePage private (doc: Document) {
 
   private def enc(s: String) = URLEncoder.encode(s, UTF_8)
 
+  /** The ids of `id`'s element and its siblings, in page order. */
+  def siblingIds(id: String): Option[List[String]] =
+    Option(doc.getElementById(id))
+      .flatMap(e => Option(e.parent))
+      .map(_.children.asScala.toList.map(_.id))
+
   /** `#dashboard`, then the popup host, painted and in canonical form. */
   def view: String = viewLeaving(clientOwned)
 

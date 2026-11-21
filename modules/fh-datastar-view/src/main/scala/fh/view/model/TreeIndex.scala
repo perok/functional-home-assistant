@@ -15,6 +15,9 @@ object Ix {
   extension (ix: Ix) private[view] def toInt: Int = ix
 
   given CanEqual[Ix, Ix] = CanEqual.derived
+
+  // So a host's shown roots are one `Array[Int]`, not boxed.
+  given scala.reflect.ClassTag[Ix] = scala.reflect.ClassTag.Int
 }
 
 /** Every node of a dashboard's trees in pre-order: the page's, then each

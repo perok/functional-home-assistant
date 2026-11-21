@@ -188,9 +188,21 @@ class SetMembershipSuite extends ServerHarness {
         assertEquals(patches.size, 1, clue = patches)
         assert(patches.head.contains("mode inner"), clue = patches)
         assert(patches.head.contains("selector #c"), clue = patches)
-        // Established by its members' entries, and by no entry of its own.
+        // Established by its members' entries; the host's own entry holds only
+        // what it shows, in order.
         assert(held.contains(dyn.ixOf("c_light_a")), clue = held)
-        assert(!held.contains(dyn.ixOf("c")), clue = held)
+        assertEquals(
+          held.get(dyn.ixOf("c")).map(h => (h.values, h.shows.map(_.toList))),
+          Some(
+            (
+              None,
+              Some(
+                List("c_light_a", "c_light_c", "c_light_d").map(dyn.ixOf(_))
+              )
+            )
+          ),
+          clue = held
+        )
       }
     }
   }
@@ -213,7 +225,11 @@ class SetMembershipSuite extends ServerHarness {
         assert(p.contains("mode remove"), clue = p)
         assert(p.contains("selector #c_light_b"), clue = p)
         assert(!p.contains("data: elements"), clue = p)
-        assert(!held.contains(dyn.ixOf("c")), clue = held)
+        assertEquals(
+          held.get(dyn.ixOf("c")).map(h => (h.values, h.shows.map(_.toList))),
+          Some((None, Some(List(dyn.ixOf("c_light_a"))))),
+          clue = held
+        )
       }
     }
   }
@@ -235,6 +251,33 @@ class SetMembershipSuite extends ServerHarness {
         assert(p.contains("selector #c"), clue = p)
         assert(!p.contains("""id="c_light_a""""), clue = p)
         assert(!held.contains(dyn.ixOf("c_light_a")), clue = held)
+      }
+    }
+  }
+
+  // The oracle's runs reach no `Place`: every membership change in them fills.
+  test(
+    "a member arriving between two is placed before its successor, held so"
+  ) {
+    viewing(dynDash, lit("light.a", "light.c")) { v =>
+      for {
+        // Establishes the host, and puts it back at two members.
+        _ <- step(v, on("light.d"))
+        _ <- step(v, off("light.d"))
+        patches <- step(v, on("light.b"))
+        held <- v.session.state.map(_.holds)
+      } yield {
+        // An arrival is placed as a move is: a remove (a no-op here), then the
+        // insert.
+        assertEquals(patches.size, 2, clue = patches)
+        val p = patches.last
+        assert(p.contains("mode before"), clue = p)
+        assert(p.contains("selector #c_light_c"), clue = p)
+        assertEquals(
+          held.get(dyn.ixOf("c")).flatMap(_.shows).map(_.toList),
+          Some(List("c_light_a", "c_light_b", "c_light_c").map(dyn.ixOf(_))),
+          clue = held
+        )
       }
     }
   }

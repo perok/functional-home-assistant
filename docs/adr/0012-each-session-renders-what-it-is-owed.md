@@ -38,6 +38,14 @@ are SENT to this client, never from what another client was told and never from 
 shared structure believes. The changelog holds no content at all: node to the version it
 last moved at, plus membership mutations.
 
+A set's or a pick's host also keeps what it shows: the `Ix` of each root it holds, in the
+order sent (`Held.shows`, one int per member, a case and a clause each their own `Ix`). The
+structural patches carry what that list needs: `Patch.Fill` (inner, sets it), `Place`
+(before an anchor, or last; an anchor the list lacks makes it unknown) and `Leave` (drops the
+key's subtree and takes it out), so one value gives both the bytes and the change to
+`holds`. The list is written and not read yet. A session minted for a forgotten page has no
+lists until a host is sent again.
+
 **N viewers still cost one render, via a cache rather than a shared pass.** `RenderCache`
 is per slug, keyed by the node's `Ix` and holding the renderer that produced it plus the byte-slot
 values it was rendered from. N sessions woken by one ring of the doorbell render each node once between

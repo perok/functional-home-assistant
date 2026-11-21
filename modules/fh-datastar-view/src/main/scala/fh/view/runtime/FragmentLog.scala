@@ -1,24 +1,33 @@
 package fh.view.runtime
 
-import fh.view.model.{NodeId, SignalId, SlotValue}
+import fh.view.model.{Ix, NodeId, SignalId, SlotValue}
 
 /** What one client has for one node: the byte-slot values its bytes were
   * rendered from ([[Renderer.byteSlotValues]]) and its signal values (ADR
   * 0017). One map keyed by the node's [[fh.view.model.Ix]], so a host fill's
   * invalidation is the containment test `Patches.applied` already runs.
   * `values` is optional because a signal frame establishes only the signals.
+  *
+  * `shows`, on a host (a set or a pick): the root of each thing it shows, in
+  * the order sent. `None` is unknown, never empty; arrays compare by reference,
+  * so read it through `toList`.
   */
 private[runtime] case class Held(
     values: Option[ByteValues] = None,
-    signals: Map[SignalId, SlotValue] = Map.empty
+    signals: Map[SignalId, SlotValue] = Map.empty,
+    shows: Option[IArray[Ix]] = None
 ) {
 
   /** `later` says nothing by being absent, so re-sending one of two signals
-    * cannot drop the other; new bytes bring their own values.
+    * cannot drop the other, and a morph leaves the host's list alone; new bytes
+    * bring their own values.
     */
   def merge(later: Held): Held =
-    if (later.values.isDefined) later.copy(signals = signals ++ later.signals)
-    else copy(signals = signals ++ later.signals)
+    Held(
+      later.values.orElse(values),
+      signals ++ later.signals,
+      later.shows.orElse(shows)
+    )
 }
 
 /** Decides the replay: a set member is a sibling-preserving delta, a branch one

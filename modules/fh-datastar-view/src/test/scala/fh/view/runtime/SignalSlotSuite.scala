@@ -1132,8 +1132,8 @@ class SignalSlotSuite extends ServerHarness {
     )
     val out = resumeNow(r, log, held, gone, 1L, Set.empty, Selections.none)
     assertEquals(
-      out.map(_.patch),
-      List(Patch.Remove(r.elementId("c_light_a"))),
+      out.map(_.patch.toSse),
+      List(Datastar.remove(r.elementId("c_light_a").selector)),
       clue = events(out).map(_.render)
     )
   }

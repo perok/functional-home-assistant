@@ -99,8 +99,10 @@ private[runtime] object RendererTestOps {
       // NODES do, and those are in `own`.
       r.Traced(
         out.result,
+        r.index.roots.head,
         trace.own.asScala.toMap,
-        trace.seeded.asScala.toMap
+        trace.seeded.asScala.toMap,
+        trace.shown.asScala.toMap
       )
     }
   }

@@ -164,7 +164,7 @@ class OracleSuite extends HedgehogSuite {
           a <- FakeBrowser.open(ts)
           b <- FakeBrowser.open(ts)
           viewers = Vector(a, b)
-          _ <- steps.traverse_ { step =>
+          settled <- steps.traverse { step =>
             val action: IO[Unit] = step match
               case Step.Change(i, s) =>
                 val id = ids(i % ids.size)
@@ -193,13 +193,14 @@ class OracleSuite extends HedgehogSuite {
                 IO.unlessA(viewers(v).up)(viewers(v).connect)
               case Step.Forget =>
                 FakeBrowser.forgetAll(ts, viewers.toList)
-            action *> viewers.traverse_(_.deliver)
+            action *> viewers.traverse_(_.deliver) *>
+              viewers.filter(_.up).traverse(_.listsInPage)
           }
           _ <- viewers.traverse_(v => IO.unlessA(v.up)(v.connect))
           _ <- viewers.traverse_(_.deliver)
           ra <- a.check
           rb <- b.check
-        } yield Result.all(List(ra, rb))
+        } yield Result.all(settled.flatten ++ List(ra, rb))
       }
       .timeout(2.minutes)
       .unsafeRunSync()

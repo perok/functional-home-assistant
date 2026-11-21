@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.syntax.all.*
+import fh.view.model.{Ix, TreeIndex}
 import fh.view.testkit.FakePage
 import org.http4s.{Method, Request, ServerSentEvent, Uri}
 
@@ -106,11 +107,42 @@ final class FakeBrowser private (
       .flatTap(_.leave)
       .map(v => FakePage.load(v.document.html))
 
-  /** The oracle's check: once delivered, this page equals a fresh one. */
+  /** The oracle's check: once delivered, this page equals a fresh one, and each
+    * host list its session holds is on the page.
+    */
   def check: IO[hedgehog.Result] =
-    fresh.map(f =>
-      FakePage.matches(current, f).log(s"conn $conn at ${current.query}")
+    (fresh, listsInPage).mapN((f, inPage) =>
+      FakePage
+        .matches(current, f)
+        .and(inPage)
+        .log(s"conn $conn at ${current.query}")
     )
+
+  private def index: IO[TreeIndex] =
+    ts.server
+      .liveSlug(ts.slug)
+      .flatMap(_.renderer.get)
+      .map(_.rendererOf.fold(sys.error("no renderer"))(_.index))
+
+  /** After a settle, each list this session holds is its host's children on the
+    * page, in order.
+    */
+  def listsInPage: IO[hedgehog.Result] =
+    (
+      index,
+      ts.sessions.get(conn).flatMap(_.traverse(FakeBrowser.lists))
+    ).mapN { (index, held) =>
+      val wrong = held.toList.flatMap(_.toList).collect {
+        case (host, shown @ (first :: _))
+            if current.siblingIds(index.id(first)) !=
+              Some(shown.map(index.id)) =>
+          s"${index.id(host)}: held ${shown.map(index.id)}, page ${current
+              .siblingIds(index.id(first))}"
+      }
+      hedgehog.Result
+        .assert(wrong.isEmpty)
+        .log(wrong.mkString("host lists off the page:\n", "\n", ""))
+    }
 }
 
 object FakeBrowser {
@@ -120,6 +152,9 @@ object FakeBrowser {
     ts.page(query)
       .map(html => new FakeBrowser(ts, FakePage.load(html)))
       .flatTap(_.connect)
+
+  private def lists(s: Session): IO[Map[Ix, List[Ix]]] =
+    s.state.map(_.holds.flatMap((ix, h) => h.shows.map(l => ix -> l.toList)))
 
   /** Every session reaped, every stream cut. */
   def forgetAll(ts: TestServer, browsers: List[FakeBrowser]): IO[Unit] =

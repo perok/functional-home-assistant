@@ -1122,9 +1122,9 @@ class Server(
         shared,
         Viewing(selections, fragments)
       ) match {
-        case Some((patch, html)) =>
+        case Some((patch, _)) =>
           Patches.applied(renderer.index, s.holds, patch) ->
-            List(Datastar.patch(html, PatchMode.Inner, Some("#" + host)))
+            List(patch.patch.toSse)
         // Only a close reaches here: [[openSurface]] 404s an unknown surface.
         case None =>
           (s.holds -- renderer.ixsOf(

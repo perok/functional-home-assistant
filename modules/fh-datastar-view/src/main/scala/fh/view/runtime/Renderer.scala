@@ -73,17 +73,36 @@ private[runtime] case class Painted(
 private[runtime] final class Trace {
   val own = new java.util.HashMap[Ix, Painted]()
   val seeded = new java.util.HashMap[Ix, Map[SignalId, SlotValue]]()
+  // Each live hole's host, with the root of what the walk put in it.
+  val shown = new java.util.HashMap[Ix, IArray[Ix]]()
   def holds: Map[Ix, Held] =
-    own.asScala.view.map { case (ix, p) => ix -> p.held }.toMap ++
-      seeded.asScala.view.map { case (ix, s) => ix -> Held(signals = s) }
+    Trace.held(own.asScala, seeded.asScala, shown.asScala)
 }
 
-/** A host's parts and what each node inside them now holds: a part per set
-  * member, or a state group's branch as one walk under a root with no rendering
-  * of its own ([[Renderer.Traced]]).
+private[runtime] object Trace {
+
+  /** A host seeds signals and shows roots in one entry. */
+  def held(
+      painted: collection.Map[Ix, Painted],
+      seeded: collection.Map[Ix, Map[SignalId, SlotValue]],
+      shown: collection.Map[Ix, IArray[Ix]]
+  ): Map[Ix, Held] = {
+    val nodes =
+      painted.view.map { case (ix, p) => ix -> p.held }.toMap ++
+        seeded.view.map { case (ix, s) => ix -> Held(signals = s) }
+    shown.foldLeft(nodes) { case (acc, (ix, roots)) =>
+      acc.updated(ix, acc.getOrElse(ix, Held()).copy(shows = Some(roots)))
+    }
+  }
+}
+
+/** A host's parts, the root of each, and what each node inside them now holds:
+  * a part per set member, or a state group's branch as one walk under a root
+  * with no rendering of its own ([[Renderer.Traced]]).
   */
 private[runtime] case class HostContent(
     parts: List[(NodeId, String)],
+    shown: IArray[Ix],
     claims: Map[Ix, Held]
 )
 
@@ -1007,16 +1026,29 @@ class Renderer(validated: Dashboard.Validated) {
           .map(m => m.id -> memberTraced(m, shared, viewing))
         HostContent(
           traced.map((id, t) => id -> t.html),
+          IArray.from(traced.map(_._2.root)),
           traced.flatMap(_._2.claims).toMap
         )
       case None =>
         surfaces
           .decideByState(container, shared)
           .flatMap(renderCaseTraced(container, _, shared, viewing))
-          .fold(HostContent(Nil, Map.empty))((id, t) =>
-            HostContent(List(id -> t.html), t.claims)
+          .fold(HostContent(Nil, IArray.empty, Map.empty))((id, t) =>
+            HostContent(List(id -> t.html), IArray(t.root), t.claims)
           )
     }
+
+  /** The node a pick's or a set's patches go into, as `shared` has it where it
+    * is inside a member.
+    */
+  private[runtime] def hostIx(container: NodeId, shared: Shared): Ix = {
+    val host = surfaces.hostOf(container)
+    nodeAt(host, shared).fold(index.ixsOf(host).head)(_.ix)
+  }
+
+  /** The host a case is shown in: [[hostIx]] of the pick showing it. */
+  private[runtime] def hostIxShowing(id: String, shared: Shared): Option[Ix] =
+    surfaces.pickShowing(id, shared).map((gid, _) => hostIx(gid, shared))
 
   /** What a host fill inserts, by the container's spelling: a popup's content,
     * or a case under its node id, through the pick showing it as `shared` has
@@ -1211,13 +1243,13 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private[runtime] case class Traced(
       html: String,
+      root: Ix,
       painted: Map[Ix, Painted],
-      seededAt: Map[Ix, Map[SignalId, SlotValue]] = Map.empty
+      seededAt: Map[Ix, Map[SignalId, SlotValue]] = Map.empty,
+      shownAt: Map[Ix, IArray[Ix]] = Map.empty
   ) {
 
-    def claims: Map[Ix, Held] =
-      painted.map { case (ix, p) => ix -> p.held } ++
-        seededAt.map { case (ix, s) => ix -> Held(signals = s) }
+    def claims: Map[Ix, Held] = Trace.held(painted, seededAt, shownAt)
 
     /** The tree its [[Ix]] keys are in. */
     private[runtime] def index: TreeIndex = Renderer.this.index
@@ -1244,7 +1276,13 @@ class Renderer(validated: Dashboard.Validated) {
   ): Traced = {
     val trace = new Trace
     val html = tracedHtml(node, shared, viewing, trace)
-    Traced(html, trace.own.asScala.toMap, trace.seeded.asScala.toMap)
+    Traced(
+      html,
+      node.ix,
+      trace.own.asScala.toMap,
+      trace.seeded.asScala.toMap,
+      trace.shown.asScala.toMap
+    )
   }
 
   /** A subtree's document bytes, its trace into the caller's accumulator. The
@@ -1301,18 +1339,21 @@ class Renderer(validated: Dashboard.Validated) {
               )
             case Ready.Content
                   .Live(slot, Ready.LiveFill.Pick(cases, _, _, _, _)) =>
-              hole(slot)(
-                pickedCase(gid, viewing.selections, shared)
-                  .foreach(i => cases.lift(i).foreach(child))
-              )
+              hole(slot) {
+                val shown = pickedCase(gid, viewing.selections, shared)
+                  .flatMap(cases.lift)
+                val _ = trace.shown.put(c.ix, IArray.from(shown.map(_.ix)))
+                shown.foreach(child)
+              }
             // Each member is walked like any node, so the trace holds each
             // patch target inside it; the set's root has no rendering.
             case Ready.Content.Live(slot, Ready.LiveFill.Set(s)) =>
-              hole(slot)(
-                members
-                  .membersOf(SetId.of(id, s), shared)
-                  .foreach(m => child(m.node))
-              )
+              hole(slot) {
+                val present = members.membersOf(SetId.of(id, s), shared)
+                val _ =
+                  trace.shown.put(c.ix, IArray.from(present.map(_.node.ix)))
+                present.foreach(m => child(m.node))
+              }
           if holes.isEmpty then
             Templates.run(tpl, buf, NodeContext(resolved, form, buf))
           else Templates.run(tpl, buf, NodeContext(resolved, form, buf, holes))

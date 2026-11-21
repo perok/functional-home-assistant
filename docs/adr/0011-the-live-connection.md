@@ -170,7 +170,8 @@ case class Resume(nodes: List[NodeId], moved: …, refill: List[NodeId])
 **There is no content in the changelog at all** — not the bytes, not what they were made from.
 `fragments` holds a version and nothing else, so the log answers only *when did this
 node last move*. What a given client HOLDS is that client's own record (`Session.holds`,
-ADR 0012), which is the only place that question can be answered exactly.
+ADR 0012), which is the only place that question can be answered exactly — each host's keys
+in the order sent included (`Held.shows`), recorded beside `mutations` and not yet read.
 
 `fragments` answers *when did this node's content last change*; `mutations`
 answers *where is this node* — the changes not expressible as a morph of an
@@ -390,8 +391,8 @@ a member fragment against a pre-repaint entry; it says nothing about the DOM. A
 tombstone there would be actively harmful — it would replay as a `remove` of an
 element the ancestor's morph had just legitimately restored.
 
-Every real removal is a dynamic-group child: exactly one site emits `Patch.Remove`,
-and its selector is always `#{gid}_{entity}`.
+Every real removal is one key leaving its host, `Patch.Leave`: a set member, whose
+selector is always `#{gid}_{entity}`, or a pick's departed case.
 
 - A `remove` is **idempotent** — Datastar resolves selectors with
   `querySelectorAll`, so removing an absent id matches nothing. It replays verbatim.
