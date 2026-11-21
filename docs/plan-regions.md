@@ -649,8 +649,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          after a forget, by design: a forgotten page resumes, and its new session's `holds` is
          empty (ADR 0011). Either the oracle exempts a rebuilt session, or D3 fills a host it has
          no list for.
-       - Open: bench (B/op, EA off, vs 4457da90) `page` +1.7%, `pageSet` +1.3%, over the 1% gate:
-         the lists' own arrays and the merge in `Trace.held`. `tickRender`, `publishSet`,
+       - Open: bench (B/op, EA off, vs 4457da90) `page` +1.7%, `pageSet` +1.3%, over the 1% gate;
+         not profiled (likely the lists' own arrays and the merge in `Trace.held`). `tickRender`, `publishSet`,
          `publishSetOrdered` equal; `resumeMorphs` +0.04%, `resumeMorphsFanout` +0.08%; times
          within error.
      - **D3, the planner, and the log down to `fragments`** (§7), one step: the planner makes
