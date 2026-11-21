@@ -18,7 +18,7 @@ import fh.view.model.{
   ValueExpr,
   TemplateSlot
 }
-import fh.view.model.NodeId
+import fh.view.model.{Ix, NodeId, TreeIndex}
 import fh.view.testkit.TestIds.{setId, given}
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
@@ -199,29 +199,45 @@ class ResumePatchesSuite extends munit.FunSuite {
     * would outlive its bytes and suppress that value coming round again.
     */
   test("a fill forgets its host, then claims what it placed") {
-    val holds: Map[NodeId, Held] = List(
+    // `c` over eleven children, the second holding one: `c_1` is a prefix of
+    // `c_10` and of `c_1_0`, and only one of them is under it.
+    def dot = LayoutNode.Component("dot")
+    val tree = TreeIndex.of(
+      LayoutNode.Component(
+        "col",
+        slots = Slots.kids(
+          List.tabulate(11)(i =>
+            if i == 1 then LayoutNode.Component("col", slots = Slots.kids(dot))
+            else dot
+          )*
+        )
+      ),
+      Map.empty
+    )
+    def ix(id: NodeId): Ix = tree.ixsOf(id).head
+    val holds: Map[Ix, Held] = List(
       "c" -> "<c/>",
       "c_1" -> "<one/>",
       "c_10" -> "<ten/>",
       "c_1_0" -> "<nested/>",
-      "d_1" -> "<other/>"
-    ).map { case (id, html) => (id: NodeId) -> held(html) }.toMap
+      "c_2" -> "<other/>"
+    ).map { case (id, html) => ix(id) -> held(html) }.toMap
     val after = Patches.applied(
-      TestAncestry.of(holds.keySet),
+      tree,
       holds,
       Addressed(
         Patch.Morph("<ignored/>"),
-        establishes = Map(("c_1": NodeId) -> held("<fresh/>")),
+        establishes = Map(ix("c_1") -> held("<fresh/>")),
         invalidates = Set[NodeId]("c_1")
       )
     )
-    assertEquals(after.get("c_1_0"), None, clue = after)
+    assertEquals(after.get(ix("c_1_0")), None, clue = after)
     // The same patch's placement survives the prune it triggered.
-    assertEquals(after.get("c_1"), Some(held("<fresh/>")), clue = after)
+    assertEquals(after.get(ix("c_1")), Some(held("<fresh/>")), clue = after)
     // `c_1` must not swallow `c_10`.
-    assertEquals(after.get("c_10"), holds.get("c_10"), clue = after)
-    assertEquals(after.get("c"), holds.get("c"), clue = after)
-    assertEquals(after.get("d_1"), holds.get("d_1"), clue = after)
+    assertEquals(after.get(ix("c_10")), holds.get(ix("c_10")), clue = after)
+    assertEquals(after.get(ix("c")), holds.get(ix("c")), clue = after)
+    assertEquals(after.get(ix("c_2")), holds.get(ix("c_2")), clue = after)
   }
 
   test("a cursor past everything is owed nothing") {

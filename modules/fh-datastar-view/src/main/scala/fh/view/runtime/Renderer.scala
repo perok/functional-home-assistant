@@ -35,6 +35,7 @@ import fh.view.model.{
   SignalId,
   SlotValue,
   Surface,
+  TreeIndex,
   CallDecl,
   CallField,
   CallId,
@@ -71,11 +72,11 @@ private[runtime] case class Painted(
   * page load re-sent every value it already had.
   */
 private[runtime] final class Trace {
-  val own = new java.util.HashMap[NodeId, Painted]()
-  val seeded = new java.util.HashMap[NodeId, Map[SignalId, SlotValue]]()
-  def holds: Map[NodeId, Held] =
-    own.asScala.view.map { case (id, p) => id -> p.held }.toMap ++
-      seeded.asScala.view.map { case (id, s) => id -> Held(signals = s) }
+  val own = new java.util.HashMap[Ix, Painted]()
+  val seeded = new java.util.HashMap[Ix, Map[SignalId, SlotValue]]()
+  def holds: Map[Ix, Held] =
+    own.asScala.view.map { case (ix, p) => ix -> p.held }.toMap ++
+      seeded.asScala.view.map { case (ix, s) => ix -> Held(signals = s) }
 }
 
 /** A host's parts and what each node inside them now holds: a part per set
@@ -84,8 +85,13 @@ private[runtime] final class Trace {
   */
 private[runtime] case class HostContent(
     parts: List[(NodeId, String)],
-    claims: Map[NodeId, Held]
+    claims: Map[Ix, Held]
 )
+
+/** A node with a rendering of its own, as `shared` has it: where it is in the
+  * tree and what its patch form is rendered from.
+  */
+private[runtime] final class Own(val ix: Ix, val values: ByteValues)
 
 /** A signal slot's two renderings (ADR 0017). `Document` has the value inline
   * plus its `data-signals` seed, so a first paint or fill needs no frame.
@@ -612,8 +618,15 @@ class Renderer(validated: Dashboard.Validated) {
   /** A node of the static tree, or a member or a node below one as the member's
     * current clause has it.
     */
-  private def nodeAt(id: NodeId, shared: Shared): Option[Ready.Node] =
+  private[runtime] def nodeAt(id: NodeId, shared: Shared): Option[Ready.Node] =
     allIndexed.get(id).orElse(members.nodeAt(id, shared).map(_._2))
+
+  /** The dashboard's tree, which a session's `holds` is keyed into. */
+  private[runtime] def index: TreeIndex = dashboard.index
+
+  /** Every node spelled any of `ids`: a static node has one. */
+  private[runtime] def ixsOf(ids: Iterable[NodeId]): Set[Ix] =
+    ids.iterator.flatMap(dashboard.index.ixsOf).toSet
 
   /** Presence and order in every candidate set. Exposed rather than exported,
     * so a call site says `renderer.members.…` and never reads as though the
@@ -812,7 +825,9 @@ class Renderer(validated: Dashboard.Validated) {
       shared: Shared,
       viewing: Viewing
   ): Map[NodeId, Painted] =
-    pageInto(out, shared, viewing).own.asScala.toMap
+    pageInto(out, shared, viewing).own.asScala.map { (ix, p) =>
+      dashboard.index.id(ix) -> p
+    }.toMap
 
   /** [[renderPageInto]], returning what the client now holds, structure's seeds
     * included: what a page load commits as the session's `holds`.
@@ -821,10 +836,10 @@ class Renderer(validated: Dashboard.Validated) {
       out: Sink,
       shared: Shared,
       viewing: Viewing
-  ): Map[NodeId, Held] =
+  ): Map[Ix, Held] =
     pageInto(out, shared, viewing).holds
 
-  private def pageInto(
+  private[runtime] def pageInto(
       out: Sink,
       shared: Shared,
       viewing: Viewing
@@ -1089,6 +1104,16 @@ class Renderer(validated: Dashboard.Validated) {
       shared: Shared,
       fragments: FetchSnapshot
   ): Option[ByteValues] =
+    ownValues(id, shared, fragments).map(_.values)
+
+  /** [[byteSlotValues]] with the node's place, which is what a session's
+    * `holds` is keyed by.
+    */
+  private[runtime] def ownValues(
+      id: NodeId,
+      shared: Shared,
+      fragments: FetchSnapshot
+  ): Option[Own] =
     allIndexed.get(id) match {
       case Some(c: Ready.Component) if ownRenderingOf(c) =>
         if (surfaces.cases(id).nonEmpty)
@@ -1098,12 +1123,17 @@ class Renderer(validated: Dashboard.Validated) {
               "structure). A session's byte-value check cannot see a " +
               "selection, so this must be fixed rather than tolerated."
           )
-        Some(valuesOf(planOf(id, c, shared), shared, fragments, None))
+        Some(
+          Own(c.ix, valuesOf(planOf(id, c, shared), shared, fragments, None))
+        )
       case Some(_) => None
       case None    =>
         members.nodeAt(id, shared).collect {
           case (m, c) if ownRenderingOf(c) =>
-            valuesOf(planOf(id, c, shared), shared, fragments, Some(m.clause))
+            Own(
+              c.ix,
+              valuesOf(planOf(id, c, shared), shared, fragments, Some(m.clause))
+            )
         }
     }
 
@@ -1186,13 +1216,17 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private[runtime] case class Traced(
       html: String,
-      own: Map[NodeId, Painted],
-      seeded: Map[NodeId, Map[SignalId, SlotValue]] = Map.empty
+      painted: Map[Ix, Painted],
+      seededAt: Map[Ix, Map[SignalId, SlotValue]] = Map.empty
   ) {
 
-    def claims: Map[NodeId, Held] =
-      own.map { case (id, p) => id -> p.held } ++
-        seeded.map { case (id, s) => id -> Held(signals = s) }
+    def claims: Map[Ix, Held] =
+      painted.map { case (ix, p) => ix -> p.held } ++
+        seededAt.map { case (ix, s) => ix -> Held(signals = s) }
+
+    /** By node id, for a test that names a node as the dashboard does. */
+    def own: Map[NodeId, Painted] =
+      painted.map { case (ix, p) => dashboard.index.id(ix) -> p }
   }
 
   // A static floor for sizing a buffer; a set's live membership is bounded by
@@ -1298,12 +1332,10 @@ class Renderer(validated: Dashboard.Validated) {
             resolved.signals
           )
         }
-        // Keyed by the plan's id, not this paint's: `holds` keeps the key per
-        // session, and a fresh string each paint was a third of an entry.
         own match
-          case Some(p) => val _ = trace.own.put(plan.id, p)
+          case Some(p) => val _ = trace.own.put(c.ix, p)
           case None if resolved.signals.nonEmpty =>
-            val _ = trace.seeded.put(plan.id, resolved.signals)
+            val _ = trace.seeded.put(c.ix, resolved.signals)
           case None => ()
     }
 
@@ -1801,17 +1833,26 @@ class Renderer(validated: Dashboard.Validated) {
       shared: Shared,
       fragments: FetchSnapshot
   ): Map[SignalId, SlotValue] =
+    nodeAt(id, shared)
+      .map(signalsOf(id, _, shared, fragments))
+      .getOrElse(Map.empty)
+
+  /** [[signalsFor]] for a node [[nodeAt]] already found. */
+  private[runtime] def signalsOf(
+      id: NodeId,
+      node: Ready.Node,
+      shared: Shared,
+      fragments: FetchSnapshot
+  ): Map[SignalId, SlotValue] =
     // Not gated on own rendering: structure's signal slots would be seeded
     // once and then never move.
-    nodeAt(id, shared)
-      .map {
-        // A fetch's answer is the viewer's; a variable cannot reach a signal
-        // (validate refuses it).
-        case c: Ready.Component if c.fetching.isEmpty =>
-          shared.signals(id)(signalsOfSlots(id, c, shared, fragments))
-        case node => signalsOfSlots(id, node, shared, fragments)
-      }
-      .getOrElse(Map.empty)
+    node match {
+      // A fetch's answer is the viewer's; a variable cannot reach a signal
+      // (validate refuses it).
+      case c: Ready.Component if c.fetching.isEmpty =>
+        shared.signals(id)(signalsOfSlots(id, c, shared, fragments))
+      case node => signalsOfSlots(id, node, shared, fragments)
+    }
 
   /** Through the plan: re-deriving the names per tick was 9.4% of a signals
     * tick's allocation (`RenderBench.resumeSignals`).

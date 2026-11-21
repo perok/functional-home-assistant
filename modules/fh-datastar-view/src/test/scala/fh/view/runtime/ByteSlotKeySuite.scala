@@ -17,6 +17,7 @@ import fh.view.model.{
   SlotKey,
   CardDef,
   Dashboard,
+  Ix,
   LayoutNode,
   NodeId,
   Op,
@@ -552,9 +553,9 @@ class ByteSlotKeySuite extends munit.FunSuite {
     def state(s: String) =
       Shared.of(Map("sensor.a" -> EntityState("sensor.a", s, Map.empty)))
     val cache = RenderCache.create.unsafeRunSync()
-    def morph(holds: Map[NodeId, Held], s: String) =
+    def morph(holds: Map[Ix, Held], s: String) =
       Patches.morph(r, cache, holds, state(s), viewing, id).unsafeRunSync()
-    val painted = r.renderBodyTraced(state("on"), viewing).own
+    val painted = r.renderBodyTraced(state("on"), viewing).painted
     val holds = painted.map((k, p) => k -> p.held)
     val onBytes = r.renderNodeById(id, state("on"), viewing)
     assertEquals(r.renderNodeById(id, state("playing"), viewing), onBytes)
@@ -563,7 +564,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
     sent.map(_.patch) match
       case Some(Patch.Morph(html)) => assertEquals(Some(html), onBytes)
       case other                   => fail(s"expected one morph, got $other")
-    val after = holds ++ sent.fold(Map.empty[NodeId, Held])(_.establishes)
+    val after = holds ++ sent.fold(Map.empty[Ix, Held])(_.establishes)
     assertEquals(morph(after, "playing"), None)
   }
 }

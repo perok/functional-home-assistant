@@ -21,6 +21,7 @@ import fh.view.model.{
   Surface
 }
 import fh.view.testkit.DashboardBuilders.st
+import fh.view.runtime.RendererTestOps.ixOf
 import fh.view.testkit.FixtureEntity
 import fh.view.testkit.TestIds.given
 import io.circe.Json
@@ -31,6 +32,8 @@ import io.circe.Json
   * in place are `SetSuite`'s and `DashboardBehaviourSuite`'s.
   */
 class SetMembershipSuite extends ServerHarness {
+
+  private val dyn = Renderer.create(dynDash)
 
   private def viewing(dash: Dashboard, states: Map[String, EntityState])(
       f: TestServer.Viewer => IO[Unit]
@@ -186,8 +189,8 @@ class SetMembershipSuite extends ServerHarness {
         assert(patches.head.contains("mode inner"), clue = patches)
         assert(patches.head.contains("selector #c"), clue = patches)
         // Established by its members' entries, and by no entry of its own.
-        assert(held.contains("c_light_a"), clue = held)
-        assert(!held.contains("c"), clue = held)
+        assert(held.contains(dyn.ixOf("c_light_a")), clue = held)
+        assert(!held.contains(dyn.ixOf("c")), clue = held)
       }
     }
   }
@@ -210,7 +213,7 @@ class SetMembershipSuite extends ServerHarness {
         assert(p.contains("mode remove"), clue = p)
         assert(p.contains("selector #c_light_b"), clue = p)
         assert(!p.contains("data: elements"), clue = p)
-        assert(!held.contains("c"), clue = held)
+        assert(!held.contains(dyn.ixOf("c")), clue = held)
       }
     }
   }
@@ -231,7 +234,7 @@ class SetMembershipSuite extends ServerHarness {
         assert(p.contains("mode inner"), clue = p)
         assert(p.contains("selector #c"), clue = p)
         assert(!p.contains("""id="c_light_a""""), clue = p)
-        assert(!held.contains("c_light_a"), clue = held)
+        assert(!held.contains(dyn.ixOf("c_light_a")), clue = held)
       }
     }
   }

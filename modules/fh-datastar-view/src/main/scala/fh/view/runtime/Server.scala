@@ -29,6 +29,7 @@ import fh.view.model.{
   ChromeColors,
   Dashboard,
   DomId,
+  Ix,
   NodeId,
   Permission,
   SignalId,
@@ -822,7 +823,7 @@ class Server(
                   s.copy(
                     holds = patches
                       .foldLeft(s.holds)(
-                        Patches.applied(renderer.ancestry, _, _)
+                        Patches.applied(renderer.index, _, _)
                       ),
                     position = version,
                     told = if (patches.isEmpty) s.told else version
@@ -912,7 +913,7 @@ class Server(
                   patches.map(_.patch.toSse) ->
                     patches
                       .foldLeft(s.holds)(
-                        Patches.applied(renderer.ancestry, _, _)
+                        Patches.applied(renderer.index, _, _)
                       )
                 )
               )
@@ -1113,11 +1114,13 @@ class Server(
         Viewing(selections, fragments)
       ) match {
         case Some((patch, html)) =>
-          Patches.applied(renderer.ancestry, s.holds, patch) ->
+          Patches.applied(renderer.index, s.holds, patch) ->
             List(Datastar.patch(html, PatchMode.Inner, Some("#" + host)))
         // Only a close reaches here: [[openSurface]] 404s an unknown surface.
         case None =>
-          (s.holds -- Patches.hostEvicts(renderer, host)) ->
+          (s.holds -- renderer.ixsOf(
+            Patches.hostEvicts(renderer, host)
+          )) ->
             Option
               .when(newSurface.isEmpty)(Datastar.remove(s"#$host > *"))
               .toList
@@ -1247,7 +1250,7 @@ class Server(
     } yield Session.Step(
       swapped.next.copy(holds =
         patches.foldLeft(swapped.next.holds)(
-          Patches.applied(renderer.ancestry, _, _)
+          Patches.applied(renderer.index, _, _)
         )
       ),
       swapped.frames ++ patches.map(_.patch.toSse) :+
@@ -1743,7 +1746,7 @@ class Server(
       parentSpan <- tracer.currentSpanContext
       // Filled by the walk; `holds` is committed in the finalizer, once the
       // bytes are out.
-      ownRef <- IO.ref(Map.empty[NodeId, Held])
+      ownRef <- IO.ref(Map.empty[Ix, Held])
       // The document carries the cursor, so it is the first announcement.
       _ <- session.update(
         _.copy(position = store.version, told = store.version)
@@ -1791,7 +1794,7 @@ class Server(
               new java.io.OutputStreamWriter(os, UTF_8),
               Server.PageChunkBytes
             )
-            var own = Map.empty[NodeId, Held]
+            var own = Map.empty[Ix, Held]
             pageInto(
               Sink.streaming(w),
               slug,

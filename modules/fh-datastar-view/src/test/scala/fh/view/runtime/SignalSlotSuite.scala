@@ -13,6 +13,7 @@ import fh.view.model.{
   SlotType,
   CardDef,
   Dashboard,
+  Ix,
   LayoutNode,
   NodeId,
   Reads,
@@ -206,9 +207,9 @@ class SignalSlotSuite extends ServerHarness {
   private def documentHolds(
       r: Renderer,
       states: Map[String, EntityState]
-  ): Map[NodeId, Held] =
-    r.renderPageTraced(states).own.map { case (id, p) =>
-      id -> p.held
+  ): Map[Ix, Held] =
+    r.renderPageTraced(states).painted.map { case (ix, p) =>
+      ix -> p.held
     }
 
   private def resumeFrom(
@@ -641,8 +642,8 @@ class SignalSlotSuite extends ServerHarness {
     val out = resumeNow(
       r,
       log,
-      r.renderPageTraced(lit(40)).own.map { case (id, p) =>
-        id -> p.held
+      r.renderPageTraced(lit(40)).painted.map { case (ix, p) =>
+        ix -> p.held
       },
       lit(41),
       1L,
@@ -749,8 +750,8 @@ class SignalSlotSuite extends ServerHarness {
     val out = resumeNow(
       r,
       log,
-      r.renderPageTraced(lock("locked")).own.map { case (id, p) =>
-        id -> p.held
+      r.renderPageTraced(lock("locked")).painted.map { case (ix, p) =>
+        ix -> p.held
       },
       lock("unlocked"),
       1L,
@@ -955,8 +956,8 @@ class SignalSlotSuite extends ServerHarness {
     val log = FragmentLog("test")
       .touched(NodeId.derived("c_0"), 1L)
       .touched(NodeId.derived("c_1"), 1L)
-    val held = r.renderPageTraced(both("1", "2")).own.map { case (id, p) =>
-      id -> p.held
+    val held = r.renderPageTraced(both("1", "2")).painted.map { case (ix, p) =>
+      ix -> p.held
     }
     val out =
       resumeNow(r, log, held, both("9", "8"), 1L, Set.empty, Selections.none)
@@ -1098,8 +1099,8 @@ class SignalSlotSuite extends ServerHarness {
     val prev = Shared.of(on)
     val next = Shared.of(gone, 1L)
     val sets = List(SetId.of(NodeId.derived("c"), Sets.fill()))
-    val held = r.renderPageTraced(on).own.map { case (id, p) =>
-      id -> p.held
+    val held = r.renderPageTraced(on).painted.map { case (ix, p) =>
+      ix -> p.held
     }
     val seededLog = List("c_light_a", "c_light_b")
       .foldLeft(FragmentLog("test"))((l, id) =>

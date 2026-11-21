@@ -12,7 +12,8 @@ import fh.view.model.{
   SetId,
   SignalId,
   SlotRead,
-  SlotValue
+  SlotValue,
+  TreeIndex
 }
 import fh.view.model.DomId.selector
 import io.circe.Json
@@ -47,8 +48,8 @@ private[runtime] enum Patch:
   */
 private[runtime] case class Addressed(
     patch: Patch,
-    establishes: Map[NodeId, Held] = Map.empty,
-    // Roots: a host and everything under it ([[NodeAncestry]]).
+    establishes: Map[Ix, Held] = Map.empty,
+    // Roots: a host and everything under it ([[TreeIndex.contains]]).
     invalidates: Set[NodeId] = Set.empty
 )
 
@@ -305,7 +306,7 @@ private[runtime] object Patches {
       renderer: Renderer,
       cache: RenderCache,
       log: FragmentLog,
-      holds: Map[NodeId, Held],
+      holds: Map[Ix, Held],
       shared: Shared,
       // The decisions' fetches, then this pull's reads; most ask none.
       decisions: Set[SlotRead] => IO[FetchSnapshot],
@@ -396,7 +397,7 @@ private[runtime] object Patches {
   private def patches(
       renderer: Renderer,
       cache: RenderCache,
-      holds: Map[NodeId, Held],
+      holds: Map[Ix, Held],
       shared: Shared,
       viewing: Viewing,
       o: Owing
@@ -508,7 +509,7 @@ private[runtime] object Patches {
     */
   private def signalFrame(
       renderer: Renderer,
-      holds: Map[NodeId, Held],
+      holds: Map[Ix, Held],
       shared: Shared,
       fragments: FetchSnapshot,
       ids: List[NodeId]
@@ -518,28 +519,31 @@ private[runtime] object Patches {
     // client's cost (`RenderBench.resumeSignalsFanout`). Never key a node's
     // signals by node id — that silently keeps one of the slider's four.
     val payload = HashMap.newBuilder[SignalId, Json]
-    val heldB = HashMap.newBuilder[NodeId, Held]
+    val heldB = HashMap.newBuilder[Ix, Held]
     var anyMoved = false
     ids.foreach { id =>
-      val held = holds.get(id) match
-        case Some(h) => h.signals
-        case None    => Map.empty[SignalId, SlotValue]
-      val now = renderer.signalsFor(id, shared, fragments)
-      var moved = 0
-      now.foreachEntry { (name, value) =>
-        if (!holdsValue(held, name, value)) {
-          payload.addOne(name, SlotValue.json(value))
-          moved += 1
-        }
-      }
-      if (moved > 0) {
-        // Usually every one moved, and then the node's map is the held one.
-        val nodeHeld =
-          if (moved == now.size) now
-          else now.filter((name, value) => !holdsValue(held, name, value))
-        heldB.addOne(id, Held(signals = nodeHeld))
-        anyMoved = true
-      }
+      renderer.nodeAt(id, shared) match
+        case Some(node) =>
+          val held = holds.get(node.ix) match
+            case Some(h) => h.signals
+            case None    => Map.empty[SignalId, SlotValue]
+          val now = renderer.signalsOf(id, node, shared, fragments)
+          var moved = 0
+          now.foreachEntry { (name, value) =>
+            if (!holdsValue(held, name, value)) {
+              payload.addOne(name, SlotValue.json(value))
+              moved += 1
+            }
+          }
+          if (moved > 0) {
+            // Usually every one moved, and then the node's map is the held one.
+            val nodeHeld =
+              if (moved == now.size) now
+              else now.filter((name, value) => !holdsValue(held, name, value))
+            heldB.addOne(node.ix, Held(signals = nodeHeld))
+            anyMoved = true
+          }
+        case None => ()
     }
     if (!anyMoved) Nil
     else List(Addressed(Patch.Signals(payload.result()), heldB.result()))
@@ -558,7 +562,7 @@ private[runtime] object Patches {
   private[runtime] def morph(
       renderer: Renderer,
       cache: RenderCache,
-      holds: Map[NodeId, Held],
+      holds: Map[Ix, Held],
       shared: Shared,
       viewing: Viewing,
       id: NodeId
@@ -567,13 +571,14 @@ private[runtime] object Patches {
     // what this viewer holds already answers, with no render and no cache
     // lookup. Unequal values are sent: the bytes rarely survive a value change,
     // and a morph to the bytes the client has changes nothing in its DOM.
-    renderer.byteSlotValues(id, shared, viewing.fragments) match {
-      case Some(values) if !holds.get(id).exists(_.values.contains(values)) =>
+    renderer.ownValues(id, shared, viewing.fragments) match {
+      case Some(own)
+          if !holds.get(own.ix).exists(_.values.contains(own.values)) =>
         IO(
           Some(
             Addressed(
-              Patch.Morph(cached(renderer, cache, id, values, shared)),
-              Map(id -> Held(Some(values)))
+              Patch.Morph(cached(renderer, cache, id, own.values, shared)),
+              Map(own.ix -> Held(Some(own.values)))
             )
           )
         )
@@ -608,14 +613,14 @@ private[runtime] object Patches {
       id: NodeId,
       shared: Shared,
       viewing: Viewing
-  ): IO[Option[(String, Map[NodeId, Held])]] =
+  ): IO[Option[(String, Map[Ix, Held])]] =
     IO(
       if (renderer.memberIsTarget(id))
         renderer
-          .byteSlotValues(id, shared, viewing.fragments)
-          .map(v =>
-            cached(renderer, cache, id, v, shared) ->
-              Map(id -> Held(Some(v)))
+          .ownValues(id, shared, viewing.fragments)
+          .map(own =>
+            cached(renderer, cache, id, own.values, shared) ->
+              Map(own.ix -> Held(Some(own.values)))
           )
       else
         renderer
@@ -679,7 +684,7 @@ private[runtime] object Patches {
       renderer: Renderer,
       shared: Shared,
       viewing: Viewing
-  ): (List[SseFrame], Map[NodeId, Held]) = {
+  ): (List[SseFrame], Map[Ix, Held]) = {
     val body = renderer.renderBodyTraced(shared, viewing)
     val popup = hostFill(
       renderer,
@@ -688,7 +693,7 @@ private[runtime] object Patches {
       shared,
       viewing
     ).map(_._1)
-    val held = popup.foldLeft(body.claims)(applied(renderer.ancestry, _, _))
+    val held = popup.foldLeft(body.claims)(applied(renderer.index, _, _))
     // The seeds alone are not enough: the morph re-applies a seed only when
     // its text changed, so on a page that missed frames (a forgotten session,
     // a restart) a value that moved and came back stayed where the frames
@@ -713,24 +718,24 @@ private[runtime] object Patches {
     renderer.surfaces.surfacesAt(host).flatMap(renderer.surfaceNodeIds)
 
   /** Invalidate first, then claim: a fill re-supplies a host and places members
-    * in it. Containment is [[NodeAncestry]]'s, not id spelling.
+    * in it. Containment is [[TreeIndex.contains]]'s, not id spelling.
     */
   def applied(
-      ancestry: NodeAncestry,
-      holds: Map[NodeId, Held],
+      index: TreeIndex,
+      holds: Map[Ix, Held],
       patch: Addressed
-  ): Map[NodeId, Held] =
+  ): Map[Ix, Held] = {
+    val roots = patch.invalidates.toList.flatMap(index.ixsOf)
     // Merged per node: a morph says nothing about signals and a signal frame
     // nothing about bytes ([[Held.merge]]).
     patch.establishes.foldLeft(
-      if (patch.invalidates.isEmpty) holds
+      if (roots.isEmpty) holds
       else
-        holds.filterNot { case (id, _) =>
-          ancestry.withinAny(id, patch.invalidates.toSet)
-        }
-    ) { case (acc, (id, later)) =>
-      acc.updated(id, acc.get(id).fold(later)(_.merge(later)))
+        holds.filterNot { case (ix, _) => roots.exists(index.contains(_, ix)) }
+    ) { case (acc, (ix, later)) =>
+      acc.updated(ix, acc.get(ix).fold(later)(_.merge(later)))
     }
+  }
 
   /** Merges adjacent morphs and adjacent signal frames, never across an insert
     * or remove: a later morph may target what the insert created.

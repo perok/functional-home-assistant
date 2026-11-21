@@ -4,9 +4,9 @@ import fh.view.model.{NodeId, SignalId, SlotValue}
 
 /** What one client has for one node: the byte-slot values its bytes were
   * rendered from ([[Renderer.byteSlotValues]]) and its signal values (ADR
-  * 0017). One map keyed by node, so a host fill's invalidation is the
-  * containment test `Patches.applied` already runs. `values` is optional
-  * because a signal frame establishes only the signals.
+  * 0017). One map keyed by the node's [[fh.view.model.Ix]], so a host fill's
+  * invalidation is the containment test `Patches.applied` already runs.
+  * `values` is optional because a signal frame establishes only the signals.
   */
 private[runtime] case class Held(
     values: Option[ByteValues] = None,

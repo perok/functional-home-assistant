@@ -6,7 +6,7 @@ import fs2.Stream
 import cats.syntax.all.*
 import cats.effect.std.{Queue, Supervisor}
 import fh.view.FHError
-import fh.view.model.NodeId
+import fh.view.model.Ix
 import fs2.concurrent.SignallingRef
 import org.typelevel.log4cats.Logger
 
@@ -39,7 +39,8 @@ enum Tenure derives CanEqual {
   *   - `initialValues`: where the document opened a variable that has an
   *     initial transform, decided once from the state it was rendered on. Not a
   *     choice: no `v.` param, and a reconnect does not carry it.
-  *   - `holds`: per node, what this DOM was last sent.
+  *   - `holds`: per node's `Ix`, what this DOM was last sent; a member's
+  *     clauses share DOM ids, not an entry.
   *   - `position`: how far this session has been served; its pull resumes from
   *     here.
   *   - `told`: the newest cursor put on its wire, the most it could echo back
@@ -57,7 +58,7 @@ enum Tenure derives CanEqual {
 final case class SessionState(
     open: Set[String],
     vars: Map[VarKey, String],
-    holds: Map[NodeId, Held],
+    holds: Map[Ix, Held],
     position: Long,
     told: Long,
     initialValues: Map[VarKey, String] = Map.empty,

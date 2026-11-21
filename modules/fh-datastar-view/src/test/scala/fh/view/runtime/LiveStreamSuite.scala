@@ -7,6 +7,7 @@ import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
   CardDef,
   Dashboard,
+  Ix,
   LayoutNode,
   NodeId,
   Value,
@@ -16,7 +17,7 @@ import fh.view.model.{
 }
 import fh.view.testkit.{FixtureEntity, PklFixture}
 import fh.view.testkit.TestIds.given
-import RendererTestOps.heldFor
+import RendererTestOps.{heldFor, ixOf}
 import io.circe.Json
 
 /** End to end over the real stream, with several clients: what one connection
@@ -160,7 +161,7 @@ class LiveStreamSuite extends ServerHarness {
       .create(dash)
       .heldFor("s_det__c_0", Map("sensor.a" -> es("sensor.a", "cold")))
       .get
-    val node = NodeId.derived("s_det__c_0")
+    val node = Renderer.create(dash).ixOf(NodeId.derived("s_det__c_0"))
     live(dash, Map("sensor.a" -> es("sensor.a", "cold"))) { ts =>
       for {
         v <- ts.viewer()
@@ -262,7 +263,7 @@ class LiveStreamSuite extends ServerHarness {
     // Holding exactly what a patch for that node alone would carry, which makes
     // the two comparable.
     val leaf: NodeId = "c_0_branch_0_0"
-    assertEquals(patch.establishes.get(leaf), r.heldFor(leaf, armed))
+    assertEquals(patch.establishes.get(r.ixOf(leaf)), r.heldFor(leaf, armed))
     val root = NodeId.derived("c_0_branch_0")
     assertEquals(
       r.renderNodeById(
@@ -272,7 +273,10 @@ class LiveStreamSuite extends ServerHarness {
       ),
       None
     )
-    assert(!patch.establishes.contains(root), clue = patch.establishes.keySet)
+    assert(
+      !patch.establishes.contains(r.ixOf(root)),
+      clue = patch.establishes.keySet
+    )
   }
 
   test("a resume sends one viewer's bar bytes that fit every viewer") {
@@ -290,9 +294,9 @@ class LiveStreamSuite extends ServerHarness {
     val mine = Selections(None, Map(NodeId.derived("c_0_panel_0") -> 1))
     // Recorded as holding what a tab-0 connect left behind.
     val log = FragmentLog("w23").touched(host, 5L)
-    val holds: Map[NodeId, Held] =
+    val holds: Map[Ix, Held] =
       Map(
-        host -> Held(
+        r.ixOf(host) -> Held(
           r.byteSlotValues(host, Shared.of(states), FetchSnapshot.empty)
         )
       )
@@ -344,7 +348,7 @@ class LiveStreamSuite extends ServerHarness {
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
       r.byteSlotValues(id, Shared.of(before), FetchSnapshot.empty)
-        .map(v => id -> Held(Some(v)))
+        .map(v => r.ixOf(id) -> Held(Some(v)))
     }.toMap
 
     val tab0Moved = before.updated("sensor.a", es("sensor.a", "A1"))

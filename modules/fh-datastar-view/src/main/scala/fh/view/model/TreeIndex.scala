@@ -3,9 +3,9 @@ package fh.view.model
 import scala.collection.mutable.ArrayBuffer
 
 /** A node's place in its dashboard's [[TreeIndex]]. A DOM id names a place, not
-  * a node: two clauses of one member share theirs. An `Ix` is one index's, so
-  * nothing that outlives a dashboard swap (a session, a URL, the log) holds
-  * one.
+  * a node: two clauses of one member share theirs. An `Ix` is one index's, so a
+  * URL and the log never hold one, and a session's `holds` is replaced on a
+  * dashboard swap (ADR 0012).
   */
 opaque type Ix = Int
 

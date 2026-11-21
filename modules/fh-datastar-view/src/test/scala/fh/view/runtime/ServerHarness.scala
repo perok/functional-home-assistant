@@ -17,6 +17,7 @@ import cats.syntax.all.*
 import fh.view.model.{
   CardDef,
   Dashboard,
+  Ix,
   LayoutNode,
   NodeId,
   Op,
@@ -132,7 +133,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def resumeNow(
       renderer: Renderer,
       log: FragmentLog,
-      holds: Map[NodeId, Held],
+      holds: Map[Ix, Held],
       states: Map[String, EntityState],
       v: Long,
       open: Set[String],

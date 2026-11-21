@@ -1,7 +1,9 @@
 package fh.view.runtime
 
-import fh.view.model.NodeId
+import fh.view.model.{Ix, NodeId}
 import fh.view.fetch.FetchSnapshot
+
+import scala.jdk.CollectionConverters.*
 
 /** A standalone [[Shared]] for a suite outside the package, which cannot name
   * the type.
@@ -56,13 +58,20 @@ private[runtime] object RendererTestOps {
       r.byteSlotValues(id, Shared.of(states), FetchSnapshot.empty)
         .map(v => Held(Some(v)))
 
+    /** Where the node a suite names by id sits in the tree, which is what a
+      * session's `holds` is keyed by. The one node, not a member's clause.
+      */
+    def ixOf(id: NodeId): Ix = r.index.ixsOf(id) match
+      case List(only) => only
+      case other      => throw AssertionError(s"'$id' is not one node: $other")
+
     /** The whole document into a buffer, bytes and trace both. */
     def renderPageTraced(
         states: Map[String, EntityState],
         selections: Selections = Selections.none
     ): r.Traced = {
       val out = Sink.buffer(r.pageBytesHint)
-      val own = r.renderPageInto(
+      val trace = r.pageInto(
         out,
         Shared.of(states),
         Viewing(selections, FetchSnapshot.empty)
@@ -70,7 +79,11 @@ private[runtime] object RendererTestOps {
       // The whole page is never a patch target — a repaint replaces
       // `#dashboard` wholesale — so it has no second form of its own. Its
       // NODES do, and those are in `own`.
-      r.Traced(out.result, own)
+      r.Traced(
+        out.result,
+        trace.own.asScala.toMap,
+        trace.seeded.asScala.toMap
+      )
     }
   }
 }

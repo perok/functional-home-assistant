@@ -434,13 +434,13 @@ is the only window in which any of this is observable.
 
 ### One record, not two
 
-`Session.holds` is `Map[NodeId, Held]`, where `Held(values: Option[Map[String, SlotValue]],
+`Session.holds` is `Map[Ix, Held]`, where `Held(values: Option[ByteValues],
 signals: Map[SignalId, SlotValue])`. Both halves answer "is this worth sending?" about one node.
 
 Sharing the map is not tidiness. A host fill makes everything under it unknown, and with a
 separate signal map keyed by signal *name* that invalidation could only be expressed by
-string-prefixing the name back into a node id. Keyed by node, it is the id-prefix test
-`Patches.applied` already runs.
+mapping the name back to a node. Keyed by node, it is the subtree test `Patches.applied` already
+runs (`TreeIndex.contains`).
 
 A signal name is no longer node-scoped, so one value can sit in TWO nodes' `Held.signals`. That is
 fine and stays fine: the frame is a map keyed by name, so duplicates collapse, and a node dropped by
