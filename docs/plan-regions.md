@@ -610,23 +610,24 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      - Order agreed 2026-11-21: nothing merges before the whole lands, so no step builds what a
        later one replaces. The `Ix` key is decided now rather than measured in D6, D3 and D4 are
        one step, and nothing popup-specific is written before R5.
-     - **D2a, `holds` and the render cache keyed by `Ix`; `holds` stamped.** No behaviour
-       change, goldens byte-identical; bench `page`/`tickRender`/`publishSet*` before and after.
-       - `holds: Map[Ix, Held]`; `Trace`, `morph`, `signalFrame`, `placed`, claims, repaint and
-         the opening write and read `Ix`. A clause's root has its own `Ix`, so
-         `ByteValues.clause` goes; `RenderCache` keys by `Ix` (`install` clears it, and an entry
-         carries `Renderer.generation`).
-       - `holds` is stamped with what painted it: the renderer's generation and the page's head
-         and style hashes. `TreeIndex`'s rule becomes "a session holds an `Ix` only under that
-         stamp".
-       - The stamp is the swap's one mechanism: every step compares it first and, on a mismatch,
-         answers as a swap does today (a reload when the head moved or to/from the error page,
-         else the repaint), never a diff. `install` rings the doorbell so an idle session steps;
-         `reloadRepaints`' watcher goes. This closes a step that ran on the new renderer before
-         the watcher's repaint (a pull between, a tap while the stream is down). Check first:
-         the repaint reads the open popup through the previous renderer; `open` is spelled by
-         root DOM id so the new one can read it, and a popup it lacks is closed
-         (`orphanedPopup`).
+     - **D2a, `holds` and the render cache keyed by `Ix`; `holds` stamped.** BUILT (7bbddf2a,
+       4b631ce0, 2da72f6f, 7c5464d8). Goldens byte-identical; non-Slow 1429 green.
+       - `holds: Map[Ix, Held]`, and `RenderCache` keys by `Ix` + generation + `ByteValues`;
+         `ByteValues.clause` is gone. The suites that pinned "a member's clause is in its key"
+         pin it on `(Ix, ByteValues)`.
+       - `Renderer.generation` is a `Renderer.Stamp` (head and style hashes, popup spellings),
+         and `SessionState.painter` is `Unpainted | By(stamp) | Reloading(installed)`. Every
+         step (pull, press, opening) compares it first (`Server.swapAnswer`): under another
+         renderer a reload when the head moved or to/from the error page, else the repaint,
+         never a diff. A session told to reload sends nothing more until the next swap; a press
+         after a swap still runs, after the repaint. `install` rings the doorbell at the same
+         version; `reloadRepaints` and `sameRenderer` are gone.
+       - The check-first finding: the new renderer cannot read a popup it lacks (its spelling
+         maps to no surface key there), so `orphanedPopup` would never fire. The stamp carries
+         the painter's popup spellings, and the repaint reads `open` through it.
+       - Bench (B/op, EA off, vs 4a2f793f): `page` −0.1%, `pageSet` −0.2%, `tickRender` −0.4%,
+         `resumeMorphs` −0.2%, `resumeMorphsFanout` −0.5%, `publishSet`/`publishSetOrdered`
+         equal; times within error.
      - **D2b, `holds` keeps what each host shows**, in the order sent (§7), written and not yet
        read.
        - `Held.shows: Option[IArray[Ix]]` on the host node (one host per node, §2).
