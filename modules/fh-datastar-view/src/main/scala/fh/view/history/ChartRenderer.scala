@@ -61,6 +61,14 @@ object ChartRenderer {
       )
       .flatMap(fromEngine)
 
+  /** [[resource]] drawn up by the first chart and kept until release: an
+    * instance with no chart never pays ECharts' ~300 ms or the isolate's heap.
+    */
+  def lazily(
+      loggerFactory: LoggerFactory[IO]
+  ): Resource[IO, IO[ChartRenderer]] =
+    resource(loggerFactory).memoizedAcquire
+
   /** On an engine the caller chose. */
   def fromEngine(engine: Engine): Resource[IO, ChartRenderer] =
     for {

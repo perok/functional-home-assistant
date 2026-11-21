@@ -1,9 +1,11 @@
 package fh.view.runtime
 
 import cats.effect.unsafe.implicits.global
-import cats.effect.IO
+import cats.effect.{IO, Resource}
 import cats.syntax.all.*
+import fh.view.history.ChartRenderer
 import fh.view.model.{CallDecl, CallId, Dashboard}
+import fh.view.telemetry.Logging
 import fh.view.testkit.{FixtureEntity, FixtureEntries, PklFixture}
 import hedgehog.*
 import hedgehog.core.SuccessCount
@@ -75,6 +77,13 @@ class OracleSuite extends HedgehogSuite {
       nested
     )
 
+  // One engine for the suite, loaded by its first chart: per server, ECharts
+  // would load in every charts run.
+  private val (charts, releaseCharts) =
+    ChartRenderer.lazily(Logging.console).allocated.unsafeRunSync()
+
+  override def afterAll(): Unit = releaseCharts.unsafeRunSync()
+
   private val chrome =
     """<main class="container" id="dashboard">{{{body}}}</main><div id="popups">{{{popups}}}</div>"""
 
@@ -140,7 +149,7 @@ class OracleSuite extends HedgehogSuite {
       steps: List[Step]
   ): Result =
     TestServer
-      .resource(d, entry.entities)
+      .resource(d, entry.entities, chart = Resource.pure(charts))
       .use { ts =>
         val byId = entry.entities.map(e => e.entityId -> e).toMap
         for {
@@ -214,7 +223,7 @@ class OracleSuite extends HedgehogSuite {
     val e = FixtureEntries.taps
     val kitchen = e.entities.find(_.entityId == "light.kitchen").get
     val r = TestServer
-      .resource(build(e), e.entities)
+      .resource(build(e), e.entities, chart = Resource.pure(charts))
       .use { ts =>
         for {
           a <- FakeBrowser.open(ts)

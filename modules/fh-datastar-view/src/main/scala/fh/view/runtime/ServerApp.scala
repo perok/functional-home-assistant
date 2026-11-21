@@ -35,6 +35,7 @@ import fh.view.auth.{
   SessionStore
 }
 import api.homeassistant.ws.domain.HaUser
+import fh.view.history.ChartRenderer
 import fh.view.model.Dashboard
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
@@ -199,6 +200,7 @@ object ServerApp extends IOApp {
           meters = meters,
           sourceWatcher = SourceWatcher.default,
           sessionWindows = Server.SessionWindows.default,
+          chart = ChartRenderer.lazily(loggerFactory),
           minifier = minifier
         )
       )
@@ -243,6 +245,9 @@ object ServerApp extends IOApp {
       sourceWatcher: Resource[IO, SourceWatcher],
       // Not an edge: time, which a test shortens to watch a reap.
       sessionWindows: Server.SessionWindows,
+      // Not an edge: a JavaScript engine, which a test JVM booting hundreds of
+      // servers shares rather than starting one per server.
+      chart: Resource[IO, IO[ChartRenderer]],
       // Not an edge either: off where a test does not ask for it.
       minifier: Minifier = Minifier.none
   )
@@ -431,6 +436,7 @@ object ServerApp extends IOApp {
         loggerFactory = loggerFactory,
         meters = meters,
         windows = edges.sessionWindows,
+        chart = edges.chart,
         minifier = edges.minifier
       )
       editor = new EditorRoutes(

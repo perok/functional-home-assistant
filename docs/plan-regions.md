@@ -600,14 +600,11 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          `ui_popups`, both in `SseInclude`. So every page load logs "reconnect carried a
          signal store with no readable cursor" and resumes from V instead of V + 1, a resend
          at most. Natural with D4, which reads the cursor at reconnect.
-       - **Time: 27–29 s locally against 20 s on CI.** Measured per phase: `charts` is ~14 s
-         of it, each run's first chart starting a GraalJS engine and ECharts (~270 ms, where
-         the other dashboards' first page is 2–3 ms). `TestServer.record` is 15.5 ms, of
-         which ~14 ms is `poll` sleeping 5 ms before each check (spiked: checking first, then
-         1 ms sleeps, makes it 1.3 ms). The rest is ~25 ms per run: a boot, two loads, two
-         fresh GETs. Two small fixes, together an estimated ~14 s locally: `ServerApp.Edges`
-         takes the chart renderer, so `TestServer` shares one engine per JVM, and the
-         check-first `poll`. Fewer, longer runs would cut the per-run part.
+       - **Time: 16 s locally, aim 20 s on CI.** It was 28 s: each `charts` run's first chart
+         started a GraalJS engine and ECharts (~270 ms), now one per suite through
+         `ServerApp.Edges.chart`; and `TestServer.record` took 15.5 ms, `poll` sleeping 5 ms
+         before each check, now 1.3 ms. What is left is ~25 ms per run (a boot, two loads, two
+         fresh GETs); fewer, longer runs would cut it, kept at 50 × 15 for now.
      - **D2, `holds` keeps each host's keys** in the order sent; written, not read. The oracle
        checks held keys equal the fake page's order.
      - **D3, the planner** (§7) replaces `MemberGraph.deltas` and the set refill; an A → B → A

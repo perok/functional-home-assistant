@@ -2431,9 +2431,10 @@ object Server {
       loggerFactory: LoggerFactory[IO],
       meters: Meters,
       windows: SessionWindows,
+      chart: Resource[IO, IO[ChartRenderer]],
       minifier: Minifier = Minifier.none
   ): Resource[IO, Server] =
-    historyFetches(feed.api, loggerFactory).flatMap(fetches =>
+    historyFetches(feed.api, chart, loggerFactory).flatMap(fetches =>
       withSite(
         actions(feed.api),
         feed.store,
@@ -2453,15 +2454,13 @@ object Server {
       )
     )
 
-  /** `memoizedAcquire` makes the JavaScript engine lazy: an instance with no
-    * chart never pays ECharts' ~300 ms or the isolate's heap.
-    */
   private def historyFetches(
       api: HomeAssistantApi[IO],
+      charts: Resource[IO, IO[ChartRenderer]],
       loggerFactory: LoggerFactory[IO]
   ): Resource[IO, FetchResolver] =
     for {
-      chart <- ChartRenderer.resource(loggerFactory).memoizedAcquire
+      chart <- charts
       log = loggerFactory.getLoggerFromName("fh.view.history")
       history <- History
         .create(
