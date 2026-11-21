@@ -43,6 +43,20 @@ final class FakePage private (doc: Document) {
   def applySse(text: String): Unit =
     FakePage.events(text).foreach((e, d) => apply(e, d))
 
+  /** Every `@post` URL the page's attributes hold, in document order: what a
+    * viewer could press. Popup opens and closes included.
+    */
+  def presses: List[String] =
+    doc
+      .select("*")
+      .asScala
+      .toList
+      .flatMap(_.attributes.asScala.toList.map(_.getValue))
+      .flatMap(FakePage.PostUrl.findAllMatchIn(_).map(_.group(1)))
+      // A URL built by concatenation (the popstate handler's) ends at its quote.
+      .filterNot(_.endsWith("/"))
+      .distinct
+
   /** The `conn` the page was minted under, off its stream URL. */
   def conn: String =
     "[?&]conn=([^&']+)".r
@@ -332,6 +346,7 @@ object FakePage {
       }
 
   private val GetUrl = """@get\('([^']*)'""".r
+  private val PostUrl = """@post\('([^']*)'""".r
 
   private val SeedKeys = List("data-signals", "data-signals__ifmissing")
 
