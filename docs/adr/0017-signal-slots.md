@@ -82,10 +82,13 @@ Each form is load-bearing:
   disappeared with it. On a first paint signal slots are a straight cost with no suppression to
   offset them at all (`pageSignals` against `page`, roughly 2x) — that is the case this ADR is
   not about.
-- **An element seeds its own signal.** The document form's `data-signals` means a first paint, a
-  host fill or a `?prev=` reconnect repaint needs no frame to be correct. `data-signals`
-  overwrites by default in the pinned bundle (`__ifmissing` is opt-in), so re-seeding on a later
-  wholesale render is correct rather than a race.
+- **An element seeds its own signal.** The document form's `data-signals` means a first paint or a
+  host fill needs no frame to be correct. `data-signals` overwrites by default in the pinned
+  bundle (`__ifmissing` is opt-in), so re-seeding on a later wholesale render is correct rather
+  than a race. The exception is a body repaint (`Patches.repaint`), which also sends its signal
+  values as a frame. The morph re-applies a seed only when its text changed. On a page that
+  missed frames (a forgotten session, a restart), a value that moved and came back would stay
+  where the frames left it.
 - **A JS-less browser gets the value.** It receives the document and nothing else — no Datastar, no
   SSE, no patches ever — so the inline value is exactly and only what it needs.
 

@@ -584,17 +584,16 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        - Dashboards: `sets`, `branches`, `taps`, `slider-groups`, `light-controls`, `charts`,
          and one in the suite with a set nested in a member and an If in a member; 50 runs
          each.
-       - **Known red — fix before D3.** A page whose session was forgotten (an idle tab past
-         its linger, a restart) reconnects to a document-form repaint, and a seed that comes
-         back with the text the element already carries is not applied again. A signal a
-         frame moved since then stays stale: a light goes off, every session is forgotten, it
-         comes back on, and the page shows it off. Pinned by `OracleSuite`'s `known:` test,
-         marked `.fail` so it turns red once fixed; until then the property holds the house
-         still while a forgotten viewer is down. Before D3 because D3 and D4 rewrite this path
-         (the refill, a returning page), and the skip leaves the oracle blind to it there.
-         Likely shape, not yet investigated: a document-form repaint onto elements the page
-         already has also sends a signals frame for the display values it carries. The fix
-         removes the skip and the `known:` test.
+       - **Found and fixed: a forgotten page's stale signal.** A page whose session was
+         forgotten (an idle tab past its linger, a restart) reconnects to a body repaint, and
+         a seed that comes back with the text the element already carries is not applied
+         again: a light goes off, every session is forgotten, it comes back on, and the page
+         showed it off. `Patches.repaint` now also sends the body's signal values as a frame.
+         The property finds it only in some seeds (a run with the fix disabled passed), so
+         `OracleSuite` keeps the run that found it as a plain test. Open: a host fill
+         (`Inner`) morphs onto members the page already has the same way; whether a live
+         session can reach it (a value back at its seed text inside one pull that also fills)
+         is not shown either way. D3 rewrites the fill, so check it there.
        - **Also found — fix any time, cheap.** `Server.hasSignals` reads a first connect as a
          reconnect: its `datastar` parameter is never `{}`, since the shell seeds `conn` and
          `ui_popups`, both in `SseInclude`. So every page load logs "reconnect carried a

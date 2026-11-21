@@ -3139,10 +3139,6 @@ object Server {
             .map((k, v) => CallField.Data(k).name -> v)
         case (k, v) => List(k -> v)
       }.toMap
-    def spelt(v: SlotValue) = v match
-      case b: Boolean => Json.fromBoolean(b)
-      case d: Double  => Json.fromDoubleOrString(d)
-      case s: String  => Json.fromString(s)
     val expected = now.map((f, v) => f.name -> v).toMap
     shown.keys.toList.sorted.find(!expected.contains(_)) match
       case Some(k) => Some(s"$k: not something this control shows")
@@ -3150,8 +3146,8 @@ object Server {
         now.collectFirst {
           case (f, _) if !shown.contains(f.name) =>
             s"${f.name}: not shown"
-          case (f, v) if shown(f.name) != spelt(v) =>
-            s"${f.name}: ${shown(f.name).noSpaces} shown, ${spelt(v).noSpaces} now"
+          case (f, v) if shown(f.name) != SlotValue.json(v) =>
+            s"${f.name}: ${shown(f.name).noSpaces} shown, ${SlotValue.json(v).noSpaces} now"
         }
   }
 

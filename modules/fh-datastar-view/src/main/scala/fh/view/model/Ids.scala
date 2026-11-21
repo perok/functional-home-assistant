@@ -112,4 +112,12 @@ object SlotValue {
     case s: String  => s.nonEmpty
     case b: Boolean => b
     case d: Double  => d != 0
+
+  /** A boolean stays a JSON boolean: the string `"false"` is truthy in every
+    * binding.
+    */
+  def json(v: SlotValue): io.circe.Json = v match
+    case b: Boolean => io.circe.Json.fromBoolean(b)
+    case d: Double  => io.circe.Json.fromDoubleOrString(d)
+    case s: String  => io.circe.Json.fromString(s)
 }

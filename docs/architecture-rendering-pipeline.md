@@ -370,7 +370,10 @@ GET /sse/dashboard/:slug/patch
                what we announced has `holds` we cannot answer from
       repaint  if it does not      // claims what it painted, same as the document:
                                    // the body AND the open popup, whose host is
-                                   // outside #dashboard (Patches.repaint)
+                                   // outside #dashboard (Patches.repaint),
+                                   // plus their signal values as a frame: a
+                                   // seed whose text did not change is not
+                                   // re-applied (ADR 0017)
       reload   if the document itself is stale
     ...then position = WHAT THIS CONNECTION CAN PROVE IT SENT: the doorbell's
       value (read BEFORE the log) for a resume, since a resume can only answer

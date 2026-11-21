@@ -164,26 +164,22 @@ class OracleSuite extends HedgehogSuite {
           a <- FakeBrowser.open(ts)
           b <- FakeBrowser.open(ts)
           viewers = Vector(a, b)
-          // Viewers forgotten and not yet back. While any is, the house holds
-          // still: a change then is the known red (see `known` below).
-          forgotten <- IO.ref(Set.empty[Int])
-          quiet = forgotten.get.map(_.isEmpty)
           _ <- steps.traverse_ { step =>
             val action: IO[Unit] = step match
               case Step.Change(i, s) =>
                 val id = ids(i % ids.size)
                 val options = statesOf(id)
                 val state = options(s % options.size)
-                (current.get, quiet).flatMapN((m, q) =>
-                  IO.whenA(q && !m(id).contains(state))(
+                current.get.flatMap(m =>
+                  IO.whenA(!m(id).contains(state))(
                     ts.record(byId(id).copy(state = state)) *>
                       current.update(_.updated(id, Some(state)))
                   )
                 )
               case Step.Leave(i) =>
                 val id = ids(i % ids.size)
-                (current.get, quiet).flatMapN((m, q) =>
-                  IO.whenA(q && m(id).isDefined)(
+                current.get.flatMap(m =>
+                  IO.whenA(m(id).isDefined)(
                     ts.recordRemoval(id) *> current.update(_.updated(id, None))
                   )
                 )
@@ -194,12 +190,9 @@ class OracleSuite extends HedgehogSuite {
                 )
               case Step.Drop(v)    => viewers(v).drop
               case Step.Connect(v) =>
-                IO.unlessA(viewers(v).up)(
-                  viewers(v).connect *> forgotten.update(_ - v)
-                )
+                IO.unlessA(viewers(v).up)(viewers(v).connect)
               case Step.Forget =>
-                FakeBrowser.forgetAll(ts, viewers.toList) *>
-                  forgotten.set(viewers.indices.toSet)
+                FakeBrowser.forgetAll(ts, viewers.toList)
             action *> viewers.traverse_(_.deliver)
           }
           _ <- viewers.traverse_(v => IO.unlessA(v.up)(v.connect))
@@ -211,15 +204,12 @@ class OracleSuite extends HedgehogSuite {
       .timeout(2.minutes)
       .unsafeRunSync()
 
-  /** KNOWN RED (docs/plan-regions.md, D1): a page whose session was forgotten
-    * reconnects to a document-form repaint, and a seed that comes back with the
-    * text the element already carries is not applied again (the bundle's morph
-    * sets only an attribute that differs), so a signal a frame moved since
-    * stays there. Here: the kitchen light goes off, every session is forgotten,
-    * it comes back on, and the page still shows it off. `.fail`: it turns red
-    * once fixed, which is when the skip above goes too.
+  /** The run that found it, kept because the properties reach it only in some
+    * seeds: a repaint's seed whose text the element already carries is not
+    * applied again (the bundle's morph sets only an attribute that differs), so
+    * a page that missed the frames kept the value they left.
     */
-  test("known: a forgotten page misses a value returning to its seed".fail) {
+  test("a forgotten page gets back a value that returned to its seed") {
     val e = FixtureEntries.taps
     val kitchen = e.entities.find(_.entityId == "light.kitchen").get
     val r = TestServer

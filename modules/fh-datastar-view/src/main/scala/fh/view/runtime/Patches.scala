@@ -528,14 +528,7 @@ private[runtime] object Patches {
       var moved = 0
       now.foreachEntry { (name, value) =>
         if (!holdsValue(held, name, value)) {
-          // A JSON boolean: the string `"false"` is truthy in every binding.
-          payload.addOne(
-            name,
-            value match
-              case b: Boolean => Json.fromBoolean(b)
-              case d: Double  => Json.fromDoubleOrString(d)
-              case s: String  => Json.fromString(s)
-          )
+          payload.addOne(name, SlotValue.json(value))
           moved += 1
         }
       }
@@ -695,10 +688,20 @@ private[runtime] object Patches {
       shared,
       viewing
     ).map(_._1)
+    val held = popup.foldLeft(body.claims)(applied(renderer.ancestry, _, _))
+    // The seeds alone are not enough: the morph re-applies a seed only when
+    // its text changed, so on a page that missed frames (a forgotten session,
+    // a restart) a value that moved and came back stayed where the frames
+    // left it.
+    val values = held.valuesIterator
+      .flatMap(_.signals)
+      .map((name, v) => name -> SlotValue.json(v))
+      .toMap
     (
       Datastar.patch(body.html, PatchMode.Inner, Some("#dashboard")) ::
-        popup.map(_.patch.toSse).toList,
-      popup.foldLeft(body.claims)(applied(renderer.ancestry, _, _))
+        popup.map(_.patch.toSse).toList ++
+        Option.when(values.nonEmpty)(Patch.Signals(values).toSse),
+      held
     )
   }
 
