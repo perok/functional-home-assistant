@@ -52,8 +52,8 @@ enum Tenure derives CanEqual {
   *
   * '''`position` may run ahead of the client's cursor''' (the signal can ride
   * the keepalive). Safe because the client's cursor is the authority at
-  * reconnect (ADR 0011), and the log keeps every id's latest version: a cursor
-  * behind the position still finds what moved, and `skipped` needs zero
+  * reconnect (ADR 0011), and the log keeps every place's latest version: a
+  * cursor behind the position still finds what moved, and `skipped` needs zero
   * sessions.
   */
 final case class SessionState(

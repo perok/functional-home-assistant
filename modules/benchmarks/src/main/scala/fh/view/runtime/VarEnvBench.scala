@@ -76,7 +76,9 @@ class VarEnvBench {
         .resume(
           renderer,
           cache,
-          FragmentLog("bench").touched(FetchBench.PlainId, rot),
+          renderer.index
+            .ixsOf(FetchBench.PlainId)
+            .foldLeft(FragmentLog("bench"))(_.touched(_, rot)),
           Map.empty,
           st,
           _ => IO.pure(FetchSnapshot.empty),

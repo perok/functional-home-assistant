@@ -1203,9 +1203,9 @@ class RenderBench {
     */
   private def pullFlip(clients: Int): List[List[Addressed]] = {
     val at = flipRot.toLong
-    val log = FragmentLog("bench")
-      .touched(FlipContainer, at)
-      .touched(FlipElse, at)
+    val log = List(FlipContainer, FlipElse)
+      .flatMap(flipped.index.ixsOf)
+      .foldLeft(FragmentLog("bench"))(_.touched(_, at))
     (1 to clients).toList
       .traverse(_ =>
         Patches.resume(
@@ -1596,7 +1596,9 @@ class RenderBench {
       clients: Int
   ): List[List[Addressed]] = {
     val at = wireRot.toLong
-    val log = nodeIds.foldLeft(FragmentLog("bench"))(_.touched(_, at))
+    val log = nodeIds
+      .flatMap(renderer.index.ixsOf)
+      .foldLeft(FragmentLog("bench"))(_.touched(_, at))
     // One per version, as `Renderer.shared` hands every session.
     val shared = Shared.of(moved)
     (1 to clients).toList

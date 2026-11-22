@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.{Ix, NodeId, SignalId, SlotValue}
+import fh.view.model.{Ix, SignalId, SlotValue}
 
 /** What one client has for one node: the byte-slot values its bytes were
   * rendered from ([[Renderer.byteSlotValues]]) and its signal values (ADR
@@ -31,9 +31,11 @@ private[runtime] case class Held(
 }
 
 /** Which node or host changed at which version: a node whose bytes moved, a
-  * host whose decided keys moved, and the root of each key that arrived. What a
-  * client shows is its session's `holds`, so the log says only where to look,
-  * and it is bounded by the index: nothing in it needs pruning.
+  * host whose decided keys moved, and the root of each key that arrived, each
+  * by its [[fh.view.model.Ix]], so a change in one clause of a set member is
+  * not a change in the other, which a viewer may be shown. What a client shows
+  * is its session's `holds`, so the log says only where to look, and it is
+  * bounded by the index: nothing in it needs pruning.
   *
   * A cursor minted against another `id` (restart, renderer swap) is refused:
   * versions mean nothing across logs.
@@ -48,7 +50,7 @@ private[runtime] case class FragmentLog(
     stamp: Option[Renderer.Stamp] = None,
     // A missing entry reads "unchanged since the log began", which the
     // client's own page already shows ([[completeFrom]]).
-    fragments: Map[NodeId, Long] = Map.empty,
+    fragments: Map[Ix, Long] = Map.empty,
     // The oldest version the whole log describes ([[skipped]], [[reaches]]).
     completeFrom: Long = 0
 ) {
@@ -80,16 +82,16 @@ private[runtime] case class FragmentLog(
   def reaches(v: Long): Boolean = completeFrom <= v + 1
 
   // A fragment's version never goes backwards.
-  def touched(nodeId: NodeId, at: Long): FragmentLog =
-    if (fragments.get(nodeId).exists(_ > at)) this
-    else copy(fragments = fragments.updated(nodeId, at))
+  def touched(ix: Ix, at: Long): FragmentLog =
+    if (fragments.get(ix).exists(_ > at)) this
+    else copy(fragments = fragments.updated(ix, at))
 
   /** `>=`, since a client can hold part of version V; re-sending V is
-    * idempotent. Ids only: the caller renders from the current snapshot (ADR
+    * idempotent. Places only: the caller renders from the current snapshot (ADR
     * 0012).
     */
-  def since(v: Long): Set[NodeId] =
-    fragments.iterator.collect { case (id, at) if at >= v => id }.toSet
+  def since(v: Long): Set[Ix] =
+    fragments.iterator.collect { case (ix, at) if at >= v => ix }.toSet
 }
 
 private[runtime] object FragmentLog {

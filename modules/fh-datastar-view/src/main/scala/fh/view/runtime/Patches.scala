@@ -246,9 +246,12 @@ private[runtime] object Patches {
       }
 
   /** The changelog, and nothing else: each node whose bytes moved, each host
-    * whose keys moved, and the root of each key that arrived. A key that left
-    * leaves its entries behind, harmless: a pull reads them only where they are
-    * visible and outside any range it sends whole.
+    * whose keys moved, and the root of each key that arrived, each at the `Ix`
+    * `next` has it ([[Renderer.ixAt]]), so two clauses of one member are logged
+    * apart. An id with none there (a member that left) is not logged: its
+    * host's entry takes it from a viewer's list. A key that left leaves its
+    * entries behind, harmless: a pull reads them only where they are visible
+    * and outside any range it sends whole.
     */
   def record(
       renderer: Renderer,
@@ -256,21 +259,23 @@ private[runtime] object Patches {
       req: DiffRequest
   ): FragmentLog = {
     val at = req.at
-    val nodes = req.staticIds.foldLeft(log)(_.touched(_, at))
+    def touch(l: FragmentLog, id: NodeId): FragmentLog =
+      renderer.ixAt(id, req.next).fold(l)(l.touched(_, at))
+    val nodes = req.staticIds.foldLeft(log)(touch)
     val sets = req.sets.foldLeft(nodes) { (l, gid) =>
       val was = renderer.members.keysOf(gid, req.prev).toSet
       renderer.members
         .membersOf(gid, req.next)
-        .foldLeft(l.touched(gid, at))((acc, m) =>
-          if (was(m.node.ix)) acc else acc.touched(m.id, at)
+        .foldLeft(touch(l, gid))((acc, m) =>
+          if (was(m.node.ix)) acc else acc.touched(m.node.ix, at)
         )
     }
     req.flips.foldLeft(sets) { (l, gid) =>
       renderer.surfaces
         .decideByState(gid, req.next)
         .flatMap(renderer.surfaces.cases(gid).lift)
-        .foldLeft(l.touched(renderer.surfaces.hostOf(gid), at))((acc, c) =>
-          acc.touched(NodeId.derived(c), at)
+        .foldLeft(touch(l, renderer.surfaces.hostOf(gid)))((acc, c) =>
+          touch(acc, NodeId.derived(c))
         )
     }
   }
@@ -278,14 +283,15 @@ private[runtime] object Patches {
   /** Everything a client at cursor `v` is owed (ADR 0011) — also the live path,
     * since a pull is a resume from `position + 1`.
     *
-    * Candidates are the ids logged at `>= v` plus every node and host of an
-    * open container (which nothing recorded while unwatched). A node is sent
-    * when its byte-slot values differ from what this viewer holds. A host's
-    * keys are decided now and planned against the list it holds ([[planHost]]);
-    * a key held and decided is sent again when its root was logged and it has
-    * no rendering of its own, since it left and came back while the viewer was
-    * away (A → B → A). Nothing inside a range sent whole or leaving is patched
-    * as well. The cursor selects ids, never content.
+    * Candidates are the nodes logged at `>= v`, where the log's place is the
+    * one shown now, plus every node and host of an open container (which
+    * nothing recorded while unwatched). A node is sent when its byte-slot
+    * values differ from what this viewer holds. A host's keys are decided now
+    * and planned against the list it holds ([[planHost]]); a key held and
+    * decided is sent again when its root was logged and it has no rendering of
+    * its own, since it left and came back while the viewer was away (A → B →
+    * A). Nothing inside a range sent whole or leaving is patched as well. The
+    * cursor selects ids, never content.
     */
   def resume(
       renderer: Renderer,
@@ -352,7 +358,11 @@ private[runtime] object Patches {
       .filter(renderer.surfaces.visibleContainer(_, open, shared))
       .flatMap(renderer.containerNodeIds)
     // Only what this client can see; the rest would cost only bytes.
-    val candidates = (logged.iterator ++ fromOpen).distinct
+    // A logged place of another clause is not what this viewer is shown.
+    val loggedNow = logged.iterator
+      .filter(ix => renderer.ixAt(index.id(ix), shared).exists(_ == ix))
+      .map(index.id)
+    val candidates = (loggedNow ++ fromOpen).distinct
       .filter(renderer.surfaces.visibleNode(_, open, shared))
       .toList
       // Document order among siblings, since ids are location-derived.
@@ -364,7 +374,7 @@ private[runtime] object Patches {
       selections,
       candidates,
       candidates.flatMap(renderer.hostsAt(_, shared)).distinct,
-      k => logged(index.id(k)) && !renderer.hasOwnRendering(k)
+      k => logged(k) && !renderer.hasOwnRendering(k)
     )
   }
 

@@ -108,7 +108,9 @@ class FetchBench {
       .resume(
         renderer,
         cache,
-        FragmentLog("bench").touched(node, rot),
+        renderer.index
+          .ixsOf(node)
+          .foldLeft(FragmentLog("bench"))(_.touched(_, rot)),
         Map.empty,
         st,
         reads => answer(reads.toList),

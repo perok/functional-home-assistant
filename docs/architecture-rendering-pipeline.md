@@ -109,7 +109,7 @@ flowchart TB
   ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>(a popup's also from popstate: Back/Forward, ADR 0005)<br/>carries conn + the popup's ui-state<br/>a conn this process has forgotten is REFUSED, said so; only the stream rebuilds it (ADR 0024)<br/>the swap COMMITS ui_popups; the tap only says what it asked for (ADR 0025)"]
   VAR["node variable (ADR 0033)<br/>a declared SetVar call, POST call/&lt;slug&gt;/&lt;callId&gt;?node= · or v. on the page URL<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press is one: it swaps the panel it selects<br/>re-renders the readers this viewer is shown, commits LAST"]
   SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>open set, holds (what this DOM has: byte-slot values, signals,<br/>each host's shown roots in order),<br/>position, told, vars (this viewer's choices),<br/>initialValues (where the document opened a variable)<br/>+ a backlog for a client with no stream"]
-  LOG[("FragmentLog per slug — the CHANGELOG<br/>id -&gt; version: a node, a host, an arriving key<br/>where to look, never what a client has")]
+  LOG[("FragmentLog per slug — the CHANGELOG<br/>Ix -&gt; version: a node, a host, an arriving key, each at its clause's place<br/>where to look, never what a client has")]
 
   HA --> PUMP --> STORE --> CH --> SYNC --> PLAN --> REC --> BELL
   BELL --> PULL --> SIGS --> APPL --> MERGE --> SSE

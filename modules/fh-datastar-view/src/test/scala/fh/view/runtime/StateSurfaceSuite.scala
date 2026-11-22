@@ -3,6 +3,7 @@ package fh.view.runtime
 import fh.view.model.Dashboard
 import fh.view.testkit.{FixtureEntity, PklFixture}
 import fh.view.testkit.TestIds.given
+import fh.view.runtime.RendererTestOps.ixOf
 import io.circe.Json
 
 /** State-activated surfaces on the recording pass (ADR 0007): hidden-branch
@@ -99,8 +100,9 @@ class StateSurfaceSuite extends ServerHarness {
         assert(!p.contains("mode remove"), clue = p)
         // The pick's host is logged as moved, and so is the arriving case's
         // root: a pull plans the host against what the viewer holds.
-        assert(cache.contains("c_0"), clue = cache)
-        assert(cache.contains("c_0_branch_1"), clue = cache)
+        val r = Renderer.create(ifDash())
+        assert(cache.contains(r.ixOf("c_0")), clue = cache)
+        assert(cache.contains(r.ixOf("c_0_branch_1")), clue = cache)
       }
     }
   }

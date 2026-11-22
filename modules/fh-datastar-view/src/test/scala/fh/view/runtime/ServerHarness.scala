@@ -19,7 +19,6 @@ import fh.view.model.{
   Dashboard,
   Ix,
   LayoutNode,
-  NodeId,
   Op,
   Value,
   ValueExpr,
@@ -261,7 +260,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
     )
   )
 
-  def logged(log: FragmentLog): Map[NodeId, Long] = log.fragments
+  def logged(log: FragmentLog): Map[Ix, Long] = log.fragments
 
   def elementPatches(batch: List[SseFrame]): List[String] =
     batch.map(_.render).filterNot(_.contains("datastar-patch-signals"))

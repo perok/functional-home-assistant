@@ -13,6 +13,7 @@ import cats.effect.std.Supervisor
 import fh.view.model.{
   CardDef,
   Dashboard,
+  Ix,
   LayoutNode,
   NodeId,
   Op,
@@ -135,7 +136,7 @@ class ResumeSuite extends ServerHarness {
         // dropped too.
         assertEquals(
           unrecorded,
-          Map.empty[NodeId, Long],
+          Map.empty[Ix, Long],
           clue = "a frame nobody was watching writes nothing, and forgets"
         )
         assert(opening.contains(BodyRepaint), clue = opening)

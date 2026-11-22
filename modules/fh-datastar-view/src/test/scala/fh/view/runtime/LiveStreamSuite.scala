@@ -304,7 +304,7 @@ class LiveStreamSuite extends ServerHarness {
     val host: NodeId = "c_0_2"
     val mine = Selections(None, Map(NodeId.derived("c_0_panel_0") -> 1))
     // Recorded as holding what a tab-0 connect left behind.
-    val log = FragmentLog("w23").touched(host, 5L)
+    val log = FragmentLog("w23").touched(r.ixOf(host), 5L)
     val holds: Map[Ix, Held] =
       Map(
         r.ixOf(host) -> Held(
@@ -444,21 +444,26 @@ class LiveStreamSuite extends ServerHarness {
       "sensor.b" -> es("sensor.b", "B0"),
       "sensor.z" -> es("sensor.z", "Z0")
     )
-    val tab0Node: NodeId = "c_1_branch_0_panel_0"
-    val log = FragmentLog("w13").touched(tab0Node, 5L)
-    val owed = resumeNow(
-      r,
-      log,
-      Map.empty,
-      states,
-      1L,
-      Set("c_1_branch_0", "c_1_branch_0_panel_1"),
-      Selections.none
-    )
+    val tab0 = "c_1_branch_0_0_panel_0"
+    val log = r.index.all
+      .filter(ix => (r.index.id(ix): String).startsWith(tab0))
+      .foldLeft(FragmentLog("w13"))(_.touched(_, 5L))
+    def owedWith(open: String) =
+      resumeNow(
+        r,
+        log,
+        Map.empty,
+        states,
+        1L,
+        Set(open),
+        Selections.none
+      ).map(_.patch.toSse.render)
     assert(
-      !owed.exists(_.patch.toSse.render.contains("A1")),
-      clue = owed.map(_.patch.toSse.render)
+      !owedWith("c_1_branch_0_0_panel_1").exists(_.contains("A1")),
+      clue = owedWith("c_1_branch_0_0_panel_1")
     )
+    // The control: the same log is owed something to a viewer with tab 0 open.
+    assert(owedWith(tab0).nonEmpty)
   }
 
   /** A bar lit server-side while tab 1 is open, a cell class reading the

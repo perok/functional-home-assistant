@@ -4,8 +4,9 @@ import scala.collection.mutable.ArrayBuffer
 
 /** A node's place in its dashboard's [[TreeIndex]]. A DOM id names a place, not
   * a node: two clauses of one member share theirs. An `Ix` is one index's, so a
-  * URL and the log never hold one, and a session holds one only under the stamp
-  * of the renderer that painted it (`runtime.Painter`).
+  * URL never holds one, and a session or the log holds one only under the stamp
+  * of the renderer that painted or recorded it (`runtime.Painter`,
+  * `FragmentLog.stamp`).
   */
 opaque type Ix = Int
 

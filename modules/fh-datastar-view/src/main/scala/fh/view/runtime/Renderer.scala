@@ -630,6 +630,18 @@ class Renderer(validated: Dashboard.Validated) {
   private[runtime] def nodeAt(id: NodeId, shared: Shared): Option[Ready.Node] =
     allIndexed.get(id).orElse(members.nodeAt(id, shared).map(_._2))
 
+  /** Where `id` sits as `shared` shows it. A set nested in a member is no node
+    * of the member, but its id carries the clause, so it has the one place.
+    */
+  private[runtime] def ixAt(id: NodeId, shared: Shared): Option[Ix] =
+    nodeAt(id, shared)
+      .map(_.ix)
+      .orElse(
+        if members.setContainer(id).isDefined then
+          dashboard.index.ixsOf(id).headOption
+        else None
+      )
+
   /** The dashboard's tree, which a session's `holds` is keyed into. */
   private[runtime] def index: TreeIndex = dashboard.index
 

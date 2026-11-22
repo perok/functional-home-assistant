@@ -22,6 +22,7 @@ import fh.view.model.{
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.PklFixture
+import fh.view.runtime.RendererTestOps.ixOf
 
 /** A pull asks for the reads of what it renders, and nothing else — most pulls
   * move a plain card and ask none.
@@ -115,12 +116,15 @@ class PullReadsSuite extends munit.FunSuite {
   }
 
   test("a pull that moves only a plain card asks for nothing") {
-    assertEquals(asked(FragmentLog("test").touched("plain", 1L)), Set.empty)
+    assertEquals(
+      asked(FragmentLog("test").touched(renderer.ixOf("plain"), 1L)),
+      Set.empty
+    )
   }
 
   test("a pull that renders a chart asks for that chart") {
     assertEquals(
-      asked(FragmentLog("test").touched("chart", 1L)),
+      asked(FragmentLog("test").touched(renderer.ixOf("chart"), 1L)),
       Set("sensor.main")
     )
   }
@@ -131,7 +135,7 @@ class PullReadsSuite extends munit.FunSuite {
     // moved, and the body's is not.
     assertEquals(
       asked(
-        FragmentLog("test").touched("plain", 1L),
+        FragmentLog("test").touched(renderer.ixOf("plain"), 1L),
         open = Set("charted_panel_0_0")
       ),
       Set("sensor.tab")

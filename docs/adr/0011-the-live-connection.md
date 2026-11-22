@@ -154,18 +154,24 @@ The per-slug log carries a version, turning "what did we last broadcast" into
 case class FragmentLog(
   id,
   stamp:        Option[Renderer.Stamp],            // the renderer whose recorder writes it
-  fragments:    Map[NodeId, Long],                 // id -> the version it last moved at
+  fragments:    Map[Ix, Long],                     // place -> the version it last moved at
   completeFrom: Long                               // the whole log: complete only from here up
 )
-def since(v: Long): Set[NodeId]                    // the ids logged at >= v
+def since(v: Long): Set[Ix]                        // the places logged at >= v
 def reaches(v: Long): Boolean                      // false across a stretch nobody watched
 ```
 
-The recorder logs three kinds of id, each at the frame's version: a **node whose bytes
+The recorder logs three kinds of place, each at the frame's version: a **node whose bytes
 changed**, a **host whose decided keys changed** (a set's membership, order or a member's
 clause; a state pick's case), and the **root of each key that arrived**. A key is the
 root of what a host shows: a set member's clause root, or a pick's case. Nothing is logged
 when a key leaves.
+
+**A place, not an id.** Each is logged at the `Ix` the new version has it at
+(`Renderer.ixAt`), so the two clauses of one member, which share their ids, are logged apart:
+a change in one sends nothing to a viewer shown the other, and a pull reads a logged place only
+where it is the one shown now. An `Ix` means something only to the renderer that numbered it,
+which is what the log's `stamp` says (a reader under another renderer repaints).
 
 **There is no content in the changelog at all** — not the bytes, not what they were made from,
 and not what a host shows. The log answers only *where to look*: what a given client HOLDS is
@@ -174,7 +180,7 @@ included (`Held.shows`), which is the only place that question can be answered e
 
 A pull or a reconnect renders every node logged at `>= V` from the CURRENT snapshot and
 morphs it where its values differ from what the client holds; and for every host among the
-logged ids, plus every host in a container the client has open, it decides the keys now and
+logged places, plus every host in a container the client has open, it decides the keys now and
 plans them against the held list (`Patches.planHost`): a fill when no list is held or no key
 can be kept, else a leave per key gone and a place per key arriving or moved, back to front
 so each anchor is on the page. The moves are everything outside a longest increasing run of

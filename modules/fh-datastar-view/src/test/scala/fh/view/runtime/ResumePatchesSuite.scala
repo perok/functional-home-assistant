@@ -81,20 +81,23 @@ class ResumePatchesSuite extends munit.FunSuite {
 
   /** What the recorder writes: the host, and each arriving member's root. */
   private def logged(at: Long, ids: NodeId*): FragmentLog =
-    ids.foldLeft(empty)(_.touched(_, at))
+    ids.foldLeft(empty)((l, id) => l.touched(ixOf(id), at))
+
+  private def ixOf(id: NodeId): Ix = renderer.index.ixsOf(id).head
 
   private def resume(
       log: FragmentLog,
       v: Long,
       holds: Map[Ix, Held],
-      now: Map[String, EntityState] = states
+      now: Map[String, EntityState] = states,
+      by: Renderer = renderer
   ): List[String] =
     // A fresh cache per call, so no test depends on what another rendered.
     RenderCache.create
       .flatMap(
         Patches
           .resume(
-            renderer,
+            by,
             _,
             log,
             holds,
@@ -165,7 +168,7 @@ class ResumePatchesSuite extends munit.FunSuite {
 
   test("placement order depends on position, not on version") {
     val out = resume(
-      logged(9L, "c", cid("light.b")).touched(cid("light.c"), 2L),
+      logged(9L, "c", cid("light.b")).touched(key("light.c"), 2L),
       1L,
       showing("light.a", "light.d")
     )
@@ -175,7 +178,7 @@ class ResumePatchesSuite extends munit.FunSuite {
 
   test("morphs precede placements") {
     val out = resume(
-      logged(5L, "c", cid("light.b")).touched(cid("light.a"), 6L),
+      logged(5L, "c", cid("light.b")).touched(key("light.a"), 6L),
       1L,
       showing("light.a", "light.c", "light.d")
     )
@@ -188,7 +191,7 @@ class ResumePatchesSuite extends munit.FunSuite {
   test("a tick on an arriving member rides its placement") {
     // One insert, not a morph and an insert; its content is rendered fresh.
     val out = resume(
-      logged(20L, "c", cid("light.b")).touched(cid("light.b"), 30L),
+      logged(20L, "c", cid("light.b")).touched(key("light.b"), 30L),
       1L,
       showing("light.a", "light.c", "light.d")
     )
@@ -196,11 +199,77 @@ class ResumePatchesSuite extends munit.FunSuite {
     assert(out(0).contains("mode before"), clue = out)
   }
 
-  test("a log key the renderer cannot resolve emits nothing") {
-    // A key naming no node can never be sent, so it is dropped, not a crash;
-    // `NodeId`/`DomId` keep a host id from getting here.
-    val out = resume(empty.touched("no_such_node", 5L), 1L, showing(all*))
+  test("a logged place the renderer does not show emits nothing") {
+    // A place nothing shows can never be sent, so it is dropped, not a crash.
+    // A place naming no node at all is not representable as an `Ix`.
+    val gone =
+      states.updated("light.b", EntityState("light.b", "off", Map.empty))
+    val out =
+      resume(empty.touched(key("light.b"), 5L), 1L, showing(all*), gone)
     assertEquals(out, Nil)
+  }
+
+  /** One member of two clauses, which mint the same ids: `light.a` on is the
+    * first, off the second.
+    */
+  private object TwoClauses {
+    val r: Renderer = Renderer.create(
+      Dashboard(
+        cards = Sets.cards ++ Map("dot" -> TestCard("<span>{{state}}</span>")),
+        card = Sets.node(
+          candidates = List("light.a"),
+          members = Map(
+            "light.a" -> Sets.Member(
+              List(
+                Sets.Clause(
+                  Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
+                  dot
+                ),
+                Sets.Clause(None, dot)
+              )
+            )
+          )
+        )
+      )
+    )
+    private def dot = LayoutNode.Component(
+      "dot",
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
+          "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+        )
+      )
+    )
+    val member: NodeId = r.members.memberIdOf(setId("c"), "light.a")
+    val offStates: Map[String, EntityState] =
+      Map("light.a" -> EntityState("light.a", "off", Map.empty))
+    val shown: Ix = r.nodeAt(member, Shared.of(offStates)).map(_.ix).get
+    val other: Ix = r.index.ixsOf(member).filterNot(_ == shown).head
+  }
+
+  test("a change in one clause is logged apart from the other's") {
+    import TwoClauses.*
+    val prev = Shared.of(offStates)
+    val next = Shared.of(
+      Map("light.a" -> EntityState("light.a", "off", Map("x" -> Json.True))),
+      1L
+    )
+    val log = Patches.record(
+      r,
+      empty,
+      Patches.DiffRequest(List(member), Nil, Nil, prev, next)
+    )
+    assertEquals(log.fragments, Map(shown -> 1L))
+  }
+
+  test("a change in one clause sends nothing to a viewer shown the other") {
+    import TwoClauses.*
+    def sent(at: Ix) =
+      resume(empty.touched(at, 5L), 1L, Map.empty, offStates, r)
+    assertEquals(sent(other), Nil)
+    // The control: the same change in the clause shown is sent.
+    assertEquals(sent(shown).size, 1, clue = sent(shown))
   }
 
   test("a departed member is a removal, not a group repaint") {
@@ -284,7 +353,8 @@ class ResumePatchesSuite extends munit.FunSuite {
   }
 
   test("a cursor past everything is owed nothing") {
-    val log = logged(4L, "c").touched(cid("light.c"), 5L).touched("other", 6L)
+    val log =
+      logged(4L, "c").touched(key("light.c"), 5L).touched(key("light.d"), 6L)
     assertEquals(resume(log, 7L, showing(all*)), Nil)
   }
 }

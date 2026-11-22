@@ -217,7 +217,7 @@ class SignalSlotSuite extends ServerHarness {
       was: Map[String, EntityState],
       now: Map[String, EntityState]
   ): List[Addressed] = {
-    val log = FragmentLog("test").touched(leaf, 1L)
+    val log = FragmentLog("test").touched(r.ixOf(leaf), 1L)
     resumeNow(
       r,
       log,
@@ -623,7 +623,7 @@ class SignalSlotSuite extends ServerHarness {
     )
     val out = resumeNow(
       r,
-      FragmentLog("test").touched(leaf, 1L),
+      FragmentLog("test").touched(r.ixOf(leaf), 1L),
       holds,
       lit(41),
       1L,
@@ -638,7 +638,7 @@ class SignalSlotSuite extends ServerHarness {
 
   test("a brightness tick moves four values and sends no element patch") {
     val r = Renderer.create(sliderish)
-    val log = FragmentLog("test").touched(leaf, 1L)
+    val log = FragmentLog("test").touched(r.ixOf(leaf), 1L)
     val out = resumeNow(
       r,
       log,
@@ -746,7 +746,7 @@ class SignalSlotSuite extends ServerHarness {
 
   test("locking moves the service signal and sends NO element patch") {
     val r = Renderer.create(lockish)
-    val log = FragmentLog("test").touched(leaf, 1L)
+    val log = FragmentLog("test").touched(r.ixOf(leaf), 1L)
     val out = resumeNow(
       r,
       log,
@@ -804,8 +804,8 @@ class SignalSlotSuite extends ServerHarness {
     // frame twice.
     val r = Renderer.create(twiceOver)
     val log = FragmentLog("test")
-      .touched(NodeId.derived("c_0"), 1L)
-      .touched(NodeId.derived("c_1"), 1L)
+      .touched(r.ixOf("c_0"), 1L)
+      .touched(r.ixOf("c_1"), 1L)
     val out = resumeNow(
       r,
       log,
@@ -880,7 +880,7 @@ class SignalSlotSuite extends ServerHarness {
       )
     )
     val log = List("c_0", "c_1", "c_2").foldLeft(FragmentLog("test"))((l, id) =>
-      l.touched(NodeId.derived(id), 1L)
+      l.touched(r.ixOf(id), 1L)
     )
     // All three readings move; a fixture where only one moved would prove
     // nothing about sharing.
@@ -954,8 +954,8 @@ class SignalSlotSuite extends ServerHarness {
     // one HA frame are one frame.
     val r = Renderer.create(twoNodes)
     val log = FragmentLog("test")
-      .touched(NodeId.derived("c_0"), 1L)
-      .touched(NodeId.derived("c_1"), 1L)
+      .touched(r.ixOf("c_0"), 1L)
+      .touched(r.ixOf("c_1"), 1L)
     val held = r.renderPageTraced(both("1", "2")).painted.map { case (ix, p) =>
       ix -> p.held
     }
@@ -978,7 +978,9 @@ class SignalSlotSuite extends ServerHarness {
     // selects from `position + 1`, not the version it woke for, and the log
     // holds versions, never values, so a frame renders the current snapshot.
     val r = renderer
-    val log = FragmentLog("test").touched(leaf, 1L).touched(leaf, 2L)
+    val log = FragmentLog("test")
+      .touched(r.ixOf(leaf), 1L)
+      .touched(r.ixOf(leaf), 2L)
     val out = resumeNow(
       r,
       log,
@@ -1101,9 +1103,7 @@ class SignalSlotSuite extends ServerHarness {
     val sets = List(SetId.of(NodeId.derived("c"), Sets.fill()))
     val held = r.renderPageTraced(on).claims
     val seededLog = List("c_light_a", "c_light_b")
-      .foldLeft(FragmentLog("test"))((l, id) =>
-        l.touched(NodeId.derived(id), 0L)
-      )
+      .foldLeft(FragmentLog("test"))((l, id) => l.touched(r.ixOf(id), 0L))
     val delta = r.members.deltas(
       sets,
       List(
@@ -1387,7 +1387,7 @@ class SignalSlotSuite extends ServerHarness {
   test("a change to structure's signal sends a frame and patches nothing") {
     val r = Renderer.create(structural)
     val holds = documentHolds(r, tinted("red"))
-    val log = FragmentLog("test").touched("c", 1L)
+    val log = FragmentLog("test").touched(r.ixOf("c"), 1L)
     val out =
       resumeNow(r, log, holds, tinted("blue"), 1L, Set.empty, Selections.none)
     assertEquals(

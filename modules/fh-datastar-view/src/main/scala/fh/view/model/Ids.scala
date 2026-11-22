@@ -1,8 +1,9 @@
 package fh.view.model
 
-/** The id kinds, kept apart by type (ADR 0022): the log renders from its keys,
-  * so a DOM id stored as a key is a permanent, silent hole. [[NodeId]] ->
-  * [[DomId]] is one-way ([[fh.view.runtime.Renderer.elementId]]).
+/** The id kinds, kept apart by type (ADR 0022): a pull renders the ids of the
+  * places the log holds, so a DOM id taken for a [[NodeId]] is a permanent,
+  * silent hole. [[NodeId]] -> [[DomId]] is one-way
+  * ([[fh.view.runtime.Renderer.elementId]]).
   *
   * `<: String`, since interpolation and prefix tests are harmless; what the
   * bound forbids is a bare `String` or a `DomId` where a `NodeId` is wanted.
