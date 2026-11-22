@@ -12,7 +12,6 @@ import fh.view.model.{
   IdKind,
   SortTerm,
   LayoutNode,
-  MemberId,
   NodeId,
   Op,
   Ready,
@@ -285,14 +284,17 @@ class MemberGraphSuite extends munit.FunSuite {
         List(change(before, after, "light.b")),
         Shared.of(before),
         Shared.of(after)
-      )(gid)
-    assertEquals(delta.was, List("light.a", "light.c"))
-    assertEquals(delta.now, List("light.a", "light.b", "light.c"))
-    assertEquals(delta.replaced.map(_.id), Vector.empty[MemberId])
+      )
+    assertEquals(delta, List(gid))
+    assertEquals(
+      g.membersOf(gid, Shared.of(after)).map(_.entity).toList,
+      List("light.a", "light.b", "light.c")
+    )
   }
 
-  test("a clause switch is reported as REPLACED, not as a departure") {
-    // The arriving card may bind nothing live, so the member id is the handle.
+  test("a clause switch moves the set's keys, though the member stays") {
+    // The arriving card may bind nothing live, so the key (the clause's root)
+    // is the handle.
     val g = graphOf(
       set(
         List("light.a"),
@@ -308,13 +310,13 @@ class MemberGraphSuite extends munit.FunSuite {
         List(change(before, after, "light.a")),
         Shared.of(before),
         Shared.of(after)
-      )(gid)
-    assertEquals(delta.was, List("light.a"))
-    assertEquals(delta.now, List("light.a"))
-    assertEquals(delta.replaced.map(_.id), Vector(g.memberIdOf(gid, "light.a")))
+      )
+    assertEquals(delta, List(gid))
   }
 
-  test("a switch between clauses with equal nodes is REPLACED, limit or not") {
+  test(
+    "a switch between clauses with equal nodes moves the keys, limit or not"
+  ) {
     // Hoisting lifts a slider's heads out of its node, so two slider clauses
     // can leave equal nodes over different surfaces: only the clause differs.
     // A limit takes the rebuild path, which must say so too.
@@ -329,12 +331,8 @@ class MemberGraphSuite extends munit.FunSuite {
         List(change(before, after, "light.a")),
         Shared.of(before),
         Shared.of(after)
-      )(gid)
-      assertEquals(
-        delta.replaced.map(_.id),
-        Vector(g.memberIdOf(gid, "light.a")),
-        clue = s"limit $limit"
       )
+      assertEquals(delta, List(gid), clue = s"limit $limit")
     }
   }
 
@@ -348,9 +346,8 @@ class MemberGraphSuite extends munit.FunSuite {
         List(change(before, after, "light.a")),
         Shared.of(before),
         Shared.of(after)
-      )(gid)
-    assertEquals(delta.was, delta.now)
-    assertEquals(delta.replaced.map(_.id), Vector.empty[MemberId])
+      )
+    assertEquals(delta, Nil)
   }
 
   test("affectedSets wakes a set for a GUARD's entity, not only a candidate") {

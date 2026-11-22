@@ -86,7 +86,6 @@ class StateSurfaceSuite extends ServerHarness {
         // it lands the same whatever the client holds.
         flip <- step(v, es("alarm.h", "disarmed"))
         cache <- ts.log.map(logged)
-        moved <- ts.log.map(_.mutations)
       } yield {
         assertEquals(flip.size, 1, clue = flip)
         val p = flip.head
@@ -98,19 +97,10 @@ class StateSurfaceSuite extends ServerHarness {
         assert(p.contains("B1"), clue = p)
         assert(!p.contains("A1"), clue = p)
         assert(!p.contains("mode remove"), clue = p)
-        // The prune still clears hidden-branch staleness, and the new branch's
-        // root is recorded as the host's occupant: a Mutation, since it is
-        // structure.
-        assert(!cache.keys.exists(_.startsWith("c_0_branch_0")), clue = cache)
-        assert(
-          moved.get("c_0_branch_1").exists {
-            case _: Mutation.Placed => true
-            case _                  => false
-          },
-          clue = moved
-        )
-        assert(!cache.contains("c_0"), clue = cache)
-        assert(!moved.contains("c_0"), clue = moved)
+        // The pick's host is logged as moved, and so is the arriving case's
+        // root: a pull plans the host against what the viewer holds.
+        assert(cache.contains("c_0"), clue = cache)
+        assert(cache.contains("c_0_branch_1"), clue = cache)
       }
     }
   }
@@ -140,6 +130,36 @@ class StateSurfaceSuite extends ServerHarness {
           EntityState("sensor.b", "B0", Map("noise" -> Json.fromInt(1)))
         )
       } yield assertEquals(quiet, Nil, clue = quiet)
+    }
+  }
+
+  test("a pick flipped A, B, A within one pull sends case A whole") {
+    // The page holds A's subtree and the log says only that A arrived, so
+    // nothing but a fill of the host can be sure it shows A as it is now.
+    val boxed = """(c.column) { children { t.state("sensor.a") } }"""
+    live(
+      ifDash(thenContent = boxed),
+      Map(
+        "alarm.h" -> es("alarm.h", "armed"),
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    ) { ts =>
+      for {
+        v <- ts.viewer()
+        _ <- ts.record(FixtureEntity("alarm.h", "disarmed"))
+        // Hidden, so nothing logs it: only a fill carries it.
+        _ <- ts.record(FixtureEntity("sensor.a", "A1"))
+        _ <- ts.record(FixtureEntity("alarm.h", "armed"))
+        patches <- v.pull.map(elementPatches)
+      } yield {
+        assertEquals(patches.size, 1, clue = patches)
+        val p = patches.head
+        assert(p.contains("mode inner"), clue = p)
+        assert(p.contains("selector #c_0\n"), clue = p)
+        assert(p.contains("""id="c_0_branch_0""""), clue = p)
+        assert(p.contains("A1"), clue = p)
+      }
     }
   }
 

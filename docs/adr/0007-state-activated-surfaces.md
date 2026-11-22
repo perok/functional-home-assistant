@@ -130,7 +130,7 @@ The one crossing edge: a pick over state whose case holds a pick over a
 variable (tabs inside an `If`). Its flip places a branch whose HTML is not one
 thing but one thing per selection, so it cannot be rendered once for everyone.
 That stopped being a case at all when the session became the thing that renders
-(ADR 0012): the flip is RECORDED as a mutation, and whichever session pulls it
+(ADR 0012): the flip is LOGGED as its host and arriving case, and whichever session pulls it
 performs the placement with its own selections. It arrives as ONE complete patch,
 with that viewer's panel already inside it — the same shape the old
 render-rather-than-bytes machinery produced, with nothing left to key or defer.

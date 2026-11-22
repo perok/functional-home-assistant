@@ -52,9 +52,9 @@ enum Tenure derives CanEqual {
   *
   * '''`position` may run ahead of the client's cursor''' (the signal can ride
   * the keepalive). Safe because the client's cursor is the authority at
-  * reconnect (ADR 0011), and the extra pruning [[Sessions.floor]] allows costs
-  * at most one container refill: [[FragmentLog.pruned]] leaves `fragments`
-  * alone, and `skipped` needs zero sessions.
+  * reconnect (ADR 0011), and the log keeps every id's latest version: a cursor
+  * behind the position still finds what moved, and `skipped` needs zero
+  * sessions.
   */
 final case class SessionState(
     open: Set[String],
@@ -407,14 +407,6 @@ final class Sessions(ref: SignallingRef[IO, Map[String, Session]]) {
 
   def forSlug(slug: String): IO[List[Session]] =
     ref.get.map(_.values.filter(_.slug == slug).toList)
-
-  /** The slowest session's position ([[FragmentLog.pruned]]). A session still
-    * rendering its document reads 0, which keeps history — the safe direction,
-    * and the one a step's lag is in too: a position is published after the
-    * frames that reach it are queued.
-    */
-  def floor(slug: String): IO[Option[Long]] =
-    forSlug(slug).flatMap(_.traverse(_.state.map(_.position))).map(_.minOption)
 
   /** Separately: visibility is one client's chain, and a union would mix one
     * client's tab with another's branch.

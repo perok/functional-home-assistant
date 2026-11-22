@@ -35,16 +35,18 @@ rendered from (below), seeded by the DOCUMENT that created the
 session — the page render is the first and largest thing that puts fragments in this
 client's DOM, and the only place that knows what they were. It is written where bytes
 are SENT to this client, never from what another client was told and never from what a
-shared structure believes. The changelog holds no content at all: node to the version it
-last moved at, plus membership mutations.
+shared structure believes. The changelog holds no content at all: an id to the version it
+last moved at, which says where to look (ADR 0011).
 
 A set's or a pick's host also keeps what it shows: the `Ix` of each root it holds, in the
 order sent (`Held.shows`, one int per member, a case and a clause each their own `Ix`). The
 structural patches carry what that list needs: `Patch.Fill` (inner, sets it), `Place`
 (before an anchor, or last; an anchor the list lacks makes it unknown) and `Leave` (drops the
 key's subtree and takes it out), so one value gives both the bytes and the change to
-`holds`. The list is written and not read yet. A session minted for a forgotten page has no
-lists until a host is sent again.
+`holds`. A pull plans each host it looks at against that list (`Patches.planHost`): the keys
+decided now, a fill where no list is held, else leaves and places. A session minted for a
+forgotten page has no
+lists, so its hosts are filled the first time a pull looks at them.
 
 **N viewers still cost one render, via a cache rather than a shared pass.** `RenderCache`
 is per slug, keyed by the node's `Ix` and holding the renderer that produced it plus the byte-slot
@@ -156,14 +158,14 @@ patched (ADR 0017).
 surface above it is selected AND every state surface above it is active. `open` alone is
 not that: a selection is reported for every pick over a variable whether or not it is on screen.
 The chain gates what is recorded at all, and prunes what a resume owes — including
-mutations, since a `Gone`/`Placed` inside a surface a client does not have open would
+the hosts it plans, since a leave or a place inside a surface a client does not have open would
 patch an id its DOM lacks.
 
 **A fill is one operation, whoever chose the case.** A tab switch, a popup open and an
 `If` flip all evict a host's occupants, render the arriving surface, and overwrite the
 host, the case's node or the popup's content (`Renderer.renderShownTraced`). What differs is
-who decides (a viewer's node variable vs `by` over entity state, ADR 0007) and where the claim lands: a flip records a `Mutation`,
-because it is server truth every client must be replayed; a tab switch claims into the
+who decides (a viewer's node variable vs `by` over entity state, ADR 0007) and where the claim lands: a flip logs its host and arriving case,
+because it is server truth every client must be planned against; a tab switch claims into the
 SESSION (`Patches.hostFill`), because one client switching a tab says nothing about
 anyone else's DOM.
 

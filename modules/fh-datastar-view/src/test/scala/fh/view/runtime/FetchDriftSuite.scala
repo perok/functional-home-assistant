@@ -201,6 +201,15 @@ class FetchDriftSuite extends munit.FunSuite {
     }
   }
 
+  private def parents(r: Renderer, id: NodeId): List[NodeId] =
+    r.index
+      .ixsOf(id)
+      .flatMap(ix =>
+        List.unfold(r.index.parent(ix))(
+          _.map(p => r.index.id(p) -> r.index.parent(p))
+        )
+      )
+
   test("a pull renders each target and fills each host with what it asked") {
     for (c <- cases) {
       val r = c.renderer
@@ -227,7 +236,7 @@ class FetchDriftSuite extends munit.FunSuite {
             ).keys
           )).distinct
       val nodes =
-        (painted ++ painted.flatMap(r.ancestry.ancestorsOf)).distinct.sorted
+        (painted ++ painted.flatMap(parents(r, _))).distinct.sorted
       val hosts = nodes.filter(id =>
         r.surfaces.statePicks(id) || r.members.setContainer(id).isDefined
       )

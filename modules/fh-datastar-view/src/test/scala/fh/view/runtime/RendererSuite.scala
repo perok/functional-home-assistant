@@ -17,6 +17,7 @@ import fh.view.model.{
   CardDef,
   Cell,
   Dashboard,
+  Ix,
   LayoutNode,
   NodeId,
   Op,
@@ -1454,8 +1455,8 @@ class RendererSuite extends munit.FunSuite {
     assert(html.contains("""id="c_0""""), clue = html)
   }
 
-  /** An authored id need not avoid looking like another id's child: ancestry
-    * comes from `NodeAncestry`, not the id string.
+  /** An authored id need not avoid looking like another id's child: containment
+    * comes from the tree index, not the id string.
     */
   test("validate: an authored id must be a plain token, used once") {
     def two(a: String, b: String) = Dashboard(
@@ -1479,7 +1480,7 @@ class RendererSuite extends munit.FunSuite {
     * answers this wrongly, and the symptom is a fragment silently dropped from
     * one client's record.
     */
-  test("ancestry: a sibling whose id looks like a child is not one") {
+  test("containment: a sibling whose id looks like a child is not one") {
     val d = Dashboard(
       cards,
       col(
@@ -1497,15 +1498,19 @@ class RendererSuite extends munit.FunSuite {
       )
     )
     assertEquals(d.validate(), Nil)
-    val a = Renderer.create(d).ancestry
+    val index = Renderer.create(d).index
+    def ix(id: NodeId): Ix = index.ixsOf(id).head
 
-    assert(a.under("detail_0", Set[NodeId]("detail")), clue = "real child")
+    assert(index.contains(ix("detail"), ix("detail_0")), clue = "real child")
     // `startsWith("detail_")` would say otherwise.
     assert(
-      !a.under("detail_x", Set[NodeId]("detail")),
+      !index.contains(ix("detail"), ix("detail_x")),
       clue = "a sibling must not be swallowed by its neighbour's name"
     )
-    assertEquals(a.descendantsOf("detail"), Set[NodeId]("detail_0"))
+    assertEquals(
+      index.all.filter(index.contains(ix("detail"), _)).map(index.id).toSet,
+      Set[NodeId]("detail", "detail_0")
+    )
   }
 
   /** A structural card may not bind a live entity, since its patch would carry

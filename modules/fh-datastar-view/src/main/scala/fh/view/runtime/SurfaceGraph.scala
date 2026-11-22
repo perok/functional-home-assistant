@@ -102,6 +102,16 @@ private[runtime] final class SurfaceGraph(
   /** The node a pick fills. */
   def hostOf(gid: NodeId): NodeId = pickHosts.get(gid).fold(gid)(_._1)
 
+  /** The picks a node fills: one per clause of the member it is in. */
+  def picksAt(host: NodeId): List[NodeId] = picksByHost.getOrElse(host, Nil)
+
+  private val picksByHost: Map[NodeId, List[NodeId]] =
+    pickHosts.toList.groupMap(_._2._1)(_._1)
+
+  /** The pick a case root belongs to, and its index there. */
+  def caseOf(ix: Ix): Option[(NodeId, Int)] =
+    Option(caseGid(ix.toInt)).map(_ -> caseIdx(ix.toInt))
+
   /** The clause a pick inside a set member belongs to. */
   def clauseOf(gid: NodeId): Option[Int] = pickHosts.get(gid).flatMap(_._2)
 

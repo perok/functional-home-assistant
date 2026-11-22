@@ -168,9 +168,6 @@ class Renderer(validated: Dashboard.Validated) {
       walk(root, None)
     }
 
-    val parents: Map[NodeId, NodeId] =
-      walked.collect { case (id, _, Some(p), _) => id -> p }.toMap
-
     val indexed: Map[NodeId, Ready.Node] =
       walked.map((id, n, _, _) => id -> n).toMap
 
@@ -512,8 +509,7 @@ class Renderer(validated: Dashboard.Validated) {
           members.setContainer(gid) match {
             case Some(setId) => setAsks(setId, shared)
             case None        =>
-              surfaces
-                .decideByState(gid, shared)
+              pickedCase(gid, selections, shared)
                 .flatMap(surfaces.cases(gid).lift)
                 .toList
                 .flatMap(surfaceAsks(_, shared, selections))
@@ -653,14 +649,6 @@ class Renderer(validated: Dashboard.Validated) {
     }),
     dashboard.index
   )
-
-  /** From the id-minting walks plus the member graph's edges, not from how ids
-    * are spelled ([[NodeAncestry]]).
-    */
-  private[runtime] val ancestry: NodeAncestry =
-    NodeAncestry.fromParents(
-      indexes.flatMap(_.parents).toMap ++ members.parentEdges
-    )
 
   /** Selection and visibility, exposed on the same terms as [[members]]. */
   private[runtime] val surfaces: SurfaceGraph =
@@ -1030,8 +1018,7 @@ class Renderer(validated: Dashboard.Validated) {
           traced.flatMap(_._2.claims).toMap
         )
       case None =>
-        surfaces
-          .decideByState(container, shared)
+        pickedCase(container, viewing.selections, shared)
           .flatMap(renderCaseTraced(container, _, shared, viewing))
           .fold(HostContent(Nil, IArray.empty, Map.empty))((id, t) =>
             HostContent(List(id -> t.html), IArray(t.root), t.claims)
@@ -1045,6 +1032,35 @@ class Renderer(validated: Dashboard.Validated) {
     val host = surfaces.hostOf(container)
     nodeAt(host, shared).fold(index.ixsOf(host).head)(_.ix)
   }
+
+  /** What `gid` shows as `shared` decides and this viewer selects, each key the
+    * root of a shown member or case: what its host's list is planned against.
+    */
+  private[runtime] def decidedKeys(
+      gid: NodeId,
+      shared: Shared,
+      selections: Selections
+  ): IArray[Ix] =
+    members.setContainer(gid) match
+      case Some(setId) => members.keysOf(setId, shared)
+      case None        =>
+        pickedCase(gid, selections, shared)
+          .flatMap(i =>
+            dashboard.picks.get(gid).flatMap(_.choice.cases.lift(i))
+          )
+          .fold(IArray.empty[Ix])(c => IArray(c.ix))
+
+  /** The sets and picks a logged or static node hosts: a set by its own id, a
+    * pick in a member's clause only while the member is in that clause.
+    */
+  private[runtime] def hostsAt(id: NodeId, shared: Shared): List[NodeId] =
+    members.setContainer(id) match
+      case Some(setId) => List(setId)
+      case None => surfaces.picksAt(id).filter(surfaces.groupShown(_, shared))
+
+  /** A key's root is patched by its own bytes, or only ever sent whole. */
+  private[runtime] def hasOwnRendering(key: Ix): Boolean =
+    !dashboard.cards.get(index.node(key).card).exists(_.isStructure)
 
   /** The host a case is shown in: [[hostIx]] of the pick showing it. */
   private[runtime] def hostIxShowing(id: String, shared: Shared): Option[Ix] =
@@ -1423,7 +1439,7 @@ class Renderer(validated: Dashboard.Validated) {
   ): Option[String] =
     members
       .membersOf(setId, shared)
-      .find(_.key == MemberKey.Entity(entityId))
+      .find(_.entity == entityId)
       .map(memberTraced(_, shared, Viewing(Selections.none, fragments)).html)
 
   private def templateOf(cardName: String): Mustache =

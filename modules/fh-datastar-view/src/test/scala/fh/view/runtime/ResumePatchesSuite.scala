@@ -26,8 +26,8 @@ import io.circe.Json
 
 /** [[Patches.resume]]: where a resuming client's members get their position
   * back. The ordering argument (ADR 0011) is the whole of the correctness, so
-  * these test which anchor each insert names. A [[Mutation.Placed]] emits
-  * remove+insert, which makes an arrival and a re-order one operation.
+  * these test which anchor each insert names, against the list a viewer holds
+  * ([[Patches.planHost]]).
   */
 class ResumePatchesSuite extends munit.FunSuite {
 
@@ -69,8 +69,27 @@ class ResumePatchesSuite extends munit.FunSuite {
   private def cid(entity: String) =
     renderer.members.memberIdOf(setId("c"), entity)
 
-  /** A fresh cache per call, so no test depends on what another rendered. */
-  private def resume(log: FragmentLog, v: Long): List[String] =
+  private val host: Ix = renderer.hostIx(setId("c"), Shared.of(states))
+
+  private def key(entity: String): Ix = renderer.index.ixsOf(cid(entity)).head
+
+  /** The set's page as a client holds it: these members, in this order. */
+  private def showing(entities: String*): Map[Ix, Held] =
+    Map(host -> Held(shows = Some(IArray.from(entities.map(key)))))
+
+  private val all = List("light.a", "light.b", "light.c", "light.d")
+
+  /** What the recorder writes: the host, and each arriving member's root. */
+  private def logged(at: Long, ids: NodeId*): FragmentLog =
+    ids.foldLeft(empty)(_.touched(_, at))
+
+  private def resume(
+      log: FragmentLog,
+      v: Long,
+      holds: Map[Ix, Held],
+      now: Map[String, EntityState] = states
+  ): List[String] =
+    // A fresh cache per call, so no test depends on what another rendered.
     RenderCache.create
       .flatMap(
         Patches
@@ -78,8 +97,8 @@ class ResumePatchesSuite extends munit.FunSuite {
             renderer,
             _,
             log,
-            Map.empty,
-            Shared.of(states),
+            holds,
+            Shared.of(now),
             noDecisionFetches,
             _ => IO.pure(FetchSnapshot.empty),
             Map.empty,
@@ -91,15 +110,25 @@ class ResumePatchesSuite extends munit.FunSuite {
 
   private val empty = FragmentLog("test")
 
-  test("a placement removes then inserts, anchored on the next member") {
-    // The paired remove makes this idempotent in any client DOM.
-    val log = empty.placed(
-      "c",
-      MemberKey.Entity("light.b"),
-      cid("light.b"),
-      5L
+  test("an arrival is placed, anchored on the next member") {
+    val out = resume(
+      logged(5L, "c", cid("light.b")),
+      1L,
+      showing("light.a", "light.c", "light.d")
     )
-    val out = resume(log, 1L)
+    assertEquals(out.size, 1, clue = out)
+    assert(out(0).contains(s"""id="${cid("light.b")}""""), clue = out)
+    assert(out(0).contains("selector #" + cid("light.c")), clue = out)
+    assert(out(0).contains("mode before"), clue = out)
+  }
+
+  test("a reorder leaves and places the member outside the longest run") {
+    // The leave first, so the place is idempotent in any client DOM.
+    val out = resume(
+      logged(5L, "c"),
+      1L,
+      showing("light.b", "light.a", "light.c", "light.d")
+    )
     assertEquals(out.size, 2, clue = out)
     assert(out(0).contains("mode remove"), clue = out(0))
     assert(out(0).contains("selector #" + cid("light.b")), clue = out(0))
@@ -109,85 +138,99 @@ class ResumePatchesSuite extends munit.FunSuite {
 
   test("the last member appends into the group root instead") {
     // Nothing sorts after light.d, so no anchor.
-    val log = empty.placed(
-      "c",
-      MemberKey.Entity("light.d"),
-      cid("light.d"),
-      5L
+    val out = resume(
+      logged(5L, "c", cid("light.d")),
+      1L,
+      showing("light.a", "light.b", "light.c")
     )
-    val out = resume(log, 1L)
-    assert(out(1).contains("mode append"), clue = out(1))
-    assert(out(1).contains("selector #c"), clue = out(1))
+    assertEquals(out.size, 1, clue = out)
+    assert(out(0).contains("mode append"), clue = out)
+    assert(out(0).contains("selector #c"), clue = out)
   }
 
-  test("placements go high-to-low so every anchor exists") {
-    // Ascending would anchor b on c before c exists; descending places c on d,
+  test("placements go back to front so every anchor exists") {
+    // Front to back would anchor b on c before c exists; this places c on d,
     // then b on the just-placed c.
-    val log = empty
-      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 5L)
-      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), 6L)
-    val out = resume(log, 1L)
-    assertEquals(out.size, 4, clue = out)
-    assert(out(1).contains(s"""id="${cid("light.c")}""""), clue = out)
-    assert(out(1).contains("selector #" + cid("light.d")), clue = out)
-    assert(out(3).contains(s"""id="${cid("light.b")}""""), clue = out)
-    assert(out(3).contains("selector #" + cid("light.c")), clue = out)
+    val out = resume(
+      logged(5L, "c", cid("light.b"), cid("light.c")),
+      1L,
+      showing("light.a", "light.d")
+    )
+    assertEquals(out.size, 2, clue = out)
+    assert(out(0).contains(s"""id="${cid("light.c")}""""), clue = out)
+    assert(out(0).contains("selector #" + cid("light.d")), clue = out)
+    assert(out(1).contains(s"""id="${cid("light.b")}""""), clue = out)
+    assert(out(1).contains("selector #" + cid("light.c")), clue = out)
   }
 
   test("placement order depends on position, not on version") {
-    // Position, not recency, decides.
-    val log = empty
-      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 9L)
-      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), 2L)
-    val out = resume(log, 1L)
-    assert(out(1).contains(s"""id="${cid("light.c")}""""), clue = out)
-    assert(out(3).contains(s"""id="${cid("light.b")}""""), clue = out)
+    val out = resume(
+      logged(9L, "c", cid("light.b")).touched(cid("light.c"), 2L),
+      1L,
+      showing("light.a", "light.d")
+    )
+    assert(out(0).contains(s"""id="${cid("light.c")}""""), clue = out)
+    assert(out(1).contains(s"""id="${cid("light.b")}""""), clue = out)
   }
 
-  test("morphs precede mutations") {
-    val log = empty
-      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 5L)
-      .touched(cid("light.a"), 6L)
-    val out = resume(log, 1L)
-    assertEquals(out.size, 3, clue = out)
-    // Rendered now: the seeded `<stale/>` never reaches the wire (statement
-    // (3)).
+  test("morphs precede placements") {
+    val out = resume(
+      logged(5L, "c", cid("light.b")).touched(cid("light.a"), 6L),
+      1L,
+      showing("light.a", "light.c", "light.d")
+    )
+    assertEquals(out.size, 2, clue = out)
+    // Rendered now, from the current snapshot.
     assert(out(0).contains(s"""id="${cid("light.a")}""""), clue = out)
-    assert(!out(0).contains("stale"), clue = out)
-    assert(out(1).contains("mode remove"), clue = out)
-    assert(out(2).contains("mode before"), clue = out)
+    assert(out(1).contains("mode before"), clue = out)
+  }
+
+  test("a tick on an arriving member rides its placement") {
+    // One insert, not a morph and an insert; its content is rendered fresh.
+    val out = resume(
+      logged(20L, "c", cid("light.b")).touched(cid("light.b"), 30L),
+      1L,
+      showing("light.a", "light.c", "light.d")
+    )
+    assertEquals(out.size, 1, clue = out)
+    assert(out(0).contains("mode before"), clue = out)
   }
 
   test("a log key the renderer cannot resolve emits nothing") {
     // A key naming no node can never be sent, so it is dropped, not a crash;
     // `NodeId`/`DomId` keep a host id from getting here.
-    val out = resume(empty.touched("no_such_node", 5L), 1L)
+    val out = resume(empty.touched("no_such_node", 5L), 1L, showing(all*))
     assertEquals(out, Nil)
   }
 
-  test("a placed node that is no longer a member is not inserted") {
-    // Unreachable in practice, since the latest mutation would be Gone: this
-    // pins the defence.
-    val log = empty.placed(
-      "c",
-      MemberKey.Entity("light.zz"),
-      "c_light_zz",
-      5L
-    )
-    assertEquals(resume(log, 1L), Nil)
+  test("a departed member is a removal, not a group repaint") {
+    val gone =
+      states.updated("light.b", EntityState("light.b", "off", Map.empty))
+    val out = resume(logged(5L, "c"), 1L, showing(all*), gone)
+    assertEquals(out.size, 1, clue = out)
+    assert(out(0).contains("mode remove"), clue = out)
+    assert(out(0).contains("selector #" + cid("light.b")), clue = out)
   }
 
-  test("no container-level fragment can hide a placement any more") {
-    // A group root has no rendering of its own, so nothing writes this entry;
-    // one planted by hand renders to nothing and drops out, and the placement
-    // still goes.
-    val log = empty
-      .placed("c", MemberKey.Entity("light.b"), cid("light.b"), 5L)
-      .touched("c", 6L)
-    val out = resume(log, 1L)
-    assertEquals(out.size, 2, clue = out)
-    assert(!out.exists(_.contains("all four")), clue = out)
-    assert(out(1).contains("mode before"), clue = out)
+  test("a key logged as arrived that has left again is not inserted") {
+    val gone =
+      states.updated("light.b", EntityState("light.b", "off", Map.empty))
+    val out = resume(
+      logged(5L, "c", cid("light.b")),
+      1L,
+      showing("light.a", "light.c", "light.d"),
+      gone
+    )
+    assertEquals(out, Nil)
+  }
+
+  test("a host that arrives whole is filled, and its members are not morphed") {
+    // A fill carries what is under its host, and is never suppressed by
+    // covering itself.
+    val out = resume(logged(5L, "c", cid("light.a")), 1L, Map.empty)
+    assertEquals(out.size, 1, clue = out)
+    assert(out(0).contains("mode inner"), clue = out)
+    assert(out(0).contains("selector #c"), clue = out)
   }
 
   private def held(bytes: String): Held = Held(
@@ -241,10 +284,7 @@ class ResumePatchesSuite extends munit.FunSuite {
   }
 
   test("a cursor past everything is owed nothing") {
-    val log = empty
-      .removed("c", cid("light.b"), 4L)
-      .placed("c", MemberKey.Entity("light.c"), cid("light.c"), 5L)
-      .touched("other", 6L)
-    assertEquals(resume(log, 7L), Nil)
+    val log = logged(4L, "c").touched(cid("light.c"), 5L).touched("other", 6L)
+    assertEquals(resume(log, 7L, showing(all*)), Nil)
   }
 }

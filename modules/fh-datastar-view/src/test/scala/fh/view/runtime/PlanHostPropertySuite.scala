@@ -50,6 +50,17 @@ class PlanHostPropertySuite extends HedgehogSuite {
     same(plan(Some("a b c"), "c a b"), List("Leave(c)", "Place(c, a)"))
   }
 
+  test("a reorder moves the FEWEST members that can produce it") {
+    // A set ordered on a live value reorders whenever two members cross, so
+    // moving everything on each crossing would be a patch storm.
+    same(
+      plan(Some("a b c d"), "a d b c"),
+      List("Leave(d)", "Place(d, b)")
+    )
+    // A full reversal costs n-1; which element stays is arbitrary.
+    same(plan(Some("a b c"), "c b a").count(_.startsWith("Leave")), 2)
+  }
+
   test("a key sent again leaves and is placed whole") {
     same(
       plan(Some("a b c"), "a b c", again = "b"),

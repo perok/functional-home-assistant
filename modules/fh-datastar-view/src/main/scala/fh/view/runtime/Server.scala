@@ -538,7 +538,7 @@ class Server(
       prev: Shared,
       frame: Frame
   ): IO[(Shared, Boolean)] =
-    (sessions.openSets(slug), sessions.floor(slug)).flatMapN { (opens, floor) =>
+    sessions.openSets(slug).flatMap { opens =>
       val version = frame.state.version
       def written(f: FragmentLog => FragmentLog): IO[Boolean] =
         log.modify(l =>
@@ -563,13 +563,7 @@ class Server(
                 )
                 Patches.plan(renderer, was, now, frame.changes, visible)
               }
-              // Written and pruned in one update, so a concurrent write
-              // cannot be lost between them.
-              .flatMap(req =>
-                written(l =>
-                  floor.foldLeft(Patches.record(renderer, l, req))(_.pruned(_))
-                )
-              )
+              .flatMap(req => written(Patches.record(renderer, _, req)))
         recorded.map(next -> _)
       }
     }
@@ -602,8 +596,7 @@ class Server(
       named = Server.connOf(req)
       conn <- named.fold(IO.randomUUID.map(_.toString))(IO.pure)
       // A reload mints a fresh `conn`, so without this the replaced session
-      // lingers holding an old `position`, and the floor is the lowest
-      // position: a few reloads keep the log unprunable for minutes.
+      // lingers a whole window, its open set widening what each frame records.
       _ <- Server.prevConnOf(req).filterNot(_ == conn).traverse_(retire)
       adopted <- adoptOrMint(slug, conn)
       (session, epoch) = adopted
@@ -1113,9 +1106,9 @@ class Server(
     * `open` spells it, the sole occupant of `host` (`None` closes a popup) and
     * patch the DOM. No server state tracks whether a popup is open.
     *
-    * One client's choice, so unlike a state-group flip it records no
-    * [[Mutation]]: the trace goes to this session alone. Ends by committing
-    * `ui_<hostId>`; the tap only wrote a pending value (ADR 0025).
+    * One client's choice, so unlike a state-group flip it logs nothing: the
+    * trace goes to this session alone. Ends by committing `ui_<hostId>`; the
+    * tap only wrote a pending value (ADR 0025).
     */
   private def swapHost(
       session: Session,
@@ -1197,7 +1190,7 @@ class Server(
 
   /** Set a node variable for this viewer and re-render the readers it is shown
     * (issue #209): the nodes whose fetches or slots read it, and the tab panels
-    * it selects, swapped as a tab press always was. Per session: no `Mutation`.
+    * it selects, swapped as a tab press always was. Per session: logs nothing.
     *
     * The untrusted value is checked ([[Renderer.refusals]]) before it is kept.
     * `None` drops the choice, so the variable holds what it opened at again.

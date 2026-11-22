@@ -108,15 +108,39 @@ final class FakeBrowser private (
       .map(v => FakePage.load(v.document.html))
 
   /** The oracle's check: once delivered, this page equals a fresh one, and each
-    * host list its session holds is on the page.
+    * host list its session holds is on the page and is the fresh page's own.
     */
   def check: IO[hedgehog.Result] =
-    (fresh, listsInPage).mapN((f, inPage) =>
+    (fresh, listsInPage, listsAsFresh).mapN((f, inPage, asFresh) =>
       FakePage
         .matches(current, f)
         .and(inPage)
+        .and(asFresh)
         .log(s"conn $conn at ${current.query}")
     )
+
+  /** Each host this session holds a list for has the list a fresh load's
+    * session holds, compared as [[Ix]] so a case's or clause's identity counts,
+    * which the page's ids cannot show. A host it holds none for is allowed: a
+    * forgotten page.
+    */
+  def listsAsFresh: IO[hedgehog.Result] =
+    for {
+      v <- ts.viewer(current.query)
+      expected <- FakeBrowser.lists(v.session)
+      _ <- v.leave
+      held <- ts.sessions.get(conn).flatMap(_.traverse(FakeBrowser.lists))
+    } yield {
+      val wrong = held.toList.flatMap(_.toList).collect {
+        case (host, shown) if !expected.get(host).contains(shown) =>
+          s"$host: held $shown, fresh ${expected.get(host)}"
+      }
+      hedgehog.Result
+        .assert(wrong.isEmpty)
+        .log(
+          wrong.mkString("host lists differ from a fresh load's:\n", "\n", "")
+        )
+    }
 
   private def index: IO[TreeIndex] =
     ts.server

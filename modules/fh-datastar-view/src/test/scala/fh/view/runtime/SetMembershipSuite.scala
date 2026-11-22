@@ -177,8 +177,8 @@ class SetMembershipSuite extends ServerHarness {
   private def lit(ids: String*) =
     lights.map(id => id -> (if (ids.contains(id)) on(id) else off(id))).toMap
 
-  test("membership change on a not-yet-logged group falls back to a fill") {
-    // With an empty log the group is not established, so it fills to set a
+  test("a departure from a group nothing has logged yet is one remove") {
+    // The page's own list is held from the load, so no fill is needed to set a
     // base.
     viewing(dynDash, lit("light.a", "light.b", "light.c", "light.d")) { v =>
       for {
@@ -186,8 +186,8 @@ class SetMembershipSuite extends ServerHarness {
         held <- v.session.state.map(_.holds)
       } yield {
         assertEquals(patches.size, 1, clue = patches)
-        assert(patches.head.contains("mode inner"), clue = patches)
-        assert(patches.head.contains("selector #c"), clue = patches)
+        assert(patches.head.contains("mode remove"), clue = patches)
+        assert(patches.head.contains("selector #c_light_b"), clue = patches)
         // Established by its members' entries; the host's own entry holds only
         // what it shows, in order.
         assert(held.contains(dyn.ixOf("c_light_a")), clue = held)
@@ -234,9 +234,7 @@ class SetMembershipSuite extends ServerHarness {
     }
   }
 
-  test("the LAST member leaving fills, because the fill carries nothing") {
-    // Everything left, so there is no survivor for a fill to re-send, and an
-    // empty `inner` leaves the host unambiguously empty.
+  test("the LAST member leaving is a remove, and the host shows nothing") {
     viewing(dynDash, lit("light.a")) { v =>
       for {
         // Establishes the host, and puts it back at one member.
@@ -247,9 +245,8 @@ class SetMembershipSuite extends ServerHarness {
       } yield {
         assertEquals(patches.size, 1, clue = patches)
         val p = patches.head
-        assert(p.contains("mode inner"), clue = p)
-        assert(p.contains("selector #c"), clue = p)
-        assert(!p.contains("""id="c_light_a""""), clue = p)
+        assert(p.contains("mode remove"), clue = p)
+        assert(p.contains("selector #c_light_a"), clue = p)
         assert(!held.contains(dyn.ixOf("c_light_a")), clue = held)
       }
     }
@@ -267,9 +264,9 @@ class SetMembershipSuite extends ServerHarness {
         patches <- step(v, on("light.b"))
         held <- v.session.state.map(_.holds)
       } yield {
-        // An arrival is placed as a move is: a remove (a no-op here), then the
-        // insert.
-        assertEquals(patches.size, 2, clue = patches)
+        // An arrival is one insert: the list this viewer holds says it was
+        // not on the page.
+        assertEquals(patches.size, 1, clue = patches)
         val p = patches.last
         assert(p.contains("mode before"), clue = p)
         assert(p.contains("selector #c_light_c"), clue = p)
@@ -355,9 +352,15 @@ class SetMembershipSuite extends ServerHarness {
     )
   )
 
+  // The chrome needs the popup hole, or the page never shows the popup and its
+  // session holds no list for the set.
   test("a set inside an open surface gets the same per-member treatment") {
     live(
-      surfaceDynDash,
+      surfaceDynDash.copy(theme =
+        surfaceDynDash.theme.copy(chrome =
+          """<main id="dashboard">{{{body}}}</main><div id="popups">{{{popups}}}</div>"""
+        )
+      ),
       Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
     ) { ts =>
       for {
@@ -373,7 +376,8 @@ class SetMembershipSuite extends ServerHarness {
           batch.head.elements,
           Some(
             """<div class="fh-cell" id="s_det__c_light_b"><span>on/2</span></div>"""
-          )
+          ),
+          clue = batch.map(_.render)
         )
       }
     }

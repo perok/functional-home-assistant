@@ -194,7 +194,9 @@ class OracleSuite extends HedgehogSuite {
               case Step.Forget =>
                 FakeBrowser.forgetAll(ts, viewers.toList)
             action *> viewers.traverse_(_.deliver) *>
-              viewers.filter(_.up).traverse(_.listsInPage)
+              viewers
+                .filter(_.up)
+                .traverse(v => (v.listsInPage, v.listsAsFresh).mapN(_.and(_)))
           }
           _ <- viewers.traverse_(v => IO.unlessA(v.up)(v.connect))
           _ <- viewers.traverse_(_.deliver)

@@ -1,7 +1,7 @@
 # Terminology
 
 Words this project uses in a specific way. Plain-English definitions, so an ADR or a code comment
-that says "the flip raises the container's horizon" is readable without archaeology.
+that says "the flip logs the host and its arriving key" is readable without archaeology.
 
 Home Assistant's own vocabulary (entity, domain, service, area, device) is not repeated here — only
 words we coined or bent.
@@ -469,14 +469,22 @@ the two have nothing to do with each other. Unqualified, "the recorder" is ours;
 **Session** — one browser tab's server-side record: what it holds, how far it has read, which
 surfaces it has open.
 
-**The log / changelog** — per dashboard, `node id -> the version it last moved at`, plus structural
-mutations. It holds **no HTML** — what a client actually has is that session's business, not a
-shared one.
+**The log / changelog** — per dashboard, `id -> the version it last moved at`: a node whose bytes
+moved, a host whose decided keys moved, and the root of each key that arrived. It says where to
+look and holds **no HTML** — what a client actually has is that session's business, not a shared
+one.
 
-**Touched** — a node the recorder marked as moved at this version.
+**Touched** — an id the recorder marked as moved at this version.
 
-**Mutation (Gone / Placed)** — a structural change in the log: a node left the DOM, or arrived.
-Replayed to a reconnecting client as a remove and an insert.
+**Key** — one thing a host shows: the `Ix` of its root, a set member's clause root or a pick's
+case, so a clause switch is another key. A host's **decided keys** are what it must show now; its
+**held list** (`Held.shows`) is what the session sent it, in order.
+
+**Planner** — `Patches.planHost`: turns a host's held list into its decided keys, as a fill (no
+list held, or nothing kept) or as leaves then places back to front, the moves being everything
+outside a longest increasing run of held positions. A key held and decided is sent **again**,
+whole, when its root was logged while the viewer was away and it has no rendering of its own
+(A → B → A).
 
 **Holds** — one session's map of `node id -> what that tab currently has`: the byte-slot values
 the node's bytes were rendered from, and its signal values (`Held`). The answer to "does this
@@ -504,13 +512,6 @@ are the same call with a different cursor.
 
 **Repaint** — giving up on deltas and re-sending the whole page. What happens when a cursor is too
 old or the dashboard itself changed.
-
-**Floor** — the lowest position any live session still holds. The log can be pruned below it,
-because nothing below it can appear in any resume anyone will ever run.
-
-**Horizon** — per container, the version at which its history stopped being complete (everything
-churned at once, so recording each change was pointless). A cursor below a container's horizon gets
-the whole container back — a **refill** — instead of a list of changes.
 
 **Linger** — the grace period a session stays alive after its stream drops, so a reconnecting tab
 resumes instead of starting over.
@@ -548,7 +549,7 @@ baselines behind their own gate.
 ## History — what a chart is drawn from
 
 Separate from the log/cursor vocabulary above, which is also about "history" in the sense of what a
-session has already been sent. Nothing here interacts with **horizon**, **floor** or **position**.
+session has already been sent. Nothing here interacts with the **log** or **position**.
 
 **Series** — a numeric line: every point a provider answered, in time order (the chart stage thins it to draw), carrying no
 unit and no name (those belong to the entity's live state, and a copy here could disagree with the

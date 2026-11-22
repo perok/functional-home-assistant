@@ -1078,7 +1078,7 @@ private[model] object Validate:
       * inside a candidate set's clause.
       *
       * Deliberately NOT a rule: that an id must not read as another node's
-      * descendant. Ancestry comes from [[fh.view.runtime.NodeAncestry]], which
+      * descendant. Containment is the index's ([[TreeIndex.contains]]), which
       * asks the tree, so `detail` and `detail_0` may be unrelated.
       */
     val authoredIdErrors: List[String] = {

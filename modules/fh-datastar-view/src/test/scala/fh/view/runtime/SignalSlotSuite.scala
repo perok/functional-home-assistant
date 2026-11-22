@@ -1099,9 +1099,7 @@ class SignalSlotSuite extends ServerHarness {
     val prev = Shared.of(on)
     val next = Shared.of(gone, 1L)
     val sets = List(SetId.of(NodeId.derived("c"), Sets.fill()))
-    val held = r.renderPageTraced(on).painted.map { case (ix, p) =>
-      ix -> p.held
-    }
+    val held = r.renderPageTraced(on).claims
     val seededLog = List("c_light_a", "c_light_b")
       .foldLeft(FragmentLog("test"))((l, id) =>
         l.touched(NodeId.derived(id), 0L)
@@ -1123,11 +1121,10 @@ class SignalSlotSuite extends ServerHarness {
       seededLog,
       Patches.DiffRequest(
         staticIds = Nil,
-        sets = sets,
+        sets = delta,
         flips = Nil,
         prev = prev,
-        next = next,
-        membership = delta
+        next = next
       )
     )
     val out = resumeNow(r, log, held, gone, 1L, Set.empty, Selections.none)

@@ -23,7 +23,6 @@ import fh.view.model.{
   Theme
 }
 import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, PklFixture, TestAuth}
-import fh.view.testkit.TestIds.given
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
@@ -84,7 +83,12 @@ class ResumeSuite extends ServerHarness {
     }
   }
 
-  test("a member that LEFT across the disconnect resumes as a remove patch") {
+  /** A cursor-only reconnect holds no list for the set (its session is gone),
+    * so the host is filled without the departed member: one host, not the body.
+    * A page whose list is held gets the remove alone ("a returning page, its
+    * position ahead of its cursor included, ...").
+    */
+  test("a member that LEFT across a forgotten disconnect is filled out") {
     val lights = List("light.a", "light.b", "light.c", "light.d")
     live(
       dynDash,
@@ -99,8 +103,10 @@ class ResumeSuite extends ServerHarness {
         opening <- v.cursor.flatMap(c => ts.reconnect(Some(c)))
       } yield {
         assertEquals(elementPatches(left).size, 1, clue = left)
-        assert(opening.contains("selector #c_light_b"), clue = opening)
-        assert(opening.contains("mode remove"), clue = opening)
+        assert(opening.contains("selector #c\n"), clue = opening)
+        assert(opening.contains("mode inner"), clue = opening)
+        assert(opening.contains("id=\"c_light_a\""), clue = opening)
+        assert(!opening.contains("id=\"c_light_b\""), clue = opening)
         assert(!opening.contains(BodyRepaint), clue = opening)
       }
     }
@@ -138,31 +144,32 @@ class ResumeSuite extends ServerHarness {
     }
   }
 
-  /** A `Gone` for a member that never returns has nothing else to remove it.
-    * Below the floor, the lowest position any live session holds, a mutation
-    * cannot appear in any resume.
+  /** The log keeps no history of who left or arrived, so a page catching up is
+    * sent by comparing the list it holds to the decided one, however far its
+    * position is ahead of the cursor it last sent.
     */
-  test("recording prunes what no live session can still ask for") {
-    live(liveLeafDash, cold) { ts =>
+  test(
+    "a returning page, its position ahead of its cursor included, gets only the members that changed"
+  ) {
+    val lights = List("light.a", "light.b", "light.c", "light.d")
+    live(
+      dynDash,
+      lights.map(id => id -> on(id)).toMap + ("light.z" -> off("light.z"))
+    ) { ts =>
       for {
         v <- ts.viewer()
-        _ <- v.change(es("sensor.a", "hot"))
-        _ <- v.change(es("sensor.a", "warm"))
-        floor <- v.session.state.map(_.position)
-        slug <- ts.server.liveSlug(ts.slug)
-        _ <- slug.log.update(
-          _.removed("c", "c_old", floor - 1).removed("c", "c_new", floor + 5)
-        )
-        _ <- ts.record(FixtureEntity("sensor.a", "cool"))
-        log <- ts.log
+        _ <- ts.record(FixtureEntity("light.z", "on"))
+        _ <- ts.record(FixtureEntity("light.b", "off"))
+        patches <- v.pull.map(elementPatches)
       } yield {
-        assertEquals(log.mutations.keySet, Set[NodeId]("c_new"))
-        // A client cursor is not bounded by the floor, so one below this gets
-        // the host refilled.
-        assertEquals(
-          log.since(floor - 1, TestAncestry.of(log)).refill,
-          List[NodeId]("c")
-        )
+        val sent = patches.mkString("\n")
+        assertEquals(patches.size, 2, clue = patches)
+        assert(patches.exists(_.contains("mode remove")), clue = sent)
+        assert(sent.contains("selector #c_light_b"), clue = sent)
+        assert(sent.contains("""id="c_light_z""""), clue = sent)
+        // No repaint of the set, and no member that did not change.
+        assert(!sent.contains("mode inner"), clue = sent)
+        assert(!sent.contains("""id="c_light_c""""), clue = sent)
       }
     }
   }

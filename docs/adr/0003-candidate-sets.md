@@ -122,12 +122,12 @@ Three more things fell out of the same change:
 - **`limit`** — at most this many present members, after ordering. Every
   candidate still ships, because which are cut depends on live values.
 
-A member appearing, disappearing or moving is the same `Gone`/`Placed` patch
+A member appearing, disappearing or moving is the same leave-and-place patch
 pair. There is no separate visibility path, and no fourth node kind.
 
 **Ordering by a continuously live key is the trap to design against.** It
 reorders the DOM whenever any present member crosses a neighbour. The stable
-tiebreak is candidate order (the sort is stable over it), `Patches.reordered`
+tiebreak is candidate order (the sort is stable over it), `Patches.planHost`
 keeps a longest increasing subsequence so one light overtaking three costs one
 move, and a set carrying a live ordering or a limit is rebuilt rather than
 patched in place — one entity moving can reorder its neighbours or push a
@@ -144,11 +144,11 @@ can move in opposite directions in one tick and each single-entity view of that
 reports a change the frame did not make (`MemberGraph.syncMembers`, and
 `architecture-rendering-pipeline.md` §4b).
 
-**What a membership change costs.** The recorder writes a delta where it can:
-one `Mutation` per member that moved. A whole-host fill happens only in the two
-cases where it costs nothing — the UNCHANGED set is empty (everything arrived,
-or everything left, so the fill re-sends nothing and one patch replaces N), or
-the log holds no member entry to patch against. Nothing is rendered while
+**What a membership change costs.** The recorder logs the host and each arriving
+member's root, and nothing for a departure. Each session plans the host against
+the list it holds: a leave per member gone, a place per member arriving or moved,
+and a whole-host fill only where nothing can be kept (everything arrived, or the
+session holds no list for it). Nothing is rendered while
 recording; each session renders what it is owed when it pulls (ADR 0012),
 through the per-slug render cache, so N viewers of one set cost one render of
 each changed leaf member. A member holding nodes (a slider) arrives rendered

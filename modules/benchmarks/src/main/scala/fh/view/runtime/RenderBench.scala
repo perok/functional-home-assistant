@@ -1196,20 +1196,16 @@ class RenderBench {
 
   /** One flip, replayed from a cursor before it, for `clients` connections.
     *
-    * The log carries the mutation alone: a flip is recorded structurally
-    * (`Mutation.Placed` on the group, keyed by the arriving SURFACE), and that
-    * is the whole of what a resuming client is owed for it. `holds` is empty
-    * because a client that just missed a flip knows nothing about what is
-    * inside the host it is about to be handed.
+    * The log carries the flip alone: the pick's host and the arriving case's
+    * root, which is the whole of what a resuming client is owed for it. `holds`
+    * is empty because a client that just missed a flip knows nothing about what
+    * is inside the host it is about to be handed.
     */
   private def pullFlip(clients: Int): List[List[Addressed]] = {
     val at = flipRot.toLong
-    val log = FragmentLog("bench").placed(
-      FlipContainer,
-      MemberKey.Surface(FlipElse),
-      FlipElse,
-      at
-    )
+    val log = FragmentLog("bench")
+      .touched(FlipContainer, at)
+      .touched(FlipElse, at)
     (1 to clients).toList
       .traverse(_ =>
         Patches.resume(
@@ -1542,8 +1538,8 @@ class RenderBench {
     if (plain.fragments.isEmpty)
       sys.error("publish selected no nodes — the reverse index found nothing")
     val members = publishPass(set, frame)
-    if (members.fragments.isEmpty && members.mutations.isEmpty)
-      sys.error("publishSet recorded neither a fragment nor a membership move")
+    if (members.fragments.isEmpty)
+      sys.error("publishSet recorded neither a fragment nor a moved host")
   }
 
   /** The same pull when the movement is in the BYTES — a `friendly_name`

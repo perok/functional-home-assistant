@@ -63,7 +63,7 @@ forbids is the direction that matters: a bare `String`, or a `DomId`, where a
 `NodeId` is expected.
 
 **Narrowing is a PARSE, at one place.** The only way to turn an id that arrived
-from somewhere else — a log key, a mutation's container — into a `SetId` is
+from somewhere else — a log key, a host a session holds — into a `SetId` is
 `MemberGraph.setContainer`, whose `Some` is the answer and the proof together.
 A map keyed by the WIDE type is how that parse is implemented, which is why
 `MemberGraph.sources` and `MemberIndex.byId` are `Map[NodeId, _]` while

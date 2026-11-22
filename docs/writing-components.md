@@ -501,6 +501,10 @@ sits among other content, put it in a `group` (`core/group.pkl`), a card that
 is just such a slot: `groupMod.group("ul", "list", set)`. `.build()` on a set
 is a `group` of its own.
 
+When a card that holds a set is itself a member of another set, a change to
+its own members re-sends that whole card. Put the inner set in a `group`
+below the card's root if that card is large.
+
 A nodes slot can also hold a **choice**: one of several branches, picked live.
 Over live state, for every viewer:
 
