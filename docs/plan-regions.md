@@ -593,15 +593,12 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          again: a light goes off, every session is forgotten, it comes back on, and the page
          showed it off. `Patches.repaint` now also sends the body's signal values as a frame.
          The property finds it only in some seeds (a run with the fix disabled passed), so
-         `OracleSuite` keeps the run that found it as a plain test. Open: a host fill
-         (`Inner`) morphs onto members the page already has the same way; whether a live
-         session can reach it (a value back at its seed text inside one pull that also fills)
-         is not shown either way. D3 rewrites the fill, so check it there.
-       - **Also found — fix any time, cheap.** `Server.hasSignals` reads a first connect as a
-         reconnect: its `datastar` parameter is never `{}`, since the shell seeds `conn` and
-         `ui_popups`, both in `SseInclude`. So every page load logs "reconnect carried a
-         signal store with no readable cursor" and resumes from V instead of V + 1, a resend
-         at most. Lands in D3, which reads the cursor at reconnect.
+         `OracleSuite` keeps the run that found it as a plain test. A host fill morphs onto
+         members the page already has the same way, reachable after D2b; D3.4's `Fill` sends
+         its subtree's signal values in the batch's frame, as `repaint` does.
+       - **Also found:** a first connect read as a reconnect (the shell seeds `conn` and
+         `ui_popups`), logging "no readable cursor" on every page load and resuming from V.
+         Fixed in D3.2: a reconnect is a store holding `_cursor` (`Server.isReconnect`).
        - **Time: 16 s locally, aim 20 s on CI.** It was 28 s: each `charts` run's first chart
          started a GraalJS engine and ECharts (~270 ms), now one per suite through
          `ServerApp.Edges.chart`; and `TestServer.record` took 15.5 ms, `poll` sleeping 5 ms
@@ -655,10 +652,11 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          within error.
      - **D3, the planner, and the log down to `fragments`** (§7): the planner makes the replay
        dead, so it goes here. Per session from the start (`Shared` decisions and the viewer's),
-       and a variable write goes through it too, so a tab stops using `hostFill`. Broken down
-       2026-11-22, not built. One commit per sub-step; only the branch's last commit must be CI
-       green, each aims green with the oracle green. Bench at the end against the commit before
-       D3.1, `publishSetOrdered` and `resumeMorphsFanout` first.
+       and a variable write goes through it too, so a tab stops using `hostFill`. BUILT
+       2026-11-22: D3.1 02fadc5a, D3.2 c0423ba3, D3.3 15c7b570, D3.4 42263d7d, a review fix
+       164ecdea (`install` keeps a log its renderer already numbers), D3.5 9c96c8f5, D3.6
+       01f4c81c. Goldens byte-identical; non-Slow green. The bench gate is missed and open,
+       below.
        Check-first: a log is never written by two renderers, but it is read under one that did
        not number it, since `install` sets the renderer and the publisher rotates the log later.
        In that window today a frame is lost: the new arm's seed is recorded nowhere, so a session
@@ -732,7 +730,16 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        - **D3.6, the log keys by `Ix`**, safe under D3.1's stamp: `fragments: Map[Ix, Long]`,
          the recorder resolving each node to its `Ix` under `next` (a member's clause), so two
          clauses of one member are logged apart. Test: a change to a node in one clause sends
-         nothing to a viewer shown the other.
+         nothing to a viewer shown the other. Found: `nodeAt` cannot resolve a set nested in a
+         member (`Member.subtree` drops it), so `Renderer.ixAt` falls back to the index's `Ix`
+         for a set container, as `hostIx` does.
+       - **Bench (B/op, EA off, vs 95a929f0): MISSED, paused for a decision.** `page`,
+         `pageSet`, `tickRender` equal; `publishSetOrdered` −46% (436 → 112 µs). Over the gate:
+         `publishSet` 40080 → 48664 (+21.4%), `resumeMorphs` 130311 → 137901 (+5.8%),
+         `resumeMorphsFanout` 609785 → 677857 (+11.2%); times within error. Measured at
+         164ecdea too: `publishSet` 37392 there (−6.7%), so its rise is D3.5/D3.6 (+30% on
+         164ecdea); `resumeMorphs` 134846 and `resumeMorphsFanout` 656657 there, so D3.4 is
+         +3.5%/+7.7% and D3.5/D3.6 +2.3%/+3.2%. Not redesigned; profiled in D6 unless accepted.
      - **D5, per-session decisions:** §4's variable-read refusals go (the mixed `by`, set guards,
        `valueWhile`, order keys), with a test of one guard reading a variable and a state, two
        viewers on different values. It adds deciders to D3's per-session path, no reshape.
