@@ -2,6 +2,8 @@ package fh.view.runtime
 
 import fh.view.model.{Ix, SignalId, SlotValue}
 
+import scala.collection.immutable.BitSet
+
 /** What one client has for one node: the byte-slot values its bytes were
   * rendered from ([[Renderer.byteSlotValues]]) and its signal values (ADR
   * 0017). One map keyed by the node's [[fh.view.model.Ix]], so a host fill's
@@ -88,10 +90,12 @@ private[runtime] case class FragmentLog(
 
   /** `>=`, since a client can hold part of version V; re-sending V is
     * idempotent. Places only: the caller renders from the current snapshot (ADR
-    * 0012).
+    * 0012). A `BitSet`, since every pull builds one: a `Set[Ix]` boxes each.
     */
-  def since(v: Long): Set[Ix] =
-    fragments.iterator.collect { case (ix, at) if at >= v => ix }.toSet
+  def since(v: Long): BitSet =
+    fragments.iterator
+      .collect { case (ix, at) if at >= v => ix.toInt }
+      .to(BitSet)
 }
 
 private[runtime] object FragmentLog {

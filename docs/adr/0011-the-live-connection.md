@@ -157,7 +157,7 @@ case class FragmentLog(
   fragments:    Map[Ix, Long],                     // place -> the version it last moved at
   completeFrom: Long                               // the whole log: complete only from here up
 )
-def since(v: Long): Set[Ix]                        // the places logged at >= v
+def since(v: Long): BitSet                         // the places logged at >= v
 def reaches(v: Long): Boolean                      // false across a stretch nobody watched
 ```
 
@@ -170,7 +170,9 @@ when a key leaves.
 **A place, not an id.** Each is logged at the `Ix` the new version has it at
 (`Renderer.ixAt`), so the two clauses of one member, which share their ids, are logged apart:
 a change in one sends nothing to a viewer shown the other, and a pull reads a logged place only
-where it is the one shown now. An `Ix` means something only to the renderer that numbered it,
+where it is the one shown now. Only an id in several clauses needs its member decided for
+that; an id with one place is logged there, the decision costing more than the rest of the
+recorder. An `Ix` means something only to the renderer that numbered it,
 which is what the log's `stamp` says (a reader under another renderer repaints).
 
 **There is no content in the changelog at all** — not the bytes, not what they were made from,

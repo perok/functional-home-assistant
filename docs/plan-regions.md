@@ -733,19 +733,24 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          nothing to a viewer shown the other. Found: `nodeAt` cannot resolve a set nested in a
          member (`Member.subtree` drops it), so `Renderer.ixAt` falls back to the index's `Ix`
          for a set container, as `hostIx` does.
-       - **Bench (B/op, EA off, vs 95a929f0): MISSED, paused for a decision.** `page`,
-         `pageSet`, `tickRender` equal; `publishSetOrdered` −46% (436 → 112 µs). Over the gate:
-         `publishSet` 40080 → 48664 (+21.4%), `resumeMorphs` 130311 → 137901 (+5.8%),
-         `resumeMorphsFanout` 609785 → 677857 (+11.2%); times within error. Measured at
-         164ecdea too: `publishSet` 37392 there (−6.7%), so its rise is D3.5/D3.6 (+30% on
-         164ecdea); `resumeMorphs` 134846 and `resumeMorphsFanout` 656657 there, so D3.4 is
-         +3.5%/+7.7% and D3.5/D3.6 +2.3%/+3.2%. Not redesigned; profiled in D6 unless accepted.
+       - **Bench (B/op, EA off, vs 95a929f0), after the profile fix:** `page`, `pageSet`,
+         `tickRender` equal; `publishSet` 40080 → 37272 (−7.0%), `publishSetOrdered` −48%
+         (436 → 111 µs); over the gate and accepted 2026-11-22: `resumeMorphs` 130311 → 133323
+         (+2.3%), `resumeMorphsFanout` 609785 → 632096 (+3.7%); times within error. D3.6 first
+         read `publishSet` +21.4%, `resumeMorphs*` +5.8%/+11.2%. An allocation profile
+         (async-profiler) found a member decision per touched node in `record` (`ixAt`), the
+         same per logged place in `owing`, and `since` boxing a `Set[Ix]` per pull; the fix
+         decides only a clause-split id and makes `since` a `BitSet`. What is left is D3.4's
+         planner, ~2.1 KB per client (`covered`, `hostsAt`, `owe`'s closures): slimmed in the
+         finishing pass (D6).
      - **D5, per-session decisions:** §4's variable-read refusals go (the mixed `by`, set guards,
        `valueWhile`, order keys), with a test of one guard reading a variable and a state, two
        viewers on different values. It adds deciders to D3's per-session path, no reshape.
      - **D6, benches** that span steps: everything R2 measured, `publishSetOrdered` also with
        many sessions, one session's `holds` size, and a profile of D2b's `page` +1.7% (the
-       lists' arrays, `Trace.held`'s second map). Each step keeps its own bench gate.
+       lists' arrays, `Trace.held`'s second map), and D3.4's planner closures on the pull
+       (`resumeMorphs*` +2.3%/+3.7%, accepted 2026-11-22; the allocation profile's method is
+       in D3's bench line). Each step keeps its own bench gate.
        Then `validated`, measured 2026-11-21 on the starter (EA off): 1.65 MB/op, 39% the
        Mustache compile of the cards, 39% validate, 16% `Ready.Compile`, the index 1.3%. R2's
        +6% is its three group nodes walked, not the group card's template. Build: one

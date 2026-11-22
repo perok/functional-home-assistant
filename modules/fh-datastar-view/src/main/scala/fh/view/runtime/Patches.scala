@@ -246,12 +246,12 @@ private[runtime] object Patches {
       }
 
   /** The changelog, and nothing else: each node whose bytes moved, each host
-    * whose keys moved, and the root of each key that arrived, each at the `Ix`
-    * `next` has it ([[Renderer.ixAt]]), so two clauses of one member are logged
-    * apart. An id with none there (a member that left) is not logged: its
-    * host's entry takes it from a viewer's list. A key that left leaves its
-    * entries behind, harmless: a pull reads them only where they are visible
-    * and outside any range it sends whole.
+    * whose keys moved, and the root of each key that arrived, each at its
+    * place. An id in several clauses of a member is logged at the one `next`
+    * shows ([[Renderer.ixAt]]), so two clauses are logged apart, and not at all
+    * if its member left: its host's entry takes it from a viewer's list. A key
+    * that left leaves its entries behind, harmless: a pull reads them only
+    * where they are visible and outside any range it sends whole.
     */
   def record(
       renderer: Renderer,
@@ -259,8 +259,12 @@ private[runtime] object Patches {
       req: DiffRequest
   ): FragmentLog = {
     val at = req.at
+    // Only a clause-split id needs its member decided: deciding every touched
+    // node was +21% B/op on RenderBench.publishSet.
     def touch(l: FragmentLog, id: NodeId): FragmentLog =
-      renderer.ixAt(id, req.next).fold(l)(l.touched(_, at))
+      renderer.index.ixsOf(id) match
+        case ix :: Nil => l.touched(ix, at)
+        case _         => renderer.ixAt(id, req.next).fold(l)(l.touched(_, at))
     val nodes = req.staticIds.foldLeft(log)(touch)
     val sets = req.sets.foldLeft(nodes) { (l, gid) =>
       val was = renderer.members.keysOf(gid, req.prev).toSet
@@ -358,10 +362,15 @@ private[runtime] object Patches {
       .filter(renderer.surfaces.visibleContainer(_, open, shared))
       .flatMap(renderer.containerNodeIds)
     // Only what this client can see; the rest would cost only bytes.
-    // A logged place of another clause is not what this viewer is shown.
+    // A logged place of another clause is not what this viewer is shown; an
+    // id with one place needs no decision.
     val loggedNow = logged.iterator
-      .filter(ix => renderer.ixAt(index.id(ix), shared).exists(_ == ix))
-      .map(index.id)
+      .filter { i =>
+        val id = index.id(Ix(i))
+        index.ixsOf(id).sizeIs == 1 ||
+        renderer.ixAt(id, shared).exists(_.toInt == i)
+      }
+      .map(i => index.id(Ix(i)))
     val candidates = (loggedNow ++ fromOpen).distinct
       .filter(renderer.surfaces.visibleNode(_, open, shared))
       .toList
@@ -374,7 +383,7 @@ private[runtime] object Patches {
       selections,
       candidates,
       candidates.flatMap(renderer.hostsAt(_, shared)).distinct,
-      k => logged(k) && !renderer.hasOwnRendering(k)
+      k => logged(k.toInt) && !renderer.hasOwnRendering(k)
     )
   }
 

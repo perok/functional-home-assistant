@@ -2,6 +2,8 @@ package fh.view.runtime
 
 import fh.view.model.Ix
 
+import scala.collection.immutable.BitSet
+
 /** The resume cursor's pure core (ADR 0011). Every failure here is silent (a
   * stale value, a ghost element, a duplicate), so these assert on the value.
   */
@@ -18,8 +20,8 @@ class FragmentLogSuite extends munit.FunSuite {
   test("a cursor at the current version is owed nothing older") {
     // `>=`: one store version can span several batches, so 3 is re-sent to a
     // cursor at 3, but nothing older is.
-    assertEquals(log.touched(a, 3L).since(3L), Set(a))
-    assertEquals(log.touched(a, 3L).since(4L), Set.empty[Ix])
+    assertEquals(log.touched(a, 3L).since(3L), BitSet(a.toInt))
+    assertEquals(log.touched(a, 3L).since(4L), BitSet.empty)
   }
 
   test("the log names nodes, never their content") {
@@ -29,7 +31,7 @@ class FragmentLogSuite extends munit.FunSuite {
       .touched(child, 30L)
       .touched(parent, 25L)
       .since(1L)
-    assertEquals(out, Set(child, parent))
+    assertEquals(out, BitSet(child.toInt, parent.toInt))
   }
 
   test("a stretch nobody watched drops the history it made unreachable") {
@@ -74,6 +76,6 @@ class FragmentLogSuite extends munit.FunSuite {
     // later version is never moved back.
     val churned = (1 to 1000).foldLeft(log)((l, i) => l.touched(c0, i.toLong))
     assertEquals(churned.fragments.size, 1)
-    assertEquals(churned.touched(c0, 3L).since(1000L), Set(c0))
+    assertEquals(churned.touched(c0, 3L).since(1000L), BitSet(c0.toInt))
   }
 }
