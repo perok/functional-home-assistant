@@ -533,7 +533,7 @@ every slug's recorder wakes                  // its stream began with the state
                                              // first frame records nothing, it
                                              // SEEDS the log (complete from the
                                              // version after it) and rings
-  sessions.openSets(slug) + floor(slug)
+  sessions.openSets(slug)
   advance -> the next Shared: the previous one's decisions minus those the
       frame's changes DIRTY (an index lookup per change, no cascade: a decision
       reads states and answers, never another decision), on the frame's own

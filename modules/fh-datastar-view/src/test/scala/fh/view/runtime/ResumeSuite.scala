@@ -690,6 +690,26 @@ class ResumeSuite extends ServerHarness {
     }
   }
 
+  /** `applySite` publishes a new slug before installing the state it was made
+    * with: a page served in between quotes the slug's first log.
+    */
+  test("installing the renderer a log is numbered by keeps the log") {
+    val state = Server.RendererState.Ready(Renderer.create(liveLeafDash))
+    (for {
+      live <- Server.LiveSlug.of(state)
+      first <- live.log.get
+      _ <- live.install(state)
+      same <- live.log.get
+      _ <- live.install(
+        Server.RendererState.Ready(Renderer.create(liveLeafDash))
+      )
+      swapped <- live.log.get
+    } yield (first, same, swapped)).map { (first, same, swapped) =>
+      assertEquals(same.id, first.id)
+      assertNotEquals(swapped.id, first.id)
+    }
+  }
+
   test("a dashboard edit repaints the tab selected now, not at connect") {
     // The shipped bar at "c_1" under a shared card, `el` the leaf element.
     def twoTabs(el: String) = PklFixture.snippet(

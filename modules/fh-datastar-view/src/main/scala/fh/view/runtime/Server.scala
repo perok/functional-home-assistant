@@ -2127,11 +2127,21 @@ object Server {
       * already rendering can still install afterwards; its entry holds its
       * bytes, not the renderer ([[Renderer.generation]]). Then rings, at the
       * same version, so an idle session steps and meets the swap
-      * ([[swapAnswer]]).
+      * ([[swapAnswer]]). A log already numbered by this state's renderer is
+      * kept: [[applySite]] publishes a new slug, whose pages may already quote
+      * that log, before installing the state it was made with.
       */
     def install(state: RendererState): IO[Unit] =
-      freshLog(state).flatMap(log.set) *> renderer.set(state) *>
-        cache.clear *> doorbell.update(identity)
+      freshLog(state).flatMap(f =>
+        log.update(l => if (sameStamp(l.stamp, f.stamp)) l else f)
+      ) *> renderer.set(state) *> cache.clear *> doorbell.update(identity)
+
+    private def sameStamp(
+        a: Option[Renderer.Stamp],
+        b: Option[Renderer.Stamp]
+    ): Boolean = (a, b) match
+      case (Some(x), Some(y)) => x eq y
+      case _                  => false
 
     /** The recorder's first frame, only into the log its renderer numbers:
       * whether it did, since only then may it ring.
