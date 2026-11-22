@@ -81,14 +81,15 @@ class RendererSuite extends munit.FunSuite {
       |""".stripMargin
   )
 
-  /** The viewer's values at the declared tab, which the shipped bar's buttons
-    * read outside the pick.
-    */
+  /** The viewer's values with `tab` chosen on the shipped bar, `c`'s. */
+  private def tabbedAt(r: Renderer, tab: String): VarEnv =
+    choosing(r, "c", "tab", tab)
+
   extension (r: Renderer)
     private def renderTabbed(
         states: Map[String, EntityState],
-        selections: Selections
-    ): String = r.renderBody(states, selections, r.vars.env(Map.empty))
+        tab: String
+    ): String = r.renderBody(states, vars = tabbedAt(r, tab))
 
   private def renderer(layout: LayoutNode): Renderer = {
     val d = Dashboard(cards, layout)
@@ -683,7 +684,7 @@ class RendererSuite extends munit.FunSuite {
     )
     assert(r.renderPage(Map.empty).contains("""<div id="popups"></div>"""))
     assert(
-      r.renderPage(Map.empty, r.surfaces.selections(Some("nope"), Map.empty))
+      r.renderPage(Map.empty, Selections(r.surfaces.openPopup(Some("nope"))))
         .contains("""<div id="popups"></div>""")
     )
   }
@@ -1181,11 +1182,13 @@ class RendererSuite extends munit.FunSuite {
       "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
-    val first = picking("c_panel_0" -> 0)
-    assertEquals(rr.surfaces.selectedSurfaces(first), Set("c_panel_0_0"))
+    assertEquals(
+      rr.surfaces.chosen(Shared.of(states).viewing(tabbedAt(rr, "0"))),
+      rr.surfaces.openOf(Set("c_panel_0_0"))
+    )
 
     // Surface-namespaced ids, so a later switch-back is byte-identical.
-    val body = rr.renderTabbed(states, first)
+    val body = rr.renderTabbed(states, "0")
     assert(
       body.contains("""<div class="fh-tab-panel" id="c_panel_0">"""),
       clue = body
@@ -1228,15 +1231,19 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "selectedSurfaces picks the chosen member; none chosen is none"
+    "chosen picks the chosen member; none chosen is none"
   ) {
     val rr = Renderer.create(tabsDashboard)
     assertEquals(
-      rr.surfaces.selectedSurfaces(picking("c_panel_0" -> 1)),
-      Set("c_panel_0_1")
+      rr.surfaces.chosen(Shared.of(Map.empty).viewing(tabbedAt(rr, "1"))),
+      rr.surfaces.openOf(Set("c_panel_0_1"))
     )
-    // A session's selections are decided from its variables, which every
-    // declaration fills; no entry shows nothing.
+    // A session's values are filled by every declaration; no entry shows
+    // nothing.
+    assert(
+      rr.surfaces.chosen(Shared.of(Map.empty).viewing(Map.empty)).isEmpty
+    )
+    // A tab is chosen, never opened: nothing joins a session's open set.
     assertEquals(
       rr.surfaces.selectedSurfaces(Selections.none),
       Set.empty[String]
@@ -1251,7 +1258,7 @@ class RendererSuite extends munit.FunSuite {
       "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
-    val body = rr.renderTabbed(states, picking("c_panel_0" -> 1))
+    val body = rr.renderTabbed(states, "1")
     assert(
       body.contains("""<div class="fh-tab-panel" id="c_panel_0">"""),
       clue = body
@@ -1261,14 +1268,22 @@ class RendererSuite extends munit.FunSuite {
     assert(!body.contains("<span>AA</span>"), clue = body)
   }
 
-  test("decideByViewer reads the chosen member, and none when none") {
-    // Deciding a variable's value is `SurfaceGraph.selections`'s.
+  test("decideByVariable reads the chosen member, and none when none") {
     val rr = Renderer.create(tabsDashboard)
     assertEquals(
-      rr.surfaces.decideByViewer("c_panel_0", picking("c_panel_0" -> 1)),
+      rr.surfaces.decideByVariable(
+        "c_panel_0",
+        Shared.of(Map.empty).viewing(tabbedAt(rr, "1"))
+      ),
       Some(1)
     )
-    assertEquals(rr.surfaces.decideByViewer("c_panel_0", Selections.none), None)
+    assertEquals(
+      rr.surfaces.decideByVariable(
+        "c_panel_0",
+        Shared.of(Map.empty).viewing(Map.empty)
+      ),
+      None
+    )
   }
 
   test(
@@ -1654,11 +1669,11 @@ class RendererSuite extends munit.FunSuite {
 
     // Which case shows lives on the document path alone, where the
     // selection still decides.
-    val dflt = rr.renderTabbed(states, picking("c_panel_0" -> 0))
+    val dflt = rr.renderTabbed(states, "0")
     assert(dflt.contains("<span>AA</span>"), clue = dflt)
     assert(!dflt.contains("<span>BB</span>"), clue = dflt)
 
-    val sel = rr.renderTabbed(states, picking("c_panel_0" -> 1))
+    val sel = rr.renderTabbed(states, "1")
     assert(sel.contains("<span>BB</span>"), clue = sel)
     assert(!sel.contains("<span>AA</span>"), clue = sel)
   }

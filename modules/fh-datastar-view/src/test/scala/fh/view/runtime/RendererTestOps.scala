@@ -10,6 +10,21 @@ import scala.jdk.CollectionConverters.*
   */
 def sharedOf(states: Map[String, EntityState]) = Shared.of(states)
 
+/** The values of a viewer who has chosen `value` of `name` at the node
+  * `declarer`, over the declared ones; for a suite outside the package.
+  */
+def choosing(
+    r: Renderer,
+    declarer: String,
+    name: String,
+    value: String
+): VarEnv =
+  r.vars.env(Map(VarKey(fh.view.model.NodeId.derived(declarer), name) -> value))
+
+/** [[sharedOf]], read as a viewer holding `env`'s values. */
+def viewedOf(states: Map[String, EntityState], env: VarEnv) =
+  Shared.of(states).viewing(env)
+
 /** For a run over a dashboard whose decisions read no fetch. */
 val noDecisionFetches: Set[fh.view.model.SlotRead] => cats.effect.IO[
   FetchSnapshot
@@ -23,11 +38,7 @@ val noDecisionFetches: Set[fh.view.model.SlotRead] => cats.effect.IO[
   */
 private[runtime] object RendererTestOps {
 
-  /** Each named group showing that member, as a suite writes it. */
-  def picking(panels: (String, Int)*): Selections =
-    Selections(None, panels.map((gid, i) => NodeId.derived(gid) -> i).toMap)
-
-  def popupOpen(sid: String): Selections = Selections(Some(sid), Map.empty)
+  def popupOpen(sid: String): Selections = Selections(Some(sid))
 
   extension (t: Renderer#Traced) {
 
@@ -40,24 +51,25 @@ private[runtime] object RendererTestOps {
   extension (r: Renderer) {
 
     /** Without the page shell and without the theme: what a repaint or navigate
-      * `inner`-patches into `#dashboard`. `vars` are the viewer's values, which
-      * a node reading a variable outside a pick needs (the shipped tab bar's
-      * buttons do).
+      * `inner`-patches into `#dashboard`. `vars` are the viewer's values, the
+      * declared ones unless given: they decide a pick over a variable and what
+      * a node reading one outside a pick shows.
       */
     def renderBody(
         states: Map[String, EntityState],
         selections: Selections = Selections.none,
-        vars: VarEnv = Map.empty
+        vars: VarEnv = r.vars.env(Map.empty)
     ): String =
       r.renderBodyTraced(
-        Shared.of(states),
+        Shared.of(states).viewing(vars),
         Viewing(selections, FetchSnapshot.of(Map.empty, vars))
       ).html
 
     def renderPage(
         states: Map[String, EntityState],
-        selections: Selections = Selections.none
-    ): String = r.renderPageTraced(states, selections).html
+        selections: Selections = Selections.none,
+        vars: VarEnv = r.vars.env(Map.empty)
+    ): String = r.renderPageTraced(states, selections, vars).html
 
     /** What a client holds for `id` once sent that node's patch alone: the
       * byte-slot values its bytes came from.
@@ -86,12 +98,13 @@ private[runtime] object RendererTestOps {
     /** The whole document into a buffer, bytes and trace both. */
     def renderPageTraced(
         states: Map[String, EntityState],
-        selections: Selections = Selections.none
+        selections: Selections = Selections.none,
+        vars: VarEnv = r.vars.env(Map.empty)
     ): r.Traced = {
       val out = Sink.buffer(r.pageBytesHint)
       val trace = r.pageInto(
         out,
-        Shared.of(states),
+        Shared.of(states).viewing(vars),
         Viewing(selections, FetchSnapshot.empty)
       )
       // The whole page is never a patch target — a repaint replaces

@@ -223,7 +223,9 @@ variable in scope at the bar and its declared value to be a case's (or the choic
 otherwise), and distinct keys per choice: a host is filled by a choice the server knows, a
 variable or a condition (ADR 0007), and `User` activation is a popup's. Several bars, and a bar
 nested in another's panel, are kept apart by being different declarers. Every path that renders
-a panel takes the bar's case from the session's variables, so a stale `ui.<id>` param cannot pick a tab.
+a panel takes the bar's case from the viewer's values, which the render's `Shared` carries
+(`Shared.viewing`, read by `SurfaceGraph.decideByVariable`): a lookup, kept nowhere, and a tab
+never joins `SessionState.open`, which holds popups. A stale `ui.<id>` param cannot pick a tab.
 
 **A highlight is `v.valueIs(x)` in a bool signal slot**, the one variable read a signal may
 hold: `cellClassWhen("fh-chosen", v.valueIs(choice))` on the tab and select buttons. The

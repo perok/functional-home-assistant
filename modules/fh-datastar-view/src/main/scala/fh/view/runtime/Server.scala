@@ -383,10 +383,21 @@ class Server(
     */
   private def decided[A](renderer: Renderer, store: StoreState)(
       walk: Shared => A
-  ): IO[(A, Shared)] = {
+  ): IO[(A, Shared)] = decidedAt(renderer, store, identity)(walk)
+
+  /** [[decided]] for one viewer: what reads a variable is decided at `env`. */
+  private def decidedFor[A](renderer: Renderer, store: StoreState, env: VarEnv)(
+      walk: Shared => A
+  ): IO[(A, Shared)] = decidedAt(renderer, store, _.viewing(env))(walk)
+
+  private def decidedAt[A](
+      renderer: Renderer,
+      store: StoreState,
+      as: Shared => Shared
+  )(walk: Shared => A): IO[(A, Shared)] = {
     val shared = renderer.shared(store)
     renderer.decide(decisionAnswers) { run =>
-      val at = shared.asking(run)
+      val at = as(shared.asking(run))
       walk(at) -> at
     }
   }
@@ -521,9 +532,9 @@ class Server(
       Server.RendererState.Ready(Renderer(validated))
     )
 
-  /** The shell around [[Patches.plan]] + [[Patches.record]]. No viewer's
-    * [[Selections]] reach it, so a slug pays one selection pass per frame
-    * however many viewers it has.
+  /** The shell around [[Patches.plan]] + [[Patches.record]]: one plan per
+    * frame, its visibility the union of each watched viewer's screen
+    * ([[Sessions.watching]]), one viewer at a time.
     *
     * A slug nobody watches records nothing ([[FragmentLog.skipped]]). Safe only
     * because [[pageResponse]] registers the session BEFORE reading the snapshot
@@ -537,7 +548,8 @@ class Server(
       prev: Shared,
       frame: Frame
   ): IO[(Shared, Boolean)] =
-    sessions.openSets(slug).flatMap { opens =>
+    sessions.watching(slug).flatMap { watched =>
+      val viewers = watched.distinct
       val version = frame.state.version
       def written(f: FragmentLog => FragmentLog): IO[Boolean] =
         log.modify(l =>
@@ -545,25 +557,29 @@ class Server(
         )
       // Before the gate: the carry tracks the stream, not who is watching,
       // and is the next frame's "before".
-      IO(renderer.advance(prev, frame)).flatMap { next =>
-        val recorded =
-          if (opens.isEmpty) written(_.skipped(version))
-          else
-            // One run for "before" and "after": a decision shown in either is
-            // made there, dirty or never made; one nobody shows is not reached.
-            renderer
-              .decide(decisionAnswers) { run =>
-                val (was, now) = (prev.asking(run), next.asking(run))
-                // Only surfaces some client can see: a tab inside a hidden
-                // `If` is selected but on no screen. Filtered per session
-                // before the union, because a chain is one client's.
-                val visible = opens.foldLeft(BitSet.empty)(
-                  _ | renderer.surfaces.onScreen(_, now)
-                )
-                Patches.plan(renderer, was, now, frame.changes, visible)
-              }
-              .flatMap(req => written(Patches.record(renderer, _, req)))
-        recorded.map(next -> _)
+      IO(renderer.advance(prev, frame, viewers.map(_.values).toSet)).flatMap {
+        next =>
+          val recorded =
+            if (viewers.isEmpty) written(_.skipped(version))
+            else
+              // One run for "before" and "after": a decision shown in either is
+              // made there, dirty or never made; one nobody shows is not reached.
+              renderer
+                .decide(decisionAnswers) { run =>
+                  val (was, now) = (prev.asking(run), next.asking(run))
+                  // Only surfaces some client can see: a tab inside a hidden
+                  // `If` is selected but on no screen. Filtered per session
+                  // before the union, because a chain is one client's.
+                  val visible = viewers.foldLeft(BitSet.empty)((seen, w) =>
+                    seen | renderer.surfaces.onScreen(
+                      w.open,
+                      now.viewing(renderer.vars.env(w.values))
+                    )
+                  )
+                  Patches.plan(renderer, was, now, frame.changes, visible)
+                }
+                .flatMap(req => written(Patches.record(renderer, _, req)))
+          recorded.map(next -> _)
       }
     }
 
@@ -595,7 +611,8 @@ class Server(
       named = Server.connOf(req)
       conn <- named.fold(IO.randomUUID.map(_.toString))(IO.pure)
       // A reload mints a fresh `conn`, so without this the replaced session
-      // lingers a whole window, its open set widening what each frame records.
+      // lingers a whole window, its popups and values widening what each frame
+      // records.
       _ <- Server.prevConnOf(req).filterNot(_ == conn).traverse_(retire)
       adopted <- adoptOrMint(slug, conn)
       (session, epoch) = adopted
@@ -664,7 +681,7 @@ class Server(
 
       // Bracketed to the stream, not done in the handler: a handler that
       // registers and never reaches a body (it raised, or ember dropped the
-      // response) would leak the session into every frame's `openSets`.
+      // response) would leak the session into every frame's `watching`.
       //
       // Release hands the session to the linger ([[Session.release]]), and only
       // while this stream still owns it: a displaced stream releases after its
@@ -833,8 +850,8 @@ class Server(
         env,
         s.position + 1,
         s.open,
-        // Live, not the arriving selection: a tab select moves it.
-        renderer.surfaces.selectionsShown(s.open, env)
+        // Live, not the arriving selection: a popup swap moves it.
+        renderer.surfaces.selectionsIn(s.open)
       )
       .map { patches =>
         // The cursor rides LAST, which makes it an ack: a client echoing it
@@ -989,10 +1006,10 @@ class Server(
       .fold(IO.pure(s -> Selections.none)) { r =>
         checked(r, s).flatMap(adoptCarriedVars(_, r, req)).flatMap { adopted =>
           val env = r.vars.env(adopted.values)
-          val selections = r.surfaces.selections(requested, env)
+          val selections = Selections(r.surfaces.openPopup(requested))
           val open = r.surfaces.selectedSurfaces(selections)
           warnAnomalies(r, env) *> session
-            .reveal(open)
+            .reveal(open, adopted.values)
             .as(adopted.copy(open = open) -> selections)
         }
       }
@@ -1032,10 +1049,10 @@ class Server(
     // have moved `open`, and tab presses the session's variables.
     val env = r.vars.env(s.values)
     val popup = prev.popupIn(s.open)
-    val ui = r.surfaces.selections(popup, env)
+    val ui = Selections(r.surfaces.openPopup(popup))
     val open = r.surfaces.selectedSurfaces(ui)
-    session.reveal(open) *> (stateStore.current, live.log.get).flatMapN {
-      (store, log) =>
+    session.reveal(open, s.values) *> (stateStore.current, live.log.get)
+      .flatMapN { (store, log) =>
         pageAnswers(r, open, store, env).map { (fragments, shared) =>
           val head =
             if (prev.styleHash != r.styleHash)
@@ -1069,7 +1086,7 @@ class Server(
             ()
           )
         }
-    }
+      }
   }
 
   /** An unknown surface is a stale document, not a bad request: ids are
@@ -1119,7 +1136,7 @@ class Server(
     val evict = s.open.filter(sid => !newSurface.contains(sid) && here(sid))
     val open = (s.open -- evict) ++ newSurface.toSet
     for {
-      _ <- session.reveal(open)
+      _ <- session.reveal(open, s.values)
       store <- stateStore.current
       // Only the arriving surface's fetches, so an unopened popup costs
       // nothing.
@@ -1167,7 +1184,7 @@ class Server(
       selections: Selections,
       env: VarEnv
   ): IO[(FetchSnapshot, Shared)] =
-    decided(renderer, store)(shared =>
+    decidedFor(renderer, store, env)(shared =>
       arriving.toList.flatMap(
         renderer.fetchesForSurface(_, shared, selections, env)
       )
@@ -1180,7 +1197,7 @@ class Server(
       store: StoreState,
       env: VarEnv
   ): IO[(FetchSnapshot, Shared)] =
-    decided(renderer, store)(renderer.fetchesForPage(open, _, env))
+    decidedFor(renderer, store, env)(renderer.fetchesForPage(open, _, env))
       .flatMap((reads, shared) => answer(reads, env).map(_ -> shared))
 
   /** Set a node variable for this viewer and re-render the readers it is shown
@@ -1207,16 +1224,17 @@ class Server(
       .getOrElse(key, renderer.vars.defaults(key))
     for {
       store <- stateStore.current
-      reached <- decided(renderer, store) { at =>
-        val open = renderer.surfaces.openOf(s.open)
-        val shown = renderer.surfaces.visibleNode(_, open, at)
-        (
-          shown(key.declarer),
-          groups.filter(gid =>
-            shown(gid) && renderer.surfaces.groupShown(gid, at)
-          ),
-          readers.filter(shown)
-        )
+      reached <- decidedFor(renderer, store, renderer.vars.env(s.values)) {
+        at =>
+          val open = renderer.surfaces.screen(s.open, at)
+          val shown = renderer.surfaces.visibleNode(_, open, at)
+          (
+            shown(key.declarer),
+            groups.filter(gid =>
+              shown(gid) && renderer.surfaces.groupShown(gid, at)
+            ),
+            readers.filter(shown)
+          )
       }
       ((declarerShown, shownGroups, targets), _) = reached
       _ <- IO.raiseWhen(
@@ -1232,13 +1250,11 @@ class Server(
           IO.raiseError(FHError.badCondition(refused.mkString("; ")))
       }
       env = renderer.vars.env(s.initialValues ++ proposed)
-      after = renderer.surfaces.selections(selections.popup, env)
-      open = renderer.surfaces.selectedSurfaces(after)
-      _ <- session.reveal(open)
-      pulled <- decided(renderer, store) { at =>
+      _ <- session.reveal(Set.empty, s.initialValues ++ proposed)
+      pulled <- decidedFor(renderer, store, env) { at =>
         val o =
-          Patches.written(renderer, s.holds, at, after, targets, shownGroups)
-        o -> renderer.readsForPull(o.touched, o.filled, at, after, env)
+          Patches.written(renderer, s.holds, at, targets, shownGroups)
+        o -> renderer.readsForPull(o.touched, o.filled, at, selections, env)
       }
       ((owing, reads), shared) = pulled
       snapshot <- answer(reads, env)
@@ -1249,14 +1265,13 @@ class Server(
           l.cache,
           s.holds,
           shared,
-          Viewing(after, snapshot),
+          Viewing(selections, snapshot),
           owing
         )
       )
     } yield Session.Step(
       s.copy(
         vars = proposed,
-        open = open,
         holds = patches.foldLeft(s.holds)(Patches.applied(renderer.index, _, _))
       ),
       Patches.encode(patches) :+
@@ -1303,17 +1318,6 @@ class Server(
       )
     ).as(s.copy(vars = kept))
   }
-
-  /** The request's popup with each tab bar's member from the session's
-    * variables — from the SESSION, not the request: a request carries no tab,
-    * and a live pull has no request.
-    */
-  private def selectionsOf(
-      renderer: Renderer,
-      requested: Option[String],
-      vars: Map[VarKey, String]
-  ): Selections =
-    renderer.surfaces.selections(requested, renderer.vars.env(vars))
 
   /** With no resolver wired only a render that reads a fetch raises, so a
     * dashboard without charts still works.
@@ -1415,7 +1419,7 @@ class Server(
                       f(
                         session,
                         renderer,
-                        selectionsOf(renderer, requested, s.values)
+                        Selections(renderer.surfaces.openPopup(requested))
                       )(s).map(st => Session.Step(st.next, st.frames, true))
                 }
               )
@@ -1732,7 +1736,9 @@ class Server(
       initialValues: Map[VarKey, String]
   ): IO[Response[IO]] = {
     val env = renderer.vars.env(initialValues ++ choices)
-    val selections = renderer.surfaces.selections(Server.popupOf(req), env)
+    val selections = Selections(
+      renderer.surfaces.openPopup(Server.popupOf(req))
+    )
     val editMode = req.uri.query.params.get("edit").contains("1")
     val open = renderer.surfaces.selectedSurfaces(selections)
     for {
@@ -1762,7 +1768,7 @@ class Server(
         .surround(stateStore.current)
       // Decided before the head: the walk reaches decisions at once, where a
       // slot's answers it waits for below.
-      decidedPage <- decided(renderer, store)(
+      decidedPage <- decidedFor(renderer, store, env)(
         renderer.fetchesForPage(open, _, env)
       )
       (reads, shared) = decidedPage
@@ -2595,8 +2601,8 @@ object Server {
   /** The open popup, from the URL's `ui.popups` param and the `ui_popups`
     * signal (ADR 0005). The signal wins, an empty one included: the URL trails
     * it. Untrusted; [[SurfaceGraph.openPopup]] narrows it. A tab bar's
-    * selection is a node variable, read from the session ([[selectionsOf]]), so
-    * a `ui.<id>` param naming one is not read.
+    * selection is a node variable, read from the session's values, so a
+    * `ui.<id>` param naming one is not read.
     */
   def popupOf(req: Request[IO]): Option[String] =
     signalsOf(req)

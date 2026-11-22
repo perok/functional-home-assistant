@@ -55,7 +55,7 @@ class RenderGoldenSuite extends munit.FunSuite {
     )
     val surfaceIds = d.surfaces.keys.toList.sorted
     val caseIds = d.picks.values.toList.flatMap(_.cases).distinct.sorted
-    val fresh = RenderGoldenSuite.fresh(r)
+    val fresh = Selections.none
     val out = new StringBuilder
     val fixtured = scala.collection.mutable.Map.empty[String, String]
     def section(house: String, part: String, body: String): Unit =
@@ -67,7 +67,7 @@ class RenderGoldenSuite extends munit.FunSuite {
         if (!body.endsWith("\n")) { val _ = out.append('\n') }
       }
     for ((houseName, states) <- houses(e)) {
-      val shared = Shared.of(states)
+      val shared = RenderGoldenSuite.declaredViewer(r, states)
       val body =
         r.renderBodyTraced(
           shared,
@@ -214,7 +214,7 @@ object RenderGoldenSuite {
       nodes: List[NodeId]
   ): FetchSnapshot = {
     val env = r.vars.env(Map.empty)
-    val sel = fresh(r)
+    val sel = Selections.none
     val reads: List[SlotRead] =
       r.fetchesForPage(r.surfaces.selectedSurfaces(sel), shared, env) ++
         (d.surfaces.keys.flatMap(r.surfaces.popupSpelling) ++
@@ -225,11 +225,11 @@ object RenderGoldenSuite {
     FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap, env)
   }
 
-  /** A viewer who has chosen nothing, as a page load decides it: every variable
-    * at its declared value.
+  /** `states` as a viewer who has chosen nothing reads them, as a page load
+    * decides it: every variable at its declared value.
     */
-  def fresh(r: Renderer): Selections =
-    r.surfaces.selections(None, r.vars.env(Map.empty))
+  def declaredViewer(r: Renderer, states: Map[String, EntityState]): Shared =
+    Shared.of(states).viewing(r.vars.env(Map.empty))
 
   /** What HA keeps on an entity whose integration it lost. */
   val RegistryAttributes: Set[String] = Set(

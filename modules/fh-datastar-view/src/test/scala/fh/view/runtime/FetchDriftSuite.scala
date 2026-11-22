@@ -138,62 +138,85 @@ class FetchDriftSuite extends munit.FunSuite {
   private lazy val cases =
     List("cards", "readings", "charts").map(fixture) :+ shapes
 
-  /** No selection, each member of each tab group, and each popup open. */
-  private def uiStates(c: Case): List[Selections] = {
+  /** What a viewer can have put the dashboard in: its popup and its values. */
+  private final case class Ui(selections: Selections, env: VarEnv)
+
+  /** The declared values, each popup open, and each tab of each tab group (a
+    * value naming each case, and one the otherwise takes where there is one).
+    */
+  private def uiStates(c: Case): List[Ui] = {
     val r = c.renderer
-    val tabs: List[Selections] =
-      r.surfaces.varPicks.toList.sorted.flatMap(gid =>
-        r.surfaces
-          .cases(gid)
-          .indices
-          .map(i => Selections(None, Map(gid -> i)))
-      )
-    val popups: List[Selections] =
+    val declared = defaults(r)
+    val tabs: List[Ui] =
+      r.surfaces.varPicks.toList.sorted.flatMap { gid =>
+        val name = r.surfaces.varSelecting(gid).getOrElse(fail(s"$gid"))
+        val values = r.surfaces.memberValues(gid)
+        val picking =
+          if (r.surfaces.cases(gid).sizeIs > values.size)
+            values :+ "no case names this"
+          else values
+        picking.map(v =>
+          Ui(
+            Selections.none,
+            declared.updated(
+              gid,
+              declared.getOrElse(gid, Map.empty) + (name -> v)
+            )
+          )
+        )
+      }
+    val popups: List[Ui] =
       c.dashboard.surfaces.keys.toList.sorted.map(sid =>
-        Selections(Some(sid), Map.empty)
+        Ui(Selections(Some(sid)), declared)
       )
-    Selections.none :: tabs ++ popups
+    Ui(Selections.none, declared) :: tabs ++ popups
   }
 
   /** At the declared values, as `Server` hands every render its viewer's. */
   private def defaults(r: Renderer): VarEnv = r.vars.env(Map.empty)
 
-  private def answered(r: Renderer, reads: List[SlotRead]) =
-    FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap, defaults(r))
+  private def answered(env: VarEnv, reads: List[SlotRead]) =
+    FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap, env)
 
   test("a page render reads only what the page resolved") {
-    for (c <- cases; states <- c.houses; ui <- uiStates(c)) {
+    for (c <- cases; house <- c.houses; ui <- uiStates(c)) {
       val r = c.renderer
+      val states = house.viewing(ui.env)
       val snapshot = answered(
-        r,
-        r.fetchesForPage(r.surfaces.selectedSurfaces(ui), states, defaults(r))
+        ui.env,
+        r.fetchesForPage(
+          r.surfaces.selectedSurfaces(ui.selections),
+          states,
+          ui.env
+        )
       )
       val _ = r.renderPageInto(
         Sink.buffer(r.pageBytesHint),
         states,
-        Viewing(ui, snapshot)
+        Viewing(ui.selections, snapshot)
       )
     }
   }
 
   test("a surface fill reads only what the surface resolved") {
     for (
-      c <- cases; states <- c.houses; ui <- uiStates(c);
+      c <- cases; house <- c.houses; ui <- uiStates(c);
       sid <- c.dashboard.surfaces.keys.toList.sorted
     ) {
       val r = c.renderer
+      val states = house.viewing(ui.env)
       val _ = r.renderSurfaceTraced(
         sid,
         states,
         Viewing(
-          ui,
+          ui.selections,
           answered(
-            r,
+            ui.env,
             r.fetchesForSurface(
               r.surfaces.popupSpelling(sid).get,
               states,
-              ui,
-              defaults(r)
+              ui.selections,
+              ui.env
             )
           )
         )
@@ -218,14 +241,15 @@ class FetchDriftSuite extends munit.FunSuite {
           c.dashboard.surfaces.keys.toList
             .flatMap(r.surfaces.popupSpelling)
             .flatMap(r.surfaceNodeIds) ++
-          c.houses.flatMap(states =>
+          c.houses.flatMap(house =>
+            val states = house.viewing(defaults(r))
             r.renderPageInto(
               Sink.buffer(r.pageBytesHint),
               states,
               Viewing(
                 Selections.none,
                 answered(
-                  r,
+                  defaults(r),
                   r.fetchesForPage(
                     r.surfaces.selectedSurfaces(),
                     states,
@@ -240,18 +264,26 @@ class FetchDriftSuite extends munit.FunSuite {
       val hosts = nodes.filter(id =>
         r.surfaces.statePicks(id) || r.members.setContainer(id).isDefined
       )
-      for (states <- c.houses; ui <- uiStates(c)) {
+      for (house <- c.houses; ui <- uiStates(c)) {
+        val states = house.viewing(ui.env)
         def asked(targets: List[NodeId], hs: List[NodeId]) =
-          answered(r, r.readsForPull(targets, hs, states, ui, defaults(r)))
+          answered(
+            ui.env,
+            r.readsForPull(targets, hs, states, ui.selections, ui.env)
+          )
         nodes.foreach { id =>
           val f = asked(List(id), Nil)
           val _ = (
             r.byteSlotValues(id, states, f),
-            r.renderNodeById(id, states, Viewing(ui, f))
+            r.renderNodeById(id, states, Viewing(ui.selections, f))
           )
         }
         hosts.foreach(h =>
-          r.renderHost(h, states, Viewing(ui, asked(Nil, List(h))))
+          r.renderHost(
+            h,
+            states,
+            Viewing(ui.selections, asked(Nil, List(h)))
+          )
         )
       }
       // Precise, not everything: a plain node asks nothing, a chart asks.
@@ -259,7 +291,7 @@ class FetchDriftSuite extends munit.FunSuite {
         r.readsForPull(
           List(id),
           Nil,
-          c.houses.head,
+          c.houses.head.viewing(defaults(r)),
           Selections.none,
           defaults(r)
         ).isEmpty

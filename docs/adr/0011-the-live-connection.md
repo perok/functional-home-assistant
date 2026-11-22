@@ -211,7 +211,7 @@ descendant host has selected — and whichever a shared structure recorded would
 somebody.
 
 **A node whose own html differs between viewers needs no special treatment.** Since the
-session renders what it is owed, it renders with its own `Selections` and records what it sent
+session renders what it is owed, it renders for its own viewer (its popup, and its values through `Shared.viewing`) and records what it sent
 in its own `holds` — no variant key, no second entry, nothing shared to disagree about.
 The rule that makes it safe is statement (1): a node's own rendering contains no region's
 contents, its own or a child's.
@@ -282,7 +282,10 @@ runtime is how long a session lingers after its stream ends — and that decides
 reconnect is, never what is correct.
 
 **A slug nobody is watching records nothing**, which is the other half of the same
-question. The recorder reads the session set it already reads for visibility; with none,
+question. The recorder reads what each session shows (`Sessions.watching`): its popups under
+its values, and under each value set revealed since its last step, so a write that has chosen
+a tab and not yet published it is already recorded for. The unit of a frame's visibility is one
+such viewer, never a union, since a chain of surfaces is one client's. With no session
 it writes one number (`completeFrom`) and drops the history that number makes
 unreachable. A client returning across such a stretch is answered by `reaches` — false,
 so it repaints. That gate is safe only because a document registers its session BEFORE
@@ -311,7 +314,7 @@ always a repaint, however long the log would otherwise have been kept.
 **Why 2 minutes and not 10.** The tempting read is that a longer window is nearly free and
 saves repaints. It is not free, and the reason is that the cost and the benefit are the
 same mechanism: a lingering session keeps its slug RECORDING (it is in the set
-`recordFrame` reads), and its open set widens what each frame records. That retention is
+`recordFrame` reads), and its popups and values widen what each frame records. That retention is
 exactly what makes the cheap return possible — you cannot keep the window and drop the
 cost, and a version that stopped recording for lingering sessions would hand every
 returner a repaint anyway, which is the thing the window exists to avoid.
@@ -546,7 +549,7 @@ there is nothing in it worth adopting. What the old id is good for is retirement
 per-browser and make two tabs fight over one session) carries it onto the next
 connect as `?prev=`, and the server drops that session unless a stream is still
 holding it. Without it a superseded session waits out its adoption window holding
-an old `position`, and its open set widens what every frame records for as long
+an old `position`, and its popups and values widen what every frame records for as long
 as it lingers.
 
 Never reusing the id is what keeps the rest simple: two tabs can never land on one
@@ -722,8 +725,9 @@ are pinned by `DatastarMorphContractSuite`.
 
 It costs one prerequisite. A structural node bakes the viewer's selected panel, so
 every path that renders one has to know the viewer. Every render path therefore takes
-the viewer's selections (`Selections`), which is also what makes any variant machinery
-unnecessary (ADR 0012).
+the viewer: its popup (`Selections`) and its values, which the render's `Shared` carries
+(`Shared.viewing`) and a tab's case is looked up from, which is also what makes any variant
+machinery unnecessary (ADR 0012).
 
 What it buys: a re-render can no longer overwrite the tab a client actually
 chose, which closes the race between a tab click and a patch already in flight.

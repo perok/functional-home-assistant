@@ -56,14 +56,16 @@ class TabVariableSuite extends ServerHarness {
         conn <- ts.load().map(_.conn)
         session <- ts.sessions.get(conn)
         result <- press(ts, conn, "1")
-        open <- session.traverse(_.state.map(_.open))
+        state <- session.traverse(_.state)
         sent <- drain(session)
       } yield {
         assertEquals(result._1, Status.NoContent)
+        // The choice is the session's values; the tab is never in its open set.
         assertEquals(
-          open.map(_.intersect(Set("bar_panel_0_0", "bar_panel_0_1"))),
-          Some(Set("bar_panel_0_1"))
+          state.map(_.vars),
+          Some(Map(VarKey(NodeId.derived("bar"), "tab") -> "1"))
         )
+        assertEquals(state.map(_.open), Some(Set.empty[String]))
         assert(sent.contains("PanelTwo"), clue = sent)
         assert(sent.contains("\"_var_bar__tab\":\"1\""), clue = sent)
         assert(!sent.contains("ui_bar"), clue = sent)

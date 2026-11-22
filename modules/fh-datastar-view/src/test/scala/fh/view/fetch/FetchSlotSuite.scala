@@ -31,7 +31,15 @@ import fh.view.model.{
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import fh.view.history.{ChartStyle, History, SeriesSource, Window, Windows}
-import fh.view.runtime.{EntityState, Evaluator, Renderer, Selections, sharedOf}
+import fh.view.runtime.{
+  EntityState,
+  Evaluator,
+  Renderer,
+  Selections,
+  choosing,
+  sharedOf,
+  viewedOf
+}
 import io.github.iltotore.iron.*
 import fh.view.FHError
 import fh.view.testkit.{FixtureEntity, PklFixture}
@@ -416,8 +424,9 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
     )
     def light(s: String) =
       Map("light.a" -> EntityState("light.a", s, Map.empty))
-    def windows(selected: String, states: Map[String, EntityState]) =
-      r.fetchesForPage(Set(selected), sharedOf(states), Map.empty)
+    def windows(tab: String, states: Map[String, EntityState]) = {
+      val env = choosing(r, "tabs", "tab", tab)
+      r.fetchesForPage(Set.empty, viewedOf(states, env), env)
         .map(r =>
           Windows.presets
             .collectFirst {
@@ -426,8 +435,9 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
             .getOrElse(fail(s"not a preset: ${r.fetch}"))
         )
         .toSet
-    assertEquals(windows("tabs_panel_0_0", light("on")), Set("1h", "24h"))
-    assertEquals(windows("tabs_panel_0_1", light("off")), Set("7d", "30d"))
+    }
+    assertEquals(windows("0", light("on")), Set("1h", "24h"))
+    assertEquals(windows("1", light("off")), Set("7d", "30d"))
   }
 
   private def dashboard(src: TemplateSlot) =

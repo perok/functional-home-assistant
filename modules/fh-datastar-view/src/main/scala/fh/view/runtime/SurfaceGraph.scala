@@ -4,30 +4,29 @@ import fh.view.model.{Dashboard, DomId, Ix, NodeId, Ready, Surface, TreeIndex}
 
 import scala.collection.immutable.BitSet
 
-/** What one viewer has selected: the popup it has open, and the case of each
-  * pick a node variable decides (ADR 0033). A pick over state is everyone's and
-  * is not here. A pick with no entry shows nothing. [[SurfaceGraph.selections]]
-  * narrows both, so a reader trusts them.
+/** The popup one viewer has open, narrowed by [[SurfaceGraph.openPopup]] so a
+  * reader trusts it. A pick's case is not here: it is decided from the values
+  * the viewer's [[Shared]] carries ([[Shared.viewing]]).
   */
-final case class Selections(popup: Option[String], panels: Map[NodeId, Int])
-    derives CanEqual
+final case class Selections(popup: Option[String]) derives CanEqual
 
 object Selections {
-  val none: Selections = Selections(None, Map.empty)
+  val none: Selections = Selections(None)
 }
 
 /** Selection and visibility, beside [[MemberGraph]]; `Renderer` paints what
-  * they say. A pick over a variable is decided per viewer ([[Selections]]); one
-  * over state is the same for everyone, so its cases hide nothing from anybody.
-  * Visibility derives from selection — one fact asked three ways.
+  * they say. A pick over a variable is decided per viewer, from the values its
+  * [[Shared]] views with; one over state is the same for everyone, so its cases
+  * hide nothing from anybody. Visibility derives from selection — one fact
+  * asked three ways.
   *
   * What may be hidden is a CONTAINER, a node of the [[TreeIndex]]: a popup's
   * root or a pick's case. Every node is in one, the innermost holding it (the
   * page's root for the page), and is shown while every container up its chain
   * is: a popup open, a case picked. Inside a renderer a container is its `Ix`
-  * and an open set a `BitSet` of them ([[openOf]]); what crosses a swap
-  * (`SessionState.open`) spells each by its root's DOM id, under which a
-  * member's clauses share one name and so read as one `Ix` per clause.
+  * and an open set a `BitSet` of them: the popups opened ([[openOf]]) and the
+  * cases the viewer's values pick ([[screen]]). What crosses a swap
+  * (`SessionState.open`) is the popups, each spelled by its root's DOM id.
   *
   * @param popups
   *   not the whole `Dashboard`, which this has no use for.
@@ -157,17 +156,9 @@ private[runtime] final class SurfaceGraph(
   def varSelecting(gid: NodeId): Option[String] =
     picks.get(gid).flatMap(_.variable)
 
-  /** A viewer's selections: `requested` narrowed by [[openPopup]], and each
-    * pick over a variable decided from `env`. A value no case takes and no
-    * otherwise catches shows nothing; every value passed `refusals` or
-    * `validate`, so that is a guard, which [[selectionAnomalies]] reports.
+  /** A value no case takes and no otherwise catches shows nothing; every value
+    * passed `refusals` or `validate`, so that is a guard, which this reports.
     */
-  def selections(requested: Option[String], env: VarEnv): Selections =
-    Selections(
-      openPopup(requested),
-      panelChoices(env).collect { case (gid, Right(i)) => gid -> i }
-    )
-
   def selectionAnomalies(env: VarEnv): List[String] =
     panelChoices(env).toList.sortBy(_._1).collect { case (_, Left(w)) => w }
 
@@ -191,6 +182,22 @@ private[runtime] final class SurfaceGraph(
     */
   val varPicks: Set[NodeId] =
     picks.collect { case (gid, p) if p.variable.isDefined => gid }.toSet
+
+  private val varPickList: Array[NodeId] = varPicks.toArray.sorted
+
+  /** The case roots the viewer's values pick, shown or not: a lookup, which
+    * costs less than keeping it would.
+    */
+  def chosen(shared: Shared): BitSet =
+    BitSet.fromSpecific(
+      varPickList.iterator.flatMap(gid =>
+        decideByVariable(gid, shared).map(picks(gid).choice.cases(_).ix.toInt)
+      )
+    )
+
+  /** A viewer's open set: `spelled`'s popups and the cases its values pick. */
+  def screen(spelled: Set[String], shared: Shared): BitSet =
+    openOf(spelled) | chosen(shared)
 
   /** If/else hosts: rendered once per slug for every viewer. */
   val statePicks: Set[NodeId] = picks.keySet -- varPicks
@@ -238,7 +245,7 @@ private[runtime] final class SurfaceGraph(
       selections: Selections
   ): BitSet = {
     val stop = BitSet.fromSpecific(containersSpelled(spelled).map(_.toInt))
-    val open = openOf(selectedSurfaces(selections))
+    val open = screen(selectedSurfaces(selections), shared)
     containers.filter(shownUpTo(_, stop, open, shared, Set.empty)) | stop
   }
 
@@ -263,9 +270,9 @@ private[runtime] final class SurfaceGraph(
       cut: Set[NodeId] = Set.empty
   ): Boolean = shownUpTo(c.toInt, BitSet.empty, open, shared, cut)
 
-  /** The containers of one session's open set that are on its screen. */
+  /** The containers of one viewer's [[screen]] that are on it. */
   def onScreen(spelled: Set[String], shared: Shared): BitSet = {
-    val open = openOf(spelled)
+    val open = screen(spelled, shared)
     open.filter(shownUpTo(_, BitSet.empty, open, shared, Set.empty))
   }
 
@@ -354,27 +361,23 @@ private[runtime] final class SurfaceGraph(
     moved.filter(visibleNodeCut(_, visible, next, cut)).sorted
   }
 
-  /** The case a viewer's variable picks, if any. */
-  private[runtime] def decideByViewer(
+  /** The case the viewer's value of `gid`'s variable picks, if any. */
+  private[runtime] def decideByVariable(
       gid: NodeId,
-      selections: Selections
+      shared: Shared
   ): Option[Int] =
-    selections.panels.get(gid)
+    varSelecting(gid)
+      .flatMap(name => shared.viewer.get(gid).flatMap(_.get(name)))
+      .flatMap(memberAt(gid, _))
 
-  /** A session's open set, spelled. State-picked cases never enter it: the
-    * shared per-slug pass owns them.
+  /** A session's open set, spelled: its popups. A pick's case never enters it,
+    * since the viewer's values decide it ([[screen]]).
     */
   def selectedSurfaces(
       selections: Selections = Selections.none
-  ): Set[String] = {
-    val fromPicks =
-      varPicks.flatMap(gid =>
-        decideByViewer(gid, selections).flatMap(cases(gid).lift)
-      )
-    val fromPopups =
-      popups.collect { case (sid, s) if s.defaultOpen => sid }.toSet
-    fromPicks ++ (fromPopups ++ selections.popup).flatMap(popupSpelling)
-  }
+  ): Set[String] =
+    (popups.collect { case (sid, s) if s.defaultOpen => sid }.toSet ++
+      selections.popup).flatMap(popupSpelling)
 
   /** `ui_<popups>` holds a surface id, not an index: the host is not a pick.
     * Narrowed, since a stale URL can name a surface this dashboard cannot
@@ -417,31 +420,11 @@ private[runtime] final class SurfaceGraph(
   private def openPopupIn(open: Set[String]): Option[String] =
     SurfaceGraph.popupIn(popupBySpelling, open)
 
-  /** [[selectionsIn]], where a pick none of whose cases `open` holds takes
-    * `env`'s: a pick in a set member's clause is first shown when the member
-    * switches to that clause.
-    */
-  def selectionsShown(open: Set[String], env: VarEnv): Selections = {
-    val shown = selectionsIn(open)
-    shown.copy(panels =
-      panelChoices(env).collect { case (gid, Right(i)) => gid -> i } ++
-        shown.panels
-    )
-  }
-
-  /** What `open` records: a live pull renders with these, since a press moves
+  /** What `open` records: a live pull renders with this, since a press moves
     * `open` and not the request its stream connected with.
     */
   def selectionsIn(open: Set[String]): Selections =
-    Selections(
-      openPopupIn(open),
-      varPicks.toList.flatMap { gid =>
-        cases(gid).indexWhere(open) match {
-          case -1 => None
-          case i  => Some(gid -> i)
-        }
-      }.toMap
-    )
+    Selections(openPopupIn(open))
 }
 
 private[runtime] object SurfaceGraph {

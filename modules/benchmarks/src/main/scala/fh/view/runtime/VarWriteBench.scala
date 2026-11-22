@@ -109,12 +109,11 @@ class VarWriteBench {
     val proposed = Map(key -> value)
     require(renderer.refusals(proposed).isEmpty)
     val env = renderer.vars.env(proposed)
-    val after = renderer.surfaces.selections(None, env)
+    val at = st.viewing(env)
     val owing = Patches.written(
       renderer,
       Map.empty,
-      st,
-      after,
+      at,
       Nil,
       renderer.vars.panelsSelectedBy(key)
     )
@@ -123,8 +122,8 @@ class VarWriteBench {
         renderer,
         cache,
         Map.empty,
-        st,
-        Viewing(after, FetchSnapshot.of(Map.empty, env)),
+        at,
+        Viewing(Selections.none, FetchSnapshot.of(Map.empty, env)),
         owing
       )
       .unsafeRunSync()
@@ -135,11 +134,11 @@ class VarWriteBench {
     val proposed = Map(WindowKey -> value)
     require(renderer.refusals(proposed).isEmpty)
     val env = renderer.vars.env(proposed)
-    val after = renderer.surfaces.selections(None, env)
+    val at = st.viewing(env)
     val readers = renderer.vars.readersOf(WindowKey)
     (for {
       snapshot <- answer(
-        renderer.readsForPull(readers, Nil, st, after, env),
+        renderer.readsForPull(readers, Nil, at, Selections.none, env),
         env
       )
       patches <- readers.traverseFilter(
@@ -147,8 +146,8 @@ class VarWriteBench {
           renderer,
           cache,
           Map.empty,
-          st,
-          Viewing(after, snapshot),
+          at,
+          Viewing(Selections.none, snapshot),
           _
         )
       )

@@ -31,9 +31,10 @@ enum Tenure derives CanEqual {
   * written only where bytes are sent to this client, never from what another
   * client or a shared structure believes.
   *
-  *   - `open`: selected tab panels and popup, each by its root's DOM id, since
-  *     it crosses a renderer swap ([[SurfaceGraph.openOf]]); only these are
-  *     recorded and rendered, so a closed popup costs nothing.
+  *   - `open`: the popup, by its root's DOM id, since it crosses a renderer
+  *     swap ([[SurfaceGraph.openOf]]); only it, and the tab panels `vars` pick
+  *     ([[SurfaceGraph.screen]]), are recorded and rendered, so a closed popup
+  *     costs nothing.
   *   - `vars`: the viewer's node-variable choices, here because a pull has no
   *     request to read them off (issue #209).
   *   - `initialValues`: where the document opened a variable that has an
@@ -148,7 +149,7 @@ final class Session private (
     val haDown: Ref[IO, Option[Boolean]],
     val tenure: SignallingRef[IO, Tenure],
     inbox: Queue[IO, Session.Command],
-    published: Ref[IO, SessionState],
+    published: Ref[IO, Session.Published],
     stopped: Deferred[IO, Unit]
 ) {
   import Session.{Command, Step}
@@ -181,15 +182,28 @@ final class Session private (
     * must not wait on the owner — the recorder, pruning; never the base of a
     * change, which is [[run]]'s.
     */
-  def state: IO[SessionState] = published.get
+  def state: IO[SessionState] = published.get.map(_.state)
 
-  /** Show the recorder `surfaces` before the running step reads the store: a
-    * frame recorded in between without them would never reach the panel being
-    * filled. Wider than the state is safe (it records a little more), and the
-    * step's end, or its failure, publishes the exact set.
+  /** What the recorder reads of this session: its popups, under its values and
+    * each revealed since its last step.
     */
-  def reveal(surfaces: Set[String]): IO[Unit] =
-    published.update(s => s.copy(open = s.open ++ surfaces))
+  def watching: IO[List[Watching]] =
+    published.get.map(p =>
+      (p.state.values :: p.revealed).distinct.map(Watching(p.state.open, _))
+    )
+
+  /** Show the recorder `surfaces` and `values` before the running step reads
+    * the store: a frame recorded in between without them would never reach the
+    * panel being filled. Wider than the state is safe (it records a little
+    * more), and the step's end, or its failure, publishes the exact state.
+    */
+  def reveal(surfaces: Set[String], values: Map[VarKey, String]): IO[Unit] =
+    published.update(p =>
+      Session.Published(
+        p.state.copy(open = p.state.open ++ surfaces),
+        values :: p.revealed
+      )
+    )
 
   /** Deliver to `outlet` from now on, the backlog first. */
   def attach(outlet: Outlet): IO[Unit] = submit(Command.Attach(outlet))
@@ -291,16 +305,27 @@ final class Session private (
         val frames = done.frames.toVector
         outlet
           .fold(IO.pure(backlog ++ frames))(_.put(frames).as(backlog))
-          .flatTap(_ => published.set(done.next))
+          .flatTap(_ => published.set(Session.Published(done.next, Nil)))
           .flatTap(_ => run.reply.complete(Right(done.answer)))
           .tupleLeft(done.next)
       case Left(e) =>
-        (published.set(current) *> run.reply.complete(Left(e)))
+        (published.set(Session.Published(current, Nil)) *>
+          run.reply.complete(Left(e)))
           .as(current -> backlog)
     }
 }
 
+/** One viewer the recorder covers: a session's popups under one of its values.
+  */
+final case class Watching(open: Set[String], values: Map[VarKey, String])
+
 object Session {
+
+  /** The last state a step left, and the values revealed since. */
+  final case class Published(
+      state: SessionState,
+      revealed: List[Map[VarKey, String]]
+  )
 
   /** One step of a session: the state it leaves, the frames that tell its
     * client, in order, and the caller's answer.
@@ -352,7 +377,7 @@ object Session {
       initial: SessionState = SessionState.initial
   ): IO[Session] =
     for {
-      published <- Ref[IO].of(initial)
+      published <- Ref[IO].of(Session.Published(initial, Nil))
       inbox <- Queue.unbounded[IO, Command]
       // A stream-minted session told nothing; assume no banner state.
       haDown <- Ref[IO].of(Option.empty[Boolean])
@@ -411,8 +436,8 @@ final class Sessions(ref: SignallingRef[IO, Map[String, Session]]) {
   /** Separately: visibility is one client's chain, and a union would mix one
     * client's tab with another's branch.
     */
-  def openSets(slug: String): IO[List[Set[String]]] =
-    forSlug(slug).flatMap(_.traverse(_.state.map(_.open)))
+  def watching(slug: String): IO[List[Watching]] =
+    forSlug(slug).flatMap(_.flatTraverse(_.watching))
 }
 
 object Sessions {

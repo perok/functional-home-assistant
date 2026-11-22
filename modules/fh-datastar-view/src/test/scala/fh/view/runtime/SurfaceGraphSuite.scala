@@ -152,17 +152,23 @@ class SurfaceGraphSuite extends munit.FunSuite {
 
   private def tabAt(raw: String): VarEnv = Map(gid -> Map("tab" -> raw))
 
+  private def viewedAt(raw: String): Shared =
+    Shared.of(Map.empty).viewing(tabAt(raw))
+
   test("an absent selection shows nothing") {
     // The declared value fills every viewer's variables, so this is a guard.
-    assertEquals(tabs.decideByViewer(gid, Selections.none), None)
-    assertEquals(tabs.selections(None, Map.empty), Selections.none)
+    val absent = Shared.of(Map.empty).viewing(Map.empty)
+    assertEquals(tabs.decideByVariable(gid, absent), None)
+    assert(tabs.chosen(absent).isEmpty)
     assertEquals(tabs.selectionAnomalies(Map.empty), Nil)
   }
 
   test("a variable-selected group's index comes from the viewer's variables") {
-    val chosen = tabs.selections(None, tabAt("2"))
-    assertEquals(chosen.panels, Map(gid -> 2))
-    assertEquals(tabs.decideByViewer(gid, chosen), Some(2))
+    assertEquals(tabs.decideByVariable(gid, viewedAt("2")), Some(2))
+    assertEquals(
+      tabs.chosen(viewedAt("2")),
+      tabs.openOf(Set(tabs.cases(gid)(2)))
+    )
     assertEquals(tabs.varSelecting(gid), Some("tab"))
     assertEquals(tabs.selectionAnomalies(tabAt("2")), Nil)
   }
@@ -171,12 +177,8 @@ class SurfaceGraphSuite extends munit.FunSuite {
     // A warning only for a present but unusable value; absent is the normal
     // first paint.
     List("banana", "9", "-1").foreach { raw =>
-      assertEquals(tabs.selections(None, tabAt(raw)), Selections.none, raw)
-      assertEquals(
-        tabs.decideByViewer(gid, tabs.selections(None, tabAt(raw))),
-        None,
-        raw
-      )
+      assert(tabs.chosen(viewedAt(raw)).isEmpty, raw)
+      assertEquals(tabs.decideByVariable(gid, viewedAt(raw)), None, raw)
       val warned = tabs.selectionAnomalies(tabAt(raw))
       assert(warned.sizeIs == 1 && warned.head.contains(raw), clue = warned)
     }
@@ -318,27 +320,24 @@ class SurfaceGraphSuite extends munit.FunSuite {
     assert(g.visibleNode("who_knows", BitSet.empty, Shared.of(Map.empty)))
   }
 
-  test("selectedSurfaces and selectionsIn are inverses over chosen groups") {
-    val chosen = Selections(None, Map(gid -> 1))
-    val t1 = tabs.cases(gid)(1)
-    assertEquals(tabs.selectedSurfaces(chosen), Set[String](t1))
-    assertEquals(tabs.selectionsIn(Set(t1)), chosen)
+  test("selectedSurfaces and selectionsIn are inverses over a popup") {
     val none = tabs.selectedSurfaces(Selections.none)
     assertEquals(none, Set.empty[String])
     assertEquals(tabs.selectionsIn(none), Selections.none)
-    val det = Selections(Some("detail"), Map.empty)
+    val det = Selections(Some("detail"))
     assertEquals(popups.selectionsIn(popups.selectedSurfaces(det)), det)
   }
 
-  test("state-selected branches never enter a session's open set") {
+  test("a state pick's cases never enter a viewer's screen, a tab's do") {
     // `Patches.Addressed` relies on this: tagging a patch with a state surface
     // would hide it from everybody.
     val g = graphOf(col(chain(true, isOn("light.a")), tabsAt(1)))
     val tabsGid = g.varPicks.head
-    assertEquals(
-      g.selectedSurfaces(Selections(None, Map(tabsGid -> 0))),
-      Set[String](g.cases(tabsGid)(0))
-    )
+    val viewed =
+      Shared.of(Map.empty).viewing(Map(tabsGid -> Map("tab" -> "0")))
+    assertEquals(g.selectedSurfaces(), Set.empty[String])
+    assertEquals(g.chosen(viewed), g.openOf(Set(g.cases(tabsGid)(0))))
+    assertEquals(g.screen(Set.empty, viewed), g.chosen(viewed))
   }
 
   test("an unbaked surface joins the open set only when defaultOpen") {
@@ -368,12 +367,12 @@ class SurfaceGraphSuite extends munit.FunSuite {
     assertEquals(popups.openPopup(Some("ghost")), None)
     assertEquals(popups.openPopup(Some("")), None)
     assertEquals(popups.openPopup(None), None)
-    assertEquals(popups.selections(Some("ghost"), Map.empty), Selections.none)
+    assertEquals(Selections(popups.openPopup(Some("ghost"))), Selections.none)
   }
 
   test("an open popup is part of the selection") {
     assertEquals(
-      popups.selectedSurfaces(popups.selections(Some("detail"), Map.empty)),
+      popups.selectedSurfaces(Selections(popups.openPopup(Some("detail")))),
       Set(popups.popupSpelling("detail").get)
     )
   }

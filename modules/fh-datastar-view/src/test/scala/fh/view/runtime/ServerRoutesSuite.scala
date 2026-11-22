@@ -77,10 +77,12 @@ class ServerRoutesSuite extends ServerHarness {
   test("selection round-trip: a tab variable of 1 opens the index-1 surface") {
     val r = tabsRenderer
     val env = r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "1"))
-    val selections = r.surfaces.selections(None, env)
-    assertEquals(r.surfaces.selectedSurfaces(selections), Set("c_panel_0_1"))
+    assertEquals(
+      r.surfaces.chosen(Shared.of(Map.empty).viewing(env)),
+      r.surfaces.openOf(Set("c_panel_0_1"))
+    )
     assert(
-      r.renderBody(Map.empty, selections, env)
+      r.renderBody(Map.empty, vars = env)
         .contains("""id="c_panel_0_1"""")
     )
     assert(
@@ -96,9 +98,8 @@ class ServerRoutesSuite extends ServerHarness {
     // A choice with no otherwise shows nothing at a value no case takes.
     val r = tabsRenderer
     val env = r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "abc"))
-    val selections = r.surfaces.selections(None, env)
-    assertEquals(r.surfaces.selectedSurfaces(selections), Set.empty[String])
-    assert(!r.renderBody(Map.empty, selections, env).contains("c_panel_0_"))
+    assert(r.surfaces.chosen(Shared.of(Map.empty).viewing(env)).isEmpty)
+    assert(!r.renderBody(Map.empty, vars = env).contains("c_panel_0_"))
     assertEquals(r.surfaces.selectionAnomalies(env).size, 1)
   }
 
@@ -657,7 +658,7 @@ class ServerRoutesSuite extends ServerHarness {
     assertEquals(r.surfaces.openPopup(None), None)
     assert(
       r.surfaces
-        .selectedSurfaces(r.surfaces.selections(Some("det"), Map.empty))
+        .selectedSurfaces(Selections(r.surfaces.openPopup(Some("det"))))
         .contains(r.surfaces.popupSpelling("det").get)
     )
   }

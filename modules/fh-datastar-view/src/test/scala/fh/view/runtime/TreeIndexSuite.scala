@@ -51,9 +51,9 @@ class TreeIndexSuite extends munit.FunSuite {
       val d = build()
       val r =
         Renderer(d.validated().fold(errs => fail(errs.mkString), identity))
-      val shared = Shared.of(states)
+      val shared = RenderGoldenSuite.declaredViewer(r, states)
       val v = Viewing(
-        RenderGoldenSuite.fresh(r),
+        Selections.none,
         RenderGoldenSuite.answers(r, d, shared, Nil)
       )
       val rendered: Set[NodeId] =

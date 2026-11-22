@@ -69,7 +69,9 @@ class CarriedDecisionsPropertySuite extends HedgehogSuite {
     after <- genRead
   } yield Step(i, s, ahead, after)
 
-  private def view(f: Fixture, shared: Shared, read: Read): String =
+  /** `version` read as a viewer at the declared values does. */
+  private def view(f: Fixture, version: Shared, read: Read): String = {
+    val shared = version.viewing(f.r.vars.env(Map.empty))
     read match
       case Read.Nothing => ""
       case Read.Body    =>
@@ -108,6 +110,7 @@ class CarriedDecisionsPropertySuite extends HedgehogSuite {
               SlotForm.Patch
             )
           )).mkString("\n")
+  }
 
   private def run(f: Fixture, steps: List[Step]): Result = {
     var states = f.base

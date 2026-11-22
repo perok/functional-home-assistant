@@ -136,7 +136,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       states: Map[String, EntityState],
       v: Long,
       open: Set[String],
-      selections: Selections
+      selections: Selections,
+      env: VarEnv = Map.empty
   ): List[Addressed] =
     RenderCache.create
       .flatMap(
@@ -148,7 +149,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           Shared.of(states),
           noDecisionFetches,
           _ => IO.pure(FetchSnapshot.empty),
-          Map.empty,
+          env,
           v,
           open,
           selections

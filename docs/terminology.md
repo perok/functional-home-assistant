@@ -399,8 +399,9 @@ declaration.
 
 **Pick** — deciding a nodes slot's choice: its `by` is read once and its case looked up, else the
 otherwise, else nothing (`Ready.Pick`, `SurfaceGraph`). A `by` that is a node variable (a tab bar,
-a `c.select`, an If over a variable, ADR 0033) is decided per viewer, from the session's
-variables; any other reads state and is decided once per version, in `Shared`. Each case is a node
+a `c.select`, an If over a variable, ADR 0033) is decided per viewer, a lookup of the
+viewer's value (`Shared.viewing`, `SurfaceGraph.decideByVariable`) that nothing keeps; any other reads
+state and is decided once per version, in `Shared`. Each case is a node
 with the id a fixed node at its index of the slot would have, the otherwise after the cases, and
 the index records which case holds each node below it. Inside a candidate set's clause, a pick is
 that clause's: every clause of a member shares its nodes' ids, so the clause is part of the pick's
@@ -425,24 +426,26 @@ The second of three layers (build, index, decisions; the pipeline doc's §1a). N
 
 **Container** — what may be hidden: the page's root, a popup's root, a pick's case. Every node is
 in the innermost one holding it, and is shown while each container up its chain is. A container is
-a node of the tree **index**: inside a renderer it is that node's `Ix` and an open set is a
-`BitSet` of them. Where it crosses a renderer swap (`SessionState.open`) it is **spelled** by its
-root's DOM id — a popup `s_detail__c`, a case its node id — and read into `Ix` once per step; under
-a set member's clauses one spelled id is one `Ix` per clause. The popup's wire name (`ui_popups`,
+a node of the tree **index**: inside a renderer it is that node's `Ix` and a viewer's open set (its
+`screen`) is a `BitSet` of them: its popups and the cases its values pick. `SessionState.open` holds
+the popups, which cross a renderer swap **spelled** by their root's DOM id (`s_detail__c`) and are
+read into `Ix` once per step; a case is never spelled there, the values pick it. The popup's wire name (`ui_popups`,
 its URL parameter, the open route) is its surface key, not that spelling.
 
 **Decisions** — what one state version decides: which members a set holds and in which clause,
 which branch a state group shows, whether each `valueWhile` holds. Held in that version's
 **`Shared`**, so the pre-read, the walk and the paint ask rather than decide again, and every
 viewer of that version shares them. A decision may read a fetch; it is then made in **rounds**: a
-walk that lacks its answers reads it as not shown and walks again once they are answered. A
-viewer's own selection is not a decision, it is in its `Viewing`.
+walk that lacks its answers reads it as not shown and walks again once they are answered. One that
+reads a variable is made at the viewer's values and kept per values (`Shared.branchAt`). A viewer's
+open popup is not a decision, it is in its `Viewing`.
 
 **`Shared`** — one dashboard's state version for every viewer: the entity states and the
-decisions made from them, carried from the version before or made on demand.
+decisions made from them, carried from the version before or made on demand. `viewing(env)` reads
+it as one viewer, at that viewer's values; a decision that reads a variable raises with none.
 
 **`Viewing`** — one viewer's part of one send, beside the `Shared` it was read against: its
-selections, and its slot fetches' answers (at its node variables).
+popup (`Selections`), and its slot fetches' answers (at its node variables).
 
 **Dirty** — a decision a change touches, found in the index from the changed entity. A dirty
 decision is not carried to the next version; it is made again only when a reader reaches it shown.

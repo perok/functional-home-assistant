@@ -225,10 +225,24 @@ class Renderer(validated: Dashboard.Validated) {
   def shared(store: StoreState): Shared = decided.at(store)
 
   /** The recorder's step: `frame`'s version, carrying what `prev` decided that
-    * the frame's changes left alone.
+    * the frame's changes left alone, at the values `live` sessions hold.
     */
-  def advance(prev: Shared, frame: Frame): Shared =
-    decided.advance(prev, frame, dirtied(frame.changes))
+  def advance(
+      prev: Shared,
+      frame: Frame,
+      live: Set[Map[VarKey, String]] = Set.empty
+  ): Shared =
+    decided.advance(prev, frame, dirtied(frame.changes), liveChange(live))
+
+  // The last live values carried at: an unchanged set prunes nothing.
+  @volatile private var lastLive: Set[Map[VarKey, String]] = Set.empty
+
+  private def liveChange(live: Set[Map[VarKey, String]]): Shared.Live =
+    if (live == lastLive) Shared.Live.Unchanged
+    else {
+      lastLive = live
+      Shared.Live.Now(live.toList.map(vars.env))
+    }
 
   private def dirtied(changes: List[StateChange]): Shared.Dirty = {
     val (sets, memberIds) = members.dirtied(changes)
@@ -509,7 +523,7 @@ class Renderer(validated: Dashboard.Validated) {
           members.setContainer(gid) match {
             case Some(setId) => setAsks(setId, shared)
             case None        =>
-              pickedCase(gid, selections, shared)
+              pickedCase(gid, shared)
                 .flatMap(surfaces.cases(gid).lift)
                 .toList
                 .flatMap(surfaceAsks(_, shared, selections))
@@ -993,7 +1007,7 @@ class Renderer(validated: Dashboard.Validated) {
     ask(
       asksOfSurface(surfaces.pageRoot, shared) ++
         surfaces
-          .shownSurfaces(surfaces.openOf(open), shared)
+          .shownSurfaces(surfaces.screen(open, shared), shared)
           .toList
           .flatMap(i => asksOfSurface(Ix(i), shared)),
       shared,
@@ -1030,7 +1044,7 @@ class Renderer(validated: Dashboard.Validated) {
           traced.flatMap(_._2.claims).toMap
         )
       case None =>
-        pickedCase(container, viewing.selections, shared)
+        pickedCase(container, shared)
           .flatMap(renderCaseTraced(container, _, shared, viewing))
           .fold(HostContent(Nil, IArray.empty, Map.empty))((id, t) =>
             HostContent(List(id -> t.html), IArray(t.root), t.claims)
@@ -1045,18 +1059,17 @@ class Renderer(validated: Dashboard.Validated) {
     nodeAt(host, shared).fold(index.ixsOf(host).head)(_.ix)
   }
 
-  /** What `gid` shows as `shared` decides and this viewer selects, each key the
-    * root of a shown member or case: what its host's list is planned against.
+  /** What `gid` shows as `shared` decides for its viewer, each key the root of
+    * a shown member or case: what its host's list is planned against.
     */
   private[runtime] def decidedKeys(
       gid: NodeId,
-      shared: Shared,
-      selections: Selections
+      shared: Shared
   ): IArray[Ix] =
     members.setContainer(gid) match
       case Some(setId) => members.keysOf(setId, shared)
       case None        =>
-        pickedCase(gid, selections, shared)
+        pickedCase(gid, shared)
           .flatMap(i =>
             dashboard.picks.get(gid).flatMap(_.choice.cases.lift(i))
           )
@@ -1117,14 +1130,10 @@ class Renderer(validated: Dashboard.Validated) {
     * template reaches the slot's hole. `None` for a node owning no pick, or one
     * showing nothing: the hole renders empty.
     */
-  private def pickedCase(
-      gid: NodeId,
-      selections: Selections,
-      shared: Shared
-  ): Option[Int] =
+  private def pickedCase(gid: NodeId, shared: Shared): Option[Int] =
     if (surfaces.cases(gid).isEmpty) None
     else if (surfaces.isStatePick(gid)) surfaces.decideByState(gid, shared)
-    else surfaces.decideByViewer(gid, selections)
+    else surfaces.decideByVariable(gid, shared)
 
   /** What a node's patch form is rendered from ([[ByteValues]]). A node's other
     * inputs are fixed per renderer (template, constants, `id`,
@@ -1345,7 +1354,7 @@ class Renderer(validated: Dashboard.Validated) {
             case Ready.Content
                   .Live(slot, Ready.LiveFill.Pick(cases, _, _, _, _)) =>
               hole(slot) {
-                val shown = pickedCase(gid, viewing.selections, shared)
+                val shown = pickedCase(gid, shared)
                   .flatMap(cases.lift)
                 val _ = trace.shown.put(c.ix, IArray.from(shown.map(_.ix)))
                 shown.foreach(child)

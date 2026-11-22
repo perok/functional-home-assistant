@@ -262,7 +262,6 @@ class LiveStreamSuite extends ServerHarness {
           r,
           Map.empty,
           Shared.of(armed),
-          Selections.none,
           Nil,
           List(NodeId.derived("c_0"))
         )
@@ -302,7 +301,7 @@ class LiveStreamSuite extends ServerHarness {
       "sensor.b" -> es("sensor.b", "B0")
     )
     val host: NodeId = "c_0_2"
-    val mine = Selections(None, Map(NodeId.derived("c_0_panel_0") -> 1))
+    val mine = r.vars.env(Map(VarKey(NodeId.derived("c_0"), "tab") -> "1"))
     // Recorded as holding what a tab-0 connect left behind.
     val log = FragmentLog("w23").touched(r.ixOf(host), 5L)
     val holds: Map[Ix, Held] =
@@ -317,7 +316,8 @@ class LiveStreamSuite extends ServerHarness {
       holds,
       states,
       1L,
-      Set("c_0_panel_0_1"),
+      Set.empty,
+      Selections.none,
       mine
     )
 
@@ -348,9 +348,9 @@ class LiveStreamSuite extends ServerHarness {
         "sensor.b" -> es("sensor.b", "B0")
       )
     val det = r.surfaces.popupSpelling("det").get
-    val open = Set(det, "s_det__c_0_panel_0_1")
+    val open = Set(det)
     val mine =
-      Selections(None, Map(NodeId.derived("s_det__c_0_panel_0") -> 1))
+      r.vars.env(Map(VarKey(NodeId.derived("s_det__c_0"), "tab") -> "1"))
     // Exactly as `pageResponse` records it.
     val ids =
       (r.surfaceNodeIds(det) ++ r.surfaceNodeIds(
@@ -370,6 +370,7 @@ class LiveStreamSuite extends ServerHarness {
       tab0Moved,
       2L,
       open,
+      Selections.none,
       mine
     )
     assert(
@@ -389,6 +390,7 @@ class LiveStreamSuite extends ServerHarness {
       tab1Moved,
       2L,
       open,
+      Selections.none,
       mine
     )
     assert(
@@ -398,9 +400,9 @@ class LiveStreamSuite extends ServerHarness {
   }
 
   /** ADR 0007's "an inactive branch costs nothing", for a user surface nested
-    * in one. `selectedSurfaces` reports a selection for every pick over a
-    * variable whether on screen or not, so a tab panel in a hidden `If` is in
-    * the open set; pushing it is harmless and pure waste.
+    * in one. `chosen` holds a case for every pick over a variable whether on
+    * screen or not, so a tab panel in a hidden `If` is in a viewer's screen;
+    * pushing it is harmless and pure waste.
     */
 
   test("a tab panel inside a HIDDEN branch costs nothing") {
@@ -448,22 +450,23 @@ class LiveStreamSuite extends ServerHarness {
     val log = r.index.all
       .filter(ix => (r.index.id(ix): String).startsWith(tab0))
       .foldLeft(FragmentLog("w13"))(_.touched(_, 5L))
-    def owedWith(open: String) =
+    def owedWith(tab: String) =
       resumeNow(
         r,
         log,
         Map.empty,
         states,
         1L,
-        Set(open),
-        Selections.none
+        Set.empty,
+        Selections.none,
+        r.vars.env(Map(VarKey(NodeId.derived("c_1_branch_0_0"), "tab") -> tab))
       ).map(_.patch.toSse.render)
     assert(
-      !owedWith("c_1_branch_0_0_panel_1").exists(_.contains("A1")),
-      clue = owedWith("c_1_branch_0_0_panel_1")
+      !owedWith("1").exists(_.contains("A1")),
+      clue = owedWith("1")
     )
-    // The control: the same log is owed something to a viewer with tab 0 open.
-    assert(owedWith(tab0).nonEmpty)
+    // The control: the same log is owed something to a viewer on tab 0.
+    assert(owedWith("0").nonEmpty)
   }
 
   /** A bar lit server-side while tab 1 is open, a cell class reading the

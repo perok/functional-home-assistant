@@ -213,8 +213,14 @@ class MemberNodesSuite extends ServerHarness {
   test("a choice inside a member shows this viewer's member") {
     assertEquals(tabbed.validate(), Nil)
     val r = Renderer.create(tabbed)
-    val html =
-      r.renderBody(twoOn, picking("c_0_light_a_k0" -> 1, "c_0_light_b_k0" -> 0))
+    // Each member's pick reads its own scope's value.
+    val html = r.renderBody(
+      twoOn,
+      vars = Map(
+        NodeId.derived("c_0_light_a_k0") -> Map("tab" -> "1"),
+        NodeId.derived("c_0_light_b_k0") -> Map("tab" -> "0")
+      )
+    )
     assert(html.contains("A second") && !html.contains("A first"), clue = html)
     assert(html.contains("B first") && !html.contains("B second"), clue = html)
     // The member's root hosts its panel.

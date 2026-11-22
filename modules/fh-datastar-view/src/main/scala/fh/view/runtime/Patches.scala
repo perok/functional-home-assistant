@@ -288,14 +288,15 @@ private[runtime] object Patches {
     * since a pull is a resume from `position + 1`.
     *
     * Candidates are the nodes logged at `>= v`, where the log's place is the
-    * one shown now, plus every node and host of an open container (which
-    * nothing recorded while unwatched). A node is sent when its byte-slot
-    * values differ from what this viewer holds. A host's keys are decided now
-    * and planned against the list it holds ([[planHost]]); a key held and
-    * decided is sent again when its root was logged and it has no rendering of
-    * its own, since it left and came back while the viewer was away (A → B →
-    * A). Nothing inside a range sent whole or leaving is patched as well. The
-    * cursor selects ids, never content.
+    * one shown now, plus every node and host of a container on the viewer's
+    * screen, a popup open or a case its values pick (which nothing recorded
+    * while unwatched). A node is sent when its byte-slot values differ from
+    * what this viewer holds. A host's keys are decided now and planned against
+    * the list it holds ([[planHost]]); a key held and decided is sent again
+    * when its root was logged and it has no rendering of its own, since it left
+    * and came back while the viewer was away (A → B → A). Nothing inside a
+    * range sent whole or leaving is patched as well. The cursor selects ids,
+    * never content.
     */
   def resume(
       renderer: Renderer,
@@ -313,8 +314,8 @@ private[runtime] object Patches {
   ): IO[List[Addressed]] =
     renderer
       .decide(decisions) { run =>
-        val at = shared.asking(run)
-        val o = owing(renderer, log, holds, at, v, open, selections)
+        val at = shared.asking(run).viewing(env)
+        val o = owing(renderer, log, holds, at, v, open)
         (
           at,
           o,
@@ -350,11 +351,10 @@ private[runtime] object Patches {
       holds: Map[Ix, Held],
       shared: Shared,
       v: Long,
-      spelled: Set[String],
-      selections: Selections
+      spelled: Set[String]
   ): Owing = {
     val index = renderer.index
-    val open = renderer.surfaces.openOf(spelled)
+    val open = renderer.surfaces.screen(spelled, shared)
     val logged = log.since(v)
     val fromOpen = open.iterator
       .map(Ix(_))
@@ -380,7 +380,6 @@ private[runtime] object Patches {
       renderer,
       holds,
       shared,
-      selections,
       candidates,
       candidates.flatMap(renderer.hostsAt(_, shared)).distinct,
       k => logged(k.toInt) && !renderer.hasOwnRendering(k)
@@ -394,17 +393,15 @@ private[runtime] object Patches {
       renderer: Renderer,
       holds: Map[Ix, Held],
       shared: Shared,
-      selections: Selections,
       readers: List[NodeId],
       hosts: List[NodeId]
   ): Owing =
-    owe(renderer, holds, shared, selections, readers, hosts, _ => false)
+    owe(renderer, holds, shared, readers, hosts, _ => false)
 
   private def owe(
       renderer: Renderer,
       holds: Map[Ix, Held],
       shared: Shared,
-      selections: Selections,
       candidates: List[NodeId],
       hosts: List[NodeId],
       again: Ix => Boolean
@@ -415,7 +412,7 @@ private[runtime] object Patches {
         val host = renderer.hostIx(gid, shared)
         planHost(
           holds.get(host).flatMap(_.shows),
-          renderer.decidedKeys(gid, shared, selections),
+          renderer.decidedKeys(gid, shared),
           again
         ) match
           case Nil   => None

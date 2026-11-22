@@ -579,14 +579,17 @@ class RenderBench {
     val next =
       viewers.advance(
         prev,
-        fh.view.runtime.Frame(changes, StoreState(states, version))
+        fh.view.runtime.Frame(changes, StoreState(states, version)),
+        viewerSessions.map(s => Map(ViewerMode -> s.tab)).toSet
       )
     val req = viewers
       .decide(_ => IO.pure(FetchSnapshot.empty)) { run =>
         val (before, now) = (prev.asking(run), next.asking(run))
         val visible = viewerSessions.foldLeft(
           scala.collection.immutable.BitSet.empty
-        )((seen, s) => seen | viewers.surfaces.onScreen(s.open, now))
+        )((seen, s) =>
+          seen | viewers.surfaces.onScreen(s.open, now.viewing(s.env))
+        )
         Patches.plan(viewers, before, now, changes, visible)
       }
       .unsafeRunSync()
@@ -606,7 +609,7 @@ class RenderBench {
           s.env,
           version,
           s.open,
-          viewers.surfaces.selectionsShown(s.open, s.env)
+          viewers.surfaces.selectionsIn(s.open)
         )
       }
       .unsafeRunSync()
@@ -630,7 +633,7 @@ class RenderBench {
     bh.consume(
       viewers.renderPageHolds(
         Sink.buffer(viewers.pageBytesHint),
-        Shared.of(viewerPaint),
+        Shared.of(viewerPaint).viewing(s.env),
         Viewing(s.selections, FetchSnapshot.of(Map.empty, s.env))
       )
     )
@@ -2398,7 +2401,7 @@ object RenderBench {
       tab: String
   ): ViewerSession = {
     val env = renderer.vars.env(Map(ViewerMode -> tab))
-    val selections = renderer.surfaces.selections(None, env)
+    val selections = Selections.none
     ViewerSession(
       tab,
       env,
@@ -2406,7 +2409,7 @@ object RenderBench {
       selections,
       renderer.renderPageHolds(
         Sink.buffer(renderer.pageBytesHint),
-        Shared.of(states),
+        Shared.of(states).viewing(env),
         Viewing(selections, FetchSnapshot.of(Map.empty, env))
       )
     )

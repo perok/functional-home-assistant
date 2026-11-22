@@ -127,7 +127,7 @@ class ChosenFillSuite extends munit.FunSuite {
       val env = r.vars.env(
         choice.map(c => VarKey(NodeId.derived("c"), "mode") -> c).toMap
       )
-      r.renderBody(Map.empty, r.surfaces.selections(None, env))
+      r.renderBody(Map.empty, vars = env)
     val first = viewing(None)
     val second = viewing(Some("cool"))
     assert(first.contains("<span>hot</span>"), clue = first)
@@ -144,7 +144,7 @@ class ChosenFillSuite extends munit.FunSuite {
     )
     val env =
       r.vars.env(Map(VarKey(NodeId.derived("c"), "mode") -> "away"))
-    val body = r.renderBody(Map.empty, r.surfaces.selections(None, env))
+    val body = r.renderBody(Map.empty, vars = env)
     assert(body.contains("<span>off</span>"), clue = body)
   }
 

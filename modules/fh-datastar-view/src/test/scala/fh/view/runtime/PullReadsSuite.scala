@@ -82,14 +82,20 @@ class PullReadsSuite extends munit.FunSuite {
     )
   )
 
-  /** The entities of every read the pull asked for. */
-  private def asked(log: FragmentLog, open: Set[String] = Set.empty) = {
+  /** The viewer who has the tab bar's only tab chosen. */
+  private val onTab =
+    choosing(renderer, "charted", "tab", "0")
+
+  /** The entities of every read the pull asked for, for a viewer whose values
+    * are `env`: none chosen unless given.
+    */
+  private def asked(log: FragmentLog, env: VarEnv = Map.empty) = {
     val snapshot = FetchSnapshot.of(
       renderer
         .fetchesForPage(
-          Set("charted_panel_0_0"),
-          Shared.of(Map.empty),
-          Map.empty
+          Set.empty,
+          Shared.of(Map.empty).viewing(onTab),
+          onTab
         )
         .map(_ -> Staged(1L, "<svg/>"))
         .toMap
@@ -105,9 +111,8 @@ class PullReadsSuite extends munit.FunSuite {
         Shared.of(Map("light.a" -> EntityState("light.a", "on", Map.empty))),
         noDecisionFetches,
         reads => seen.update(_ ++ reads).as(snapshot),
-        Map.empty,
-        0L,
-        open
+        env,
+        0L
       )
       reads <- seen.get
     } yield reads.map { case SlotRead(FetchRequest.History(e, _), _) =>
@@ -136,7 +141,7 @@ class PullReadsSuite extends munit.FunSuite {
     assertEquals(
       asked(
         FragmentLog("test").touched(renderer.ixOf("plain"), 1L),
-        open = Set("charted_panel_0_0")
+        env = onTab
       ),
       Set("sensor.tab")
     )

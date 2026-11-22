@@ -90,7 +90,7 @@ flowchart TB
     direction TB
     OPEN["openingPatches<br/>resume ▸ repaint ▸ reload<br/>narrowest that is still correct"]
     BEAT["keepAlive · every 25s<br/>a comment, or the CURSOR when position moved<br/>since this stream last said so"]
-    PULL["Server.pull<br/>Patches.resume from position + 1<br/>ALL RENDERING HAPPENS HERE, in the PATCH form:<br/>a signal slot's value is NOT in these bytes<br/>against THIS session's holds + open set"]
+    PULL["Server.pull<br/>Patches.resume from position + 1<br/>ALL RENDERING HAPPENS HERE, in the PATCH form:<br/>a signal slot's value is NOT in these bytes<br/>against THIS session's holds, popups and values"]
     SIGS["Patches.signalFrame<br/>ONE datastar-patch-signals for the batch<br/>the candidates' signal slots, diffed<br/>against this session's record, their CEL<br/>reading the batch's pre-read fetches<br/>— the CURSOR merges into it when no<br/>element patch separates them"]
     APPL["Patches.applied<br/>forget the hosts it re-supplied,<br/>claim what its bytes placed<br/>AND what the frame set"]
     MERGE["the session's owner: one step at a time<br/>(opening, pulls, writes, repaints, keepAlive)<br/>into the stream's Outlet IN STEP ORDER<br/>▸ merged with haDown"]
@@ -108,7 +108,7 @@ flowchart TB
   GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>a call is admitted by its declared id, and only on a node that places it"]
   ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>(a popup's also from popstate: Back/Forward, ADR 0005)<br/>carries conn + the popup's ui-state<br/>a conn this process has forgotten is REFUSED, said so; only the stream rebuilds it (ADR 0024)<br/>the swap COMMITS ui_popups; the tap only says what it asked for (ADR 0025)"]
   VAR["node variable (ADR 0033)<br/>a declared SetVar call, POST call/&lt;slug&gt;/&lt;callId&gt;?node= · or v. on the page URL<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press is one: it swaps the panel it selects<br/>re-renders the readers this viewer is shown, commits LAST"]
-  SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>open set, holds (what this DOM has: byte-slot values, signals,<br/>each host's shown roots in order),<br/>position, told, vars (this viewer's choices),<br/>initialValues (where the document opened a variable)<br/>+ a backlog for a client with no stream"]
+  SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>open (its popups), holds (what this DOM has: byte-slot values, signals,<br/>each host's shown roots in order),<br/>position, told, vars (this viewer's choices),<br/>initialValues (where the document opened a variable)<br/>+ a backlog for a client with no stream"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>Ix -&gt; version: a node, a host, an arriving key, each at its clause's place<br/>where to look, never what a client has")]
 
   HA --> PUMP --> STORE --> CH --> SYNC --> PLAN --> REC --> BELL
@@ -125,7 +125,7 @@ flowchart TB
   ACT --> SESS
   SESS -->|a write's frames, or the backlog on attach| MERGE
   ACT -.->|popupFill claims into holds| SESS
-  SESS -.->|openSets: which surfaces are worth recording| PLAN
+  SESS -.->|watching: each session's popups under each of its values, worth recording| PLAN
   GATE --> VAR
   VAR -->|vars · morphs, then the commit| SESS
   PULL -.->|the reads it will render| QS
@@ -165,7 +165,7 @@ the candidate LIST does not. See ADR 0023.
 will receive it, from the same `Patches.resume` a reconnect runs. A live tick is a resume from
 `position + 1` — one mechanism, not two — which is why there is no audience tag on a patch and no
 per-client filter at the wire edge: a patch exists only because the session that will send it asked
-for it, against its own open set and its own record of its own DOM.
+for it, against its own popups and values and its own record of its own DOM.
 
 The recorder is **one fiber per slug** (`Server.publisherFor`), re-armed by `switchMap` on every
 renderer swap. A swap installs a fresh log, stamped with the new renderer, before the renderer
@@ -196,7 +196,7 @@ layers only look it up.
 |---|---|---|---|
 | **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL and card templates compiled (`Validated.templates`, the same tree the checks read), fetches parsed, and the tree walked into the compiled one (`Validated.ready`, `Ready.Compile`): every slot, guard, state condition and order beside its run. Everything below reads only that tree |
 | **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's fetching slots with the `valueWhile` each waits for (`Renderer`'s `Index`, one for the body and one per popup, a choice's every case included, each node with the container holding it; `Component.fetching`), which nodes an entity wakes, every member a candidate can be in each clause with its nodes and fetches (`MemberGraph`, `Member.fetching`), the sets inside each clause (`MemberGraph.setsIn`), each choice's pick and its cases' node ids (`SurfaceGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
-| **Decisions** | state version | the entity states, and the answers to the fetches a decision reads | what they decide, in that version's `Shared`: which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which case a pick over state shows, its `by` read once (`SurfaceGraph.decideByState`), and whether each `valueWhile` holds. Each is carried from the version before unless the frame between DIRTIED it (an edge in the index, read off the expression that decides it), or made on demand by the first reader that reaches it; every viewer of one version shares them. Beside them, a node's signal values (`Shared.signals`), made by the first session's signal frame and never carried; a node reading a fetch is left out, since its answer is the viewer's (ten clients' signal tick: 341 to 213 µs, `RenderBench.resumeSignalsFanout`). A viewer's own part of a send is its `Viewing`: its `Selections` and its slot answers (§6) |
+| **Decisions** | state version | the entity states, and the answers to the fetches a decision reads | what they decide, in that version's `Shared`: which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which case a pick over state shows, its `by` read once (`SurfaceGraph.decideByState`), and whether each `valueWhile` holds. Each is carried from the version before unless the frame between DIRTIED it (an edge in the index, read off the expression that decides it), or made on demand by the first reader that reaches it; every viewer of one version shares them. What reads a variable is the exception: it is made at the viewer's values (`Shared.viewing`) and kept per values (`Shared.branchAt`, `ByValues`), so viewers on equal values share one, a dirtying drops every value's at once, and a carry drops the values no live session holds. A pick over the plain variable is not kept: it is a lookup of the viewer's value (`SurfaceGraph.decideByVariable`). Beside them, a node's signal values (`Shared.signals`), made by the first session's signal frame and never carried; a node reading a fetch is left out, since its answer is the viewer's (ten clients' signal tick: 341 to 213 µs, `RenderBench.resumeSignalsFanout`). A viewer's own part of a send is its `Viewing`: its `Selections` (the popup) and its slot answers (§6), beside the values its `Shared` is viewed at |
 
 Three rules keep the layers apart, and building on them is how new work stays cheap:
 
@@ -210,7 +210,7 @@ Three rules keep the layers apart, and building on them is how new work stays ch
   the next version exists is offered on to it unless that frame dirtied it.
 - **Work happens only where a dirty mark meets something shown.** A dirty decision is made again
   only when a walk reaches it: a viewer's, a press, the debug route, or the recorder's for what
-  some session has open. One nobody shows stays dirty and costs nothing. A plain tick dirties no
+  some session shows. One nobody shows stays dirty and costs nothing. A plain tick dirties no
   decision and ends as a `touched` entry; a removal (`StateChange.Removed`) is a change like any
   other, so a decision that read the entity goes dirty.
 - **A version decides each thing once**, and the pre-read, the walk, the render key and the
@@ -224,9 +224,9 @@ Three rules keep the layers apart, and building on them is how new work stays ch
   decisions, and a hidden one's fetch is never asked. Outside a run, such a decision raises.
 
 `Decided` keeps the two newest versions: the recorder asks of a frame's "before" and "after" in
-one run. An older version decides afresh, so a session behind its peers (§5) is correct and only unshared. The
-viewer's own choices (an open popup, a selected tab) are not decisions: they are in its
-`Viewing`, and no decision reads them.
+one run. An older version decides afresh, so a session behind its peers (§5) is correct and only unshared. A
+viewer's open popup is not a decision: it is in its `Viewing`. A selected tab is its value of the
+variable, which its `Shared` is viewed at; the case is a lookup of it.
 
 ---
 
@@ -359,7 +359,7 @@ GET /sse/dashboard/:slug/patch
   retire the session `?prev=` names, if any, unless a stream is HOLDING it
     // this tab's previous document, from sessionStorage. A reload mints a
     // fresh conn, so without this its predecessor sits in the registry for a
-    // whole linger window, its open set widening what every frame records.
+    // whole linger window, its popups and values widening what every frame records.
     // Retiring is all that is wanted: the old holds describes a DOM that no
     // longer exists. The not-Held guard is for a DUPLICATED tab, which
     // inherits sessionStorage and would otherwise evict a live viewer
@@ -533,20 +533,24 @@ every slug's recorder wakes                  // its stream began with the state
                                              // first frame records nothing, it
                                              // SEEDS the log (complete from the
                                              // version after it) and rings
-  sessions.openSets(slug)
+  sessions.watching(slug)                     // each session's popups under its values, and under
+                                              // values revealed since its last step
   advance -> the next Shared: the previous one's decisions minus those the
       frame's changes DIRTY (an index lookup per change, no cascade: a decision
       reads states and answers, never another decision), on the frame's own
       states. BEFORE the gate: the chain tracks the state stream, so a frame
       nobody records still moves it and the next recorded frame diffs from
-      where the stream really is. It makes nothing; a frame costs its CHANGES,
+      where the stream really is. The values the watched sessions hold ride
+      along: values none holds are dropped from what a decision kept per values.
+      It makes nothing; a frame costs its CHANGES,
       not the size of the house
     NO SESSIONS -> record nothing at all, just mark the gap (log.skipped) and
       stop. A dashboard with no browser on it is the normal state of a home
       instance. Safe only because a document registers its session BEFORE
       reading the snapshot it renders from, which makes any version skipped
       one that document already contains
-    visible = surfaces some session can actually SEE  // widens what is considered
+    visible = the surfaces on each watched viewer's screen: its popups, and the
+              cases its values pick (SurfaceGraph.onScreen, one viewer at a time)
   plan    -> in ONE decide run over "before" and "after" (the previous and the
              next Shared): a decision shown in either is made there, dirty or
              never made; one nobody shows is not reached, so its fetch is not
@@ -808,12 +812,14 @@ visibility, decided there and painted here. What may be hidden is a CONTAINER: t
 Every node is in the innermost one holding it, which the `TreeIndex` records, members' nodes
 included. A node is shown while every container up its chain is: a popup open, a case picked.
 
-**A container is a node, so inside a renderer it is its `Ix`**: an open set is a `BitSet`, and
+**A container is a node, so inside a renderer it is its `Ix`**: a viewer's open set is a `BitSet`
+(`SurfaceGraph.screen`: its popups and the cases its values pick, `chosen`), and
 `SurfaceGraph`, `MemberGraph` and the renderer's per-container maps (static nodes, the entity
 reverse index) are keyed by it; the page's root is `SurfaceGraph.pageRoot`, always shown and never
 in an open set. **Across a renderer swap it is SPELLED by its root's DOM id**, because
-`SessionState.open` outlives the renderer whose `Ix` numbering it would otherwise carry: a popup is
-`s_<sid>__c` (`SurfaceGraph.popupSpelling`), a case is its node id. A step reads the spelling into
+`SessionState.open`, which holds popups only, outlives the renderer whose `Ix` numbering it would
+otherwise carry: a popup is `s_<sid>__c` (`SurfaceGraph.popupSpelling`). A case is never in it: the
+viewer's values pick it. A step reads the spelling into
 `Ix` once (`SurfaceGraph.openOf`); under a set member's clauses one spelled id is one `Ix` per
 clause, and a name the new renderer lacks drops out. The wire is not this spelling: `ui_popups`,
 its URL parameter, `Selections.popup` and the open route keep the surface key, which the route
@@ -886,8 +892,8 @@ their own heads, and a write swaps only the pick of the member's current clause
 (`SurfaceGraph.groupShown`). A member holding nodes has no one element to send, so its arrival and a
 clause switch (a different node, or the same node in another clause) place it whole, rendered per
 viewer (`renderMemberTraced`), with its leaves' claims; a pick first shown that way takes its
-selection from the session's variables (`SurfaceGraph.selectionsShown`), and a pick over state with
-the branch its state picks. So an `If` on live state inside a clause flips only while its member
+case from the viewer's values (`SurfaceGraph.decideByVariable`), and a pick over state the
+branch its state picks. So an `If` on live state inside a clause flips only while its member
 is present in that clause, before and after the frame (`SurfaceGraph.groupShown`); the frame
 finds it from the changed entities, not by walking every group (ADR 0007).
 
@@ -945,7 +951,7 @@ building one (`RenderBench.memberClauseFlip`), and the plans an id holds are bou
 | | Per slug (the recorder) | Per client (the pull) |
 |---|---|---|
 | Runs on | one recorder fiber per slug | that connection's own SSE fiber |
-| Sees | the full entity snapshot + the union of visible surfaces | one session's open set and ui-state |
+| Sees | the full entity snapshot + the surfaces on each watched viewer's screen (`Sessions.watching`: its popups under its values) | one session's popups, values and ui-state |
 | Renders | **nothing** | everything: opening paint, live pulls, resume |
 | Writes | the changelog (`id -> version`: nodes, hosts, arriving keys) | that session's `holds` (byte-slot values, signals, and each host's shown roots) and `position` |
 | Cost of N viewers | ×1 | ×1 per node, via the per-slug render cache |
@@ -1248,17 +1254,17 @@ the URL follows what the server did rather than what was pressed.
 picked by it; `VarGraph.panelsSelectedBy` is that edge, so a tab press is a
 variable write that plans the panel's host against what this session holds, as a pull plans
 any host (`Patches.written`, then the same `Patches.patches`; nothing is sent again, since no
-log is read), before it commits. Every
-path that renders a panel takes the bar's case from the session's variables: `SurfaceGraph.selections`
-pairs them with the request's popup at each entry (the page, an action, a minted session, a
-connect after adopting the carried values, a renderer swap), narrowing the popup to one this
-dashboard hosts and dropping a value no case of the choice takes, which shows nothing. A pull reads `session.open` instead
-(`SurfaceGraph.selectionsIn`), which the write keeps in step. A session's values are checked against
-each renderer they meet once (`Renderer.recheck`), so a value an edit refuses (a removed tab)
-falls back to its declaration rather than showing nothing. `Selections` is what all of them
-hand the renderer: the popup's surface id and each pick's case index, which
-`SurfaceGraph.memberAt` finds from the variable's value (`Ready.Pick.decide`: the case keyed by
-it, else the otherwise, an If over a variable's `else`).
+log is read), before it commits, with the session's new values revealed to the recorder first
+(`Session.reveal`). Every path that renders a panel takes the bar's case from the viewer's
+values: the render's `Shared` is viewed at `renderer.vars.env(values)` (`Shared.viewing`) at each
+entry (the page, an action, a minted session, a connect after adopting the carried values, a
+renderer swap, a pull), and `SurfaceGraph.decideByVariable` looks the case up with
+`SurfaceGraph.memberAt` (`Ready.Pick.decide`: the case keyed by the value, else the otherwise, an
+If over a variable's `else`); a value no case takes shows nothing. `Selections` is the popup alone,
+narrowed to one this dashboard hosts (`SurfaceGraph.openPopup`); a pull reads it from
+`session.open` (`SurfaceGraph.selectionsIn`). A session's values are checked against each renderer
+they meet once (`Renderer.recheck`), so a value an edit refuses (a removed tab) falls back to its
+declaration rather than showing nothing.
 
 The authoring side is one component (`c.chooser(c.select(v))`, `c.history.chooser` for the window): it
 declares the variable, and its bar is a `tab` node per option. A button's press names only the
@@ -1295,8 +1301,8 @@ a synchronous string build and the set has to be known before it starts. Decidin
 that is not the walk, so the two can drift; `FetchDriftSuite` renders the fixtures and a dashboard
 with a chart in every position against exactly the decided set, and fails on any miss.
 
-A page's set is what it shows: the body, the viewer's open surfaces (selected tab panels, the
-popup), and the branch each state group picks at the snapshot's states — so a flip in this render is
+A page's set is what it shows: the body, the viewer's open surfaces (the popup, and the tab
+panels its values pick), and the branch each state group picks at the snapshot's states — so a flip in this render is
 answered. An unselected tab is not; switching to it fetches its own (`setVar`, through the fill it plans). A pull asks for
 exactly what it renders: each target's own reads (a placed member's include its whole subtree's,
 at this viewer's values, and the sets above it) and what each host
@@ -1564,10 +1570,10 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | what a page open COST | `telemetry/Telemetry.scala` · the three providers, no-op together unless an OTLP endpoint is configured; `telemetry/Logging.scala` · the loggers every file takes, each line carrying the span it was written inside; `telemetry/Meters.scala` · the `fh.*` instruments; `runtime/Server.scala` · the `dashboard.page` / `.store` / `.walk` spans. Because the document is walked as the body is pulled, the walk outlives the handler — so its span is started inside the body and re-parented with `childOrContinue`, and a span that merely wrapped `renderPage` would time the setup and miss the render (issue #75) |
 | what keys a render | `runtime/Renderer.scala` · `byteSlotValues`, `pickedCase` |
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `binding`, `deltas`, `dirtied`, `membersOf`, `setsIn`, `innerSetId` |
-| what a version decides, once | `runtime/Shared.scala` · `Shared` (members, state branches, `valueWhile`s; carried + fills; signal values, fills only), `Shared.Run` (one decide run's answers and needs), `Decided` (the two newest versions, `advance`), `Viewing`; `runtime/Renderer.scala` · `decide`, `advance`, `gateHolds`, `withheld` |
+| what a version decides, once | `runtime/Shared.scala` · `Shared` (members, state branches, `valueWhile`s; carried + fills; signal values, fills only), `Shared.viewing` (the viewer's values), `branchAt` / `ByValues` (a decision per values), `Shared.Run` (one decide run's answers and needs), `Decided` (the two newest versions, `advance`), `Viewing`; `runtime/Renderer.scala` · `decide`, `advance`, `gateHolds`, `withheld` |
 | what a render reads before its walk | `runtime/Renderer.scala` · `fetchesForPage`, `fetchesForSurface`, `readsForPull`, `presentAt`, `setAsks`; `model/Dashboard.scala` · `Component.fetching`, `Fetching` |
-| which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selections`/`selectionsIn` (one viewer's popup and panels), `cases`, `decideByViewer` (per viewer) / `decideByState` (per version), `selectedSurfaces`, `visibleNode`, `visibleContainer` (the one test of shown, by `Ix`: a tick, a flip and page open), `onScreen`, `shownSurfaces`, `pageRoot`, `openOf` / `popupSpelling` (the spelling across a swap) |
-| node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
+| which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selectionsIn` (one viewer's popup), `cases`, `decideByVariable` (a lookup in the viewer's values) / `decideByState` (per version), `selectedSurfaces` (popups), `chosen` / `screen` (the cases a viewer's values pick; its open set), `visibleNode`, `visibleContainer` (the one test of shown, by `Ix`: a tick, a flip and page open), `onScreen`, `shownSurfaces`, `pageRoot`, `openOf` / `popupSpelling` (the spelling across a swap) |
+| node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
 | evaluating any reading: a slot, a guard, an activation condition, an order term, a CEL input | `runtime/Evaluator.scala` · `compile`, `holds`, `inputs`, `Keys` (an ordering's keys, read once per member per sort, used by `MemberGraph`) · `runtime/Steps.scala` · what each simple step makes of its value (`formatWith`, `kleene`); the language is ADR 0035 |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.cached` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |
 | what a cache entry is keyed by | the node's `Ix` (one per clause of a member) -> renderer generation + the byte-slot values it was rendered from (`ByteValues`, from `Renderer.byteSlotValues`: each byte slot's value). The renderer is in the key because a dashboard edit changes the MARKUP while the values stay put; a swap empties the cache (`LiveSlug.install`), and an entry holds the generation rather than the renderer so a straggler cannot keep a replaced dashboard alive |
