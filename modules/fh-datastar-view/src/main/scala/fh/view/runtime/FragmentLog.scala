@@ -61,6 +61,10 @@ private[runtime] case class Resume(
 /** A cursor minted against another `id` (restart, renderer swap) is refused:
   * versions mean nothing across logs.
   *
+  * `stamp` is the renderer whose recorder writes it, `None` under `Failed`. A
+  * swap sets the renderer after the log, so a reader can meet a log another
+  * renderer numbers; it takes one only under its own ([[numberedBy]]).
+  *
   * `fragments` holds only existing nodes. `mutations` would grow with time — a
   * `Gone` for a member that never returns has nothing to evict it — hence
   * [[pruned]] and [[horizon]]. No clock is read: versions order everything (ADR
@@ -68,6 +72,7 @@ private[runtime] case class Resume(
   */
 private[runtime] case class FragmentLog(
     id: String,
+    stamp: Option[Renderer.Stamp] = None,
     // A missing entry reads "send it", so dropping one is always safe.
     fragments: Map[NodeId, Long] = Map.empty,
     mutations: Map[NodeId, Mutation] = Map.empty,
@@ -91,7 +96,20 @@ private[runtime] case class FragmentLog(
   def skipped(version: Long): FragmentLog =
     if (completeFrom > version) this
     else
-      FragmentLog(id = id, completeFrom = version + 1)
+      FragmentLog(id = id, stamp = stamp, completeFrom = version + 1)
+
+  /** The recorder's first frame is the state it subscribed at, recorded
+    * nowhere, so the log describes only what comes after it.
+    */
+  def seeded(version: Long): FragmentLog = copy(completeFrom = version + 1)
+
+  def numberedBy(r: Renderer.Stamp): Boolean = stamp.exists(_ eq r)
+
+  /** The id a cursor minted under `r` may quote: a log `r` does not number must
+    * not let that page resume against it later.
+    */
+  def idUnder(r: Renderer.Stamp): String =
+    if (numberedBy(r)) id else FragmentLog.NoLog
 
   /** `floor` is the slowest session's position, so nothing below it can be
     * asked for again. The horizon still rises: a client whose session was
@@ -198,4 +216,16 @@ private[runtime] case class FragmentLog(
       refill
     )
   }
+}
+
+private[runtime] object FragmentLog {
+
+  /** No log has it, so a cursor quoting it always repaints. */
+  val NoLog: String = ""
+
+  /** Reaches no cursor until its recorder [[FragmentLog.seeded]] it: a page
+    * served before that holds a version nothing recorded the way to.
+    */
+  def fresh(id: String, stamp: Option[Renderer.Stamp]): FragmentLog =
+    FragmentLog(id, stamp, completeFrom = Long.MaxValue)
 }

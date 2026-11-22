@@ -284,6 +284,26 @@ class FragmentLogSuite extends munit.FunSuite {
     assert(!idle.reaches(8L), clue = "but anything below it must repaint")
   }
 
+  /** A recorder's first frame is the state it subscribed at, recorded nowhere,
+    * so a page served before it holds a version the log cannot lead on from.
+    */
+  test("a fresh log reaches no cursor until seeded, then from its seed on") {
+    val mine = Renderer.Stamp("head", "style", Map.empty)
+    val fresh = FragmentLog.fresh("f", Some(mine))
+    assert(!fresh.reaches(0L) && !fresh.reaches(1000L), clue = fresh)
+    val seeded = fresh.seeded(7L)
+    assert(seeded.reaches(7L))
+    assert(!seeded.reaches(6L), clue = "missed 7 itself")
+    // A skip keeps who numbers it, or the recorder refuses its own log after.
+    assert(seeded.skipped(9L).numberedBy(mine))
+    assert(!seeded.numberedBy(Renderer.Stamp("head", "style", Map.empty)))
+    assertEquals(seeded.idUnder(mine), "f")
+    assertEquals(
+      seeded.idUnder(Renderer.Stamp("head", "style", Map.empty)),
+      FragmentLog.NoLog
+    )
+  }
+
   test("re-touching a node does not grow the map, so pruning stays rare") {
     // Latest-wins per node keeps a churning entity from filling the map.
     val churned = (1 to 1000).foldLeft(log) { (l, i) =>

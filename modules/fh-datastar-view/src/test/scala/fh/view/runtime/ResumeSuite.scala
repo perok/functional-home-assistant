@@ -206,6 +206,8 @@ class ResumeSuite extends ServerHarness {
         )
         for {
           before <- store.frames.take(1).compile.lastOrError
+          // What a recorder does with its first frame.
+          _ <- live.seed(renderer, before.state.version)
           _ <- store.update(hot)
           after <- store.frames.take(1).compile.lastOrError
           _ <- server.recordFrame(
@@ -594,6 +596,90 @@ class ResumeSuite extends ServerHarness {
         assert(!reloadSent.contains(BodyRepaint), clue = reloadSent)
         assertEquals(after, "")
       }
+    }
+  }
+
+  /** A recorder's first frame is the state it subscribed at, recorded nowhere:
+    * after a swap, a session painted below that is owed what no log holds.
+    */
+  test("a pull from a position the log does not reach repaints") {
+    def text(fs: List[SseFrame]) = fs.flatMap(_.data).mkString("\n")
+    live(liveLeafDash, cold) { ts =>
+      for {
+        v <- ts.viewer()
+        _ <- ts.record(FixtureEntity("sensor.a", "hot"))
+        at <- ts.store.version
+        slug <- ts.server.liveSlug(ts.slug)
+        // As a recorder that subscribed at `at` seeds its log.
+        _ <- slug.log.update(_.seeded(at))
+        sent <- v.pull.map(text)
+        position <- v.session.state.map(_.position)
+      } yield {
+        assert(sent.contains(BodyRepaint), clue = sent)
+        assert(sent.contains(">hot<"), clue = sent)
+        assertEquals(position, at)
+      }
+    }
+  }
+
+  /** A swap installs the next log before `switchMap` stops the old recorder:
+    * that recorder's keys are its renderer's, so it must neither seed nor write
+    * the new log, and the doorbell rings only for what was written.
+    */
+  test("a recorder whose log another renderer numbers leaves it alone") {
+    val hot = es("sensor.a", "hot")
+    val renderer = Renderer.create(liveLeafDash)
+    (for {
+      store <- StateStore.inMemory(cold)
+      ref <- SignallingRef[IO].of(Server.RendererState.Ready(renderer))
+      site <- Server.LiveSite.of(
+        Map("dashboard" -> ref),
+        Map.empty,
+        "dashboard"
+      )
+      live <- site.liveFor("dashboard").map(_.get)
+      sessions <- Sessions.create
+      _ <- ownerlessSession("dashboard").flatMap(
+        sessions.register("watching", _)
+      )
+      fake <- FakeHomeAssistant.create(Nil)
+      seen <- Supervisor[IO].use { supervisor =>
+        val server = new Server(
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
+          store,
+          site,
+          sessions,
+          TestAuth.openGate,
+          supervisor
+        )
+        for {
+          before <- store.frames.take(1).compile.lastOrError
+          _ <- store.update(hot)
+          after <- store.frames.take(1).compile.lastOrError
+          _ <- live.install(
+            Server.RendererState.Ready(Renderer.create(liveLeafDash))
+          )
+          next <- live.log.get
+          seeded <- live.seed(renderer, before.state.version)
+          written <- server
+            .recordFrame(
+              "dashboard",
+              renderer,
+              live.log,
+              renderer.shared(before.state),
+              Frame(
+                List(StateChange.Moved("sensor.a", cold.get("sensor.a"), hot)),
+                after.state
+              )
+            )
+            .map(_._2)
+          left <- live.log.get
+        } yield (seeded, written, next, left)
+      }
+    } yield seen).timeout(30.seconds).map { (seeded, written, next, left) =>
+      assert(!seeded, clue = "seeded another renderer's log")
+      assert(!written, clue = "wrote another renderer's log")
+      assertEquals(left, next)
     }
   }
 

@@ -168,8 +168,9 @@ per-client filter at the wire edge: a patch exists only because the session that
 for it, against its own open set and its own record of its own DOM.
 
 The recorder is **one fiber per slug** (`Server.publisherFor`), re-armed by `switchMap` on every
-renderer swap — and a swap past the first mints a fresh log identity, so cursors issued against the
-old renderer cannot be resumed.
+renderer swap. A swap installs a fresh log, stamped with the new renderer, before the renderer
+itself (`LiveSlug.install`), so cursors issued against the old renderer cannot be resumed and the
+old recorder, still running a moment longer, finds a log that is not its own and leaves it alone.
 
 **Three scopes, not two.** Getting these confused is the easiest mistake to make here:
 
@@ -252,7 +253,8 @@ evaluate the ONE entrypoint        // site.pkl -> slug -> dashboard (ADR 0021);
       Ready(renderer) when it built, Failed(message) when it did not
       // hot-swapped on edit; a failed dashboard is watched, serves an
       // error page, and rebuilds live when the source is fixed
-  per slug: one FragmentLog with a fresh id, in a Ref, and one doorbell
+  per slug: one FragmentLog with a fresh id and its renderer's stamp, in a Ref,
+      reaching no cursor until the recorder's first frame seeds it, and one doorbell
 create ONE Sessions registry, and ONE LiveSite holding all of the above
   // plus, per slug, what it evaluated to and whether the entrypoint owns it
 recorders follow the registry     // sharedPatchPublishers reconciles toAdd/
@@ -299,7 +301,7 @@ Four properties worth stating, because each is silent when broken:
   be kept in step to know that.
 - **An unchanged dashboard is not re-installed.** The watcher fires on anything
   in the workspace; writing a `Ready` state anyway emits on the slug's
-  `SignallingRef`, which rotates its log identity and repaints every open
+  `SignallingRef` and rotates its log identity, which repaints every open
   browser. The comparison is per slug, so one author's edit repaints one
   dashboard.
 - **The registry also decides what HA is asked for.** The upstream
@@ -528,7 +530,10 @@ StateStore.update(frame)                    // one Ref.modify for the whole fram
                                              // only when something changed
 
 every slug's recorder wakes                  // its stream began with the state
-                                             // current when it subscribed
+                                             // current when it subscribed: that
+                                             // first frame records nothing, it
+                                             // SEEDS the log (complete from the
+                                             // version after it) and rings
   sessions.openSets(slug) + floor(slug)
   advance -> the next Shared: the previous one's decisions minus those the
       frame's changes DIRTY (an index lookup per change, no cascade: a decision
@@ -570,6 +575,8 @@ every slug's recorder wakes                  // its stream began with the state
                                               // past changes it never saw
 
 each connection wakes and PULLS
+  a log another renderer stamped, or one that does not reach `position`
+    (its seed is above it) -> repaint, as a swap does
   resume(log, holds, snapshot, position + 1, open, its own ui-state)
       -> send the candidates whose byte-slot values are not what it holds,
          rendered IN THE PATCH FORM
@@ -604,7 +611,11 @@ pruned by the FLOOR: the lowest `position` any live session holds. A mutation
   per-container `horizon` records the version at which its history became incomplete
   -> a cursor below a container's horizon gets a refill instead of a delta
      (a CLIENT cursor is not bounded by the floor, which is why pruning raises it)
-completeFrom: the whole log going incomplete — see the gap above
+completeFrom: the whole log going incomplete — see the gap above — and, on a
+  fresh log, "nothing yet": it reaches no cursor until its recorder's first frame
+  seeds it
+stamp: the renderer whose recorder writes it; it is written, rung for and read
+  only under that renderer, so a swap installs it before the renderer
 absence means "unknown, send it" — so dropping an entry is ALWAYS safe
 ```
 
@@ -614,8 +625,9 @@ Same call as a live pull; only the cursor differs.
 
 ```
 client sends back its stored signals: logId, version, headHash, styleHash
-  different logId, version ahead of the store, head moved, or a cursor from
-    before a stretch this slug did not record -> full repaint
+  different logId, a log the serving renderer did not stamp, version ahead of the
+    store, head moved, or a cursor from before a stretch this slug did not record
+    (or before the log's seed) -> full repaint
   otherwise since(version):
       nodes   whose logged version >= cursor   -> sent, rendered NOW, if their byte-slot
                                                   values are not what this client holds
@@ -936,7 +948,7 @@ Three properties hold it up, and each fails silently if broken:
 
 The recorder's `Shared` is kept off the renderer on purpose (the renderer's `Decided` only lends
 readers the newest two, and its identity never moves). Three things key on renderer IDENTITY —
-`publisherFor` rotates the changelog on a renderer emission, every session's step compares the
+`install` rotates the changelog and `publisherFor` re-arms on a renderer emission, every session's step compares the
 generation that painted its `holds` with `eq` and repaints on a mismatch (`Server.swapAnswer`),
 and `RenderCache` compares renderer generations with `eq` and empties on a swap — so a membership
 change that produced a new renderer

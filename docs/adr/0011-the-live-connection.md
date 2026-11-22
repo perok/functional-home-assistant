@@ -121,9 +121,14 @@ log where 500 names nothing. The log carries a UUID minted with it and a cursor
 quoting a different one is rejected outright rather than reasoned about. It also
 subsumes "is this even the same dashboard", which is why `headHash` does *not* gate
 the resume — a dashboard change arrives via a renderer swap, and a swap rotates the
-log id, so the cursor is already rejected before any hash is consulted (and in the moment
-before the log rotates, the session's stamp refuses the resume: ADR 0012). `logId`
-decides *is this comparable*; `headHash` decides *does the browser need a reload*.
+log id, so the cursor is already rejected before any hash is consulted. The log also
+carries the stamp of the renderer whose recorder numbers it, and a swap installs the
+log FIRST, then the renderer, so the new recorder always finds its own log. That leaves
+a moment where a reader holds the old renderer and the new log; every reader takes the
+log only under the renderer that stamped it (the opening, the pull, a repaint's cursor),
+and otherwise repaints, and a cursor minted under another renderer quotes no log at all.
+An old recorder still running after the swap neither writes the new log nor rings.
+`logId` decides *is this comparable*; `headHash` decides *does the browser need a reload*.
 Neither can answer the other's question, and `headHash` is stable across restarts
 BY DESIGN — which is precisely why it cannot double as `logId`.
 
@@ -237,9 +242,14 @@ cursor came from — signals mean a reconnect, plain query params a first load.
 
 **The invariant that makes absence safe:** an entry's version means "this node
 last changed at store version N", so a node with *no* entry has not changed since
-the log was created — and every client's body, server-rendered from current state
-at page load, already has it. Absence correctly reads as "you are up to date";
-there is no bootstrapping hole.
+the log's recorder subscribed — and every client's body, server-rendered from current
+state at page load, already has it. Absence correctly reads as "you are up to date".
+The one hole is the stretch before that subscription: the recorder's first frame is
+the state it subscribed at, recorded nowhere, so a page painted below it (at boot, or
+in a swap) holds a version the log cannot lead on from. A fresh log therefore reaches
+no cursor until that first frame seeds it, and from then on reaches only the version
+after it (`completeFrom`); a session or cursor below that repaints, and the seed rings
+the doorbell so a waiting session finds out.
 
 **Three levels of collapse.** Per node (both maps are id-keyed, latest-wins, so a
 thousand alternating ticks leave one entry). Across the two maps (a node with a

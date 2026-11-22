@@ -439,41 +439,40 @@ class Server(
     * doorbell. It renders nothing; each session renders its own bytes from
     * [[Patches.resume]] (ADR 0012).
     *
-    * A change landing in the reload `switchMap` window may be dropped: every
-    * session repaints under the new renderer ([[swapAnswer]]).
+    * An arm writes and rings only while the log is its renderer's: a swap
+    * installs the next log before `switchMap` stops the old arm, whose frames
+    * then go nowhere. The new arm's seed covers them: a session behind it
+    * repaints ([[owed]]).
     */
   private def publisherFor(
       slug: String,
       live: Server.LiveSlug
   ): Stream[IO, Nothing] =
-    live.renderer.discrete.zipWithIndex.switchMap {
-      case (Server.RendererState.Failed(_), _) =>
-        // No renderer to diff against. The return to `Ready` rotates the log
-        // (arm > 0), so every old cursor repaints.
-        Stream.empty
-      case (Server.RendererState.Ready(renderer), arm) =>
-        // A fresh log identity per swap: an old cursor names versions this log
-        // never had (ADR 0011). Not on the first arm: `discrete` emits the
-        // current renderer at once, and rotating there refuses the cursor of a
-        // page served in that window.
+    live.renderer.discrete.switchMap {
+      // No renderer to diff against, and a log none numbers.
+      case Server.RendererState.Failed(_)       => Stream.empty
+      case Server.RendererState.Ready(renderer) =>
         // The fold restarts per arm, as the log does: a `Shared` is this
-        // renderer's decisions. The first frame is the seed, recorded nowhere.
-        Stream.exec(
-          IO.whenA(arm > 0)(Server.freshLog.flatMap(live.log.set))
-        ) ++
-          stateStore.frames
-            .evalMapAccumulate(Option.empty[Shared]) {
-              case (None, seed) =>
-                IO(Some(renderer.shared(seed.state)) -> None)
-              case (Some(prev), frame) =>
-                recordFrame(slug, renderer, live.log, prev, frame)
-                  .map((next, version) => Some(next) -> Some(version))
-            }
-            // Ring AFTER the write, or a woken session reads a log that does
-            // not yet hold the version it was told about, and skips past it.
-            .evalMap { case (_, version) =>
-              version.traverse_(live.doorbell.set)
-            }
+        // renderer's decisions.
+        stateStore.frames
+          .evalMapAccumulate(Option.empty[Shared]) {
+            case (None, seed) =>
+              val at = seed.state.version
+              (IO(renderer.shared(seed.state)), live.seed(renderer, at))
+                .mapN((shared, seeded) =>
+                  Some(shared) -> Option.when(seeded)(at)
+                )
+            case (Some(prev), frame) =>
+              recordFrame(slug, renderer, live.log, prev, frame)
+                .map((next, written) =>
+                  Some(next) -> Option.when(written)(frame.state.version)
+                )
+          }
+          // Ring AFTER the write, or a woken session reads a log that does
+          // not yet hold the version it was told about, and skips past it.
+          .evalMap { case (_, version) =>
+            version.traverse_(v => live.doorbell.update(_ max v))
+          }
     }.drain
 
   /** The one place a recorder starts or stops: one per registered slug,
@@ -538,14 +537,18 @@ class Server(
       log: Ref[IO, FragmentLog],
       prev: Shared,
       frame: Frame
-  ): IO[(Shared, Long)] =
+  ): IO[(Shared, Boolean)] =
     (sessions.openSets(slug), sessions.floor(slug)).flatMapN { (opens, floor) =>
       val version = frame.state.version
+      def written(f: FragmentLog => FragmentLog): IO[Boolean] =
+        log.modify(l =>
+          if (l.numberedBy(renderer.generation)) (f(l), true) else (l, false)
+        )
       // Before the gate: the carry tracks the stream, not who is watching,
       // and is the next frame's "before".
       IO(renderer.advance(prev, frame)).flatMap { next =>
         val recorded =
-          if (opens.isEmpty) log.update(_.skipped(version))
+          if (opens.isEmpty) written(_.skipped(version))
           else
             // One run for "before" and "after": a decision shown in either is
             // made there, dirty or never made; one nobody shows is not reached.
@@ -563,11 +566,11 @@ class Server(
               // Written and pruned in one update, so a concurrent write
               // cannot be lost between them.
               .flatMap(req =>
-                log.update(l =>
+                written(l =>
                   floor.foldLeft(Patches.record(renderer, l, req))(_.pruned(_))
                 )
               )
-        recorded.as(next -> version)
+        recorded.map(next -> _)
       }
     }
 
@@ -784,12 +787,18 @@ class Server(
         swapAnswer(live, session, installed, was) match
           case Some(swap) =>
             swap.map(st => Session.Step(st.next, st.frames, st.frames))
-          case None => owed(live, version, installed, was)
+          case None => owed(live, session, version, installed, was)
       )
     }
 
+  /** A log another renderer numbers, or one that does not reach the position (a
+    * recorder's seed above it, a stretch nobody watched), cannot say what this
+    * session missed: it repaints. The log can be newer than `installed` (a
+    * second swap in flight); the ring that swap sends repaints again.
+    */
   private def owed(
       live: Server.LiveSlug,
+      session: Session,
       version: Long,
       installed: Server.RendererState,
       was: SessionState
@@ -802,52 +811,62 @@ class Server(
         log <- OptionT.liftF(live.log.get)
         store <- OptionT.liftF(stateStore.current)
       yield (renderer, s, log, store))
-        .flatMap { (renderer, s, log, store) =>
-          val env = renderer.vars.env(s.values)
-          Patches
-            .resume(
-              renderer,
-              live.cache,
-              log,
-              s.holds,
-              renderer.shared(store),
-              decisionAnswers,
-              answer(_, env),
-              env,
-              s.position + 1,
-              s.open,
-              // Live, not the arriving selection: a tab select moves it.
-              renderer.surfaces.selectionsShown(s.open, env)
-            )
-            .map { patches =>
-              // The cursor rides LAST, which makes it an ack: a client echoing
-              // it applied what came before. A silent frame announces nothing,
-              // so `told` does not move for it; the keepalive carries the
-              // cursor instead ([[SessionState]]).
-              val frames =
-                if (patches.isEmpty) Nil
-                else
-                  // Through `encode`, so it merges with a trailing signal frame
-                  // and stays a separate event after an element one.
-                  Patches.encode(
-                    patches :+ Addressed(Server.versionPatch(version))
-                  )
-              Session.Step(
-                s.copy(
-                  holds = patches
-                    .foldLeft(s.holds)(
-                      Patches.applied(renderer.index, _, _)
-                    ),
-                  position = version,
-                  told = if (patches.isEmpty) s.told else version
-                ),
-                frames,
-                frames
-              )
-            }
-            .pipe(OptionT.liftF)
+        .semiflatMap { (renderer, s, log, store) =>
+          if (log.numberedBy(renderer.generation) && log.reaches(s.position))
+            resumed(live, renderer, s, log, store, version)
+          else
+            repaint(live, session, renderer.generation, renderer)(was)
+              .map(st => Session.Step(st.next, st.frames, st.frames))
         }
         .getOrElse(Session.Step(was, Nil, Nil))
+
+  private def resumed(
+      live: Server.LiveSlug,
+      renderer: Renderer,
+      s: SessionState,
+      log: FragmentLog,
+      store: StoreState,
+      version: Long
+  ): IO[Session.Step[List[SseFrame]]] = {
+    val env = renderer.vars.env(s.values)
+    Patches
+      .resume(
+        renderer,
+        live.cache,
+        log,
+        s.holds,
+        renderer.shared(store),
+        decisionAnswers,
+        answer(_, env),
+        env,
+        s.position + 1,
+        s.open,
+        // Live, not the arriving selection: a tab select moves it.
+        renderer.surfaces.selectionsShown(s.open, env)
+      )
+      .map { patches =>
+        // The cursor rides LAST, which makes it an ack: a client echoing it
+        // applied what came before. A silent frame announces nothing, so
+        // `told` does not move for it; the keepalive carries the cursor
+        // instead ([[SessionState]]).
+        val frames =
+          if (patches.isEmpty) Nil
+          else
+            // Through `encode`, so it merges with a trailing signal frame and
+            // stays a separate event after an element one.
+            Patches.encode(patches :+ Addressed(Server.versionPatch(version)))
+        Session.Step(
+          s.copy(
+            holds =
+              patches.foldLeft(s.holds)(Patches.applied(renderer.index, _, _)),
+            position = version,
+            told = if (patches.isEmpty) s.told else version
+          ),
+          frames,
+          frames
+        )
+      }
+  }
 
   /** What a (re)connecting client is sent first (ADR 0011): '''reload''' when
     * the head's unpatchable part moved ([[Renderer.headHash]]), '''resume'''
@@ -892,13 +911,15 @@ class Server(
           // ([[FragmentLog.reaches]]) — or one behind `told`. `holds` records
           // what was SENT; a cursor rides last in its batch, so an echo behind
           // `told` means claimed bytes were lost.
-          // And never across a swap: `holds` is one renderer's.
+          // And never across a swap: `holds` is one renderer's, and the log
+          // read here may be the next renderer's already.
           val heldHere = s.painter match
             case Painter.By(p) => p eq renderer.generation
             case _             => true
           val resumedIO = cursor
             .filter(c =>
-              heldHere && c.logId == log.id && c.version <= store.version &&
+              heldHere && log.numberedBy(renderer.generation) &&
+                c.logId == log.id && c.version <= store.version &&
                 log.reaches(c.version) && c.version >= s.told
             )
             .traverse(c =>
@@ -951,7 +972,7 @@ class Server(
                         renderer,
                         s.open,
                         s.values,
-                        log.id,
+                        log.idUnder(renderer.generation),
                         claim
                       ),
                   ()
@@ -1050,9 +1071,9 @@ class Server(
                   )
                 )
                 .toList :+
-              // A swap rotated the log id; without this a reconnect quotes a
+              // A swap rotates the log id; without this a reconnect quotes a
               // dead log and repaints.
-              Server.cursorSignals(r, log.id, store.version),
+              Server.cursorSignals(r, log.idUnder(r.generation), store.version),
             ()
           )
         }
@@ -1789,7 +1810,7 @@ class Server(
           Server.Cursor(
             renderer.headHash,
             renderer.styleHash,
-            log.id,
+            log.idUnder(renderer.generation),
             store.version
           )
         )
@@ -2107,14 +2128,26 @@ object Server {
       doorbell: SignallingRef[IO, Long]
   ) {
 
-    /** Empties the cache after the swap, not before, or a pull that read the
-      * old renderer just ahead of the set refills it. One already rendering can
-      * still install afterwards; its entry holds its bytes, not the renderer
-      * ([[Renderer.generation]]). Then rings, at the same version, so an idle
-      * session steps and meets the swap ([[swapAnswer]]).
+    /** The log first, so the new renderer's recorder finds its own log to seed
+      * however soon it starts. Empties the cache after the swap, not before, or
+      * a pull that read the old renderer just ahead of the set refills it. One
+      * already rendering can still install afterwards; its entry holds its
+      * bytes, not the renderer ([[Renderer.generation]]). Then rings, at the
+      * same version, so an idle session steps and meets the swap
+      * ([[swapAnswer]]).
       */
     def install(state: RendererState): IO[Unit] =
-      renderer.set(state) *> cache.clear *> doorbell.update(identity)
+      freshLog(state).flatMap(log.set) *> renderer.set(state) *>
+        cache.clear *> doorbell.update(identity)
+
+    /** The recorder's first frame, only into the log its renderer numbers:
+      * whether it did, since only then may it ring.
+      */
+    def seed(r: Renderer, version: Long): IO[Boolean] =
+      log.modify(l =>
+        if (l.numberedBy(r.generation)) (l.seeded(version), true)
+        else (l, false)
+      )
   }
 
   private[runtime] object LiveSlug {
@@ -2123,14 +2156,16 @@ object Server {
 
     def create(renderer: SignallingRef[IO, RendererState]): IO[LiveSlug] =
       (
-        freshLog.flatMap(Ref[IO].of),
+        renderer.get.flatMap(freshLog).flatMap(Ref[IO].of),
         RenderCache.create,
         SignallingRef[IO].of(0L)
       ).mapN(LiveSlug(renderer, _, _, _))
   }
 
-  private[runtime] val freshLog: IO[FragmentLog] =
-    IO.randomUUID.map(id => FragmentLog(id.toString))
+  private def freshLog(state: RendererState): IO[FragmentLog] =
+    IO.randomUUID.map(id =>
+      FragmentLog.fresh(id.toString, state.rendererOf.map(_.generation))
+    )
 
   /** Only a `FromSite` slug may be reclaimed by a reload (ADR 0010), and one
     * whose content is unchanged is not re-installed: a write rotates the log
