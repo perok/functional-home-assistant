@@ -75,6 +75,17 @@ private[runtime] enum Patch:
       )
     case Patch.Leave(_, key) => Datastar.remove(DomId.derived(key).selector)
 
+/** What a host's client does to show what was decided, in order
+  * ([[Patches.planHost]]); each key is the [[Ix]] of a shown root. `Fill` with
+  * no keys empties the host.
+  */
+private[runtime] enum HostStep:
+  case Fill(keys: IArray[Ix])
+  case Leave(key: Ix)
+
+  /** `key` goes before `before`, or last. */
+  case Place(key: Ix, before: Option[Ix])
+
 /** A patch and what it does to its client's record. No audience: the session
   * that sends it produced it ([[Patches.resume]]).
   *
@@ -179,19 +190,14 @@ private[runtime] object Patches {
       )
     )
 
-  /** The fewest survivors to move: everything outside a longest increasing
-    * subsequence of old positions. A set ordered on a live value reorders on
-    * every crossing, and moving everything is a patch storm. O(n²) on purpose:
-    * n is a room's lights, and this version is checkable.
+  /** The indices of a longest increasing run of `positions`, the survivors that
+    * need no move. A set ordered on a live value reorders on every crossing,
+    * and moving everything is a patch storm. O(n²) on purpose: n is a room's
+    * lights, and this version is checkable.
     */
-  private[runtime] def reordered(
-      before: List[String],
-      after: List[String]
-  ): List[String] = {
-    val was = before.zipWithIndex.toMap
-    val idx = after.map(was.getOrElse(_, -1)).toArray
-    val n = idx.length
-    if (n < 2) Nil
+  private def longestRun(positions: Array[Int]): Set[Int] = {
+    val n = positions.length
+    if (n == 0) Set.empty
     else {
       // len(i): longest increasing run ending at i. prev(i): its predecessor.
       val len = Array.fill(n)(1)
@@ -199,18 +205,62 @@ private[runtime] object Patches {
       for {
         i <- 1 until n
         j <- 0 until i
-        if idx(j) < idx(i) && len(j) + 1 > len(i)
+        if positions(j) < positions(i) && len(j) + 1 > len(i)
       } {
         len(i) = len(j) + 1
         prev(i) = j
       }
-      val keep = Iterator
-        .iterate((0 until n).maxBy(len))(prev)
+      Iterator
+        .iterate((0 until n).maxBy(len))(prev(_))
         .takeWhile(_ >= 0)
         .toSet
-      after.zipWithIndex.collect { case (e, i) if !keep(i) => e }
     }
   }
+
+  /** The fewest survivors to move: everything outside [[longestRun]] of old
+    * positions.
+    */
+  private[runtime] def reordered(
+      before: List[String],
+      after: List[String]
+  ): List[String] = {
+    val was = before.zipWithIndex.toMap
+    val keep = longestRun(after.map(was.getOrElse(_, -1)).toArray)
+    after.zipWithIndex.collect { case (e, i) if !keep(i) => e }
+  }
+
+  /** The steps that turn a host whose client shows `held` into one showing
+    * `decided`. `None` is a page nobody knows, where only a fill is safe. A
+    * kept key is held, decided and not `again`; the rest of `held` leaves, so a
+    * key sent `again` is taken out and put back whole, and the placing runs
+    * back to front so each anchor is on the page when its turn comes.
+    */
+  private[runtime] def planHost(
+      held: Option[IArray[Ix]],
+      decided: IArray[Ix],
+      again: Ix => Boolean
+  ): List[HostStep] = held match
+    case None                         => List(HostStep.Fill(decided))
+    case Some(was) if decided.isEmpty => was.toList.map(HostStep.Leave(_))
+    case Some(was)                    =>
+      val heldAt = was.indices.map(i => was(i) -> i).toMap
+      val keepable = decided.toList.filter(k => heldAt.contains(k) && !again(k))
+      if keepable.isEmpty then List(HostStep.Fill(decided))
+      else {
+        val run = longestRun(keepable.map(heldAt).toArray)
+        val stays = keepable.zipWithIndex.collect {
+          case (k, i) if run(i) => k
+        }.toSet
+        val leaves = was.toList.filterNot(stays).map(HostStep.Leave(_))
+        val places = decided.indices.reverseIterator.collect {
+          case i if !stays(decided(i)) =>
+            HostStep.Place(
+              decided(i),
+              Option.when(i + 1 < decided.length)(decided(i + 1))
+            )
+        }
+        leaves ++ places
+      }
 
   def record(
       renderer: Renderer,
