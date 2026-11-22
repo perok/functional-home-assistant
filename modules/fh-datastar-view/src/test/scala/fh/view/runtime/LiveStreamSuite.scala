@@ -399,6 +399,47 @@ class LiveStreamSuite extends ServerHarness {
     )
   }
 
+  test("a live pull is owed what the log names, and nothing it does not") {
+    val r = Renderer.create(barePopupTabsDash)
+    val before =
+      Map(
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    val det = r.surfaces.popupSpelling("det").get
+    val open = Set(det)
+    val mine =
+      r.vars.env(Map(VarKey(NodeId.derived("s_det__c_0"), "tab") -> "1"))
+    val panel = r.surfaceNodeIds("s_det__c_0_panel_0_1").toList
+    val held = (r.surfaceNodeIds(det) ++ panel).toList.flatMap { id =>
+      r.byteSlotValues(id, Shared.of(before), FetchSnapshot.empty)
+        .map(v => r.ixOf(id) -> Held(Some(v)))
+    }.toMap
+    val moved = before.updated("sensor.b", es("sensor.b", "B1"))
+    def pull(log: FragmentLog) =
+      resumeNow(
+        r,
+        log,
+        held,
+        moved,
+        2L,
+        open,
+        Selections.none,
+        mine,
+        Patches.Coverage.Logged
+      ).map(_.patch.toSse.render)
+
+    // A change the recorder missed stays missed: no sweep of the screen hides
+    // it, so the oracle sees it.
+    val unlogged = pull(FragmentLog("w30"))
+    assertEquals(unlogged, Nil, clue = unlogged)
+    val logged =
+      pull(
+        panel.foldLeft(FragmentLog("w30"))((l, id) => l.touched(r.ixOf(id), 2L))
+      )
+    assert(logged.exists(_.contains("B1")), clue = logged)
+  }
+
   /** ADR 0007's "an inactive branch costs nothing", for a user surface nested
     * in one. `chosen` holds a case for every pick over a variable whether on
     * screen or not, so a tab panel in a hidden `If` is in a viewer's screen;

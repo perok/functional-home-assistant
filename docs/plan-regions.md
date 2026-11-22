@@ -541,7 +541,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        spelled only where bytes are written. `containerOfIndexed`, `caseAt` and `surfaceParent`
        become index lookups.
        Where a container crosses a swap (`SessionState.open`, `Mutation.container`, the
-       recorder's `openSets`) it is spelled by its root's DOM id, read into `Ix` once per step:
+       recorder's `Sessions.watching`) it is spelled by its root's DOM id, read into `Ix` once per step:
        a popup is `s_detail__c`, not its key `detail`. Under clauses one id reads as one
        `Ix` per clause, which is what `caseAt` means today. One kind of name needs no prefix
        rule: `validate` already refuses an authored id equal to any other id in the index,
@@ -552,8 +552,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        deletes, so D0.3 does not rewrite them first. Bench round with `-XX:-DoEscapeAnalysis`.
        Built. `Ready.Dashboard` carries the index and every compiled node its `Ix`; the graphs
        read containers off it, so `MemberGraph`'s `rootOfMember`/`rootOfSet`, `Member.root` and
-       its case map went too. The visibility walk reads arrays by `Ix`. `selectionsIn`,
-       `selectionsShown` and `committedSelections` still read the spelled set: they answer the
+       its case map went too. The visibility walk reads arrays by `Ix`. `selectionsIn`
+       and `committedSelections` still read the spelled set: they answer the
        wire's questions, and R5 removes them with `open`.
      - D0's gate: goldens byte-identical, suites green, `page`/`tickRender`/`publishSet*` equal
        or better. Render time and allocation come first; `validated` may pay for a structure
@@ -779,11 +779,11 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          meanwhile covers both.
        - **Measured, not assumed:** D5.0's bench before and after each step, and a miss
          profiled (async-profiler, D3's method) before anything is redesigned. Found in the
-         check: a live pull takes every node of each open container as a candidate (`owing`'s
-         `fromOpen`), a price per pull whatever changed. With the recorder reading every live
-         session's screen it looks needed only after a gap the recorder did not cover (a
-         reconnect, an adopted session) and in a write's race, which the reveal closes. D5.0
-         measures its share; narrowing it is the user's call once the number is in.
+         check: a live pull took every node of each open container as a candidate (`owing`'s
+         `fromOpen`), ~86% of `viewerPull`'s allocation and ~80% of its time at D5.0. Narrowed
+         after D5.1 (`Patches.Coverage`): a live pull takes the log alone, since the recorder
+         covers every watched session's screen and a node it misses is a recorder bug the sweep
+         would hide; only a reconnect sweeps, its screen being one no frame may have covered.
        - **Stays refused:** a decision's fetch whose window a variable chooses
          (`decisionFetchErrors`), its message reworded since a decision is no longer made for
          every viewer at once. To lift it, the decision's fetches resolve at the viewer's values
@@ -794,15 +794,16 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        `viewer-decisions` (a `c.select` of `mode`, and each shape below as its step adds it),
        joins the oracle's list; its snapshot and golden are new files, every other one
        byte-identical. OracleSuite's time (18–21 s locally) is measured with it.
-       - **D5.0, the bench, on the base.** `RenderBench` gains a dashboard with a tab bar over a
+       - **D5.0, the bench, on the base.** BUILT (ebb77d83). `RenderBench` gains a dashboard with a tab bar over a
          variable, N sessions on two of its values and one state change per op, through the
          recorder and each session's pull, and a page load. Committed before any code moves, so
          its base numbers exist; it also gives `fromOpen`'s share. D5.2–D5.4 add their shape to
          it, measured from then on (their shapes are refused at the base).
        - **D5.1, the mechanism, and tab bars onto it; nothing lifted, nothing visible moves.**
+         BUILT (fa044e89); the viewer's env rides on `Shared` (`viewing`), not `Run`.
          The levels, the memo, carry and pruning, `Run`'s viewer, the recorder per live values,
          a write's reveal of its values. A pick over the plain variable is decided from the
-         viewer's value: `Selections.panels`, the pick half of `selectionsIn`/`selectionsShown`
+         viewer's value: `Selections.panels`, the pick half of `selectionsIn`, `selectionsShown`
          and the pick cases in `open` go (`open` keeps popups until R5), and `owing`'s open
          candidates are the containers on the viewer's screen under a variable pick or a popup,
          as `open` gave them. Files: `Shared`, `Renderer`, `SurfaceGraph`, `VarGraph`, `Patches`,

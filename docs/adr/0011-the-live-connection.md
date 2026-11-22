@@ -447,10 +447,14 @@ The reload is a **signal** (`_reload`, turned into `window.location.reload()` by
 cursor and keeps client behaviour in the page shell where the rest of it lives.
 
 **The resume rule: one rule, one candidate set, one snapshot.** The candidates are
-the nodes the cursor names (`version >= V`) UNION the nodes of the surfaces this
-client has open — the second set because the cursor alone cannot name them: a
-surface's nodes may not have changed since the client's cursor and still be absent
-from its DOM. Each candidate is rendered once from the current snapshot and sent unless
+the nodes the cursor names (`version >= V`), and on a reconnect the nodes on this
+client's screen as well — the cursor alone cannot name them there: nothing recorded
+against a screen nobody was viewing, so its nodes may be absent from the log and
+from the DOM. A live pull takes the log alone, which is a claim, not a shortcut: the
+recorder covers every watched viewer's screen (a session is watched from before its
+page renders), and a tab press or a popup renders what arrives itself, so a node the
+log misses is a recorder bug. Sweeping the screen would hide it; `OracleSuite` is
+what catches it. Each candidate is rendered once from the current snapshot and sent unless
 this SESSION's `holds` already names those exact bytes, with a missing entry counting as
 "send" — and with `holds` consulted at all only once the client's cursor has proved it
 applied what we last announced (above). Nothing is special-cased by kind. This is the same call a live tick makes — a
@@ -458,9 +462,10 @@ tick is a resume from `position + 1` — so there is one path to be right about 
 than two that must agree.
 
 That subsumes what used to be three branches. There is no per-session repaint
-step: a tab panel is simply a surface in `open`, so its nodes are candidates like
-any others. And a resumed popup needs no branch either: its nodes are in `open`, so
-they are reconciled on their own ids and the dialog is never disturbed.
+step: a tab panel is simply part of the screen, so on a reconnect its nodes are
+candidates like any others. And a resumed popup needs no branch either: its nodes are
+on the screen, so they are reconciled on their own ids and the dialog is never
+disturbed.
 
 A REPAINT is the one path that has to name the popup. It is not a candidate set: it
 replaces `holds` with what it painted, and the popup host lives in `theme.chrome`,

@@ -288,15 +288,14 @@ private[runtime] object Patches {
     * since a pull is a resume from `position + 1`.
     *
     * Candidates are the nodes logged at `>= v`, where the log's place is the
-    * one shown now, plus every node and host of a container on the viewer's
-    * screen, a popup open or a case its values pick (which nothing recorded
-    * while unwatched). A node is sent when its byte-slot values differ from
-    * what this viewer holds. A host's keys are decided now and planned against
-    * the list it holds ([[planHost]]); a key held and decided is sent again
-    * when its root was logged and it has no rendering of its own, since it left
-    * and came back while the viewer was away (A → B → A). Nothing inside a
-    * range sent whole or leaving is patched as well. The cursor selects ids,
-    * never content.
+    * one shown now, and under [[Coverage.Swept]] every node and host of a
+    * container on the viewer's screen, a popup open or a case its values pick.
+    * A node is sent when its byte-slot values differ from what this viewer
+    * holds. A host's keys are decided now and planned against the list it holds
+    * ([[planHost]]); a key held and decided is sent again when its root was
+    * logged and it has no rendering of its own, since it left and came back
+    * while the viewer was away (A → B → A). Nothing inside a range sent whole
+    * or leaving is patched as well. The cursor selects ids, never content.
     */
   def resume(
       renderer: Renderer,
@@ -310,12 +309,13 @@ private[runtime] object Patches {
       env: VarEnv,
       v: Long,
       open: Set[String] = Set.empty,
-      selections: Selections = Selections.none
+      selections: Selections = Selections.none,
+      coverage: Coverage = Coverage.Swept
   ): IO[List[Addressed]] =
     renderer
       .decide(decisions) { run =>
         val at = shared.asking(run).viewing(env)
-        val o = owing(renderer, log, holds, at, v, open)
+        val o = owing(renderer, log, holds, at, v, open, coverage)
         (
           at,
           o,
@@ -327,6 +327,23 @@ private[runtime] object Patches {
           patches(renderer, cache, holds, at, Viewing(selections, snapshot), o)
         )
       }
+
+  /** What the log is trusted to name for a resume's viewer. */
+  enum Coverage {
+
+    /** Every frame since the cursor was recorded against this viewer's screen,
+      * so the log names all it is owed: a live session's pull, since its page
+      * registers before it renders ([[Server.recordFrame]]) and a tab press or
+      * a popup renders what arrives itself. A node it misses is a recorder bug,
+      * which [[Swept]] would hide; `OracleSuite` is what catches one.
+      */
+    case Logged
+
+    /** The screen may be one no frame was recorded against (a reconnect, an
+      * adopted session), so every node on it is a candidate too.
+      */
+    case Swept
+  }
 
   /** A host's steps, `host` as `shared` has it inside a member. */
   private[runtime] final case class HostPlan(
@@ -351,16 +368,20 @@ private[runtime] object Patches {
       holds: Map[Ix, Held],
       shared: Shared,
       v: Long,
-      spelled: Set[String]
+      spelled: Set[String],
+      coverage: Coverage
   ): Owing = {
     val index = renderer.index
     val open = renderer.surfaces.screen(spelled, shared)
     val logged = log.since(v)
-    val fromOpen = open.iterator
-      .map(Ix(_))
-      // `open` includes a tab panel inside a hidden `If`.
-      .filter(renderer.surfaces.visibleContainer(_, open, shared))
-      .flatMap(renderer.containerNodeIds)
+    val fromOpen = coverage match
+      case Coverage.Logged => Iterator.empty
+      case Coverage.Swept  =>
+        open.iterator
+          .map(Ix(_))
+          // `open` includes a tab panel inside a hidden `If`.
+          .filter(renderer.surfaces.visibleContainer(_, open, shared))
+          .flatMap(renderer.containerNodeIds)
     // Only what this client can see; the rest would cost only bytes.
     // A logged place of another clause is not what this viewer is shown; an
     // id with one place needs no decision.

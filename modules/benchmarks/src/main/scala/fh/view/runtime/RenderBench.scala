@@ -609,7 +609,8 @@ class RenderBench {
           s.env,
           version,
           s.open,
-          viewers.surfaces.selectionsIn(s.open)
+          viewers.surfaces.selectionsIn(s.open),
+          Patches.Coverage.Logged
         )
       }
       .unsafeRunSync()
@@ -1336,7 +1337,8 @@ class RenderBench {
           _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
-          at
+          at,
+          coverage = Patches.Coverage.Logged
         )
       )
       .unsafeRunSync()
@@ -1733,7 +1735,8 @@ class RenderBench {
           Map.empty,
           at,
           Set.empty,
-          Selections.none
+          Selections.none,
+          Patches.Coverage.Logged
         )
       }
       .unsafeRunSync()

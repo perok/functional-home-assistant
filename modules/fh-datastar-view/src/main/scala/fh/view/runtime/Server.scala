@@ -851,7 +851,10 @@ class Server(
         s.position + 1,
         s.open,
         // Live, not the arriving selection: a popup swap moves it.
-        renderer.surfaces.selectionsIn(s.open)
+        renderer.surfaces.selectionsIn(s.open),
+        // Only reached when the log reaches `position`, and this session
+        // has been watched since its page.
+        Patches.Coverage.Logged
       )
       .map { patches =>
         // The cursor rides LAST, which makes it an ack: a client echoing it

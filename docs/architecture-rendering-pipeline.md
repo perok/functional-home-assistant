@@ -178,7 +178,7 @@ old recorder, still running a moment longer, finds a log that is not its own and
 |---|---|---|
 | Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `frames` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON), and the fetch side: `FetchResolver` with its stage cache, `History` with its series cache, the one `ChartRenderer` |
 | Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the recorder's `Shared` (held in its fold, reset per renderer) and the renderer's `Decided` (the two newest versions' `Shared`, which every viewer reads), the `FragmentLog`, the doorbell, the `RenderCache` |
-| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream that names a `conn` this process does not have (a tap naming one is refused, ADR 0024), empty (slug, and a `SessionState`: open containers (spelled by root DOM id), `holds` (keyed by `Ix`; a set or pick host's entry also lists the `Ix` of each root it shows, in the order sent, which a pull plans the host against)/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back — and that viewer's node-variable choices, `vars`, over where its document opened them, `initialValues`), the SSE stream and its `Outlet`. ONE OWNER fiber per session moves the state: a pull, a selection write, the opening, a repaint and the keepalive are each a step (`Session.run`), run one at a time, and a step's frames reach the outlet in the order the steps ran — returned to separate branches of a merge, a pull made after a write could reach the client before it. A step that raises keeps nothing and sends nothing. The owner lives on the server's supervisor and ends when the session is reaped (a supervisor holds a fiber until it completes, and an owner waiting on its inbox never does); a step asked of it after that is refused (`Session.ended`). The recorder's `openSets` reads the last state a step left, except that a step `reveal`s a surface it opens before it reads the store |
+| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream that names a `conn` this process does not have (a tap naming one is refused, ADR 0024), empty (slug, and a `SessionState`: open containers (spelled by root DOM id), `holds` (keyed by `Ix`; a set or pick host's entry also lists the `Ix` of each root it shows, in the order sent, which a pull plans the host against)/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back — and that viewer's node-variable choices, `vars`, over where its document opened them, `initialValues`), the SSE stream and its `Outlet`. ONE OWNER fiber per session moves the state: a pull, a selection write, the opening, a repaint and the keepalive are each a step (`Session.run`), run one at a time, and a step's frames reach the outlet in the order the steps ran — returned to separate branches of a merge, a pull made after a write could reach the client before it. A step that raises keeps nothing and sends nothing. The owner lives on the server's supervisor and ends when the session is reaped (a supervisor holds a fiber until it completes, and an owner waiting on its inbox never does); a step asked of it after that is refused (`Session.ended`). The recorder's `Sessions.watching` reads the last state a step left, except that a step `reveal`s a surface it opens before it reads the store |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
 creates the store, `Server.fromFeed` takes `feed.store`. Dashboards are views over one shared state,
@@ -635,10 +635,19 @@ client sends back its stored signals: logId, version, headHash, styleHash
       hosts   logged at >= cursor              -> keys decided now, planned against the
                                                   held list (Patches.planHost): a fill,
                                                   or leaves then places back to front
-      ...AND every node and host in a surface this client has OPEN — nothing may
-              have rendered it while nobody was viewing it, so the cursor cannot
-              name it and only re-rendering can tell
+      ...AND, on a reconnect, every node and host on this client's screen —
+              nothing recorded against a screen nobody was viewing, so the
+              cursor cannot name it and only re-rendering can tell
 ```
+
+A live pull takes the log alone (`Patches.Coverage.Logged`). That is a claim about the recorder,
+not a shortcut: a live session is watched from before its page renders, every frame since is
+recorded against its screen, values a write in flight reveals included, and a tab press or a
+popup renders what arrives itself. So the log names everything a watched viewer is owed, and a
+node it misses is a recorder bug. Sweeping the screen on every pull would hide that bug and was
+~86% of `RenderBench.viewerPull`'s allocation; without it a miss shows, and `OracleSuite` is what
+looks. Only a reconnect sweeps (`Coverage.Swept`): its screen may be one no frame was recorded
+against.
 
 A client's cursor gets `>=` where a session's `position` gets `+ 1`, and the difference is who is
 claiming: a client can hold version V having seen only part of it, where a position is what this
@@ -1002,7 +1011,7 @@ flowchart LR
   Q -->|yes, or a session's own position| SINCE["FragmentLog.since v"]
   SINCE --> N["nodes whose version is at least v<br/>RENDERED NOW from the current<br/>snapshot, never from the log —<br/>their fetches answered first (§6, a fetch)"]
   SINCE --> M["hosts logged: keys decided now,<br/>planned against the held list:<br/>a fill, or leaves then places"]
-  Q -->|yes, or a session's own position| OPENN["…AND every node in a surface this<br/>client has OPEN — the cursor cannot name<br/>what nothing rendered while nobody looked"]
+  Q -->|yes, a reconnect| OPENN["…AND every node on this client's<br/>screen — the cursor cannot name<br/>what nothing recorded while nobody looked"]
   N --> HOLD{"are its byte-slot values<br/>what the client holds?<br/>(a signal slot's value<br/>is not among them)"}
   OPENN --> HOLD
   HOLD -->|yes| SIG{"did a SIGNAL SLOT move?"}
@@ -1047,8 +1056,7 @@ A slot may also read the NODE's inputs — a literal, or a tally of candidates c
 live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the inputs its CELs
 read (`BoundSlot`), each CEL keeping its own beside them, so no box downstream knows they exist: a tally's candidates and the
 entities their residuals read join the node's live entities, so a counted light wakes a page node
-through the ordinary reverse index (an open surface's nodes are candidates on every pull anyway,
-`fromOpenIds`), they join the watched set the upstream subscription asks for, and the count is
+through the ordinary reverse index, they join the watched set the upstream subscription asks for, and the count is
 the same compiled reading a state condition's `Count` is (`Evaluator`). Only what fires differs: a flipped condition swaps a surface,
 a moved count patches a slot. The slot's `valueKey` carries the inputs, so the whole evaluated
 expression goes out as one display signal per distinct (subject, expression, inputs), and a
