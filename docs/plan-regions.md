@@ -645,30 +645,109 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        - Oracle: after every settle and at the end, each list a session holds is its host's
          children on the fake page, in order. Found: the oracle's runs reach no `Place` (every
          membership change in them fills), so `SetMembershipSuite` places a member between two.
-       - Open: the oracle's "every host has a list, equal to a fresh page load's session's" fails
-         after a forget, by design: a forgotten page resumes, and its new session's `holds` is
-         empty (ADR 0011). Either the oracle exempts a rebuilt session, or D3 fills a host it has
-         no list for.
-       - Open: bench (B/op, EA off, vs 4457da90) `page` +1.7%, `pageSet` +1.3%, over the 1% gate;
-         not profiled (likely the lists' own arrays and the merge in `Trace.held`). `tickRender`, `publishSet`,
+       - A list is known or absent, never assumed. A forgotten page resumes with empty `holds`
+         (ADR 0011), so its hosts have no list until one is sent again, and D3's planner fills a
+         host it has no list for when it next looks at it. So "every host has a list" does not
+         hold by design; D3.4 adds the check that each list held equals a fresh page load's.
+       - Bench (B/op, EA off, vs 4457da90): `page` +1.7%, `pageSet` +1.3%, over the 1% gate,
+         accepted 2026-11-22 as the lists' cost and profiled in D6. `tickRender`, `publishSet`,
          `publishSetOrdered` equal; `resumeMorphs` +0.04%, `resumeMorphsFanout` +0.08%; times
          within error.
-     - **D3, the planner, and the log down to `fragments`** (§7), one step: the planner makes
-       the replay dead, so it goes here. Per session from the start (`Shared` decisions and the
-       viewer's), and a variable write goes through it too, so a tab stops using `hostFill`.
-       Goes: `MemberGraph.deltas`, the set refill, `mutations`, `horizon`, `MemberKey`,
-       `NodeAncestry` and `MemberGraph.parentEdges` (containment is the index's range); the
-       log keys by `Ix` (check first: Origin's doc says a write rotates the log, `TreeIndex`'s
-       that the log outlives a swap). An A → B → A test sends A whole; `FragmentLogSuite`'s
-       refill assertions become "a returning page, its position ahead of its cursor included,
-       gets only the members that changed, no set repaint". D1's two open items land here: the
-       host fill's seed skip, and `hasSignals` reading a first connect as a reconnect.
+     - **D3, the planner, and the log down to `fragments`** (§7): the planner makes the replay
+       dead, so it goes here. Per session from the start (`Shared` decisions and the viewer's),
+       and a variable write goes through it too, so a tab stops using `hostFill`. Broken down
+       2026-11-22, not built. One commit per sub-step; only the branch's last commit must be CI
+       green, each aims green with the oracle green. Bench at the end against the commit before
+       D3.1, `publishSetOrdered` and `resumeMorphsFanout` first.
+       Check-first: a log is never written by two renderers, but it is read under one that did
+       not number it, since `install` sets the renderer and the publisher rotates the log later.
+       In that window today a frame is lost: the new arm's seed is recorded nowhere, so a session
+       painted at P before a seed at T never gets P+1..T (#726's red ResumeSuite test).
+       - **D3.1, the log carries the stamp of the renderer that numbers it**, one per log (one
+         renderer's recorder writes it). `install` rotates first, to a fresh id with the new
+         stamp that reaches no cursor yet, then sets the renderer, empties the cache and rings.
+         The arm's seed makes the log complete from the version after it and rings at that
+         version. The recorder writes, and rings, only into a log stamped with its own renderer;
+         the first-arm rule (`arm > 0`) goes. A reader takes the log only under the renderer that
+         stamped it and where it reaches the session's position: the opening as today, and now
+         the pull, which repaints otherwise. That closes the swap gap and the same one at boot.
+         Files: `FragmentLog`, `Server` (`LiveSlug.install`, `publisherFor`, `recordFrame`,
+         `owed`, `openingPatches`, `repaint`). Tests: the swap test green on CI; a pull from a
+         position the log does not reach repaints; an old arm's write is dropped and rings
+         nothing. Core: `install`, the arm's seed, `owed`'s gate. Docs: ADR 0011 (`logId`, the
+         boot window), the pipeline doc §5.
+       - **D3.2, `hasSignals` reads `_cursor`** (D1's finding). `_cursor` is never in the
+         document, so a store holding one is a page this server streamed to: a first connect
+         resumes from V + 1 and warns of nothing, and `cursorAnomaly` keeps only a `_cursor` that
+         does not decode. `Server.hasSignals`; a `ServerRoutesSuite` test of each case.
+       - **D3.3, the planner, pure:** `Patches.planHost(host, held: Option[IArray[Ix]], decided:
+         IArray[Ix], again: Ix => Boolean)`. No list held, or no key kept, is one `Fill` (of
+         nothing: a `remove` of the host's children). Otherwise a `Leave` per key gone, then, back
+         to front, a `Place` per key arriving, sent `again`, or outside a longest increasing run
+         of held positions, a move leaving first. Replaces `Patches.reordered`. A property suite:
+         the plan applied to `held` gives `decided`; each anchor is on the page when its `Place`
+         runs; moves are n minus that run; a key sent `again` is never kept.
+       - **D3.4, the planner on the pull and the resume; the log keeps `fragments`.** The
+         recorder logs three things, each with its version: a node whose bytes changed, a host
+         whose decided keys changed (`Shared` decisions: sets and state picks), and the root of
+         each key that arrived. `owing`'s candidates are the hosts and nodes logged at `>= v` plus
+         those of open containers. Each host's keys are decided (`Renderer.decidedKeys(host,
+         shared, env)`, a variable pick per viewer) and planned against `holds`. A key held and
+         decided is sent `again` when its root was logged at `>= v` and has no rendering of its
+         own: it left and came back while the viewer was away (A → B → A); a leaf root's entry is
+         its morph. A root that is also a host is sent whole when its inner keys change: bytes,
+         not staleness. Nothing inside a range a `Fill` or `Place` sends is morphed as well
+         (`TreeIndex.contains`, the node itself excluded). A `Fill` sends its subtree's signal
+         values in the batch's frame, as `repaint` does (D1's seed skip).
+         Goes: `Mutation`, `MemberKey` (a member's key is its entity), `Resume`'s `moved` and
+         `refill`, `horizon`, `pruned` and `Sessions.floor` (nothing is left to prune: `fragments`
+         is bounded by the index), `filled`, `removed`, `placed`, `invalidateOf`/`Where`,
+         `holdsAnyOf`, `coveredByMutation`, `recordFlip` and `recordSet`'s replay,
+         `branchFills`, `branchPatch`, `insertInto`, `NodeAncestry`, `Renderer.ancestry`,
+         `MemberGraph.parentEdges`, `TestAncestry`. `MemberGraph.deltas` stays as the
+         incremental decision (it decides `next`'s sets from the touched entities, which
+         `publishSet*` measure) but answers which sets' keys moved; `MemberDelta`, `replaced`
+         and `clauseMoved` go, since a clause switch is another key.
+         Tests: an A → B → A test, a pick and a set member each within one pull, sends A whole.
+         `FragmentLogSuite`'s refill assertions become "a returning page, its position ahead of
+         its cursor included, gets only the members that changed, no set repaint" (a move the
+         plan sanctions; the commit says so). The tests of the deleted mechanism are rewritten
+         onto the planner where the property survives (anchors, back to front, no morph under a
+         key sent whole, a node never covers itself, a key that left is not inserted) and deleted
+         where it is the mechanism's own (a rejoin is one `Mutation`, a member key's kind,
+         pruning below the floor, the horizon); the commit lists both. `ResumePatchesSuite`
+         builds `holds` where it built mutations; `StateSurfaceSuite`'s flip asserts the host
+         and the arriving case's root are logged. Oracle: each list a session holds equals the
+         one a fresh page load's session holds for that host, a case's `Ix` included, which the
+         page's ids cannot show; a missing list is allowed (D2b).
+         Core: `Patches.plan` and `record`, `owing`, `decidedKeys`, the `again` rule. Docs: ADR
+         0011 (the change ledger, pruning, structural changes, the away table), ADR 0012, the
+         pipeline doc §5, terminology (floor and horizon go).
+       - **D3.5, a variable write through the planner.** `setVar` plans each shown host its
+         variable decides against `holds`, reading no log, and `open` follows from the
+         variables as `repaint` computes it. `swapHost` and `hostFill` keep only `#popups` (R5);
+         their pick half, `hostIxShowing` and `renderShownTraced`'s case half go. Tests: a tab
+         switch leaves the host's list holding the new case and drops the old one's entries; the
+         oracle's tab presses.
+       - **D3.6, the log keys by `Ix`**, safe under D3.1's stamp: `fragments: Map[Ix, Long]`,
+         the recorder resolving each node to its `Ix` under `next` (a member's clause), so two
+         clauses of one member are logged apart. Test: a change to a node in one clause sends
+         nothing to a viewer shown the other.
      - **D5, per-session decisions:** §4's variable-read refusals go (the mixed `by`, set guards,
        `valueWhile`, order keys), with a test of one guard reading a variable and a state, two
        viewers on different values. It adds deciders to D3's per-session path, no reshape.
      - **D6, benches** that span steps: everything R2 measured, `publishSetOrdered` also with
-       many sessions, one session's `holds` size; then `validated`'s allocation (R2 left it ~6%
-       above R1 on the starter, 1.56 → 1.66 MB/op). Each step keeps its own bench gate.
+       many sessions, one session's `holds` size, and a profile of D2b's `page` +1.7% (the
+       lists' arrays, `Trace.held`'s second map). Each step keeps its own bench gate.
+       Then `validated`, measured 2026-11-21 on the starter (EA off): 1.65 MB/op, 39% the
+       Mustache compile of the cards, 39% validate, 16% `Ready.Compile`, the index 1.3%. R2's
+       +6% is its three group nodes walked, not the group card's template. Build: one
+       `Validate.labelled` per node, not ~8 (~7%), and an allocation-free
+       `Templates.View.parse` (~8%). Explore: sharing a compiled card across dashboards and
+       reloads. Each `validated` compiles each card once, but nothing is shared between two
+       dashboards or across a reload or dump refresh (up to ~39%). Judge it by what it does to
+       the render phase and whether compiled templates are still freed with their renderer, not
+       by validate's own time.
      - Docs in each step's commit. Folded in where cheap: the ADRs' "state surface" wording.
 5. **R5, popups on the pick.**
    - **`#popups` is an ordinary node:** the build adds a `group` (`core/group.pkl`) with the
