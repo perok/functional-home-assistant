@@ -28,7 +28,7 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.traverse.*
 import io.circe.Json
-import fh.view.testkit.{Sets, Slots}
+import fh.view.testkit.{DashboardBuilders, Sets, Slots}
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -342,6 +342,14 @@ class RenderBench {
   private var clauseFlips: Vector[Map[String, EntityState]] = null
   private var clauseSteady: Vector[Map[String, EntityState]] = null
   private var clauseRot = 0
+  // [[viewerPull]]: a tab bar over a node variable, one session per client.
+  private var viewers: Renderer = null
+  private var viewerStates: Map[String, EntityState] = null
+  private var viewerPaint: Map[String, EntityState] = null
+  private var viewerShared: Shared = null
+  private var viewerCache: RenderCache = null
+  private var viewerSessions: Vector[ViewerSession] = null
+  private var viewerRot = 0
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -518,6 +526,114 @@ class RenderBench {
       sys.error("memberClauseFlip switches no clause")
     if (clauseSteady.map(clauseAt).distinct.sizeIs != 1)
       sys.error("memberClauseSteady switches a clause")
+    viewers = Renderer.create(viewerDash())
+    viewerPaint = states(ViewerEntities)
+    viewerStates = viewerPaint
+    viewerShared = viewers.shared(StoreState(viewerStates, 0L))
+    viewerCache = RenderCache.create.unsafeRunSync()
+    viewerSessions = Vector.tabulate(WireClients)(i =>
+      viewerSession(viewers, viewerPaint, if (i % 2 == 0) "a" else "b")
+    )
+    checkViewerShape()
+  }
+
+  /** [[viewerPull]] only prices per-viewer decisions if the pick separates the
+    * viewers: a tab-`a` session is owed the moved leaf and a tab-`b` one
+    * nothing. A pick that showed both panels to everyone would still run and
+    * report a number.
+    */
+  private def checkViewerShape(): Unit = {
+    val owed = viewerOp()
+    val tag = s"Viewer $viewerRot"
+    viewerSessions.zip(owed).foreach { (s, patches) =>
+      val morphs = patches.map(_.patch).collect { case Patch.Morph(html) =>
+        html
+      }
+      if (s.tab == "a" && !(morphs.sizeIs == 1 && morphs.head.contains(tag)))
+        sys.error(s"a tab-a session must be owed the moved leaf; got $patches")
+      if (s.tab == "b" && patches.nonEmpty)
+        sys.error(s"a tab-b session must be owed nothing; got $patches")
+    }
+  }
+
+  /** One state change of a light in panel `a` ([[ViewerPanelLeaves]] of them,
+    * in turn), as `Server.recordFrame` plans and records it for every watched
+    * session, then each session's `Server.resumed` against its own holds. Holds
+    * stay as the page left them, so every op prices the same work (see
+    * [[pull]]).
+    */
+  private def viewerOp(): List[List[Addressed]] = {
+    viewerRot += 1
+    val id = entityId(viewerRot % ViewerPanelLeaves)
+    val was = viewerStates(id)
+    val moved = was.copy(attributes =
+      was.attributes.updated(
+        "friendly_name",
+        Json.fromString(s"Viewer $viewerRot")
+      )
+    )
+    val changes = List(StateChange.Moved(id, Some(was), moved))
+    val states = viewerStates.updated(id, moved)
+    val version = viewerShared.version + 1
+    val prev = viewerShared
+    val next =
+      viewers.advance(
+        prev,
+        fh.view.runtime.Frame(changes, StoreState(states, version))
+      )
+    val req = viewers
+      .decide(_ => IO.pure(FetchSnapshot.empty)) { run =>
+        val (before, now) = (prev.asking(run), next.asking(run))
+        val visible = viewerSessions.foldLeft(
+          scala.collection.immutable.BitSet.empty
+        )((seen, s) => seen | viewers.surfaces.onScreen(s.open, now))
+        Patches.plan(viewers, before, now, changes, visible)
+      }
+      .unsafeRunSync()
+    val log = Patches.record(viewers, FragmentLog("bench"), req)
+    viewerStates = states
+    viewerShared = next
+    viewerSessions.toList
+      .traverse { s =>
+        Patches.resume(
+          viewers,
+          viewerCache,
+          log,
+          s.holds,
+          next,
+          _ => IO.pure(FetchSnapshot.empty),
+          _ => IO.pure(FetchSnapshot.of(Map.empty, s.env)),
+          s.env,
+          version,
+          s.open,
+          viewers.surfaces.selectionsShown(s.open, s.env)
+        )
+      }
+      .unsafeRunSync()
+  }
+
+  /** D5.0, the base for D5's per-viewer decisions: a tab bar over the plain
+    * variable `mode` (two panels of [[ViewerPanelLeaves]] lights), ten sessions
+    * half on each tab. One op is a frame through the recorder and every
+    * session's resume, so the per-viewer pick reads (`fromOpen` and the
+    * selections) are part of every pull here.
+    */
+  @Benchmark
+  def viewerPull(bh: Blackhole): Unit = bh.consume(viewerOp())
+
+  /** A page load for a session on tab `b`: the document the pick's other panel
+    * is left out of.
+    */
+  @Benchmark
+  def viewerPage(bh: Blackhole): Unit = {
+    val s = viewerSessions(1)
+    bh.consume(
+      viewers.renderPageHolds(
+        Sink.buffer(viewers.pageBytesHint),
+        Shared.of(viewerPaint),
+        Viewing(s.selections, FetchSnapshot.of(Map.empty, s.env))
+      )
+    )
   }
 
   /** The two pull fixtures assert what they are, because the thing that makes
@@ -2260,6 +2376,84 @@ object RenderBench {
           )*
       )
     )
+
+  /** Lights in each panel of [[viewerDash]], and the few outside the tabs. */
+  final val ViewerPanelLeaves = 20
+  final val ViewerEntities = 2 * ViewerPanelLeaves + 5
+
+  val ViewerMode: VarKey = VarKey(NodeId.derived("viewers"), "mode")
+
+  /** One session on a tab: what `Server.renderPage` records for it. */
+  final case class ViewerSession(
+      tab: String,
+      env: VarEnv,
+      open: Set[String],
+      selections: Selections,
+      holds: Map[Ix, Held]
+  )
+
+  def viewerSession(
+      renderer: Renderer,
+      states: Map[String, EntityState],
+      tab: String
+  ): ViewerSession = {
+    val env = renderer.vars.env(Map(ViewerMode -> tab))
+    val selections = renderer.surfaces.selections(None, env)
+    ViewerSession(
+      tab,
+      env,
+      renderer.surfaces.selectedSurfaces(selections),
+      selections,
+      renderer.renderPageHolds(
+        Sink.buffer(renderer.pageBytesHint),
+        Shared.of(states),
+        Viewing(selections, FetchSnapshot.of(Map.empty, env))
+      )
+    )
+  }
+
+  /** A tab bar over the node variable `mode`, as `c.chooser(c.select(mode))`
+    * lowers to: two buttons choosing it, and a pick over it holding a panel per
+    * value. Entities are disjoint per panel, and five lights sit outside.
+    */
+  def viewerDash(): Dashboard = {
+    def panel(from: Int) =
+      LayoutNode.Component(
+        "col",
+        slots = Slots.kids(
+          List.tabulate(ViewerPanelLeaves)(j => leaf(true)(from + j))*
+        )
+      )
+    def outside(j: Int) = leaf(true)(2 * ViewerPanelLeaves + j)
+    Dashboard(
+      cards = cards ++ Map(
+        "ifhost" -> TestCard("""{{{branch}}}""", regions = Set("branch")),
+        DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard
+      ),
+      card = LayoutNode.Component(
+        "col",
+        slots = Slots.kids(
+          (List(outside(0), outside(1), outside(2)) ++
+            DashboardBuilders.choices("mode", "a", "b") ++
+            List(
+              LayoutNode.Component(
+                "ifhost",
+                Map(
+                  "branch" -> Slots.byVar(
+                    "mode",
+                    List("a" -> panel(0), "b" -> panel(ViewerPanelLeaves))
+                  )
+                )
+              ),
+              outside(3),
+              outside(4)
+            ))*
+        ),
+        id = Some("viewers"),
+        vars = DashboardBuilders.declared("mode" -> "a")
+      )
+    )
+  }
 
   def windowId(i: Int): String = s"binary_sensor.window_$i"
 
