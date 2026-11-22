@@ -238,7 +238,10 @@ whole of V is idempotent and cheap; missing half of it would be silent and
 permanent. A DOCUMENT's cursor is the exception and needs `> V`: the page was
 rendered from one snapshot, so it has all of V by construction, and `>= V` would
 hand it back everything it already contains. The two are told apart by where the
-cursor came from — signals mean a reconnect, plain query params a first load.
+cursor came from — a `_cursor` signal means a reconnect, plain query params a first
+load. Not by whether any signal came: the shell seeds `conn` and the open popup, which
+every first connect carries, and `_cursor` is first set by the opening frame, so a store
+holding it is a page this server has already streamed to (`Server.isReconnect`).
 
 **The invariant that makes absence safe:** an entry's version means "this node
 last changed at store version N", so a node with *no* entry has not changed since
@@ -587,10 +590,11 @@ in nobody's open set, so no rule reconciles it, and without emptying the host it
 sit on screen forever. A connect and a swap both send a `remove` of the host's children
 (`#popups > *`, `Server.orphanedPopup`), so the chrome's host element stays.
 
-### The first connect carries no signals
+### The first connect carries no view state
 
 `data-init` fires from `<body>` before Datastar has merged the descendants'
-`data-signals`, so that one request arrives signal-less. A signals-only read would
+`data-signals`, so that one request carries only what the shell seeds (`conn`, the
+open popup) and no cursor. A signals-only read would
 render the DEFAULT tab and its repaint would morph the correct first paint away,
 dragging the URL mirror down with it. So `Server.Restore` puts the page's view state
 (bake selections, the open popup among them) on the `data-init` URL as ordinary

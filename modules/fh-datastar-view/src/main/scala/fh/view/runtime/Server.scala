@@ -2575,7 +2575,7 @@ object Server {
   }
 
   /** What a document hands back on its first connect, as query params on the
-    * `data-init` URL: **the first connect carries no signals** (`data-init`
+    * `data-init` URL: **the first connect carries no view state** (`data-init`
     * fires from `<body>` before descendants' `data-signals` merge), so a
     * signals-only read renders the default tab. Signals win on a reconnect
     * ([[popupOf]]).
@@ -2893,17 +2893,18 @@ object Server {
       StoreVersionSignal
     )(Cursor.apply)
 
-  /** A non-empty signal store with no readable cursor (a filter that dropped
-    * it, an old page): the only symptom is a resume quietly larger than it
-    * should be, forever.
+  /** A cursor that does not decode (a filter that dropped one of its fields, an
+    * old page): the only symptom is a resume quietly larger than it should be,
+    * forever. One dropped whole reads as a first connect ([[isReconnect]]),
+    * which this cannot see.
     */
   private[runtime] def cursorAnomaly(req: Request[IO]): Option[String] =
     signalsOf(req)
-      // A first connect sends `{}` ([[hasSignals]]).
-      .filter(_.keys.exists(_.nonEmpty))
-      .flatMap(_.downField(CursorSignal).as(using cursorDecoder).left.toOption)
+      .map(_.downField(CursorSignal))
+      .filter(_.succeeded)
+      .flatMap(_.as(using cursorDecoder).left.toOption)
       .map(f =>
-        "reconnect carried a signal store with no readable cursor " +
+        "reconnect carried a cursor that does not decode " +
           s"(${f.getMessage}) — resuming from the document's frozen params " +
           "instead. Check the client's filterSignals: the four cursor signals " +
           "must reach the SSE GET."
@@ -2930,11 +2931,13 @@ object Server {
   private[runtime] def cursorParam(field: String): String =
     s"$CursorSignal.$field"
 
-  /** A reconnect, not a first connect. Emptiness is the test: Datastar sends
-    * the `datastar` param on every GET, and a first connect's is `{}`.
+  /** A reconnect, not a first connect: the document carries its cursor in the
+    * stream URL's params and the opening frame first sets [[CursorSignal]], so
+    * a store holding it is a page this server already streamed to. Emptiness is
+    * no test: a first connect's store carries `conn` and the popup.
     */
-  private[runtime] def hasSignals(req: Request[IO]): Boolean =
-    signalsOf(req).exists(_.keys.exists(_.nonEmpty))
+  private[runtime] def isReconnect(req: Request[IO]): Boolean =
+    signalsOf(req).exists(_.downField(CursorSignal).succeeded)
 
   /** A reconnect's cursor (signals) may hold only part of version V — one
     * version can produce several batches — so it resumes from V. A document's
@@ -2942,7 +2945,7 @@ object Server {
     * resumes from V + 1.
     */
   private[runtime] def resumeFrom(req: Request[IO], c: Cursor): Long =
-    if (hasSignals(req)) c.version else c.version + 1
+    if (isReconnect(req)) c.version else c.version + 1
 
   /** Signals first, as in [[cursorOf]]. */
   private[runtime] def connOf(req: Request[IO]): Option[String] =

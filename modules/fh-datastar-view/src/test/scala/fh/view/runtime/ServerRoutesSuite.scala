@@ -570,7 +570,7 @@ class ServerRoutesSuite extends ServerHarness {
   }
 
   test("the data-init SSE URL carries what the page is showing") {
-    // The first connect carries no signals (data-init fires before Datastar
+    // The first connect carries no view state (data-init fires before Datastar
     // merges descendants' data-signals), so without this the server repaints
     // the popup closed and the URL mirror follows it. A tab is on the session.
     val dash = titleDash("home", None).copy(
