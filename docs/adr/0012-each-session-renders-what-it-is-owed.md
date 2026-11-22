@@ -161,13 +161,15 @@ The chain gates what is recorded at all, and prunes what a resume owes — inclu
 the hosts it plans, since a leave or a place inside a surface a client does not have open would
 patch an id its DOM lacks.
 
-**A fill is one operation, whoever chose the case.** A tab switch, a popup open and an
-`If` flip all evict a host's occupants, render the arriving surface, and overwrite the
-host, the case's node or the popup's content (`Renderer.renderShownTraced`). What differs is
-who decides (a viewer's node variable vs `by` over entity state, ADR 0007) and where the claim lands: a flip logs its host and arriving case,
-because it is server truth every client must be planned against; a tab switch claims into the
-SESSION (`Patches.hostFill`), because one client switching a tab says nothing about
-anyone else's DOM.
+**A host is planned the same way, whoever chose the case.** A tab switch and an `If` flip
+both decide a host's keys and plan them against the list the session holds
+(`Patches.planHost`). What differs is who decides (a viewer's node variable vs `by` over
+entity state, ADR 0007) and what reaches the planner: a flip logs its host and arriving
+case, because it is server truth every client must be planned against, and the pull finds
+them; a variable write plans the hosts its variable selects directly
+(`Patches.written`) and logs nothing, because one client switching a tab says nothing
+about anyone else's DOM. The popup host is still the exception until R5: `#popups` holds
+no list, so an open fills it whole and evicts every popup's claims (`Patches.popupFill`).
 
 ## Consequences
 

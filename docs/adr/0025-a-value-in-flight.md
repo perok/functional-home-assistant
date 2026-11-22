@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-22
 - **Scope:** `runtime/SurfaceGraph.scala` (`committedSelection`,
-  `committedSelections`), `runtime/Server.scala` (`swapHost`, `setVar`,
+  `committedSelections`), `runtime/Server.scala` (`swapPopup`, `setVar`,
   `openingSignals`), `runtime/Datastar.scala` (the no-null rule),
   `lib/core/tap.pkl`, `lib/components/base/surface.pkl`,
   `lib/components/slider.pkl`
@@ -27,7 +27,7 @@ halves one fact.
 There is a second, quieter disagreement with nothing to do with failure. **Two
 taps in flight race.** Click tab A, then tab B: the client's signal ends up B,
 because that is the assignment it ran last. The DOM ends up with whichever
-`swapHost` served last, and nothing sequences the two POSTs. So the highlight
+`setVar` served last, and nothing sequences the two POSTs. So the highlight
 could say B while the panel showed A, with every request succeeding.
 
 ## The decision
@@ -51,8 +51,8 @@ written speculatively, which is what makes it incapable of lying. **Nothing is
 ever rolled back, because nothing wrong was ever committed.**
 
 What a write makes true is committed by the one route that made it:
-`Server.setVar` sends the variable's value after its repaints and any panel
-swap, and `SurfaceGraph.committedSelection` says what a popup swap put in the
+`Server.setVar` sends the variable's value after its readers and any panel it
+plans, and `SurfaceGraph.committedSelection` says what a popup swap put in the
 host, a surface id (or `""`), in the shape `openPopup` reads back out. It
 answers `None` for a choice's host: one over a variable commits through its
 variable, and one over state is server truth every viewer shares.
@@ -134,7 +134,7 @@ how re-sending creeps back in.
 ### Why not clear on the fetch simply ending
 
 The obvious move — let the fetch's END clear pending, success or not — is worse
-than either. The action POST returns as soon as `swapHost` has QUEUED the patch,
+than either. The action POST returns as soon as `setVar` has QUEUED the patch,
 so the 204 can beat the frame carrying it: the highlight would snap back to the
 old tab and jump forward when the patch landed. A flicker on the HAPPY path is
 worse than the bug being fixed. `data-indicator` cannot rescue it either — it counts

@@ -249,16 +249,27 @@ class LiveStreamSuite extends ServerHarness {
       "alarm.h" -> es("alarm.h", "armed"),
       "sensor.a" -> es("sensor.a", "A0")
     )
-    val (patch, _) =
-      Patches
-        .hostFill(
+    import cats.effect.unsafe.implicits.global
+    val patch = (for {
+      cache <- RenderCache.create
+      patches <- Patches.patches(
+        r,
+        cache,
+        Map.empty,
+        Shared.of(armed),
+        Viewing(Selections.none, FetchSnapshot.empty),
+        Patches.written(
           r,
-          r.hostId("c_0"),
-          Some("c_0_branch_0"),
+          Map.empty,
           Shared.of(armed),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Selections.none,
+          Nil,
+          List(NodeId.derived("c_0"))
         )
-        .get
+      )
+    } yield patches.collectFirst { case a @ Addressed(_: Patch.Fill, _, _) =>
+      a
+    }.get).unsafeRunSync()
 
     // Holding exactly what a patch for that node alone would carry, which makes
     // the two comparable.

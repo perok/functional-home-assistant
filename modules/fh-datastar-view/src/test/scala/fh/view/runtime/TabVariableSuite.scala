@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.{LayoutNode, NodeId}
+import fh.view.model.{Ix, LayoutNode, NodeId}
 import fh.view.testkit.FixtureEntity
 import fh.view.testkit.DashboardBuilders.declared
 import fh.view.testkit.PklFixture
@@ -70,6 +70,39 @@ class TabVariableSuite extends ServerHarness {
         // The commit rides after the panel, so the highlight agrees only once
         // the panel is in.
         assert(sent.indexOf("PanelTwo") < sent.indexOf("_var_bar__tab"), sent)
+      }
+    }
+  }
+
+  test("a tab switch leaves the host holding the new case, none of the old") {
+    val r = Renderer.create(dash)
+    val pick = NodeId.derived("bar_panel_0")
+    val host = r.hostIx(pick, Shared.of(Map.empty))
+    val one = r.index.ixsOf(NodeId.derived("bar_panel_0_0")).head
+    val two = r.index.ixsOf(NodeId.derived("bar_panel_0_1")).head
+    def under(root: Ix, holds: Map[Ix, Held]) =
+      holds.keySet.filter(r.index.contains(root, _))
+    served { ts =>
+      for {
+        conn <- ts.load().map(_.conn)
+        session <- ts.sessions.get(conn)
+        _ <- session.traverse(_.takeBacklog)
+        _ <- press(ts, conn, "0")
+        before <- session.traverse(_.state.map(_.holds))
+        _ <- press(ts, conn, "1")
+        after <- session.traverse(_.state.map(_.holds))
+      } yield {
+        assertEquals(
+          before.flatMap(_.get(host)).flatMap(_.shows).map(_.toList),
+          Some(List(one))
+        )
+        assert(before.exists(under(one, _).nonEmpty), clue = before)
+        assertEquals(
+          after.flatMap(_.get(host)).flatMap(_.shows).map(_.toList),
+          Some(List(two))
+        )
+        assertEquals(after.map(under(one, _)), Some(Set.empty[Ix]))
+        assert(after.exists(under(two, _).nonEmpty), clue = after)
       }
     }
   }

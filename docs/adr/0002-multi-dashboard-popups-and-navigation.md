@@ -66,16 +66,16 @@ every surface be chrome-less and open/switch/close collapse into one primitive.
 The browser's history stacks them instead: each popup opened is a history
 entry, and closing one goes back to the popup it was opened from (ADR 0005).
 
-### One primitive: `swapHost` (within a dashboard)
+### One primitive: `swapPopup` (within a dashboard)
 
-Open, switch, and close are the same operation (`Server.swapHost`): evict
-whatever surface(s) occupy a host, set the new occupant, inner-patch the host —
+Open, switch, and close are the same operation (`Server.swapPopup`): evict
+whatever popup occupies `#popups`, set the new occupant, inner-patch the host —
 or `remove` the host's children (`#popups > *`) for a close, so the chrome's host element and its attributes stay (`POST /sse/popup/<slug>/close`; the
-transient dialog simply disappears). A tab switch and a popup open are
-`swapHost(host, Some(id))`; no server state tracks "is a popup open" beyond the
-session's open set. A tab press reaches it through a variable write
-(`Server.setVar`), which then commits the tab's variable; a popup swap commits
-`ui_<hostId>` for what it actually put there. Each commit is the only thing
+transient dialog simply disappears). No server state tracks "is a popup open" beyond the
+session's open set. A tab press is not a swap: it is a variable write
+(`Server.setVar`), which plans the panel's host like any other host (ADR 0012) and
+then commits the tab's variable; a popup swap commits `ui_popups` for what it
+actually put there. Each commit is the only thing
 entitled to say so (ADR 0025); a tap records what it asked for in a pending
 signal and nothing else. The popup's VALUE is a surface id rather than a member
 index, because any registered surface can appear there and only one at a time. Crossing to ANOTHER dashboard is not one of these — it is a

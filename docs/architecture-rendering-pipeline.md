@@ -124,7 +124,7 @@ flowchart TB
   GATE -.->|untilRevoked: a logout or an HA revocation sends _reload,<br/>then the merge ends the stream — a goodbye, not a cut| SSE
   ACT --> SESS
   SESS -->|a write's frames, or the backlog on attach| MERGE
-  ACT -.->|hostFill claims into holds| SESS
+  ACT -.->|popupFill claims into holds| SESS
   SESS -.->|openSets: which surfaces are worth recording| PLAN
   GATE --> VAR
   VAR -->|vars · morphs, then the commit| SESS
@@ -1246,7 +1246,9 @@ the URL follows what the server did rather than what was pressed.
 
 **A tab bar's panel is a reader too.** `c.tabs` declares `tab`, and its panel is a choice
 picked by it; `VarGraph.panelsSelectedBy` is that edge, so a tab press is a
-variable write that swaps the panel this viewer is shown (`swapHost`) before it commits. Every
+variable write that plans the panel's host against what this session holds, as a pull plans
+any host (`Patches.written`, then the same `Patches.patches`; nothing is sent again, since no
+log is read), before it commits. Every
 path that renders a panel takes the bar's case from the session's variables: `SurfaceGraph.selections`
 pairs them with the request's popup at each entry (the page, an action, a minted session, a
 connect after adopting the carried values, a renderer swap), narrowing the popup to one this
@@ -1295,7 +1297,7 @@ with a chart in every position against exactly the decided set, and fails on any
 
 A page's set is what it shows: the body, the viewer's open surfaces (selected tab panels, the
 popup), and the branch each state group picks at the snapshot's states — so a flip in this render is
-answered. An unselected tab is not; switching to it fetches its own (`setVar`, then `swapHost`). A pull asks for
+answered. An unselected tab is not; switching to it fetches its own (`setVar`, through the fill it plans). A pull asks for
 exactly what it renders: each target's own reads (a placed member's include its whole subtree's,
 at this viewer's values, and the sets above it) and what each host
 it fills shows. A target is a leaf, never structure, a set member's nodes included, so a pull that moves only plain
@@ -1381,7 +1383,7 @@ paint level in `DatastarMorphContractSuite` — the other order paints a blank f
 The second question — *does this client already have these bytes?* — is answered by the **session's
 own `holds`**, and only ever by that. It is seeded by the document that created the session (and by
 a repaint, which paints the same thing), and updated wherever bytes are sent to this client:
-`Patches.applied` for a pull, `Patches.hostFill` for a tab or popup swap. Never from what another
+`Patches.applied` for a pull or a variable write, and for a popup swap's `Patches.popupFill`. Never from what another
 client was told.
 
 **`holds` is trusted only as far as the client has ACKNOWLEDGED.** It records what was *sent*, and
@@ -1549,7 +1551,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | SSE stream | `runtime/Server.scala` · `sseStream` (the merged per-connection `Stream[IO, SseFrame]`), served by `Ok(...)` through `SseFrame.frameStreamEncoder` |
 | the wire bytes | `runtime/Datastar.scala` · `SseFrame` (encoded at construction), `SseFrame.frameStreamEncoder` (frames → entity body, `text/event-stream`); `runtime/Patches.scala` · `encode` (merge adjacent, then render) |
 | opening paint | `runtime/Server.scala` · `openingPatches` |
-| sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `sessionFor`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts`; `runtime/SurfaceGraph.scala` · `committedSelection` |
+| sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `sessionFor`, `openSurface`, `swapPopup`; `runtime/Patches.scala` · `popupFill`, `popupEvicts`, `written` (a variable write's hosts); `runtime/SurfaceGraph.scala` · `committedSelection` |
 | a document establishes a session | `runtime/Server.scala` · `pageResponse`, `adoptOrMint`; `runtime/Sessions.scala` · `Session.adopt` |
 | a session's lifetime | `runtime/Sessions.scala` · `Tenure`, `Session.release`/`relinquish`/`supersede`; `runtime/Server.scala` · `reapAfter`, `retire`, `AdoptionWindow`, `LingerWindow` |
 | a tab handing over its session | `src/js/shell.ts` · `fhConn` (`sessionStorage`); `runtime/Server.scala` · `PrevConnParam`, `prevConnOf`, `retire` |

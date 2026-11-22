@@ -84,8 +84,12 @@ class RenderGoldenSuite extends munit.FunSuite {
           .foreach(t => section(houseName, s"surface $sid", t.html))
       }
       caseIds.foreach { id =>
-        r.renderShownTraced(id, shared, Viewing(fresh, f))
-          .foreach(t => section(houseName, s"case $id", t.html))
+        r.surfaces
+          .pickShowing(id, shared)
+          .flatMap((gid, i) =>
+            r.renderCaseTraced(gid, i, shared, Viewing(fresh, f))
+          )
+          .foreach((_, t) => section(houseName, s"case $id", t.html))
       }
       nodes.foreach { id =>
         r.renderNodeById(

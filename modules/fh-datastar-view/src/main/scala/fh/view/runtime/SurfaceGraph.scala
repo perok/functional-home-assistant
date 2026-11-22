@@ -186,8 +186,8 @@ private[runtime] final class SurfaceGraph(
     }.toMap
 
   /** Tabs, decided by a viewer's variable: the chosen case lives in the host,
-    * which a patch never carries; filling it is per client
-    * ([[Patches.hostFill]]).
+    * which a patch never carries; planning it is per client
+    * ([[Patches.written]]).
     */
   val varPicks: Set[NodeId] =
     picks.collect { case (gid, p) if p.variable.isDefined => gid }.toSet

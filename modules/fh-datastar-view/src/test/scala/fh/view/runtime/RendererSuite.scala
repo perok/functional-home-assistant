@@ -1195,12 +1195,13 @@ class RendererSuite extends munit.FunSuite {
     assert(!body.contains("<span>BB</span>"), clue = body)
 
     val panelB = rr
-      .renderShownTraced(
-        "c_panel_0_1",
+      .renderCaseTraced(
+        "c_panel_0",
+        1,
         Shared.of(states),
         Viewing(Selections.none, FetchSnapshot.empty)
       )
-      .map(_.html)
+      .map(_._2.html)
       .get
     assert(
       panelB.startsWith("""<div class="fh-cell fh-row" id="c_panel_0_1">"""),

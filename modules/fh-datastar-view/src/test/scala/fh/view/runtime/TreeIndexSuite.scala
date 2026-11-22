@@ -61,10 +61,10 @@ class TreeIndexSuite extends munit.FunSuite {
           d.surfaces.keys
             .flatMap(r.renderSurfaceTraced(_, shared, v))
             .flatMap(_.own.keySet) ++
-          d.picks.values
-            .flatMap(_.cases)
-            .flatMap(r.renderShownTraced(_, shared, v))
-            .flatMap(_.own.keySet)
+          d.picks.toList
+            .flatMap((gid, p) => p.cases.indices.map(gid -> _))
+            .flatMap((gid, i) => r.renderCaseTraced(gid, i, shared, v))
+            .flatMap(_._2.own.keySet)
       val byId: Map[NodeId, List[Ix]] = d.index.all.toList.groupBy(d.index.id)
       assertEquals(rendered -- byId.keySet, Set.empty[NodeId])
       // A container is the page's root, a popup's root or a pick's case.

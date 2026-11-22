@@ -28,7 +28,6 @@ import fh.view.model.{
   CallId,
   ChromeColors,
   Dashboard,
-  DomId,
   Ix,
   NodeId,
   Permission,
@@ -242,7 +241,7 @@ class Server(
 
     case req @ POST -> Root / "sse" / "popup" / slug / "close" =>
       withSession(req, slug)((session, renderer, selections) =>
-        swapHost(session, renderer, Dashboard.PopupHostId, None, selections)
+        swapPopup(session, renderer, None, selections)
       )
   }
 
@@ -1094,29 +1093,28 @@ class Server(
         FHError.notFound(s"no surface '$id' on this dashboard — reload")
       )
     else
-      swapHost(
+      swapPopup(
         session,
         renderer,
-        Dashboard.PopupHostId,
         renderer.surfaces.popupSpelling(id),
         selections
       )(s)
 
-  /** The one open/switch/close primitive: make `newSurface`, a container as
-    * `open` spells it, the sole occupant of `host` (`None` closes a popup) and
+  /** The popup's open/switch/close primitive: make `newSurface`, a popup as
+    * `open` spells it, the sole occupant of `#popups` (`None` closes it) and
     * patch the DOM. No server state tracks whether a popup is open.
     *
     * One client's choice, so unlike a state-group flip it logs nothing: the
-    * trace goes to this session alone. Ends by committing `ui_<hostId>`; the
-    * tap only wrote a pending value (ADR 0025).
+    * trace goes to this session alone. Ends by committing `ui_popups`; the tap
+    * only wrote a pending value (ADR 0025).
     */
-  private def swapHost(
+  private def swapPopup(
       session: Session,
       renderer: Renderer,
-      host: DomId,
       newSurface: Option[String],
       selections: Selections
   )(s: SessionState): IO[Session.Step[Unit]] = {
+    val host = Dashboard.PopupHostId
     val here = renderer.surfaces.surfacesAt(host)
     val evict = s.open.filter(sid => !newSurface.contains(sid) && here(sid))
     val open = (s.open -- evict) ++ newSurface.toSet
@@ -1129,21 +1127,18 @@ class Server(
       answered <- resolveFetches(renderer, newSurface, store, selections, env)
       (fragments, shared) = answered
     } yield {
-      val (holds, filled) = Patches.hostFill(
+      val (holds, filled) = Patches.popupFill(
         renderer,
-        host,
         newSurface,
         shared,
         Viewing(selections, fragments)
       ) match {
-        case Some((patch, _)) =>
+        case Some(patch) =>
           Patches.applied(renderer.index, s.holds, patch) ->
             List(patch.patch.toSse)
         // Only a close reaches here: [[openSurface]] 404s an unknown surface.
         case None =>
-          (s.holds -- renderer.ixsOf(
-            Patches.hostEvicts(renderer, host)
-          )) ->
+          (s.holds -- renderer.ixsOf(Patches.popupEvicts(renderer))) ->
             Option
               .when(newSurface.isEmpty)(Datastar.remove(s"#$host > *"))
               .toList
@@ -1189,8 +1184,9 @@ class Server(
       .flatMap((reads, shared) => answer(reads, env).map(_ -> shared))
 
   /** Set a node variable for this viewer and re-render the readers it is shown
-    * (issue #209): the nodes whose fetches or slots read it, and the tab panels
-    * it selects, swapped as a tab press always was. Per session: logs nothing.
+    * (issue #209): the nodes whose fetches or slots read it, and each pick it
+    * selects, planned against what this session's host holds. Per session: it
+    * reads and logs nothing.
     *
     * The untrusted value is checked ([[Renderer.refusals]]) before it is kept.
     * `None` drops the choice, so the variable holds what it opened at again.
@@ -1237,46 +1233,33 @@ class Server(
       }
       env = renderer.vars.env(s.initialValues ++ proposed)
       after = renderer.surfaces.selections(selections.popup, env)
-      // `refusals` made the value a member's of every group it selects.
-      swapped <- shownGroups
-        .flatMap { gid =>
-          renderer.surfaces
-            .memberAt(gid, value)
-            .map(renderer.surfaces.cases(gid))
-            .filterNot(s.open)
-            .map(gid -> _)
-        }
-        .foldLeftM(Session.Step(s.copy(vars = proposed), List.empty, ())) {
-          case (done, (gid, id)) =>
-            swapHost(session, renderer, renderer.hostId(gid), Some(id), after)(
-              done.next
-            ).map(more => more.copy(frames = done.frames ++ more.frames))
-        }
-      pulled <- decided(renderer, store)(
-        renderer.readsForPull(targets, Nil, _, after, env)
-      )
-      (reads, shared) = pulled
+      open = renderer.surfaces.selectedSurfaces(after)
+      _ <- session.reveal(open)
+      pulled <- decided(renderer, store) { at =>
+        val o =
+          Patches.written(renderer, s.holds, at, after, targets, shownGroups)
+        o -> renderer.readsForPull(o.touched, o.filled, at, after, env)
+      }
+      ((owing, reads), shared) = pulled
       snapshot <- answer(reads, env)
       live <- liveFor(session.slug)
       patches <- live.toList.flatTraverse(l =>
-        targets.traverseFilter(
-          Patches.morph(
-            renderer,
-            l.cache,
-            swapped.next.holds,
-            shared,
-            Viewing(after, snapshot),
-            _
-          )
+        Patches.patches(
+          renderer,
+          l.cache,
+          s.holds,
+          shared,
+          Viewing(after, snapshot),
+          owing
         )
       )
     } yield Session.Step(
-      swapped.next.copy(holds =
-        patches.foldLeft(swapped.next.holds)(
-          Patches.applied(renderer.index, _, _)
-        )
+      s.copy(
+        vars = proposed,
+        open = open,
+        holds = patches.foldLeft(s.holds)(Patches.applied(renderer.index, _, _))
       ),
-      swapped.frames ++ patches.map(_.patch.toSse) :+
+      Patches.encode(patches) :+
         Datastar.patchSignals(VarKey.signalsJson(Map(key -> value)).noSpaces),
       ()
     )

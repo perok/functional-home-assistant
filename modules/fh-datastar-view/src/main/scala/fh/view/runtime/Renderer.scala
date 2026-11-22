@@ -1062,29 +1062,6 @@ class Renderer(validated: Dashboard.Validated) {
   private[runtime] def hasOwnRendering(key: Ix): Boolean =
     !dashboard.cards.get(index.node(key).card).exists(_.isStructure)
 
-  /** The host a case is shown in: [[hostIx]] of the pick showing it. */
-  private[runtime] def hostIxShowing(id: String, shared: Shared): Option[Ix] =
-    surfaces.pickShowing(id, shared).map((gid, _) => hostIx(gid, shared))
-
-  /** What a host fill inserts, by the container's spelling: a popup's content,
-    * or a case under its node id, through the pick showing it as `shared` has
-    * its member's clause.
-    */
-  private[runtime] def renderShownTraced(
-      id: String,
-      shared: Shared,
-      viewing: Viewing
-  ): Option[Traced] =
-    surfaces
-      .popupNamed(id)
-      .flatMap(renderSurfaceTraced(_, shared, viewing))
-      .orElse(
-        surfaces
-          .pickShowing(id, shared)
-          .flatMap((gid, i) => renderCaseTraced(gid, i, shared, viewing))
-          .map(_._2)
-      )
-
   /** Case `i` of the pick `gid`, under its node id, as the host's walk would
     * place it.
     */

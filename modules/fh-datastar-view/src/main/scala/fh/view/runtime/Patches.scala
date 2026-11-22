@@ -318,14 +318,15 @@ private[runtime] object Patches {
       }
 
   /** A host's steps, `host` as `shared` has it inside a member. */
-  private final case class HostPlan(
+  private[runtime] final case class HostPlan(
       gid: NodeId,
       host: Ix,
       steps: List[HostStep]
   )
 
-  /** What a pull owes one client, as `shared` decides it. */
-  private final case class Owing(
+  /** What a pull or a variable write owes one client, as `shared` decides it.
+    */
+  private[runtime] final case class Owing(
       morphs: List[NodeId],
       plans: List[HostPlan],
       // From the candidates, not the patches: a signal-only change emits none.
@@ -356,11 +357,41 @@ private[runtime] object Patches {
       .toList
       // Document order among siblings, since ids are location-derived.
       .sorted
-    val again: Ix => Boolean = k =>
-      logged(index.id(k)) && !renderer.hasOwnRendering(k)
-    val planned = candidates
-      .flatMap(renderer.hostsAt(_, shared))
-      .distinct
+    owe(
+      renderer,
+      holds,
+      shared,
+      selections,
+      candidates,
+      candidates.flatMap(renderer.hostsAt(_, shared)).distinct,
+      k => logged(index.id(k)) && !renderer.hasOwnRendering(k)
+    )
+  }
+
+  /** A variable write's owing: `hosts`, the picks it selects, planned against
+    * `holds` with no key sent again, since no log is read; `readers` morphed.
+    */
+  private[runtime] def written(
+      renderer: Renderer,
+      holds: Map[Ix, Held],
+      shared: Shared,
+      selections: Selections,
+      readers: List[NodeId],
+      hosts: List[NodeId]
+  ): Owing =
+    owe(renderer, holds, shared, selections, readers, hosts, _ => false)
+
+  private def owe(
+      renderer: Renderer,
+      holds: Map[Ix, Held],
+      shared: Shared,
+      selections: Selections,
+      candidates: List[NodeId],
+      hosts: List[NodeId],
+      again: Ix => Boolean
+  ): Owing = {
+    val index = renderer.index
+    val planned = hosts
       .flatMap { gid =>
         val host = renderer.hostIx(gid, shared)
         planHost(
@@ -407,7 +438,7 @@ private[runtime] object Patches {
   /** The batch's frame first, then the morphs, every leave, and each host's
     * fill or places: an anchor or a host is on the page when its patch runs.
     */
-  private def patches(
+  private[runtime] def patches(
       renderer: Renderer,
       cache: RenderCache,
       holds: Map[Ix, Held],
@@ -620,47 +651,27 @@ private[runtime] object Patches {
           .map(t => t.html -> t.claims)
     )
 
-  /** A tab switch or popup open: one client's choice, so it touches only that
-    * session's `holds`. The departing member is evicted, by the fill's range
-    * for a pick and by `invalidates` for `#popups`; a stale claim would
-    * suppress a real change on its return.
+  /** A popup open: one client's choice, so it touches only that session's
+    * `holds`. `#popups` holds no list, so every popup's nodes are evicted: a
+    * stale claim would suppress a real change on its return (R5 makes it an
+    * ordinary host).
     */
-  private[runtime] def hostFill(
+  private[runtime] def popupFill(
       renderer: Renderer,
-      host: DomId,
       arriving: Option[String],
       shared: Shared,
       viewing: Viewing
-  ): Option[(Addressed, String)] =
-    arriving.flatMap { id =>
-      renderer.renderShownTraced(id, shared, viewing).map { t =>
-        val addressed =
-          if host == Dashboard.PopupHostId then
-            Addressed(
-              Patch.Insert(t.html, PatchMode.Inner, host),
-              t.claims,
-              (renderer.surfaces.surfacesAt(host) ++ arriving)
-                .flatMap(renderer.surfaceNodeIds)
-            )
-          else
-            Addressed(
-              Patch.Fill(
-                renderer
-                  .hostIxShowing(id, shared)
-                  .getOrElse(
-                    throw new IllegalStateException(
-                      s"'$id' is shown in '$host' but no pick shows it"
-                    )
-                  ),
-                host,
-                t.html,
-                Some(IArray(t.root))
-              ),
-              t.claims
-            )
-        (addressed, t.html)
-      }
-    }
+  ): Option[Addressed] =
+    arriving
+      .flatMap(renderer.surfaces.popupNamed)
+      .flatMap(renderer.renderSurfaceTraced(_, shared, viewing))
+      .map(t =>
+        Addressed(
+          Patch.Insert(t.html, PatchMode.Inner, Dashboard.PopupHostId),
+          t.claims,
+          popupEvicts(renderer)
+        )
+      )
 
   /** The body and the open popup, and what they leave the session holding. The
     * popup's host sits outside `#dashboard`: a repaint that stopped there left
@@ -673,13 +684,12 @@ private[runtime] object Patches {
       viewing: Viewing
   ): (List[SseFrame], Map[Ix, Held]) = {
     val body = renderer.renderBodyTraced(shared, viewing)
-    val popup = hostFill(
+    val popup = popupFill(
       renderer,
-      Dashboard.PopupHostId,
       viewing.selections.popup.flatMap(renderer.surfaces.popupSpelling),
       shared,
       viewing
-    ).map(_._1)
+    )
     val held = popup.foldLeft(body.claims)(applied(renderer.index, _, _))
     // The seeds alone are not enough: the morph re-applies a seed only when
     // its text changed, so on a page that missed frames (a forgotten session,
@@ -697,12 +707,11 @@ private[runtime] object Patches {
     )
   }
 
-  /** What a host's surfaces evict when nothing arrives in it (a close). */
-  private[runtime] def hostEvicts(
-      renderer: Renderer,
-      host: DomId
-  ): Set[NodeId] =
-    renderer.surfaces.surfacesAt(host).flatMap(renderer.surfaceNodeIds)
+  /** Every popup's nodes: what an open or a close evicts. */
+  private[runtime] def popupEvicts(renderer: Renderer): Set[NodeId] =
+    renderer.surfaces
+      .surfacesAt(Dashboard.PopupHostId)
+      .flatMap(renderer.surfaceNodeIds)
 
   /** Invalidate first, then claim: a fill re-supplies a host and places members
     * in it. Containment is [[TreeIndex.contains]]'s, not id spelling.
