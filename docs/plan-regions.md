@@ -266,9 +266,10 @@ A host is filled by one mechanism, a **pick**: keys, each with its `Choice`, an 
 A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
 - **Deciding** happens on every send, as a selection is resolved per send today: each key's `by`
   is evaluated where its sources live, by the evaluator slots use, and its case looked up. A `by`
-  that is a `Var` is a read and a lookup, however many cases it has. A state-only `by` is decided
-  once per version, in the renderer's `Shared` (the pipeline doc, §1); one that reads a variable,
-  per session.
+  that is a `Var` is a read and a lookup, however many cases it has. Every decision has a level
+  the renderer knows from what it reads: one reading no variable is made once per version for
+  every viewer, one reading variables once per version and the values they hold, both in the
+  renderer's `Shared` (the pipeline doc, §1) and carried by the same dirty rule (D5).
 - **A case no viewer shows costs nothing:** it is not rendered, fetched or logged, today's rule for
   a surface nobody has open, which matters once every popup is a case of one match. Its fetches are
   read only once it is chosen, the rule a reading's `valueWhile` already has (`Fetching.Gate`); the
@@ -480,7 +481,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        the exact "whole template" comparison is Pkl's (the wire template carries the root).
      - ADRs' "state surface" still name a case by its old word.
    - **R4d, the planner**, branch `the-planner` on `pkl-fixtures` (F, #725). Agreed
-     2026-11-19. D0 first, a refactor with no behaviour change, then D1, D2a, D2b, D3, D5, D6 (D4 merged into D3).
+     2026-11-19. D0 first, a refactor with no behaviour change, then D1, D2a, D2b, D3, D5 (D5.0–D5.5), D6 (D4 merged into D3).
      - **D0.1, one tree index.** Today about eight walks mint ids themselves (`Dashboard.picks`,
        `Dashboard.varScopes`, `Validate.walk`/`walkIds`, `Renderer.Index`, `Member.subtree`,
        `MemberGraph`'s nested-set walk, the build's JSON hoist), and R4c added a second spelling,
@@ -743,107 +744,125 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          decides only a clause-split id and makes `since` a `BitSet`. What is left is D3.4's
          planner, ~2.1 KB per client (`covered`, `hostsAt`, `owe`'s closures): slimmed in the
          finishing pass (D6).
-     - **D5, per-session decisions:** §4's variable-read refusals go (the mixed `by`, set guards,
-       `valueWhile`, order keys), with a test of one guard reading a variable and a state, two
-       viewers on different values. It adds deciders to D3's per-session path, no reshape.
-       Check-first (2026-11-22):
-       - **Where a decision reading a variable lives.** In `Shared`, in tables beside the shared
-         ones, keyed by the decision's key and the values its variables hold where it is read (a
-         pick's host, a set's node, a gated slot's node), in its variables' order. With the
-         version's states and the run's answers that is everything it reads, so two viewers on
-         equal values share one decision and a viewer on another value has another key; keyed by
-         the decision alone it would leak. Never carried, as `signals` is not (open 1): a variable
-         read only by a guard or a value slot takes any token (`refusals` checks only fetch
-         windows and plain picks), so a carried table would grow with every value a client ever
-         chose; per version it holds one entry per distinct values among the sessions that
-         pulled. `Shared.Run` carries the viewer's `VarEnv` (none for the recorder), so every
-         reader that takes a `Shared` (the walk, visibility, `decidedKeys`, `readsForPull`, the
-         render key) decides for that viewer with no new parameter. One asked with no viewer
-         raises, so the recorder cannot decide one for nobody.
-       - **The recorder cannot decide one, so it logs wide** (open 2). For a pick or set decided
-         per viewer it logs the host whenever an entity its `by`, guards or order read changes
-         (the reverse index `dirtied` reads), and no arriving key; and every node below it that
-         binds a changed entity, in every case and clause, at each clause's `Ix`. Each viewer's
-         `owing` finds the host among its candidates (`hostsAt`), decides its keys for that viewer
-         and plans them against `holds`: an unchanged decision plans nothing, one decision and no
-         bytes. The `again` rule needs no arrival logged here, since nothing below such a host
-         went unlogged while its viewer was away. A case or member such a decision hides is still
-         not rendered or fetched, but it is logged: §7's rule relaxed for these alone.
-       - **`MemberGraph.deltas` does not apply to a set decided per viewer**: it makes `next`'s
-         decision for the recorder, which has no viewer. A pull materialises it whole, once per
-         version and distinct values; `publishSet*` measure sets over state, which keep `deltas`.
-         On the recorder such a set's members count as present wherever presence is asked
-         (`binding`, `ownerPresent`, `groupShown`), and such a pick's cases as shown: wide, never
-         narrow.
-       Open, for the user before D5.1: (1) the per-viewer tables never carried, against carried
-       with dirty marks; (2) the recorder logging wide, against deciding each such host once per
-       distinct values among live sessions, as it reads their open sets (exact, but a write
-       between frames then needs a `reveal`-like widening); (3) a pick over the plain variable
-       stays on `Selections`/`open` until R5, against moving it onto the tables now; (4) the
-       computed read of a variable (`nodeMod.match` through steps, an If over two variables) goes
-       in D5.1 with the mixed `by`; (5) a decision's fetch whose window a variable chooses stays
-       refused, reworded; (6) a per-viewer bench added in D5.4, against leaving it to D6.
+     - **D5, one decision mechanism; the variable-read refusals go:** the mixed `by`, a computed
+       read of a variable, set guards, order keys and `valueWhile` (§4), with a test of one guard
+       reading a variable and a state, two viewers on different values. Agreed 2026-11-22: one
+       mechanism whose level the renderer knows in advance, not deciders beside the shared ones,
+       so R5 adds popups to it rather than replacing what D5 builds.
+       - **A decision's level comes from what it reads**, found once per renderer, since variable
+         scopes are static: `Version` when it reads only state, fetches and literals,
+         `Viewer(keys)` when it also reads the variables `keys`, each a `VarKey` resolved where
+         the decision is read (a pick's host, a set's node, a gated slot's node). A set's guards
+         read at the set's node, since a member's own declarations exist only once it does. A
+         decision below one decided per viewer keeps its own level; only whether it is on screen
+         depends on the viewer.
+       - **One memo per version, in `Shared`.** A `Viewer` decision is kept under its own key and
+         the values its `keys` hold, nested by decision so a dirty decision drops every values'
+         entry in one removal; viewers with equal values share one entry. Both levels carry by
+         the same dirty rule, so a decision is made again only when something it reads changed;
+         the check is the reverse-index lookup the version level already pays per changed
+         entity. An entry whose values no live session holds is dropped when the live values
+         change, which bounds the memo by the sessions. A decision that is a lookup (a pick over
+         the plain variable) is not kept, since finding it costs more than making it.
+         `Shared.Run` carries the viewer's values (`VarEnv`), so every reader taking a `Shared`
+         (the walk, visibility, `decidedKeys`, `readsForPull`, the render key) decides for that
+         viewer; a `Viewer` decision asked with no viewer raises.
+       - **The recorder decides once per distinct live values**, extending the fold
+         `recordFrame` already makes over every session's open set: the version level once, and
+         per distinct values among live sessions, the `Viewer` decisions the frame dirtied or
+         whose containers it asks about. It logs the union: each host whose keys moved for some
+         values, each key that arrived for some, each node on some session's screen. So `deltas`
+         runs per values, the A → B → A rule keeps working (a key that came back for one values
+         is resent to a viewer holding it under others: bytes, rare), nothing hidden from every
+         viewer is logged, and the pulls read the decisions it made. A write reveals its new
+         values before it reads the store, as `reveal` widens `open` today, so a frame recorded
+         meanwhile covers both.
+       - **Measured, not assumed:** D5.0's bench before and after each step, and a miss
+         profiled (async-profiler, D3's method) before anything is redesigned. Found in the
+         check: a live pull takes every node of each open container as a candidate (`owing`'s
+         `fromOpen`), a price per pull whatever changed. With the recorder reading every live
+         session's screen it looks needed only after a gap the recorder did not cover (a
+         reconnect, an adopted session) and in a write's race, which the reveal closes. D5.0
+         measures its share; narrowing it is the user's call once the number is in.
+       - **Stays refused:** a decision's fetch whose window a variable chooses
+         (`decisionFetchErrors`), its message reworded since a decision is no longer made for
+         every viewer at once. To lift it, the decision's fetches resolve at the viewer's values
+         (the memo key already carries them) and `Server.decisionAnswers` answers with the
+         viewer's env; reopen when a card needs a decision over a chosen window. The note goes in
+         ADR 0034 beside the rule.
        Sub-steps, each a green commit with the oracle green. A new `FixtureEntries` dashboard,
-       `viewer-decisions` (a `c.select` of `mode`, then each shape below as its step adds it),
+       `viewer-decisions` (a `c.select` of `mode`, and each shape below as its step adds it),
        joins the oracle's list; its snapshot and golden are new files, every other one
        byte-identical. OracleSuite's time (18–21 s locally) is measured with it.
-       - **D5.1, the per-viewer tables, and a pick reading a variable.** `Shared.Run(have,
-         viewer)` and `Renderer.decide(answer, viewer)`; `Server.decided` and `Patches.resume`
-         pass the session's env on every step (pull, opening, page load, repaint, `setVar`,
-         press), the recorder none. A pick is one of three kinds: over state (`Shared`, per
-         version), over the plain variable (`Selections`, from `open`, until R5), or computing
-         over a variable or reading state too, decided per viewer from the tables. The third's
-         cases never enter `open`; `shownUpTo` and `pickedCase` ask its decision. `plan` lists
-         the picks of that kind a frame's entities dirty and `record` logs their host; `setVar`
-         plans each shown pick whose `by` reads the variable (`VarGraph`). Goes:
-         `choiceFillErrors`' "by state together" and "a computed read of a variable", and Pkl's
-         throws in `Iff.wire` and `match` (a mixed chain is a `FirstTrue` as one over state is,
-         an empty `else` no case). Files: `Shared`, `Renderer`, `SurfaceGraph`, `VarGraph`,
-         `Patches`, `Server`, `Validate`, `core/choice.pkl`. Tests deleted, each the refusal's
-         own: `ChosenFillSuite` "validate refuses one decision reading a variable and state",
-         `VarSourceSuite` "a choice's condition refuses a computed read of one",
-         `choice.test.pkl`'s two "an error naming R4d". New: an If over `mode == "a"`, else a
-         light on, with two viewers on different `mode`: different cases at one version; the
-         light moving changes one viewer's case and sends the other nothing; a write re-plans
-         its writer's host alone; the recorder logs the host and no case. Beside it, the tables:
-         equal values decided once, another value apart, no viewer raises. `choice.test.pkl`: a
-         mixed chain's `by` and cases. Core: the tables, `shownUpTo`, `pickedCase`, `plan` and
-         `record` for these picks. Docs: ADR 0007 (selection semantics), 0033 (where a variable
-         is read), the pipeline doc §1a (the per-viewer tables), §4 and §7's table, terminology
-         (pick, flip, `Shared`), writing-dashboards.md (an If mixing a variable and state),
+       - **D5.0, the bench, on the base.** `RenderBench` gains a dashboard with a tab bar over a
+         variable, N sessions on two of its values and one state change per op, through the
+         recorder and each session's pull, and a page load. Committed before any code moves, so
+         its base numbers exist; it also gives `fromOpen`'s share. D5.2–D5.4 add their shape to
+         it, measured from then on (their shapes are refused at the base).
+       - **D5.1, the mechanism, and tab bars onto it; nothing lifted, nothing visible moves.**
+         The levels, the memo, carry and pruning, `Run`'s viewer, the recorder per live values,
+         a write's reveal of its values. A pick over the plain variable is decided from the
+         viewer's value: `Selections.panels`, the pick half of `selectionsIn`/`selectionsShown`
+         and the pick cases in `open` go (`open` keeps popups until R5), and `owing`'s open
+         candidates are the containers on the viewer's screen under a variable pick or a popup,
+         as `open` gave them. Files: `Shared`, `Renderer`, `SurfaceGraph`, `VarGraph`, `Patches`,
+         `Server`, `Sessions`. Check first: every reader of `open`'s pick half or
+         `Selections.panels` (`Server`'s pull, opening, popup routes, `setVar` and page load;
+         `SurfaceGraph`; `Renderer.pickedCase`), and the suites asserting them (`SurfaceGraphSuite`,
+         `RendererSuite`, `LiveStreamSuite`, `FetchDriftSuite`, `TabVariableSuite`, …),
+         rewritten where the property survives (a tab shows its value's case) and deleted where
+         it is `open`'s own; the commit lists both. Tests: the memo (equal values decided once,
+         others apart, a dirty decision dropped for every values, an entry pruned once no session
+         holds its values, no viewer raises); two viewers on two tabs, a state change in one tab
+         reaching only its viewer; a write racing a frame. Core: the memo and its carry,
+         `recordFrame` and `plan` per values, `shownUpTo`. Gate: goldens byte-identical, the
+         usual benches equal, D5.0's within 1%. Docs: ADR 0011 (what the recorder reads), 0033
+         (where a choice is decided), the pipeline doc §1a (the levels), §2, §5
+         (`SessionState.open`), §7's table, terminology (`Shared`, pick, `Viewing`, level).
+       - **D5.2, a pick computing over a variable or reading state too.** Its level is `Viewer`;
+         the recorder compares its case per values at `prev` and `next` and logs the host and
+         the arriving case, as a flip. Goes: `choiceFillErrors`' "by state together" and "a
+         computed read of a variable", and Pkl's throws in `Iff.wire` and `match` (a chain mixing
+         a variable and state, or over two variables, is a `FirstTrue` as one over state is, an
+         empty `else` no case). Files: `SurfaceGraph`, `Patches`, `Validate`, `core/choice.pkl`.
+         Tests deleted, each the refusal's own: `ChosenFillSuite` "validate refuses one decision
+         reading a variable and state", `VarSourceSuite` "a choice's condition refuses a computed
+         read of one", `choice.test.pkl`'s two "an error naming R4d". New: an If over
+         `mode == "a"`, else a light on, two viewers on different `mode`: different cases at one
+         version; the light moving changes one viewer's case and sends the other nothing; a
+         write re-plans its writer's host alone. `choice.test.pkl`: a mixed chain's `by` and
+         cases, a match through steps. Docs: ADR 0007 (selection semantics), 0033, the pipeline
+         doc §4, terminology (flip), writing-dashboards.md (an If mixing a variable and state),
          writing-components.md, the doc comments in `choice.pkl` and `variable.pkl`.
-       - **D5.2, a set whose guard or order reads a variable.** Such a set (a clause's guard or
-         an order key reading one, at the set's node, since a member's own declarations exist
-         only once it does) decides through the tables (`groupOf`, `memberAt`). `deltas` skips
-         it, the recorder counts its candidates present, `plan` lists it when dirtied, and
-         `record` logs its host and every node in any candidate's clause binding a changed
-         entity (`touch` at every clause's `Ix`). `setVar` plans each shown such set. Goes:
-         `decisionVarErrors`' set clause and order; their variables are checked against the
-         set's scope as a pick's are. Files: `MemberGraph`, `Patches`, `Server`, `VarGraph`,
-         `Validate`. Test deleted: `VarSourceSuite` "a set's clause and order refuse one". New,
-         the plan's test: a guard reading `mode` and the member's state, viewer A on a value that
-         keeps every member and B on one that keeps the lit ones; a light goes off: B's member
-         leaves, A keeps it (its tile morphs); B writes A's value: the member is placed for B
-         alone. An order key reading `mode`: two viewers ordered differently, a state change
-         reordering each its own way. A → B → A for a member present only per viewer, while its
-         viewer is away and an inner node changes: the returning page gets the change. Check
-         first: what a `where` over `valueIs` and state lowers to (`q.all`/`q.any` take a
-         `slotMod.Expr`). Core: `MemberGraph`'s per-viewer set, `record`. Docs: ADR 0003, 0011
-         (what the recorder logs for a host decided per viewer), 0033, the pipeline doc §3 and
+       - **D5.3, a set whose guard or order reads a variable.** Its level is `Viewer` at the
+         set's node; `groupOf`, `memberAt`, `deltas`, `binding` and `ownerPresent` take the
+         values, and `record` logs per values. Goes: `decisionVarErrors`' set clause and order;
+         their variables are checked against the set's scope as a pick's are. Files:
+         `MemberGraph`, `Patches`, `Server`, `VarGraph`, `Validate`. Test deleted:
+         `VarSourceSuite` "a set's clause and order refuse one". New, the plan's test: a guard
+         reading `mode` and the member's state, viewer A on a value keeping every member and B
+         on one keeping the lit ones; a light goes off: B's member leaves, A keeps it (its tile
+         morphs); B writes A's value: the member is placed for B alone. An order key reading
+         `mode`: two viewers ordered differently, a state change reordering each its own way.
+         A → B → A for a member present for one viewer only, while that viewer is away and an
+         inner node changes: the returning page gets the change. Check first: what a `where` over
+         `valueIs` and state lowers to (`q.all`/`q.any` take a `slotMod.Expr`). Core:
+         `MemberGraph` per values, `record`. Docs: ADR 0003, 0011, 0033, the pipeline doc §3 and
          §4b, writing-dashboards.md (a `where` or `orderBy` over a variable),
          writing-components.md.
-       - **D5.3, a `valueWhile` reading a variable.** `gateHolds` decides through the tables at
-         the slot's node, and the gated node is a reader of the variable (`VarGraph.readsAt`
-         takes the `valueWhile` and its inputs), so a write morphs it. Goes: the rest of
-         `decisionVarErrors` (a call keeps its own refusal in `callErrors`); `decisionExprs`
-         stays for `decisionFetchErrors`. Files: `Renderer`, `VarGraph`, `Validate`, `Dashboard`.
-         Test deleted: `VarSourceSuite` "a valueWhile refuses one". New: a slot gated by
-         `mode.valueIs("on")`, two viewers; a write re-renders it for its writer alone; its fetch
-         is read only while it holds. Docs: ADR 0033, 0034, writing-components.md ("A value only
-         while something holds"), `variable.pkl`.
-       - **D5.4, the bench and a sweep.** The usual list against eff9d517 (no existing bench
-         holds a decision per viewer, so equal or better). A grep of docs, doc comments and Pkl
-         for "every viewer", "not built yet", "R4d", `decisionVarErrors`; the plan bullet BUILT.
+       - **D5.4, a `valueWhile` reading a variable.** Its gate's level is `Viewer` at the slot's
+         node, and the gated node reads the variable (`VarGraph.readsAt` takes the `valueWhile`
+         and its inputs), so a write morphs it. Goes: the rest of `decisionVarErrors` (a call
+         keeps its own refusal in `callErrors`); `decisionFetchErrors` reworded, with the revisit
+         note. Files: `Renderer`, `VarGraph`, `Validate`, `Dashboard`. Test deleted:
+         `VarSourceSuite` "a valueWhile refuses one"; `DecisionFetchSuite`'s message assertion
+         follows the rewording. New: a slot gated by `mode.valueIs("on")`, two viewers; a write
+         re-renders it for its writer alone; its fetch is read only while it holds. Docs: ADR
+         0033, 0034, writing-components.md ("A value only while something holds"),
+         `variable.pkl`.
+       - **D5.5, the bench and a sweep.** The usual list against eff9d517 and D5.0's against
+         D5.0's commit. A grep of docs, doc comments and Pkl for "every viewer", "not built yet",
+         "R4d", `decisionVarErrors`, `panels`; the plan bullet BUILT.
      - **D6, benches** that span steps: everything R2 measured, `publishSetOrdered` also with
        many sessions, one session's `holds` size, and a profile of D2b's `page` +1.7% (the
        lists' arrays, `Trace.held`'s second map), and D3.4's planner closures on the pull
@@ -879,12 +898,11 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      `.inHistory()`, the popstate re-read of the URL and the mirror's own-entry marking, and the
      `v.<root>.popups` parameter. Also check why two of the spike's pulls sent nothing (a member
      leaving, a tab switch, both on a session with no stream).
-   - **`SessionState.open` goes.** With the popup a variable, every container a viewer shows
-     follows from its variables and the state, so each step computes D0.3's `BitSet` from them.
-     Nothing spelled as a container then crosses a swap, only `VarKey`s, which `recheck` already
-     checks. Check first: the recorder reads `openSets` outside any step, `Sessions.reveal` widens
-     the open set before a fill, and `selectionsShown` gives a pick in a member's clause the
-     variable's value only once that clause is shown.
+   - **`SessionState.open` goes.** D5.1 took the picks off it. With the popup a variable, a pick
+     on D5's decisions, every container a viewer shows follows from its variables and the state,
+     so each step computes D0.3's `BitSet` from them. Nothing spelled as a container then crosses
+     a swap, only `VarKey`s, which `recheck` already checks; `Selections`, the open set's
+     `reveal` and the recorder's reading of `open` go with it.
    - **`defaultOpen`** becomes the `popups` default: that popup's id, not no value. Today
      `selectedSurfaces` adds every `defaultOpen` popup while `#popups` holds one, so what two of
      them mean is settled before this is built.
