@@ -205,8 +205,13 @@ final class Session private (
       )
     )
 
-  /** Deliver to `outlet` from now on, the backlog first. */
-  def attach(outlet: Outlet): IO[Unit] = submit(Command.Attach(outlet))
+  /** Deliver to `outlet` from now on, the backlog first; whether there was one.
+    * When there was, the request that opened `outlet` predates those frames.
+    */
+  def attach(outlet: Outlet): IO[Boolean] =
+    Deferred[IO, Boolean].flatMap(reply =>
+      submit(Command.Attach(outlet, reply)) *> reply.get
+    )
 
   /** A no-op unless `outlet` is still the one attached, so a displaced stream's
     * end does not detach its successor. What it never took goes back to the
@@ -282,10 +287,12 @@ final class Session private (
     command match {
       case run: Command.Run[?] =>
         step(current, backlog, outlet, run).map((s, b) => (s, b, outlet))
-      case Command.Attach(next) =>
+      case Command.Attach(next, reply) =>
         outlet
           .foldMapM(_.takeAll)
-          .flatMap(left => next.put(left ++ backlog))
+          .map(_ ++ backlog)
+          .flatTap(next.put)
+          .flatMap(unsent => reply.complete(unsent.nonEmpty))
           .as((current, Vector.empty, Some(next)))
       case Command.Detach(gone) if outlet.exists(_ eq gone) =>
         gone.takeAll.map(left => (current, left ++ backlog, None))
@@ -341,7 +348,7 @@ object Session {
         step: SessionState => IO[Step[A]],
         reply: Deferred[IO, Either[Throwable, A]]
     )
-    case Attach(outlet: Outlet)
+    case Attach(outlet: Outlet, reply: Deferred[IO, Boolean])
     case Detach(outlet: Outlet)
     case TakeBacklog(reply: Deferred[IO, List[SseFrame]])
 
@@ -349,7 +356,7 @@ object Session {
     def refuse: IO[Unit] = this match {
       case run: Run[?]        => run.reply.complete(Left(ended)).void
       case TakeBacklog(reply) => reply.complete(Nil).void
-      case Attach(_)          => IO.unit
+      case Attach(_, reply)   => reply.complete(false).void
       case Detach(_)          => IO.unit
     }
   }

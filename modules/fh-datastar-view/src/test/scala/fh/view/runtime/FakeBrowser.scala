@@ -19,6 +19,10 @@ import scala.concurrent.duration.*
   * popups) in the order they ran, as an attached stream would get them. While
   * down nothing is taken, so a reconnect gets the backlog first, as a real one
   * does.
+  *
+  * Every IO here reads the page when it RUNS (`IO.defer`): built ahead of the
+  * step before it (`action *> b.listsAsFresh`), one that read `current.query`
+  * at construction loaded the fresh page at the query from before the press.
   */
 final class FakeBrowser private (
     ts: TestServer,
@@ -36,7 +40,7 @@ final class FakeBrowser private (
   /** The stream from the page's own request; a `_reload` it sets loads the page
     * again at its URL and connects that one.
     */
-  def connect: IO[Unit] =
+  def connect: IO[Unit] = IO.defer {
     ts.gatedApp
       .run(
         Request[IO](
@@ -63,16 +67,18 @@ final class FakeBrowser private (
       .timeout(15.seconds) *>
       IO { streaming = true } *>
       IO(current.reloadAsked).ifM(reload, IO.unit)
+  }
 
-  private def reload: IO[Unit] =
+  private def reload: IO[Unit] = IO.defer {
     ts.page(current.query)
       .flatMap(html => IO { current = FakePage.load(html) }) *> connect
+  }
 
   /** The stream dropped; the session lingers until something forgets it. */
   def drop: IO[Unit] = IO { streaming = false }
 
   /** What the connection loop would have sent by now. */
-  def deliver: IO[Unit] =
+  def deliver: IO[Unit] = IO.defer {
     IO.whenA(streaming)(
       ts.sessions
         .get(conn)
@@ -84,13 +90,15 @@ final class FakeBrowser private (
             ) *> s.takeBacklog.flatMap(fs => IO(fs.foreach(current(_))))
         })
     )
+  }
 
   /** A press posting `body`'s signals with this page's `conn`; a refusal's
     * signals ride the answer.
     */
-  def post(path: String): IO[Unit] =
+  def post(path: String): IO[Unit] = IO.defer {
     ts.postResult(path, body = s"""{"${Server.ConnSignal}":"$conn"}""")
       .flatMap((_, body) => IO(current.applySse(body)))
+  }
 
   def choose(key: VarKey, value: Option[String]): IO[Unit] =
     ts.choice(key, value).flatMap(post)
@@ -102,10 +110,11 @@ final class FakeBrowser private (
   /** The page a refresh would show now, through a viewer that leaves at once so
     * it holds no floor for later steps.
     */
-  def fresh: IO[FakePage] =
+  def fresh: IO[FakePage] = IO.defer {
     ts.viewer(current.query)
       .flatTap(_.leave)
       .map(v => FakePage.load(v.document.html))
+  }
 
   /** The oracle's check: once delivered, this page equals a fresh one, and each
     * host list its session holds is on the page and is the fresh page's own.
@@ -124,7 +133,7 @@ final class FakeBrowser private (
     * which the page's ids cannot show. A host it holds none for is allowed: a
     * forgotten page.
     */
-  def listsAsFresh: IO[hedgehog.Result] =
+  def listsAsFresh: IO[hedgehog.Result] = IO.defer {
     for {
       v <- ts.viewer(current.query)
       expected <- FakeBrowser.lists(v.session)
@@ -141,6 +150,7 @@ final class FakeBrowser private (
           wrong.mkString("host lists differ from a fresh load's:\n", "\n", "")
         )
     }
+  }
 
   private def index: IO[TreeIndex] =
     ts.server
@@ -151,7 +161,7 @@ final class FakeBrowser private (
   /** After a settle, each list this session holds is its host's children on the
     * page, in order.
     */
-  def listsInPage: IO[hedgehog.Result] =
+  def listsInPage: IO[hedgehog.Result] = IO.defer {
     (
       index,
       ts.sessions.get(conn).flatMap(_.traverse(FakeBrowser.lists))
@@ -167,6 +177,7 @@ final class FakeBrowser private (
         .assert(wrong.isEmpty)
         .log(wrong.mkString("host lists off the page:\n", "\n", ""))
     }
+  }
 }
 
 object FakeBrowser {

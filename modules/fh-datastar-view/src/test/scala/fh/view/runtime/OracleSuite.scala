@@ -111,19 +111,19 @@ class OracleSuite extends HedgehogSuite {
         Vector("on", "off", "unavailable")
       case _ => Vector("on", "off")
 
-  private val genViewer = Gen.int(Range.linear(0, 1))
+  private val genViewer = Gen.int(Range.constant(0, 1))
 
   private def genStep(entities: Int): Gen[Step] = {
-    val entity = Gen.int(Range.linear(0, entities - 1))
+    val entity = Gen.int(Range.constant(0, entities - 1))
     Gen.frequency1(
       6 -> (for {
         e <- entity
-        s <- Gen.int(Range.linear(0, 2))
+        s <- Gen.int(Range.constant(0, 2))
       } yield Step.Change(e, s)),
       1 -> entity.map(Step.Leave(_)),
       5 -> (for {
         v <- genViewer
-        p <- Gen.int(Range.linear(0, 20))
+        p <- Gen.int(Range.constant(0, 20))
       } yield Step.Press(v, p)),
       2 -> genViewer.map(Step.Drop(_)),
       2 -> genViewer.map(Step.Connect(_)),
@@ -131,7 +131,7 @@ class OracleSuite extends HedgehogSuite {
     )
   }
 
-  private val CallPress = """sse/call/[^/]+/([^?/]+)""".r
+  private val CallPress = """sse/call/[^/]+/([^?/]+)""".r.unanchored
 
   /** What a viewer may press that the oracle drives: a variable's choice and
     * the popup routes.
@@ -164,8 +164,10 @@ class OracleSuite extends HedgehogSuite {
           a <- FakeBrowser.open(ts)
           b <- FakeBrowser.open(ts)
           viewers = Vector(a, b)
+          // Deferred: traverse builds every step's IO before the first runs,
+          // and a step reads the pages and the `up` flags the ones before it left.
           settled <- steps.traverse { step =>
-            val action: IO[Unit] = step match
+            def action: IO[Unit] = step match
               case Step.Change(i, s) =>
                 val id = ids(i % ids.size)
                 val options = statesOf(id)
@@ -193,12 +195,13 @@ class OracleSuite extends HedgehogSuite {
                 IO.unlessA(viewers(v).up)(viewers(v).connect)
               case Step.Forget =>
                 FakeBrowser.forgetAll(ts, viewers.toList)
-            action *> viewers.traverse_(_.deliver) *>
+            IO.defer(action) *> viewers.traverse_(_.deliver) *> IO.defer(
               viewers
                 .filter(_.up)
                 .traverse(v => (v.listsInPage, v.listsAsFresh).mapN(_.and(_)))
+            )
           }
-          _ <- viewers.traverse_(v => IO.unlessA(v.up)(v.connect))
+          _ <- viewers.traverse_(v => IO.defer(IO.unlessA(v.up)(v.connect)))
           _ <- viewers.traverse_(_.deliver)
           ra <- a.check
           rb <- b.check
@@ -231,6 +234,19 @@ class OracleSuite extends HedgehogSuite {
       .unsafeRunSync()
     // Thrown: this suite's `assert` is hedgehog's, which returns a Result.
     r match
+      case Result.Success => ()
+      case failure        => throw AssertionError(failure.toString)
+  }
+
+  /** A popup opened while the stream is down waits in the backlog; the
+    * reconnect's request still says none, and taking it over the backlog left
+    * the dialog on screen with `ui_popups` empty.
+    */
+  test(
+    "taps: a popup opened while the stream was down survives the reconnect"
+  ) {
+    val e = FixtureEntries.taps
+    run(build(e), e, List(Step.Drop(1), Step.Press(1, 1))) match
       case Result.Success => ()
       case failure        => throw AssertionError(failure.toString)
   }

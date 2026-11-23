@@ -661,9 +661,21 @@ class Server(
         .emits(liveOpt.toList)
         .flatMap { l =>
           Stream.exec(
-            session.attach(outlet) *>
-              session
-                .run(opening(slug, l, session, req, requested, rendererOpt))
+            session
+              .attach(outlet)
+              .flatMap(flushed =>
+                session.run(
+                  opening(
+                    slug,
+                    l,
+                    session,
+                    req,
+                    requested,
+                    flushed,
+                    rendererOpt
+                  )
+                )
+              )
           ) ++
             outlet.frames
               .concurrently(
@@ -955,7 +967,12 @@ class Server(
             pageAnswers(renderer, s.open, store, env).map((fragments, at) =>
               Patches.repaint(renderer, at, Viewing(selections, fragments))
             )
-          val orphan = Server.orphanedPopup(renderer, Server.popupOf(req))
+          // Only with no popup selected: after a flushed backlog the request's
+          // claim is stale, and the remove would take the session's dialog.
+          val orphan =
+            if (selections.popup.isEmpty)
+              Server.orphanedPopup(renderer, Server.popupOf(req))
+            else Nil
           resumedIO.flatMap { resumed =>
             val claim = resumed.fold(store.version)(_ => covered)
             resumed
@@ -996,6 +1013,11 @@ class Server(
   /** The first step of a stream. A forgotten session's carried variables are
     * adopted first, so it keeps its tabs, and the popup it still has open is
     * kept, so a reconnect does not orphan the dialog on screen.
+    *
+    * The popup is the request's, unless `flushed`: the backlog `attach` just
+    * sent ran after the page wrote that request, so the session's own open set
+    * is what the page shows once it lands (a popup opened while the stream was
+    * down, else left on screen with `ui_popups` reset to empty).
     */
   private def opening(
       slug: String,
@@ -1003,13 +1025,16 @@ class Server(
       session: Session,
       req: Request[IO],
       requested: Option[String],
+      flushed: Boolean,
       served: Option[Renderer]
   )(s: SessionState): IO[Session.Step[Unit]] =
     served
       .fold(IO.pure(s -> Selections.none)) { r =>
         checked(r, s).flatMap(adoptCarriedVars(_, r, req)).flatMap { adopted =>
           val env = r.vars.env(adopted.values)
-          val selections = Selections(r.surfaces.openPopup(requested))
+          val selections =
+            if (flushed) r.surfaces.selectionsIn(adopted.open)
+            else Selections(r.surfaces.openPopup(requested))
           val open = r.surfaces.selectedSurfaces(selections)
           warnAnomalies(r, env) *> session
             .reveal(open, adopted.values)

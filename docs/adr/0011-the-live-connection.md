@@ -475,7 +475,10 @@ re-sent them. So a repaint fills the host too (`Patches.repaint`), as an `inner`
 which Datastar morphs: the open dialog is reconciled, not replaced. A swap's repaint
 takes the popup from the session's open set (`SurfaceGraph.selectionsIn`) and every tab
 from the session's variables, rather than from the request, which is what the stream
-connected with: a tab clicked since would otherwise snap back on every edit.
+connected with: a tab clicked since would otherwise snap back on every edit. A connect
+that found a backlog does the same for the popup (`Session.attach` says whether it
+flushed one): the request was written before those frames ran, so a popup opened while
+the stream was down would otherwise stay on screen with `ui_popups` reset to empty.
 
 **Why one scalar cursor is enough despite per-client visibility.** A client may be sent nothing at
 all for a change inside a tab it is not looking at, and still have its cursor advanced past that
