@@ -554,7 +554,8 @@ object TestServer {
       access: Access = Access.default,
       windows: Server.SessionWindows = Server.SessionWindows.default,
       config: FakeConfig = FakeConfig(),
-      chart: Resource[IO, IO[ChartRenderer]] = perServer
+      chart: Resource[IO, IO[ChartRenderer]] = perServer,
+      historyClock: IO[java.time.Instant] = IO.realTimeInstant
   ): Resource[IO, TestServer] =
     for {
       validated <- IO
@@ -575,7 +576,8 @@ object TestServer {
         dir,
         startingWith(validated.withAccess(access)),
         windows = windows,
-        chart = chart
+        chart = chart,
+        historyClock = historyClock
       )
       ts <- inProcess(fake, dashboard.slug, booted)
     } yield ts
@@ -738,7 +740,8 @@ object TestServer {
       assetsClient: Client[IO] = NoCdn,
       windows: Server.SessionWindows = Server.SessionWindows.default,
       minifier: Minifier = Minifier.none,
-      chart: Resource[IO, IO[ChartRenderer]] = perServer
+      chart: Resource[IO, IO[ChartRenderer]] = perServer,
+      historyClock: IO[java.time.Instant] = IO.realTimeInstant
   ): Resource[IO, Booted] =
     for {
       assetsDir <- tempDir("fh-assets")
@@ -761,7 +764,8 @@ object TestServer {
           sourceWatcher = Resource.pure(watcher),
           sessionWindows = windows,
           chart = chart,
-          minifier = minifier
+          minifier = minifier,
+          historyClock = historyClock
         )
       )
     } yield Booted(assembled, haUp, watcher)

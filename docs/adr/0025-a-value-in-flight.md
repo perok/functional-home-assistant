@@ -84,49 +84,51 @@ the runs, drives the overtaken-tap race through a real browser, and asserts the
 count stops growing.
 
 **Failure ends it two ways, and neither is a timeout.** A pending value dies
-when it is *refused*, or when *nothing can answer it*:
+when it is *refused*, or when *nothing can read the answer*:
 
 - **Refused** — the server answered, and the answer was no. It says so in
   signals on a 200 (ADR 0024), clearing the pending value itself: a choice is
   a declared call naming its variable, and the server resolves the same
   declaration at the pressed node that the press wrote the ask for, so it names
   the ask without the client claiming it. This is the only one
-  of the three that ends ONE ask, because it is the only one that knows which.
-- **Unanswerable** — the commit rides the SSE stream, so a stream that is DOWN
-  is the exact statement that no commit is coming. The shell's `_sse` counter,
-  already maintained for the offline banner, is the whole test.
+  of the two that ends ONE ask, because it is the only one that knows which.
 - **Unreadable** — a response arrived that was not 200, so Datastar dropped its
   body unread and nothing in it can clear anything. A proxy, an auth redirect, a
   route that is gone.
 
-**The last two are page-wide facts, so they are one rule on the page**
-(`Server.PendingSweep`), not a copy on every tab bar. Neither knows or needs to
-know which group asked: a dead stream ends every outstanding ask by definition,
-and the per-group version reached for exactly these same two shell-owned signals
-to say so — it was one rule already, spelled once per group. `@setAll('',
-{include:/__pending$/})` states it once. The bundle's `setAll` PEEKS while it
-writes, so the sweep neither takes a dependency on every pending signal nor
-retriggers itself.
+**The second is a page-wide fact, so it is one rule on the page**
+(`Server.PendingSweep`), not a copy on every tab bar: it does not know or need
+to know which group asked. `@setAll('', {include:/__pending$/})` states it once.
+The bundle's `setAll` PEEKS while it writes, so the sweep neither takes a
+dependency on every pending signal nor retriggers itself.
+
+**A dead stream is not a third way.** The commit rides the stream, but the POST
+does not: with the stream down the press is still answered (the server queues
+the commit), so the ask is late, not lost. The page shows the banner and nothing
+else, and the reconnect ENDS every ask: its opening block restates every
+committed choice (below) and empties every declared variable's pending signal in
+the same event. A commit that survived is in that event, so nothing flickers; one
+that did not — the session was forgotten while the stream was down, and its
+queue with it — never will arrive, and an ask left standing would light a tab
+over the panel the page actually shows. The cost is a press made during the
+connect itself, whose ask the block can clear before its commit lands: the old
+tab shows for that moment. Comparing to the commit, the rule above, exists for
+concurrent taps on a live stream; a connect is not one.
 
 Busy signals are deliberately not swept with them. `finished` is dispatched in
 the bundle's `finally` and the indicator plugin clears on a counter, so a busy
 state cannot outlive its fetch — a sweep would be guarding against something
 that cannot happen.
 
-Between them they are total: a request either gets an answer (refused, or the
-commit arrives), or gets a response nothing can read, or gets nothing at all —
-and the last case is a dead transport, which is the same transport the answer
-would have ridden. There is no case where a request vanishes while its stream
-stays healthy, and a deadline, which is what an earlier draft used, would only
-have been a worse-informed guess at exactly this.
+A request either gets an answer (refused, or the commit arrives, on this stream
+or the next one), or gets a response nothing can read. A deadline, which is what
+an earlier draft used, would only have been a worse-informed guess at which.
 
 **So a connect restates the selections.** `SurfaceGraph.committedSelections`
 gives the popup's from a session's open set and `VarGraph.committed` every
 declared variable's, and `openingSignals` carries both with the cursor on every
-connect. Without it, `_sse` clearing pending
-would drop the display back on whatever the last frame it received said — and a
-swap is two writes (the patch, then the signal), so a stream dying between them
-leaves a DOM holding one panel and a signal naming another. It rides *inside*
+connect, beside the emptied asks. A swap is two writes (the patch, then the signal), so a stream dying between
+them would otherwise leave a DOM holding one panel and a signal naming another. It rides *inside*
 the cursor's frame rather than beside it: `SessionLifecycleSuite` states the
 opening block as one event, on purpose, because an opening block that grows is
 how re-sending creeps back in.
@@ -298,10 +300,20 @@ dependency-tracking subtleties arise:
 - **the server speaks** (`data-on-signal-patch` filtered to `_<id>__value`) —
   adopt it. Confirmation and CORRECTION are the same line; HA clamping a
   brightness is not a failure and needs no case of its own.
-- **refused, or `_sse` down** — adopt it again. That is the rollback, and it is
-  the same statement: "show what the device last said". `fill` and `state` are
+- **refused** — adopt it again. That is the rollback, and it is the same
+  statement: "show what the device last said". `fill` and `state` are
   RECOMPUTED from the restored position rather than shadowed, because they are
-  functions of it — and the formula is the one the drag already uses.
+  functions of it — and the formula is the one the drag already uses. A commit
+  that fails to arrive at all is a refusal too: `failedOn` sets the same error.
+
+**A dead stream rolls nothing back; it shows the banner.** No card reads the
+transport counter (`core/shell.pkl`'s `streamDown`). A dead-stream rollback ran
+the same JS recomputation over the server's display signals while nothing could
+correct it, and the JS is a second copy of the server's formula: for a light
+that had left HA it painted a colour where the server says `transparent`, and
+the reconnect sent nothing back because `holds` matched. What is left uncovered
+is a drag released while the stream is down whose commit HA answers with no
+change: the thumb stays where the finger left it until the light next moves.
 
 `busy_change` is untouched. Its job is the re-commit guard, it is fetch-scoped,
 and a pending signal would duplicate it: for a continuous value the guard is all
@@ -317,7 +329,7 @@ into it, where a selection's pending merely clears.
 They are server-owned signal slots, so the staleness described above is real for
 them: while a gesture is in flight the server's `holds` disagrees with the DOM on
 both. What repairs it is not ownership but `rollbackToCommitted`, which
-RECOMPUTES both from the restored position on either failure path — which is why
+RECOMPUTES both from the restored position on a refusal — which is why
 that handler recomputes rather than merely restoring `_slide`, and why deleting
 it does not just leave the thumb wrong, it leaves the fill wrong too. Giving them
 client-owned halves as `value` has is the consistent finish; it is not done.
@@ -342,33 +354,6 @@ restore makes it fail.
 ## Open questions
 
 A live list, not a backlog — delete an entry when it is answered.
-
-**Two cards still read the transport counter**, through `core/shell.pkl`'s
-`streamDown`: the slider's and the colour wheel's dead-stream rollback. The tabs
-half is gone — that rule moved to the page shell, where the counter already
-lives — so what is left is the one case that could not follow it, for a reason
-worth stating rather than working around:
-
-- The sweep can only SET a constant, and this fix is arithmetic: recompute the
-  thumb, the fill and the readout from the committed value.
-- "The reconnect will restate truth" is false here, uniquely. `holds` says this
-  DOM already has the correct `_<id>__value`, and it does — what is wrong is
-  `_<id>__slide` (the wheel's local hue and saturation likewise), which is
-  client-owned and the server does not track. So the
-  server correctly sends nothing on reconnect and the thumb keeps lying.
-
-That makes it a genuine exception rather than a pattern, which is the important
-part: it should not be read as licence for a component author to reach for the
-transport counter. However far the in-flight contract is collapsed into one
-splice (ADR 0019), this is the one piece that stays hand-wired, because it is
-intra-node — the state lives on one element INSIDE a node.
-
-**The slider's dead-stream rollback is untested.** `UiSmokeSuite` drives the
-slider's REFUSAL path (a real 404) and the tabs' dead-stream path (a blocked
-`/sse/**`), but not the slider's dead-stream path — the one that fires when a
-phone loses signal mid-drag. Two cards, two ways an ask can end, three of the
-four covered. The gap exists because the mechanism "was already tested" on the
-other card, which is the way this kind of hole always opens.
 
 **The drag GESTURE has never been looked at in a browser.** Every assertion
 about the slider here is functional — a value commits, a refusal rolls back —

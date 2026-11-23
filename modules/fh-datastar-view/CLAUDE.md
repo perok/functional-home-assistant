@@ -229,7 +229,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   window chooser; ADR 0033) and a popup swap `ui_popups`. A selection display reads
   `$_<group>__pending || $<committed>`, so the press is still instant while the committed value can
   never claim a panel this DOM does not have. Pending clears by the commit catching up, by the
-  server clearing it in a refusal, or when the stream that would have carried the commit is down.
+  server clearing it in a refusal, by a response the page cannot read, or by a connect, whose
+  opening block restates the committed choices and empties every ask. A dead stream only shows the
+  banner.
   This does NOT replace ADR 0019's `busy` for service taps — a
   service call has no committed selection to catch up to; the two mechanisms coexist deliberately.
   **A refused action answers 200 carrying `datastar-patch-signals`, never 4xx** (ADR 0024): the
@@ -240,9 +242,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   setting `_toast` to HA's own message. The node rides in the action's query string (`?node=`),
   read off `data-fh-node` at click time. The bundle parses
   a response body only on exactly 200, so a 4xx could never carry any of it; the client-side
-  `failedOn` handler remains for the genuine non-200 remainder. The other two ways an ask ends —
-  a dead stream, and a non-200 whose body is dropped unread — are page-wide facts and live as ONE
-  rule on the shell (`Server.PendingSweep`, an `@setAll` over `/__pending$/`), not as a copy on
+  `failedOn` handler remains for the genuine non-200 remainder. The other way an ask ends — a
+  non-200 whose body is dropped unread — is a page-wide fact and lives as ONE rule on the shell (`Server.PendingSweep`, an `@setAll` over `/__pending$/`), not as a copy on
   every tab bar.
 - Cards (`lib/components/`, re-exported by `lib/components.pkl` — ADR 0015): `fhgrid`/`fhrow`/`fhcol` containers, `sectionTitle`, `tile`, `switch`,
   `button`, `pill`, `slider` — each is a typed card class carrying its own `cardDef` (its Mustache
@@ -289,7 +290,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   local writes too, so one signal cannot tell the server's write from the drag's — and while the
   drag wrote the server's slot, a FAILED commit left the thumb where the finger was, with `holds`
   stale so no correcting frame ever came. Two handlers reconcile: adopt on a server write, and the
-  same restore on a refusal or a dead stream. A DRAG paints the fill (and a percent readout) itself, from
+  same restore on a refusal; a dead stream only shows the banner. A DRAG paints the fill (and a percent readout) itself, from
   `data-on:input`: the span's `--fh-fill` is the server's signal alone, so without that the whole
   gesture showed nothing until release (ADR 0017). The contract is a NEGATIVE one — a broken
   implementation still updates the card, because the morph the frame was meant to replace is still

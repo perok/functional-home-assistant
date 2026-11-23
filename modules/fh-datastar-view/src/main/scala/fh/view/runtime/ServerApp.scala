@@ -61,6 +61,8 @@ import org.typelevel.log4cats.{LoggerFactory, SelfAwareStructuredLogger}
 import org.typelevel.otel4s.trace.Tracer
 import fs2.io.file.{Watcher, Path}
 
+import java.time.Instant
+
 /** The runtime phase: evaluates the workspace's `site.pkl` in memory into a
   * slug -> dashboard map (ADR 0021) and serves them live.
   */
@@ -249,7 +251,11 @@ object ServerApp extends IOApp {
       // servers shares rather than starting one per server.
       chart: Resource[IO, IO[ChartRenderer]],
       // Not an edge either: off where a test does not ask for it.
-      minifier: Minifier = Minifier.none
+      minifier: Minifier = Minifier.none,
+      // The wall clock a chart's window ends at; a test that compares two
+      // renders of one chart stops it, or a bucket boundary between them moves
+      // the axis.
+      historyClock: IO[Instant] = IO.realTimeInstant
   )
 
   /** Both act as a user, never as the machine-token feed nor at its address
@@ -437,7 +443,8 @@ object ServerApp extends IOApp {
         meters = meters,
         windows = edges.sessionWindows,
         chart = edges.chart,
-        minifier = edges.minifier
+        minifier = edges.minifier,
+        historyClock = edges.historyClock
       )
       editor = new EditorRoutes(
         workspace,

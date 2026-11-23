@@ -2534,32 +2534,35 @@ object Server {
       meters: Meters,
       windows: SessionWindows,
       chart: Resource[IO, IO[ChartRenderer]],
-      minifier: Minifier = Minifier.none
+      minifier: Minifier,
+      historyClock: IO[java.time.Instant]
   ): Resource[IO, Server] =
-    historyFetches(feed.api, chart, loggerFactory).flatMap(fetches =>
-      withSite(
-        actions(feed.api),
-        feed.store,
-        site,
-        sessions,
-        gate,
-        assets,
-        feed.healthy,
-        systemPkl,
-        dumpRefresh,
-        windows,
-        tracer = tracer,
-        loggerFactory = loggerFactory,
-        meters = meters,
-        fetches = Some(fetches),
-        minifier = minifier
-      )
+    historyFetches(feed.api, chart, loggerFactory, historyClock).flatMap(
+      fetches =>
+        withSite(
+          actions(feed.api),
+          feed.store,
+          site,
+          sessions,
+          gate,
+          assets,
+          feed.healthy,
+          systemPkl,
+          dumpRefresh,
+          windows,
+          tracer = tracer,
+          loggerFactory = loggerFactory,
+          meters = meters,
+          fetches = Some(fetches),
+          minifier = minifier
+        )
     )
 
   private def historyFetches(
       api: HomeAssistantApi[IO],
       charts: Resource[IO, IO[ChartRenderer]],
-      loggerFactory: LoggerFactory[IO]
+      loggerFactory: LoggerFactory[IO],
+      clock: IO[java.time.Instant]
   ): Resource[IO, FetchResolver] =
     for {
       chart <- charts
@@ -2571,7 +2574,8 @@ object Server {
             log.warn(e)(
               s"history of ${k.entityId} over ${k.window.key} could not " +
                 "be fetched; its charts show their error until a retry"
-            )
+            ),
+          now = clock
         )
         .toResource
       resolver <- FetchResolver
@@ -2761,20 +2765,17 @@ object Server {
 
   val ToastSignal: String = "_toast"
 
-  /** Clears every pending ask when no answer can come (ADR 0025): the stream is
-    * down (`_sse`), or a non-200 arrived, whose body Datastar drops unread. One
-    * rule on the shell, not one per group.
+  /** Clears every pending ask when a non-200 arrived, whose body Datastar drops
+    * unread, so no answer can come (ADR 0025). One rule on the shell, not one
+    * per group. A dead stream does not clear them: it shows the banner, and the
+    * reconnect restates every committed choice.
     *
     * `@setAll` peeks while it writes in the pinned bundle, so this neither
     * depends on every pending signal nor re-triggers itself. Busy signals are
     * not swept: the bundle clears them in a `finally`.
     */
-  val PendingSweep: String = {
-    val clear = """@setAll('', {include:/__pending$/})"""
-    s"""data-on-signal-patch-filter="{include:/^_sse$$/}" """ +
-      s"""data-on-signal-patch="$$_sse > 0 && $clear" """ +
-      s"""data-on:datastar-fetch__document="evt.detail.type === 'error' && $clear""""
-  }
+  val PendingSweep: String =
+    """data-on:datastar-fetch__document="evt.detail.type === 'error' && @setAll('', {include:/__pending$/})""""
 
   /** An untrusted id that becomes a signal name. Real ids are `[A-Za-z0-9_]`,
     * so the check is exact.
@@ -3052,7 +3053,10 @@ object Server {
 
   /** A connect's last event: the cursor plus what only the server may assert
     * (ADR 0025) — selections and node variables, the latter total so a choice
-    * this session does not hold resets to the declared value.
+    * this session does not hold resets to the declared value — and every ask
+    * ended. What a connect does not commit never will: a dead stream leaves an
+    * ask standing, and its commit is in this event or was lost with a forgotten
+    * session.
     */
   private[runtime] def openingSignals(
       renderer: Renderer,
@@ -3060,13 +3064,21 @@ object Server {
       chosen: Map[VarKey, String],
       logId: String,
       version: Long
-  ): SseFrame =
+  ): SseFrame = {
+    val committed = renderer.vars.committed(chosen)
     Datastar.patchSignals(
       cursorJson(renderer, logId, version)
         .deepMerge(selectionJson(renderer, open))
-        .deepMerge(VarKey.signalsJson(renderer.vars.committed(chosen)))
+        .deepMerge(VarKey.signalsJson(committed))
+        .deepMerge(
+          Json.obj(
+            committed.keys.toList
+              .map(k => k.pendingSignal -> Json.fromString(""))*
+          )
+        )
         .noSpaces
     )
+  }
 
   private[runtime] def versionSignal(version: Long): SseFrame =
     versionPatch(version).toSse

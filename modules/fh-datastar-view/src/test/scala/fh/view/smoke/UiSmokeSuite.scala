@@ -139,9 +139,12 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
-  test("tabs: a tap with nothing left to answer it ends when the stream does") {
-    // A down stream says no commit is coming, since the commit rides it. The
-    // POST is aborted, so no status and no `error` event. The stream is also
+  test("tabs: a dead stream shows the banner and leaves a pending tap asked") {
+    // A down stream changes nothing but the banner (ADR 0025): the ask stays
+    // until a commit, a refusal or an error answers it. The banner is the sync
+    // point: it reads the same `_sse` the old sweep did, so by the time it shows
+    // a sweep would have run. The POST is aborted, so no status and no `error`
+    // event. The stream is also
     // cut server-side (`forgetConnections`): a `page.route` only meets new
     // requests, so the open stream would survive and the banner would assert a
     // healthy connection. The blocked reconnect keeps it failed.
@@ -168,7 +171,7 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- IO.blocking(
           assertThat(page.locator(".fh-offline-sse")).isVisible()
         )
-        _ <- IO.blocking(assertThat(climateTab).not().hasClass(active))
+        _ <- IO.blocking(assertThat(climateTab).hasClass(active))
         _ <- IO.blocking(assertThat(panel).containsText("Living Room"))
       } yield ()
     }

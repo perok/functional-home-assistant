@@ -276,8 +276,9 @@ refused a press (a REFUSAL is always that after-the-fact answer, never the befor
 value this client has ASKED for, **committed** is the value the server says is in effect. A control
 shows the pending one while there is one and the committed one otherwise, so an optimistic update
 never has to be rolled back — nothing wrong was ever committed. Pending is client-written only, and
-clears itself three ways: the committed value agrees, the stream is down (so no answer is coming),
-or the server refused. ADR 0025.
+clears four ways: the committed value agrees, the server refused, a response came back that the
+page cannot read (not 200), or the stream connects, whose opening block ends every ask. A dead
+stream is not one: the ask waits for the reconnect. ADR 0025.
 
 **Candidate set** — a card position that stands for "whichever entities currently match", with the
 possible entities known at build time from the dump. ADR 0003.

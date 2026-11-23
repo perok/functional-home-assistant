@@ -1,7 +1,7 @@
 package fh.view.runtime
 
 import cats.effect.IO
-import fh.view.testkit.{FixtureEntries, FixtureEntity, PklFixture}
+import fh.view.testkit.{FakePage, FixtureEntries, FixtureEntity, PklFixture}
 
 /** The oracle's own controls: a page that was sent everything matches a fresh
   * one, and one that missed a frame does not, so a green oracle run means
@@ -9,21 +9,27 @@ import fh.view.testkit.{FixtureEntries, FixtureEntity, PklFixture}
   */
 class FakeBrowserSuite extends munit.CatsEffectSuite {
 
+  private val js = ResourceSuiteLocalFixture("js", FakePage.runtime)
+
+  override def munitFixtures = List(js)
+
   private lazy val sets = {
     val e = FixtureEntries.sets
     PklFixture.buildDashboard(e.slug, e.source, e.dump)
   }
 
-  private def server = TestServer.resource(sets, FixtureEntries.sets.entities)
+  private def browser =
+    TestServer
+      .resource(sets, FixtureEntries.sets.entities)
+      .flatMap(ts => FakeBrowser.open(ts, js()).map(ts -> _))
 
   private def failed(r: hedgehog.Result): Boolean = r match
     case hedgehog.Result.Failure(_) => true
     case hedgehog.Result.Success    => false
 
   test("a page sent every frame, a reconnect included, matches a fresh one") {
-    server.use { ts =>
+    browser.use { (ts, a) =>
       for {
-        a <- FakeBrowser.open(ts)
         _ <- ts.record(FixtureEntity("light.kitchen", "off"))
         _ <- a.deliver
         _ <- a.drop
@@ -35,9 +41,8 @@ class FakeBrowserSuite extends munit.CatsEffectSuite {
   }
 
   test("an entity leaving HA reaches the page") {
-    server.use { ts =>
+    browser.use { (ts, a) =>
       for {
-        a <- FakeBrowser.open(ts)
         before <- IO(a.page.view)
         _ <- ts.recordRemoval("light.kitchen")
         _ <- a.deliver
@@ -50,9 +55,8 @@ class FakeBrowserSuite extends munit.CatsEffectSuite {
   }
 
   test("a page that missed a frame does not") {
-    server.use { ts =>
+    browser.use { (ts, a) =>
       for {
-        a <- FakeBrowser.open(ts)
         _ <- ts.record(FixtureEntity("light.kitchen", "off"))
         r <- a.check
       } yield assert(failed(r), r)

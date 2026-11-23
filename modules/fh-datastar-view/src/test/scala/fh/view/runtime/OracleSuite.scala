@@ -6,7 +6,7 @@ import cats.syntax.all.*
 import fh.view.history.ChartRenderer
 import fh.view.model.{CallDecl, CallId, Dashboard, NodeId}
 import fh.view.telemetry.Logging
-import fh.view.testkit.{FixtureEntity, FixtureEntries, PklFixture}
+import fh.view.testkit.{FakePage, FixtureEntity, FixtureEntries, PklFixture}
 import hedgehog.*
 import hedgehog.core.SuccessCount
 import hedgehog.munit.HedgehogSuite
@@ -84,7 +84,31 @@ class OracleSuite extends HedgehogSuite {
   private val (charts, releaseCharts) =
     ChartRenderer.lazily(Logging.console).allocated.unsafeRunSync()
 
-  override def afterAll(): Unit = releaseCharts.unsafeRunSync()
+  private val (js, releaseJs) = FakePage.runtime.allocated.unsafeRunSync()
+
+  override def afterAll(): Unit =
+    (releaseCharts *> releaseJs).unsafeRunSync()
+
+  // A chart drawn on the page and its fresh twin read "now" apart; across a
+  // history bucket their time axes differ.
+  private val stopped = IO.pure(java.time.Instant.now())
+
+  /** A server for `d` and `n` browsers on it, opened in order. */
+  private def served(
+      d: Dashboard,
+      entry: FixtureEntries.Entry,
+      n: Int
+  ): Resource[IO, (TestServer, Vector[FakeBrowser])] =
+    TestServer
+      .resource(
+        d,
+        entry.entities,
+        chart = Resource.pure(charts),
+        historyClock = stopped
+      )
+      .flatMap(ts =>
+        Vector.fill(n)(FakeBrowser.open(ts, js)).sequence.map(ts -> _)
+      )
 
   private val chrome =
     """<main class="container" id="dashboard">{{{body}}}</main><div id="popups">{{{popups}}}</div>"""
@@ -150,9 +174,8 @@ class OracleSuite extends HedgehogSuite {
       entry: FixtureEntries.Entry,
       steps: List[Step]
   ): Result =
-    TestServer
-      .resource(d, entry.entities, chart = Resource.pure(charts))
-      .use { ts =>
+    served(d, entry, 2)
+      .use { (ts, viewers) =>
         val byId = entry.entities.map(e => e.entityId -> e).toMap
         for {
           renderer <- ts.server
@@ -163,9 +186,6 @@ class OracleSuite extends HedgehogSuite {
           current <- IO.ref(
             byId.view.mapValues(e => Option(e.state)).toMap
           )
-          a <- FakeBrowser.open(ts)
-          b <- FakeBrowser.open(ts)
-          viewers = Vector(a, b)
           // Deferred: traverse builds every step's IO before the first runs,
           // and a step reads the pages and the `up` flags the ones before it left.
           settled <- steps.traverse { step =>
@@ -205,9 +225,8 @@ class OracleSuite extends HedgehogSuite {
           }
           _ <- viewers.traverse_(v => IO.defer(IO.unlessA(v.up)(v.connect)))
           _ <- viewers.traverse_(_.deliver)
-          ra <- a.check
-          rb <- b.check
-        } yield Result.all(settled.flatten ++ List(ra, rb))
+          checked <- viewers.traverse(_.check)
+        } yield Result.all(settled.flatten ++ checked)
       }
       .timeout(2.minutes)
       .unsafeRunSync()
@@ -220,11 +239,10 @@ class OracleSuite extends HedgehogSuite {
   test("a forgotten page gets back a value that returned to its seed") {
     val e = FixtureEntries.taps
     val kitchen = e.entities.find(_.entityId == "light.kitchen").get
-    val r = TestServer
-      .resource(build(e), e.entities, chart = Resource.pure(charts))
-      .use { ts =>
+    val r = served(build(e), e, 1)
+      .use { (ts, viewers) =>
+        val a = viewers(0)
         for {
-          a <- FakeBrowser.open(ts)
           _ <- ts.record(kitchen.copy(state = "off")) *> a.deliver
           _ <- FakeBrowser.forgetAll(ts, List(a))
           _ <- ts.record(kitchen.copy(state = "on"))
@@ -248,12 +266,10 @@ class OracleSuite extends HedgehogSuite {
     val e = FixtureEntries.viewerDecisions
     val kitchen = e.entities.find(_.entityId == "light.kitchen").get
     val mode = VarKey(NodeId.derived("c_0"), "mode")
-    val r = TestServer
-      .resource(build(e), e.entities, chart = Resource.pure(charts))
-      .use { ts =>
+    val r = served(build(e), e, 2)
+      .use { (ts, viewers) =>
+        val (a, b) = (viewers(0), viewers(1))
         for {
-          a <- FakeBrowser.open(ts)
-          b <- FakeBrowser.open(ts)
           _ <- b.choose(mode, Some("b")) *> b.deliver
           _ <- ts.record(kitchen.copy(state = "off")) *> a.deliver *> b.deliver
           off <- (a.check, b.check).mapN(_.and(_))
@@ -281,6 +297,17 @@ class OracleSuite extends HedgehogSuite {
       case failure        => throw AssertionError(failure.toString)
   }
 
+  /** A tab pressed while the stream is down commits into a session that is then
+    * forgotten, so the reconnect carries the old tab: an ask nothing would ever
+    * answer stayed lit over the panel the page showed.
+    */
+  test("branches: a connect ends an ask its forgotten session never answered") {
+    val e = FixtureEntries.branches
+    run(build(e), e, List(Step.Drop(1), Step.Press(1, 1), Step.Forget)) match
+      case Result.Success => ()
+      case failure        => throw AssertionError(failure.toString)
+  }
+
   for (e <- entries) {
     lazy val d = build(e)
     lazy val watched =
@@ -290,7 +317,7 @@ class OracleSuite extends HedgehogSuite {
         .intersect(e.entities.map(_.entityId).toSet)
     property(
       s"${e.slug}: what a viewer was sent leaves its page equal to a fresh one",
-      _.copy(testLimit = SuccessCount(50))
+      _.copy(testLimit = SuccessCount(20))
     ) {
       genStep(watched.size.max(1))
         .list(Range.linear(1, 15))

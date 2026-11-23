@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import cats.effect.IO
+import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import fh.view.model.{Ix, TreeIndex}
 import fh.view.testkit.FakePage
@@ -18,7 +18,8 @@ import scala.concurrent.duration.*
   * session's backlog, which holds every frame its steps queued (pulls, choices,
   * popups) in the order they ran, as an attached stream would get them. While
   * down nothing is taken, so a reconnect gets the backlog first, as a real one
-  * does.
+  * does. A press is a click: the page's handler posts, and the answer goes back
+  * to the page that asked.
   *
   * Every IO here reads the page when it RUNS (`IO.defer`): built ahead of the
   * step before it (`action *> b.listsAsFresh`), one that read `current.query`
@@ -26,6 +27,7 @@ import scala.concurrent.duration.*
   */
 final class FakeBrowser private (
     ts: TestServer,
+    js: FakePage.Loader,
     private var current: FakePage
 ) {
 
@@ -45,7 +47,7 @@ final class FakeBrowser private (
       .run(
         Request[IO](
           Method.GET,
-          Uri.unsafeFromString("/" + current.streamRequest)
+          Uri.unsafeFromString(current.streamRequest)
         )
       )
       .flatMap(
@@ -70,8 +72,14 @@ final class FakeBrowser private (
   }
 
   private def reload: IO[Unit] = IO.defer {
-    ts.page(current.query)
-      .flatMap(html => IO { current = FakePage.load(html) }) *> connect
+    val query = current.query
+    ts.page(query)
+      .flatMap(html =>
+        IO {
+          current.close()
+          current = FakeBrowser.load(ts, js, html, query)
+        }
+      ) *> connect
   }
 
   /** The stream dropped; the session lingers until something forgets it. */
@@ -92,12 +100,25 @@ final class FakeBrowser private (
     )
   }
 
-  /** A press posting `body`'s signals with this page's `conn`; a refusal's
-    * signals ride the answer.
+  /** A click on what posts to `path`: the page's handler sends what it sends,
+    * and the answer is the page's to apply.
     */
-  def post(path: String): IO[Unit] = IO.defer {
-    ts.postResult(path, body = s"""{"${Server.ConnSignal}":"$conn"}""")
-      .flatMap((_, body) => IO(current.applySse(body)))
+  def post(path: String): IO[Unit] =
+    IO(current.press(path)) *> answerRequests
+
+  private def answerRequests: IO[Unit] = IO.defer {
+    current.requests match
+      case Nil => IO.unit
+      case rs  =>
+        rs.traverse_ { r =>
+          IO.raiseUnless(r.method == "POST")(
+            IllegalStateException(s"the page made a ${r.method} ${r.path}")
+          ) *>
+            ts.postResult(r.path, body = r.body)
+              .flatMap((status, body) =>
+                IO(current.answer(r.id, status.code, body))
+              )
+        } *> answerRequests
   }
 
   def choose(key: VarKey, value: Option[String]): IO[Unit] =
@@ -110,23 +131,31 @@ final class FakeBrowser private (
   /** The page a refresh would show now, through a viewer that leaves at once so
     * it holds no floor for later steps.
     */
-  def fresh: IO[FakePage] = IO.defer {
-    ts.viewer(current.query)
-      .flatTap(_.leave)
-      .map(v => FakePage.load(v.document.html))
-  }
+  def fresh: Resource[IO, FakePage] =
+    Resource.fromAutoCloseable(IO.defer {
+      val query = current.query
+      ts.viewer(query)
+        .flatTap(_.leave)
+        .map(v => FakeBrowser.load(ts, js, v.document.html, query))
+    })
 
   /** The oracle's check: once delivered, this page equals a fresh one, and each
     * host list its session holds is on the page and is the fresh page's own.
     */
   def check: IO[hedgehog.Result] =
-    (fresh, listsInPage, listsAsFresh).mapN((f, inPage, asFresh) =>
-      FakePage
-        .matches(current, f)
+    (
+      fresh.use(f => IO(FakePage.matches(current, f))),
+      listsInPage,
+      listsAsFresh
+    ).mapN((same, inPage, asFresh) =>
+      same
         .and(inPage)
         .and(asFresh)
         .log(s"conn $conn at ${current.query}")
     )
+
+  /** The page this browser shows goes with it. */
+  def close: IO[Unit] = IO(current.close())
 
   /** Each host this session holds a list for has the list a fresh load's
     * session holds, compared as [[Ix]] so a case's or clause's identity counts,
@@ -183,10 +212,25 @@ final class FakeBrowser private (
 object FakeBrowser {
 
   /** A page load, then its stream, as a browser opening `query`. */
-  def open(ts: TestServer, query: String = ""): IO[FakeBrowser] =
-    ts.page(query)
-      .map(html => new FakeBrowser(ts, FakePage.load(html)))
-      .flatTap(_.connect)
+  def open(
+      ts: TestServer,
+      js: FakePage.Loader,
+      query: String = ""
+  ): Resource[IO, FakeBrowser] =
+    Resource
+      .make(
+        ts.page(query)
+          .map(html => new FakeBrowser(ts, js, load(ts, js, html, query)))
+      )(_.close)
+      .evalTap(_.connect)
+
+  private def load(
+      ts: TestServer,
+      js: FakePage.Loader,
+      html: String,
+      query: String
+  ): FakePage =
+    js.load(html, s"http://fake.test/d/${ts.slug}$query")
 
   private def lists(s: Session): IO[Map[Ix, List[Ix]]] =
     s.state.map(_.holds.flatMap((ix, h) => h.shows.map(l => ix -> l.toList)))
