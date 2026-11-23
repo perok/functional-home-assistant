@@ -372,8 +372,8 @@ g.fetch = (input, init = {}) => {
       streams.push({ path, taken: false, end })
       resolveFetch(response(200, "", () => ended.then(() => ({ done: true, value: undefined }))))
     })
-  return new Promise((resolveFetch) => {
-    pending.push({ id: ++nextRequest, method, path, body: init.body == null ? "" : String(init.body), resolveFetch })
+  return new Promise((resolveFetch, rejectFetch) => {
+    pending.push({ id: ++nextRequest, method, path, body: init.body == null ? "" : String(init.body), resolveFetch, rejectFetch })
   })
 }
 

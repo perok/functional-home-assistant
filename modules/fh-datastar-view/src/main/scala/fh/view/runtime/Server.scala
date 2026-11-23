@@ -2766,16 +2766,18 @@ object Server {
   val ToastSignal: String = "_toast"
 
   /** Clears every pending ask when a non-200 arrived, whose body Datastar drops
-    * unread, so no answer can come (ADR 0025). One rule on the shell, not one
-    * per group. A dead stream does not clear them: it shows the banner, and the
-    * reconnect restates every committed choice.
+    * unread, or a post never reached the server (`retries-failed`: a tap is
+    * sent once), so no answer can come (ADR 0025). One rule on the shell, not
+    * one per group. The stream's own failures (on `<body>`) are the banner's. A
+    * dead stream does not clear them: it shows the banner, and the reconnect
+    * restates every committed choice.
     *
     * `@setAll` peeks while it writes in the pinned bundle, so this neither
     * depends on every pending signal nor re-triggers itself. Busy signals are
     * not swept: the bundle clears them in a `finally`.
     */
   val PendingSweep: String =
-    """data-on:datastar-fetch__document="evt.detail.type === 'error' && @setAll('', {include:/__pending$/})""""
+    """data-on:datastar-fetch__document="(evt.detail.type === 'error' || evt.detail.type === 'retries-failed') && evt.detail.el !== document.body && @setAll('', {include:/__pending$/})""""
 
   /** An untrusted id that becomes a signal name. Real ids are `[A-Za-z0-9_]`,
     * so the check is exact.

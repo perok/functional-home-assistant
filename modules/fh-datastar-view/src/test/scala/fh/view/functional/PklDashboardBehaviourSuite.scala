@@ -154,10 +154,10 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       )
       // The busy signal is created client-side by the indicator, so only a
       // payload, which the bundle sends in place of the signals, keeps it out
-      // of the request body.
+      // of the request body. Sent once: no retry posts a stale press.
       assert(
         html.contains(
-          "{payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+          "{retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
         ),
         clue = html
       )

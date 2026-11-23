@@ -122,6 +122,12 @@ final class FakePage private (context: Context, page: Value)
     settle()
   }
 
+  /** The request finds no server: its fetch rejects. */
+  def unreachable(id: Int): Unit = {
+    val _ = call("unreachable", Int.box(id))
+    settle()
+  }
+
   /** The `conn` the page was minted under. */
   def conn: String =
     signal("conn")

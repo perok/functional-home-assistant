@@ -65,6 +65,13 @@ globalThis.__page = {
     const [r] = o.pending.splice(i, 1)
     r.resolveFetch(o.response(status, text))
   },
+  /** The request never reaches a server, as `fetch` rejects when none answers. */
+  unreachable: (id) => {
+    const i = o.pending.findIndex((r) => r.id === id)
+    if (i < 0) throw new Error("no request " + id)
+    const [r] = o.pending.splice(i, 1)
+    r.rejectFetch(new TypeError("Failed to fetch"))
+  },
   /** The stream request nobody has taken, or null. */
   takeStream: () => {
     const s = o.streams.find((s) => !s.taken)

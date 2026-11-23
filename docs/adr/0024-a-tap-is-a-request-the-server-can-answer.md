@@ -127,11 +127,15 @@ the state the press asked for (an "all off" with everything off), and a refusal
 would paint the control as failed for doing what it says.
 
 A refused `seen` names the field and both values (`service: "lock/lock" shown,
-"lock/unlock" now`), so the toast says what moved. One effect of it: Datastar
-retries a press whose answer was lost. If HA had acted, the retry finds the state
-moved and is refused, so the viewer sees a refusal for a press that worked. A
-call whose service is a literal has no `seen`, so its retry acts again, as it
-always did. Not built: a success
+"lock/unlock" now`), so the toast says what moved.
+
+**A press is sent once** (`retryMaxCount: 0` in `core/tap.pkl`'s `post`). The
+bundle's default retries an unreachable server for minutes with backoff, and
+that held the control busy across a server restart and would have posted, when
+it landed, a value the control had since let go of. A press that cannot be sent
+ends at once as `retries-failed`: the control's error says "Could not be sent",
+the shell toasts it, a pending ask is swept, and a slider or wheel rolls back on
+the error as on a refusal. Not built: a success
 answer ("Turned off 3 lights"). The toast is this ADR's error channel, so one
 would need a neutral look and a signal of its own; meanwhile the label says what
 a press will do (ADR 0034) and the state change shows what it did.

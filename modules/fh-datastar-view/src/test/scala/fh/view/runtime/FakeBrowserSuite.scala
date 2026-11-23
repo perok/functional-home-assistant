@@ -54,6 +54,28 @@ class FakeBrowserSuite extends munit.CatsEffectSuite {
     }
   }
 
+  test("a tap that cannot reach the server fails at once, and says so") {
+    browser.use { (_, a) =>
+      IO {
+        val path = a.page.presses.find(_.contains("sse/call/")).get
+        val node = path.split("node=")(1)
+        a.page.press(path)
+        val List(r) = a.page.requests: @unchecked
+        a.page.unreachable(r.id)
+        assertEquals(a.page.requests, Nil, "retried")
+        assertEquals(
+          a.page.signal(s"_${node}__error").flatMap(_.asString),
+          Some("Could not be sent")
+        )
+        assertEquals(
+          a.page.signal(s"_${node}__busy").flatMap(_.asBoolean),
+          Some(false)
+        )
+        assertEquals(a.page.misses, Nil)
+      }
+    }
+  }
+
   test("a page that missed a frame does not") {
     browser.use { (ts, a) =>
       for {
