@@ -80,6 +80,8 @@ object VarKey:
   *   member included under its own id.
   * @param panelsSelected
   *   each pick over a variable, by the variable deciding it.
+  * @param viewerReads
+  *   each pick computing over variables (and state), by the variables it reads.
   * @param readsAt
   *   the variables a node reads, by its fetches or its slots, a member's whole
   *   subtree included.
@@ -87,6 +89,7 @@ object VarKey:
 private[runtime] final class VarGraph(
     scopes: Map[NodeId, Map[String, Dashboard.InScope]],
     panelsSelected: Map[NodeId, String],
+    viewerReads: Map[NodeId, Set[String]],
     readsAt: NodeId => Set[String]
 ):
 
@@ -158,19 +161,29 @@ private[runtime] final class VarGraph(
         id
     }
 
-  /** The panels a write moves, swapped as a tab press is. A reader as much as a
-    * fetch is, so a write reaching one is not refused for lacking a fetch.
+  private def declaredAt(gid: NodeId, key: VarKey): Boolean =
+    scopes
+      .get(gid)
+      .flatMap(_.get(key.name))
+      .exists(_.declarer == key.declarer)
+
+  /** The panels a plain-variable write selects, whose every value must have a
+    * case ([[Renderer.refusals]]).
     */
   def panelsSelectedBy(key: VarKey): List[NodeId] =
     panelsSelected.toList.sortBy(_._1).collect {
-      case (gid, name)
-          if name == key.name &&
-            scopes
-              .get(gid)
-              .flatMap(_.get(name))
-              .exists(_.declarer == key.declarer) =>
-        gid
+      case (gid, name) if name == key.name && declaredAt(gid, key) => gid
     }
+
+  /** The picks a write moves, swapped as a tab press is: the panels it selects
+    * and the picks computing over it. A reader as much as a fetch is, so a
+    * write reaching one is not refused for lacking a fetch.
+    */
+  def picksDecidedBy(key: VarKey): List[NodeId] =
+    (panelsSelectedBy(key) ++
+      viewerReads.toList.sortBy(_._1).collect {
+        case (gid, names) if names(key.name) && declaredAt(gid, key) => gid
+      }).distinct
 
 private[runtime] object VarGraph {
 

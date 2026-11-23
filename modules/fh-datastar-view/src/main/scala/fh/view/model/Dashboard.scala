@@ -1219,8 +1219,8 @@ case class Dashboard(
             } ++ s.nodes.flatMap(walk)
         }
 
-    // A choice over a variable is decided per viewer; one over state too
-    // (refused until R4d) would be named twice.
+    // A choice reading a variable is decided per viewer, so it is left out
+    // (and reads no fetch: `chosenErrors`).
     walk(card) ++ picks.toList.sortBy(_._1).collect {
       case (gid, p) if p.choice.by.variables.isEmpty =>
         s"the choice at '$gid'" -> p.choice.by

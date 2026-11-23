@@ -16,9 +16,10 @@ object Selections {
 
 /** Selection and visibility, beside [[MemberGraph]]; `Renderer` paints what
   * they say. A pick over a variable is decided per viewer, from the values its
-  * [[Shared]] views with; one over state is the same for everyone, so its cases
-  * hide nothing from anybody. Visibility derives from selection — one fact
-  * asked three ways.
+  * [[Shared]] views with, and so is one computing over a variable, alone or
+  * with state ([[viewerPicks]]); one over state alone is the same for everyone,
+  * so its cases hide nothing from anybody. Visibility derives from selection —
+  * one fact asked three ways.
   *
   * What may be hidden is a CONTAINER, a node of the [[TreeIndex]]: a popup's
   * root or a pick's case. Every node is in one, the innermost holding it (the
@@ -133,11 +134,13 @@ private[runtime] final class SurfaceGraph(
       .collect { case i if caseGid(i) != null => caseGid(i) -> caseIdx(i) }
       .find((gid, _) => groupShown(gid, shared))
 
-  /** Whether `id` is a case of a pick over a variable: chosen, never opened. */
+  /** Whether `id` is a case of a pick a viewer's variables decide: chosen,
+    * never opened.
+    */
   def isVarCase(id: String): Boolean =
     containersSpelled(id).exists { ix =>
       val gid = caseGid(ix.toInt)
-      gid != null && varPicks(gid)
+      gid != null && (varPicks(gid) || viewerPicks(gid))
     }
 
   /** The case of a pick over a variable that `value` picks. */
@@ -185,13 +188,33 @@ private[runtime] final class SurfaceGraph(
 
   private val varPickList: Array[NodeId] = varPicks.toArray.sorted
 
-  /** The case roots the viewer's values pick, shown or not: a lookup, which
-    * costs less than keeping it would.
+  /** Picks computing over a variable, alone or with state: decided at the
+    * viewer's values and kept per values ([[Shared.branchAt]]), so viewers on
+    * different ones are never handed each other's case. The variables are read
+    * in the host's scope.
+    */
+  val viewerPicks: Set[NodeId] =
+    picks.collect { case (gid, p) if p.readsViewer => gid }.toSet
+
+  private val viewerPickList: Array[NodeId] = viewerPicks.toArray.sorted
+
+  /** The variables a viewer pick reads, in the order its decision is kept by.
+    */
+  def viewerVariables(gid: NodeId): List[String] =
+    picks.get(gid).filter(_.readsViewer).fold(Nil)(_.by.variables)
+
+  /** The case roots the viewer's values pick, shown or not: a lookup for a
+    * plain variable, which costs less than keeping it would, the kept decision
+    * for a viewer pick. A viewer pick is decided wherever it stands, though
+    * nobody shows it: it reads no fetch (`chosenErrors`), so asking costs a
+    * memo entry per values.
     */
   def chosen(shared: Shared): BitSet =
     BitSet.fromSpecific(
       varPickList.iterator.flatMap(gid =>
         decideByVariable(gid, shared).map(picks(gid).choice.cases(_).ix.toInt)
+      ) ++ viewerPickList.iterator.flatMap(gid =>
+        decideByViewer(gid, shared).map(picks(gid).choice.cases(_).ix.toInt)
       )
     )
 
@@ -199,8 +222,9 @@ private[runtime] final class SurfaceGraph(
   def screen(spelled: Set[String], shared: Shared): BitSet =
     openOf(spelled) | chosen(shared)
 
-  /** If/else hosts: rendered once per slug for every viewer. */
-  val statePicks: Set[NodeId] = picks.keySet -- varPicks
+  /** If/else hosts over state alone: rendered once per slug for every viewer.
+    */
+  val statePicks: Set[NodeId] = picks.keySet -- varPicks -- viewerPicks
 
   /** The nodes `id` names, a pick by its host, one per clause. */
   private def nodesOf(id: NodeId): List[Ix] =
@@ -210,7 +234,9 @@ private[runtime] final class SurfaceGraph(
 
   /** Every container from `c` up to its tree's root is shown, or, with a
     * `stop`, up to one of its: a container outside `stop` is not. `cut`: picks
-    * switching this frame, whose fill renders what is below them.
+    * switching this frame, whose fill renders what is below them. A case of a
+    * pick a viewer decides is shown while `open` holds it: `open` is that
+    * viewer's [[screen]], which has [[chosen]]'s cases in it.
     */
   private def shownUpTo(
       c: Int,
@@ -308,23 +334,36 @@ private[runtime] final class SurfaceGraph(
         p.decide(p.by.run(null, shared.states, f))
       )
 
-  /** The inverse of what each state pick's `by` reads. Exact, because `by` is
+  /** The inverse of what each of `gids`' `by` reads. Exact, because `by` is
     * subject-free: nothing outside it can move a pick.
     */
-  private val statePicksReading: Map[String, List[NodeId]] =
-    statePicks.toList.sorted
+  private def reading(gids: Set[NodeId]): Map[String, List[NodeId]] =
+    gids.toList.sorted
       .flatMap(gid => picks(gid).by.entities.distinct.map(_ -> gid))
       .groupMap(_._1)(_._2)
 
-  /** The state picks some entity can mark dirty; any other is dirty at every
-    * version, so it is never carried.
+  private val statePicksReading: Map[String, List[NodeId]] = reading(statePicks)
+
+  private val viewerPicksReading: Map[String, List[NodeId]] =
+    reading(viewerPicks)
+
+  /** The picks some entity can mark dirty; any other is dirty at every version,
+    * so it is never carried. A viewer pick reading no entity reads its
+    * variables and literals alone, which its memo is keyed by, so no frame can
+    * stale it and it is always carried.
     */
-  val marked: Set[NodeId] = statePicksReading.values.flatten.toSet
+  val marked: Set[NodeId] =
+    statePicksReading.values.flatten.toSet ++
+      viewerPicksReading.values.flatten ++
+      viewerPicks.filter(picks(_).by.entities.isEmpty)
 
   /** The picks `changes` dirty. */
   def dirtied(changes: List[StateChange]): Set[NodeId] =
     changes.iterator
-      .flatMap(c => statePicksReading.getOrElse(c.entityId, Nil))
+      .flatMap(c =>
+        statePicksReading.getOrElse(c.entityId, Nil) ++
+          viewerPicksReading.getOrElse(c.entityId, Nil)
+      )
       .toSet
 
   /** Whether `gid` is on the page as `shared` has it: a pick inside a member
@@ -359,6 +398,64 @@ private[runtime] final class SurfaceGraph(
       }
     val cut = moved.toSet
     moved.filter(visibleNodeCut(_, visible, next, cut)).sorted
+  }
+
+  /** A viewer pick's `by` read once at the values `shared` views with and
+    * looked up, kept per values; `None` fills the host with nothing.
+    */
+  private[runtime] def decideByViewer(
+      gid: NodeId,
+      shared: Shared
+  ): Option[Int] =
+    val p = picks.getOrElse(gid, null)
+    if (p == null) None
+    else
+      shared.branchAt(gid, p.by.variables, p.by.reads)(f =>
+        p.decide(p.by.run(null, shared.states, f))
+      )
+
+  /** The case `gid` shows for `shared`'s viewer, however it is decided. */
+  private[runtime] def decide(gid: NodeId, shared: Shared): Option[Int] =
+    if (statePicks(gid)) decideByState(gid, shared)
+    else if (viewerPicks(gid)) decideByViewer(gid, shared)
+    else decideByVariable(gid, shared)
+
+  /** The viewer picks `changes` move for some of `seen`, each with the cases
+    * arriving for those it moves. As [[affectedStateGroups]], per viewer by its
+    * own screen: a pick counts for one only if [[groupShown]] before and after
+    * and its host is visible past no other pick switching for it, a state flip
+    * (`stateFlips`) or another of its own. One moving for no viewer is not
+    * here.
+    */
+  def affectedViewerGroups(
+      changes: List[StateChange],
+      prev: Shared,
+      next: Shared,
+      seen: List[SurfaceGraph.Seen],
+      stateFlips: Set[NodeId]
+  ): List[(NodeId, List[Int])] = {
+    val candidates = changes
+      .flatMap(c => viewerPicksReading.getOrElse(c.entityId, Nil))
+      .distinct
+      .filter(gid => groupShown(gid, prev) && groupShown(gid, next))
+    if (candidates.isEmpty) Nil
+    else {
+      val flips = seen.flatMap { s =>
+        val (was, now) = (prev.viewing(s.env), next.viewing(s.env))
+        val moved = candidates.filter(gid =>
+          decideByViewer(gid, was) != decideByViewer(gid, now)
+        )
+        val cut = stateFlips ++ moved
+        moved
+          .filter(visibleNodeCut(_, s.visible, now, cut))
+          .map(gid => gid -> decideByViewer(gid, now))
+      }
+      flips
+        .groupMap(_._1)(_._2)
+        .toList
+        .sortBy(_._1)
+        .map((gid, cases) => gid -> cases.flatten.distinct)
+    }
   }
 
   /** The case the viewer's value of `gid`'s variable picks, if any. */
@@ -428,6 +525,11 @@ private[runtime] final class SurfaceGraph(
 }
 
 private[runtime] object SurfaceGraph {
+
+  /** One distinct set of values live sessions hold, and the containers on
+    * screen for those holding it.
+    */
+  final case class Seen(env: VarEnv, visible: BitSet)
 
   /** The popup `open` holds, through one renderer's spellings: the swap reads
     * it through the renderer that painted `open` ([[Renderer.Stamp]]).

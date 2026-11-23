@@ -37,9 +37,9 @@ case is picked by a **condition** instead of a viewer's value:
   alone (`User(defaultOpen)`; an absent one decodes to `User(false)`). A
   choice's cases are nodes, and one **pick** decides them all (`Ready.Pick`):
   `by` read once, its case looked up. So a case cannot be both
-  default-open and conditional, and one choice cannot mix a variable and state
-  member by member: `by` is one expression, and `validate` refuses one reading
-  both until R4d of `docs/plan-regions.md`.
+  default-open and conditional. One choice can read a variable and state
+  together, since `by` is one expression: it is decided per viewer, at the
+  values that viewer holds (below).
 
 ### Selection semantics
 
@@ -72,10 +72,19 @@ ADR 0003.
 ### Shared-pass placement (the cache consequence)
 
 Because a state selection is server truth, a pick over state is identical for
-every viewer. `SurfaceGraph` splits its picks into `varPicks`/`statePicks`, and
-`selectedSurfaces` does not seed a pick over state's cases into a session's open
-set — their liveness is the shared
-pass's job, not a client's.
+every viewer. `SurfaceGraph` splits its picks three ways: `statePicks` (state
+alone), `varPicks` (the plain variable, a lookup of the viewer's value) and
+`viewerPicks` (anything else reading a variable, alone or with state), and
+`selectedSurfaces` does not seed a pick's cases into a session's open set — a
+state pick's liveness is the shared pass's job, a variable's the viewer's
+values.
+
+A viewer pick is the one place a pick is both: its `by` reads state and the
+viewer's variables, so the case is made per viewer, at that viewer's values
+(`SurfaceGraph.decideByViewer`, kept per values by `Shared.branchAt`, ADR 0033),
+and the `If` is a flip for exactly the viewers whose case it moves. A value no
+case takes, with no `else`, shows nothing: only the plain variable's declared
+value is held to a case, since a computed `by` has no such value to check.
 
 That distinction outlived the split it was written for. Everything now rides one
 shared per-slug pass (ADR 0002), so the question is no longer *which pass* but
@@ -98,6 +107,13 @@ Per state change, the recording pass does two things:
    branch went, **prune** the pick's cache entries, and defer the render.
    Hidden-branch churn deliberately leaves stale cache entries; the flip-prune
    is what makes that correct.
+
+   A viewer pick flips per values (`SurfaceGraph.affectedViewerGroups`): the
+   same test, once per distinct values live sessions hold, each against the
+   containers on screen for the sessions holding them. It is a flip if it moves
+   for some, logged by its host and the case arriving for each; for the others
+   nothing is logged, and it cuts no one's visibility, since a node under its
+   case still ticks for a viewer it did not move.
 
    The fill itself is `Patches.fillHost` — the same primitive a tab switch and
    a popup open use, since all three evict a host and overwrite what it holds
@@ -178,17 +194,19 @@ conditions is `by = List(Bool, [p, q]) |> IndexOfTrue` with cases `0..n`, a
 lone one `by = p` with the case `true`, and the `else` the `otherwise` (none
 while empty, over state). A chain whose conditions all read one variable
 (`valueIs`) is a match on the variable's value, one case per value; one mixing a
-variable with live state, or two variables, is a Pkl error naming R4d of
-`docs/plan-regions.md`, where a decision reading both arrives. A node holds one
-choice until then, and a case is one node (several sit in a row).
+variable with live state, or reading two variables, lowers to the same
+first-true position, decided per viewer, and its empty `else` is no case. A
+node holds one choice, and a case is one node (several sit in a row).
 
 `iff` also takes a node variable at one value, `c.iff(window.valueIs("30d"))`
 (#510). Then the pick is per viewer like a `c.select`'s panels, so the branch is
 each viewer's own and no flip is involved: `then` is the case at the value, and
 `else` the otherwise. The otherwise is always there, empty without an `else`, so
-the If shows something at every value. `valueIs` is not a predicate, so a condition
-cannot mix a variable with entity state; that would need the flip machinery to
-know which viewers a flip reaches, and stays undesigned until a dashboard asks.
+the If shows something at every value. `valueIs` is not a predicate, so one
+condition cannot combine it with entity state, but a chain may take one
+`elif` of each (`c.iff(mode.valueIs("a")).then(x).elif(q.entity(e).stateIs("on")).then(y)`):
+that is a viewer pick, and a state change moving the case for some viewers flips it
+for those alone (`Patches.plan`'s viewer flips).
 
 A choice over a node variable that is not an `If` is `nodeMod.match(v.value,
 cases)`: one case per key (`t0`, `t1`, … in the cases' order) and

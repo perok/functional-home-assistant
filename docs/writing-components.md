@@ -520,6 +520,13 @@ hold and `.otherwise(…)` for the rest (a key can hold several nodes as a
 panel.of(nodeMod.match(mode.value, new Mapping { ["heat"] = h; ["cool"] = k }).otherwise(off))
 ```
 
+A chain can mix the two, one condition per branch, and each viewer gets the
+first branch that holds for them (an `else` left empty shows nothing):
+
+```pkl
+branch.of(nodeMod.iff(mode.valueIs("away")).then(a).elif(c.isOn(lamp)).then(b))
+```
+
 or over an entity's state, the same for every viewer (a text reading, keys are the
 states):
 
@@ -532,9 +539,8 @@ your card's root, so it must be the card's whole template (`template =
 "\(panel)"`); the build refuses one beside anything else. To put it among other
 content, place a group holding it, which is a card of its own:
 `panel.of(new Listing { groupMod.inner("div", "my-panel", nodeMod.match(…)) })`
-(`core/group.pkl`; `groupMod.group` for one that is a layout cell). A chain reading a
-variable and live state together, a `match` over a variable run through steps, and a node with
-two choices in different slots, are errors for now.
+(`core/group.pkl`; `groupMod.group` for one that is a layout cell). A node with
+two choices in different slots is an error for now.
 
 ---
 

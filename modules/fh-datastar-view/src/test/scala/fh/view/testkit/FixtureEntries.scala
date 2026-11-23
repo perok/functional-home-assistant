@@ -132,6 +132,31 @@ object FixtureEntries {
         |""".stripMargin
   )
 
+  /** A decision per viewer: a chooser's variable and an If whose chain reads it
+    * and a light's state, so the case shown depends on both.
+    */
+  val viewerDecisions: Entry = Entry(
+    "viewer-decisions",
+    header +
+      """
+        |local mode = c.variable("mode")
+        |
+        |card = (c.column) {
+        |  children {
+        |    (c.chooser(c.select(mode).options(List("a", "b")))) {
+        |      children {
+        |        c.iff(mode.valueIs("a"))
+        |          .then(c.title("Mode a"))
+        |          .elif(q.entity(kitchen).stateIs("on"))
+        |          .then(c.toggle(kitchen))
+        |          .`else`(c.title("Neither"))
+        |      }
+        |    }
+        |  }
+        |}
+        |""".stripMargin
+  )
+
   /** A candidate set: filtered, ordered and cut, and its leader as a condition.
     */
   val sets: Entry = Entry(
@@ -341,6 +366,7 @@ object FixtureEntries {
     cards,
     taps,
     branches,
+    viewerDecisions,
     sets,
     readings,
     progress,

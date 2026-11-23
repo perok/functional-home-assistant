@@ -236,19 +236,4 @@ class VarSourceSuite extends munit.FunSuite {
     refused(dash(panel(set)), "a set's clause reads the variable 'window'")
     refused(dash(panel(set)), "a set's order reads the variable 'window'")
   }
-
-  test("a choice's condition refuses a computed read of one") {
-    val d = dash(
-      panel(
-        LayoutNode.Component(
-          "box",
-          Map(
-            LayoutNode.DefaultRegion ->
-              Slots.iff(isWindow("7d"), plain(ValueExpr.literal("y")))
-          )
-        )
-      )
-    )
-    refused(d, "is chosen by a computed read of a variable")
-  }
 }

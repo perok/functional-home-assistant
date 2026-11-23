@@ -99,8 +99,8 @@ const local branchSlot: slotMod.NodesSlot = slotMod.nodes("branch")
 /// A conditional section: `then` while `condition` holds, the optional `else`
 /// while it does not, and `elif`s between. The tabs machinery, and the inactive
 /// branch is neither rendered nor updated. Over live state the choice is shared
-/// by every viewer; over a node variable it is each viewer's own, as a tab
-/// bar's is.
+/// by every viewer; over a node variable, alone or mixed with state in one
+/// chain, it is each viewer's own, as a tab bar's is.
 ///
 ///   c.iff(q.entity(dump.e_x).stateIs("on"))
 ///     .then(c.title("on")).`else`(c.title("off"))

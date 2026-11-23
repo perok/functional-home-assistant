@@ -524,7 +524,8 @@ const local function nodesUnder(n: LayoutNode): List<Node> =
 
 /// A choice among branches, for a nodes slot:
 /// `slot.of(nodeMod.iff(p).then(a).elif(q).then(b).`else`(x))`. A condition over
-/// live state decides it for every viewer.
+/// live state alone decides it for every viewer; one reading a node variable
+/// (`v.valueIs(x)`), alone or beside state, decides it for each viewer.
 const function iff(p: choiceMod.Condition): choiceMod.Iff = choiceMod.iff(p)
 
 /// A choice by a node variable's value, for a nodes slot:

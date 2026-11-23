@@ -627,10 +627,10 @@ private[model] object Validate:
         .sorted
         .map(n => s"$nodeId: '$n' is both a slot and a call — rename one")
 
-    /** A nodes slot's choice: keys typed by `by`, one node per case, and a `by`
-      * a pick can decide: a viewer's variable read alone, or state alone. A
-      * variable's declared value no case takes would show nothing before anyone
-      * chooses.
+    /** A nodes slot's choice: keys typed by `by`, one node per case. A `by`
+      * reading variables and state decides per viewer, and a value no case
+      * takes shows nothing; only the plain variable's declared value is held to
+      * a case, since it would show nothing before anyone chooses.
       */
     def choiceFillErrors(
         nodeId: String,
@@ -647,20 +647,6 @@ private[model] object Validate:
               "row)"
           )
           .distinct
-        val reads =
-          if (k.by.variables.nonEmpty && k.by.entities.nonEmpty)
-            List(
-              s"$at is chosen by a viewer's variable and by state together, " +
-                "which is not built yet (R4d of docs/plan-regions.md)"
-            )
-          else if (
-            k.by.variables.nonEmpty && Choice.plainVariable(k.by).isEmpty
-          )
-            List(
-              s"$at is chosen by a computed read of a variable; until R4d it " +
-                "is the variable's own value (`v.value`)"
-            )
-          else Nil
         val unshown = Choice.plainVariable(k.by) match
           case Some(v) if k.otherwise.isEmpty =>
             scope
@@ -674,7 +660,7 @@ private[model] object Validate:
               .toList
           case _ => Nil
         chosenErrors(at, "its nodes", "its nodes", k, scope) ++ lengths ++
-          reads ++ unshown
+          unshown
       }
 
     /** A choice is of the variable as this node reads it. */
@@ -1128,23 +1114,21 @@ private[model] object Validate:
         )
     )
 
-    // A choice over state is decided once for every viewer, about no subject.
+    // A choice is decided about no subject, over state, variables or both.
     val unboundConditions: List[String] =
       picks.toList.sortBy(_._1).flatMap { (gid, p) =>
         val by = p.choice.by
-        if (by.variables.nonEmpty) Nil
-        else
-          by.bypassError(ownMay = false)
-            .map(e =>
-              s"the choice at '$gid' is decided by a value that does not decide: $e"
+        by.bypassError(ownMay = false)
+          .map(e =>
+            s"the choice at '$gid' is decided by a value that does not decide: $e"
+          )
+          .orElse(
+            Option.when(by.readsMissingSubject)(
+              s"the choice at '$gid' compares an unnamed entity; a choice " +
+                "over state must name the entity each comparison reads"
             )
-            .orElse(
-              Option.when(by.readsMissingSubject)(
-                s"the choice at '$gid' compares an unnamed entity; a choice " +
-                  "over state must name the entity each comparison reads"
-              )
-            )
-            .toList
+          )
+          .toList
       }
 
     // A call runs at the press as a decision: for no viewer, about no subject.

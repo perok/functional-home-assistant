@@ -4,7 +4,7 @@ import cats.effect.unsafe.implicits.global
 import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import fh.view.history.ChartRenderer
-import fh.view.model.{CallDecl, CallId, Dashboard}
+import fh.view.model.{CallDecl, CallId, Dashboard, NodeId}
 import fh.view.telemetry.Logging
 import fh.view.testkit.{FixtureEntity, FixtureEntries, PklFixture}
 import hedgehog.*
@@ -62,6 +62,7 @@ class OracleSuite extends HedgehogSuite {
   // Each has something a viewer's choice or an entity's change can move:
   // sets: a filtered, ordered and cut candidate set, and its leader as a condition.
   // branches: tabs, a state If, and a branch a node variable picks.
+  // viewerDecisions: an If reading a variable and a light's state.
   // taps: a popup, an inline popup and calls beside them.
   // sliderGroups, lightControls: a slider's main controls, a match over its
   // `control` variable, per member in a group.
@@ -70,6 +71,7 @@ class OracleSuite extends HedgehogSuite {
     List(
       FixtureEntries.sets,
       FixtureEntries.branches,
+      FixtureEntries.viewerDecisions,
       FixtureEntries.taps,
       FixtureEntries.sliderGroups,
       FixtureEntries.lightControls,
@@ -233,6 +235,34 @@ class OracleSuite extends HedgehogSuite {
       .timeout(1.minute)
       .unsafeRunSync()
     // Thrown: this suite's `assert` is hedgehog's, which returns a Result.
+    r match
+      case Result.Success => ()
+      case failure        => throw AssertionError(failure.toString)
+  }
+
+  /** The shape a random run reaches rarely: one viewer on `b`, another left on
+    * `a`, and the light that only `b`'s case reads moving both ways. A frame
+    * the recorder missed for `b` leaves its page on the case it left.
+    */
+  test("viewer-decisions: a viewer's case follows a light the other ignores") {
+    val e = FixtureEntries.viewerDecisions
+    val kitchen = e.entities.find(_.entityId == "light.kitchen").get
+    val mode = VarKey(NodeId.derived("c_0"), "mode")
+    val r = TestServer
+      .resource(build(e), e.entities, chart = Resource.pure(charts))
+      .use { ts =>
+        for {
+          a <- FakeBrowser.open(ts)
+          b <- FakeBrowser.open(ts)
+          _ <- b.choose(mode, Some("b")) *> b.deliver
+          _ <- ts.record(kitchen.copy(state = "off")) *> a.deliver *> b.deliver
+          off <- (a.check, b.check).mapN(_.and(_))
+          _ <- ts.record(kitchen.copy(state = "on")) *> a.deliver *> b.deliver
+          on <- (a.check, b.check).mapN(_.and(_))
+        } yield off.and(on)
+      }
+      .timeout(1.minute)
+      .unsafeRunSync()
     r match
       case Result.Success => ()
       case failure        => throw AssertionError(failure.toString)

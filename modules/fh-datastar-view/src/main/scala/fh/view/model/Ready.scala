@@ -133,13 +133,15 @@ object Ready:
         byKey.getOrElse(java.lang.Long.valueOf(i.longValue), -1)
       case _ => byKey.getOrElse(read, -1)
 
-  /** A guard or a state surface's condition, and the entities and fetches it
-    * reads.
+  /** A guard or a pick's condition, and the entities, fetches and node
+    * variables it reads; `variables` is in a fixed order, which a per-values
+    * memo keys by.
     */
   final case class Condition(
       run: Evaluator.Run,
       entities: List[String],
-      reads: Set[SlotRead]
+      reads: Set[SlotRead],
+      variables: List[String]
   )
 
   /** A slot's run, and its bind pass's facts, each read once: a paint reads
@@ -187,6 +189,11 @@ object Ready:
     val cases: Vector[NodeId] = choice.cases.map(_.id).toVector
     def by: Condition = choice.by
     def variable: Option[String] = choice.variable
+
+    /** Decided at the viewer's values and reading state too, or a computed read
+      * of a variable: not a lookup of one, so kept per values.
+      */
+    def readsViewer: Boolean = variable.isEmpty && by.variables.nonEmpty
 
     /** The case `read` picks: the one keyed by it, else the otherwise, else
       * none. Keyed by the raw value, as [[MemberChoice.pick]] is.
@@ -465,7 +472,9 @@ object Ready:
     private def condition(e: ValueExpr): Built[Condition] =
       Evaluator
         .compile(e, scope)
-        .map(c => Condition(c.run, e.entities, SlotAsk.decision(e.fetches)))
+        .map(c =>
+          Condition(c.run, e.entities, SlotAsk.decision(e.fetches), e.variables)
+        )
 
   /** The wire's whole-dashboard facts, read off it once by the walk. */
   final case class Dashboard(

@@ -163,7 +163,7 @@ class ChosenFillSuite extends munit.FunSuite {
     )
   }
 
-  test("validate refuses one decision reading a variable and state") {
+  test("validate takes one decision reading a variable and state") {
     val mixed = ValueExpr(
       Value.List(
         ValueType.Bool,
@@ -183,7 +183,7 @@ class ChosenFillSuite extends munit.FunSuite {
       None,
       vars = declared("mode" -> "a")
     )
-    assert(errors(n).exists(_.contains("R4d")), clue = errors(n))
+    assertEquals(errors(n), Nil)
   }
 
   test("validate refuses a case that is not exactly one node") {

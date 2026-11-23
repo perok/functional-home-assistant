@@ -820,7 +820,12 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          usual benches equal, D5.0's within 1%. Docs: ADR 0011 (what the recorder reads), 0033
          (where a choice is decided), the pipeline doc §1a (the levels), §2, §5
          (`SessionState.open`), §7's table, terminology (`Shared`, pick, `Viewing`, level).
-       - **D5.2, a pick computing over a variable or reading state too.** Its level is `Viewer`;
+       - **D5.2, a pick computing over a variable or reading state too.** BUILT. Before it, the
+         oracle was made to drive variables (its press regex never matched a `?node=` URL, and
+         viewer 1 never acted) and to run each step's IO when the step runs (built ahead, a
+         check read the page before the press), which found a reconnect taking the request's
+         popup over the backlog it had just flushed; fixed in that commit. OracleSuite: 25 s
+         locally with `viewer-decisions`. Its level is `Viewer`;
          the recorder compares its case per values at `prev` and `next` and logs the host and
          the arriving case, as a flip. Goes: `choiceFillErrors`' "by state together" and "a
          computed read of a variable", and Pkl's throws in `Iff.wire` and `match` (a chain mixing

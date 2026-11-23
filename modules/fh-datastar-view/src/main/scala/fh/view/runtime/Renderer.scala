@@ -307,12 +307,15 @@ class Renderer(validated: Dashboard.Validated) {
       // host's scope.
       scopes = {
         val byNode = dashboard.varScopes.filter(_._2.nonEmpty)
-        byNode ++ surfaces.varPicks.flatMap(gid =>
+        byNode ++ (surfaces.varPicks ++ surfaces.viewerPicks).flatMap(gid =>
           byNode.get(surfaces.hostOf(gid)).map(gid -> _)
         )
       },
       panelsSelected = surfaces.varPicks.toList
         .flatMap(gid => surfaces.varSelecting(gid).map(gid -> _))
+        .toMap,
+      viewerReads = surfaces.viewerPicks
+        .map(gid => gid -> surfaces.viewerVariables(gid).toSet)
         .toMap,
       readsAt = id =>
         fetchesForNode(id).flatMap(_.fetch.variables).toSet ++
@@ -1132,8 +1135,7 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private def pickedCase(gid: NodeId, shared: Shared): Option[Int] =
     if (surfaces.cases(gid).isEmpty) None
-    else if (surfaces.isStatePick(gid)) surfaces.decideByState(gid, shared)
-    else surfaces.decideByVariable(gid, shared)
+    else surfaces.decide(gid, shared)
 
   /** What a node's patch form is rendered from ([[ByteValues]]). A node's other
     * inputs are fixed per renderer (template, constants, `id`,

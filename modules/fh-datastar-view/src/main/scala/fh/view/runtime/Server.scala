@@ -534,7 +534,8 @@ class Server(
 
   /** The shell around [[Patches.plan]] + [[Patches.record]]: one plan per
     * frame, its visibility the union of each watched viewer's screen
-    * ([[Sessions.watching]]), one viewer at a time.
+    * ([[Sessions.watching]]), one viewer at a time, and the screens kept apart
+    * per distinct values for the picks a viewer's values decide.
     *
     * A slug nobody watches records nothing ([[FragmentLog.skipped]]). Safe only
     * because [[pageResponse]] registers the session BEFORE reading the snapshot
@@ -570,13 +571,27 @@ class Server(
                   // Only surfaces some client can see: a tab inside a hidden
                   // `If` is selected but on no screen. Filtered per session
                   // before the union, because a chain is one client's.
-                  val visible = viewers.foldLeft(BitSet.empty)((seen, w) =>
-                    seen | renderer.surfaces.onScreen(
-                      w.open,
-                      now.viewing(renderer.vars.env(w.values))
+                  val screens = viewers.map { w =>
+                    val env = renderer.vars.env(w.values)
+                    (
+                      w.values,
+                      env,
+                      renderer.surfaces.onScreen(w.open, now.viewing(env))
                     )
-                  )
-                  Patches.plan(renderer, was, now, frame.changes, visible)
+                  }
+                  val visible = screens.foldLeft(BitSet.empty)(_ | _._3)
+                  // A viewer pick is decided per distinct values, each by its
+                  // own sessions' screens; nothing to split without one.
+                  val seen =
+                    if (renderer.surfaces.viewerPicks.isEmpty) Nil
+                    else
+                      screens.groupBy(_._1).values.toList.map { same =>
+                        SurfaceGraph.Seen(
+                          same.head._2,
+                          same.foldLeft(BitSet.empty)(_ | _._3)
+                        )
+                      }
+                  Patches.plan(renderer, was, now, frame.changes, visible, seen)
                 }
                 .flatMap(req => written(Patches.record(renderer, _, req)))
           recorded.map(next -> _)
@@ -1246,7 +1261,7 @@ class Server(
       selections: Selections
   )(s: SessionState): IO[Session.Step[Unit]] = {
     val readers = renderer.vars.readersOf(key)
-    val groups = renderer.vars.panelsSelectedBy(key)
+    val groups = renderer.vars.picksDecidedBy(key)
     val proposed = chosen.fold(s.vars - key)(v => s.vars + (key -> v))
     val value = (s.initialValues ++ proposed)
       .getOrElse(key, renderer.vars.defaults(key))

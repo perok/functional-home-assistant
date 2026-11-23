@@ -115,7 +115,10 @@ private[runtime] object Patches {
       sets: List[SetId],
       flips: List[NodeId],
       prev: Shared,
-      next: Shared
+      next: Shared,
+      // Each viewer pick some viewer is shown another case of, with the cases
+      // arriving for them.
+      viewerFlips: List[(NodeId, List[Int])] = Nil
   ):
     // The frame's own, so nothing claims a version its HTML lacks.
     def at: Long = next.version
@@ -125,29 +128,41 @@ private[runtime] object Patches {
     * drop an update someone needed.
     *
     * A flipped state pick is logged by its host and its arriving case, and its
-    * own id is left out below. A surface binding a changed entity contributes
-    * only if it is shown from the page or a visible surface
-    * ([[SurfaceGraph.visibleContainer]]), so a hidden branch never gets
-    * updates. No viewer's [[Selections]] are read. `prev` is the version
-    * before, so its decisions are what viewers were sent.
+    * own id is left out below; so is a viewer pick that flips for some viewer
+    * of `seen` (one entry per distinct values, with the containers on screen
+    * for them), logged by its host and each arriving case. A surface binding a
+    * changed entity contributes only if it is shown from the page or a visible
+    * surface ([[SurfaceGraph.visibleContainer]]), so a hidden branch never gets
+    * updates; a viewer's flip cuts no one's visibility here, since it moves the
+    * case for only those it flips for. No viewer's [[Selections]] are read.
+    * `prev` is the version before, so its decisions are what viewers were sent.
     */
   def plan(
       renderer: Renderer,
       prev: Shared,
       next: Shared,
       changes: List[StateChange],
-      visible: BitSet
+      visible: BitSet,
+      seen: List[SurfaceGraph.Seen] = Nil
   ): DiffRequest = {
     val flips =
       renderer.surfaces.affectedStateGroups(changes, prev, next, visible)
-    val flipped = flips.toSet
+    val viewerFlips = renderer.surfaces.affectedViewerGroups(
+      changes,
+      prev,
+      next,
+      seen,
+      flips.toSet
+    )
+    val flipped = flips.toSet ++ viewerFlips.map(_._1)
+    val cutting = flips.toSet
     // Per frame: every changed entity a branch binds asks of the same surface,
     // and each asking evaluates the conditions above it (`publishFlip`).
     val asked = scala.collection.mutable.BitSet.empty
     val reached = scala.collection.mutable.BitSet.empty
     val shown: Ix => Boolean = c =>
       if (asked.add(c.toInt)) {
-        val r = renderer.surfaces.visibleContainer(c, visible, next, flipped)
+        val r = renderer.surfaces.visibleContainer(c, visible, next, cutting)
         if (r) reached += c.toInt
         r
       } else reached(c.toInt)
@@ -172,7 +187,7 @@ private[runtime] object Patches {
       )
       .distinct
       .filterNot(flipped)
-    DiffRequest(staticIds, sets, flips, prev, next)
+    DiffRequest(staticIds, sets, flips, prev, next, viewerFlips)
   }
 
   /** Loud, rather than caching `""` forever if `byteSlotValues` and
@@ -274,14 +289,18 @@ private[runtime] object Patches {
           if (was(m.node.ix)) acc else acc.touched(m.node.ix, at)
         )
     }
-    req.flips.foldLeft(sets) { (l, gid) =>
-      renderer.surfaces
-        .decideByState(gid, req.next)
+    def arriving(l: FragmentLog, gid: NodeId, cases: List[Int]) =
+      cases
         .flatMap(renderer.surfaces.cases(gid).lift)
         .foldLeft(touch(l, renderer.surfaces.hostOf(gid)))((acc, c) =>
           touch(acc, NodeId.derived(c))
         )
+    val stateFlipped = req.flips.foldLeft(sets) { (l, gid) =>
+      arriving(l, gid, renderer.surfaces.decideByState(gid, req.next).toList)
     }
+    req.viewerFlips.foldLeft(stateFlipped)((l, flip) =>
+      arriving(l, flip._1, flip._2)
+    )
   }
 
   /** Everything a client at cursor `v` is owed (ADR 0011) — also the live path,

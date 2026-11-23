@@ -196,7 +196,7 @@ layers only look it up.
 |---|---|---|---|
 | **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL and card templates compiled (`Validated.templates`, the same tree the checks read), fetches parsed, and the tree walked into the compiled one (`Validated.ready`, `Ready.Compile`): every slot, guard, state condition and order beside its run. Everything below reads only that tree |
 | **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's fetching slots with the `valueWhile` each waits for (`Renderer`'s `Index`, one for the body and one per popup, a choice's every case included, each node with the container holding it; `Component.fetching`), which nodes an entity wakes, every member a candidate can be in each clause with its nodes and fetches (`MemberGraph`, `Member.fetching`), the sets inside each clause (`MemberGraph.setsIn`), each choice's pick and its cases' node ids (`SurfaceGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
-| **Decisions** | state version | the entity states, and the answers to the fetches a decision reads | what they decide, in that version's `Shared`: which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which case a pick over state shows, its `by` read once (`SurfaceGraph.decideByState`), and whether each `valueWhile` holds. Each is carried from the version before unless the frame between DIRTIED it (an edge in the index, read off the expression that decides it), or made on demand by the first reader that reaches it; every viewer of one version shares them. What reads a variable is the exception: it is made at the viewer's values (`Shared.viewing`) and kept per values (`Shared.branchAt`, `ByValues`), so viewers on equal values share one, a dirtying drops every value's at once, and a carry drops the values no live session holds. A pick over the plain variable is not kept: it is a lookup of the viewer's value (`SurfaceGraph.decideByVariable`). Beside them, a node's signal values (`Shared.signals`), made by the first session's signal frame and never carried; a node reading a fetch is left out, since its answer is the viewer's (ten clients' signal tick: 341 to 213 µs, `RenderBench.resumeSignalsFanout`). A viewer's own part of a send is its `Viewing`: its `Selections` (the popup) and its slot answers (§6), beside the values its `Shared` is viewed at |
+| **Decisions** | state version | the entity states, and the answers to the fetches a decision reads | what they decide, in that version's `Shared`: which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which case a pick over state shows, its `by` read once (`SurfaceGraph.decideByState`), and whether each `valueWhile` holds. Each is carried from the version before unless the frame between DIRTIED it (an edge in the index, read off the expression that decides it), or made on demand by the first reader that reaches it; every viewer of one version shares them. What reads a variable is the exception: it is made at the viewer's values (`Shared.viewing`) and kept per values (`Shared.branchAt`, `ByValues`), so viewers on equal values share one, a dirtying drops every value's at once, and a carry drops the values no live session holds. A pick has one of three levels, found once per renderer from what its `by` reads: state alone (`SurfaceGraph.statePicks`, `decideByState`, shared), computing over a variable, alone or with state (`viewerPicks`, `decideByViewer`, kept per values through the same dirty rule as a state pick, so a viewer pick reading no entity is never dirtied), or the plain variable (`varPicks`, not kept: a lookup of the viewer's value, `decideByVariable`). Beside them, a node's signal values (`Shared.signals`), made by the first session's signal frame and never carried; a node reading a fetch is left out, since its answer is the viewer's (ten clients' signal tick: 341 to 213 µs, `RenderBench.resumeSignalsFanout`). A viewer's own part of a send is its `Viewing`: its `Selections` (the popup) and its slot answers (§6), beside the values its `Shared` is viewed at |
 
 Three rules keep the layers apart, and building on them is how new work stays cheap:
 
@@ -658,7 +658,9 @@ server itself last sent.
 ## 3. Inside `Patches.record` — three kinds of id
 
 Nothing here renders. Everything it needs is state: a flip's selection is `decideByState`,
-`plan` found the flips from the changed entities (`SurfaceGraph.affectedStateGroups`) and kept a
+`plan` found the flips from the changed entities (`SurfaceGraph.affectedStateGroups`, and for a
+viewer pick `affectedViewerGroups`, per distinct values among the watched viewers, given as
+`SurfaceGraph.Seen`: the values and the containers on screen for them) and kept a
 container's nodes only where `SurfaceGraph.visibleContainer` says it is shown, so a hidden branch is never
 asked, and membership arrives already decided — `MemberGraph.deltas` makes each affected set's
 "after" decision (from the changed entities alone for a stable set) and answers which sets show
@@ -670,7 +672,7 @@ flowchart TB
 
   REQ --> STAT["STATIC IDS<br/>ordinary bound components,<br/>a ticking MEMBER's nodes included"]
   REQ --> DYN["SETS<br/>whose keys moved: an arrival, a departure,<br/>a reorder, a clause switch"]
-  REQ --> FLIP["FLIPS<br/>a state pick whose case moved"]
+  REQ --> FLIP["FLIPS<br/>a state pick whose case moved,<br/>a viewer pick whose case moved<br/>for some watched viewer"]
 
   STAT --> STATW["touched: node -&gt; version"]
   DYN --> DYNW["touched: the set's host,<br/>and each ARRIVING member's root<br/>(a clause switch arrives too)"]
@@ -704,6 +706,13 @@ has shown, and what belongs inside it, depends on selections below it. So the re
 part that is identical for everyone (the host moved, and which case arrived) and each session plans
 the host against its own list and fills it for its own selection when it pulls. A branch no
 connected viewer reaches is never rendered at all.
+
+A viewer pick (a choice reading a variable and state) is not the same for everyone, so the recorder
+decides it per distinct values among the watched viewers, `prev` against `next`, each by that
+values' own screen. It logs the host and each viewer's arriving case when it moved for any, and
+nothing when it moved for none; the viewers it did not move are planned against their unchanged
+case at their pull and sent nothing. Its flip cuts no one's visibility, since it moved the case for
+only some.
 
 That is the same mechanism as a set's, not a second path — which is the point. A pick is a host
 showing at most one key: a switch has nothing to keep, so the plan is one fill; a pick showing
@@ -901,8 +910,8 @@ their own heads, and a write swaps only the pick of the member's current clause
 (`SurfaceGraph.groupShown`). A member holding nodes has no one element to send, so its arrival and a
 clause switch (a different node, or the same node in another clause) place it whole, rendered per
 viewer (`renderMemberTraced`), with its leaves' claims; a pick first shown that way takes its
-case from the viewer's values (`SurfaceGraph.decideByVariable`), and a pick over state the
-branch its state picks. So an `If` on live state inside a clause flips only while its member
+case from the viewer's values (`SurfaceGraph.decideByVariable`, or `decideByViewer` for one
+computing over them), and a pick over state the branch its state picks. So an `If` on live state inside a clause flips only while its member
 is present in that clause, before and after the frame (`SurfaceGraph.groupShown`); the frame
 finds it from the changed entities, not by walking every group (ADR 0007).
 
@@ -1580,7 +1589,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the member graph | `runtime/MemberGraph.scala` · `Member`, `binding`, `deltas`, `dirtied`, `membersOf`, `setsIn`, `innerSetId` |
 | what a version decides, once | `runtime/Shared.scala` · `Shared` (members, state branches, `valueWhile`s; carried + fills; signal values, fills only), `Shared.viewing` (the viewer's values), `branchAt` / `ByValues` (a decision per values), `Shared.Run` (one decide run's answers and needs), `Decided` (the two newest versions, `advance`), `Viewing`; `runtime/Renderer.scala` · `decide`, `advance`, `gateHolds`, `withheld` |
 | what a render reads before its walk | `runtime/Renderer.scala` · `fetchesForPage`, `fetchesForSurface`, `readsForPull`, `presentAt`, `setAsks`; `model/Dashboard.scala` · `Component.fetching`, `Fetching` |
-| which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selectionsIn` (one viewer's popup), `cases`, `decideByVariable` (a lookup in the viewer's values) / `decideByState` (per version), `selectedSurfaces` (popups), `chosen` / `screen` (the cases a viewer's values pick; its open set), `visibleNode`, `visibleContainer` (the one test of shown, by `Ix`: a tick, a flip and page open), `onScreen`, `shownSurfaces`, `pageRoot`, `openOf` / `popupSpelling` (the spelling across a swap) |
+| which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selectionsIn` (one viewer's popup), `cases`, `decideByVariable` (a lookup in the viewer's values) / `decideByViewer` (per values) / `decideByState` (per version), `affectedStateGroups` / `affectedViewerGroups` (the flips), `selectedSurfaces` (popups), `chosen` / `screen` (the cases a viewer's values pick; its open set), `visibleNode`, `visibleContainer` (the one test of shown, by `Ix`: a tick, a flip and page open), `onScreen`, `shownSurfaces`, `pageRoot`, `openOf` / `popupSpelling` (the spelling across a swap) |
 | node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
 | evaluating any reading: a slot, a guard, an activation condition, an order term, a CEL input | `runtime/Evaluator.scala` · `compile`, `holds`, `inputs`, `Keys` (an ordering's keys, read once per member per sort, used by `MemberGraph`) · `runtime/Steps.scala` · what each simple step makes of its value (`formatWith`, `kleene`); the language is ADR 0035 |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.cached` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |

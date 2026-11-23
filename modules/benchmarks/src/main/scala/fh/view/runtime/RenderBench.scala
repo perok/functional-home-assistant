@@ -545,14 +545,24 @@ class RenderBench {
   private def checkViewerShape(): Unit = {
     val owed = viewerOp()
     val tag = s"Viewer $viewerRot"
+    def hosts(patches: List[Addressed]) = patches.map(_.patch).filter {
+      case _: (Patch.Fill | Patch.Place | Patch.Leave) => true
+      case _                                           => false
+    }
     viewerSessions.zip(owed).foreach { (s, patches) =>
       val morphs = patches.map(_.patch).collect { case Patch.Morph(html) =>
         html
       }
       if (s.tab == "a" && !(morphs.sizeIs == 1 && morphs.head.contains(tag)))
         sys.error(s"a tab-a session must be owed the moved leaf; got $patches")
-      if (s.tab == "b" && patches.nonEmpty)
-        sys.error(s"a tab-b session must be owed nothing; got $patches")
+      // The If's light moved: `mode == "a"` holds for a tab-a viewer whatever
+      // it does, and a tab-b viewer's case follows it (its page began on `off`).
+      if (s.tab == "a" && hosts(patches).nonEmpty)
+        sys.error(s"a tab-a session must keep its If's case; got $patches")
+      if (s.tab == "b" && (morphs.nonEmpty || hosts(patches).sizeIs != 1))
+        sys.error(
+          s"a tab-b session must be owed the If's host only; got $patches"
+        )
     }
   }
 
@@ -572,8 +582,15 @@ class RenderBench {
         Json.fromString(s"Viewer $viewerRot")
       )
     )
-    val changes = List(StateChange.Moved(id, Some(was), moved))
-    val states = viewerStates.updated(id, moved)
+    val light = entityId(ViewerIfLight)
+    val lightWas = viewerStates(light)
+    val lightNow =
+      lightWas.copy(state = if (lightWas.state == "on") "off" else "on")
+    val changes = List(
+      StateChange.Moved(id, Some(was), moved),
+      StateChange.Moved(light, Some(lightWas), lightNow)
+    )
+    val states = viewerStates.updated(id, moved).updated(light, lightNow)
     val version = viewerShared.version + 1
     val prev = viewerShared
     val next =
@@ -585,12 +602,22 @@ class RenderBench {
     val req = viewers
       .decide(_ => IO.pure(FetchSnapshot.empty)) { run =>
         val (before, now) = (prev.asking(run), next.asking(run))
-        val visible = viewerSessions.foldLeft(
-          scala.collection.immutable.BitSet.empty
-        )((seen, s) =>
-          seen | viewers.surfaces.onScreen(s.open, now.viewing(s.env))
+        val screens = viewerSessions.map(s =>
+          s.tab -> (
+            s.env,
+            viewers.surfaces.onScreen(s.open, now.viewing(s.env))
+          )
         )
-        Patches.plan(viewers, before, now, changes, visible)
+        val visible = screens.foldLeft(scala.collection.immutable.BitSet.empty)(
+          _ | _._2._2
+        )
+        val seen = screens.groupBy(_._1).values.toList.map { same =>
+          SurfaceGraph.Seen(
+            same.head._2._1,
+            same.foldLeft(scala.collection.immutable.BitSet.empty)(_ | _._2._2)
+          )
+        }
+        Patches.plan(viewers, before, now, changes, visible, seen)
       }
       .unsafeRunSync()
     val log = Patches.record(viewers, FragmentLog("bench"), req)
@@ -616,11 +643,11 @@ class RenderBench {
       .unsafeRunSync()
   }
 
-  /** D5.0, the base for D5's per-viewer decisions: a tab bar over the plain
-    * variable `mode` (two panels of [[ViewerPanelLeaves]] lights), ten sessions
-    * half on each tab. One op is a frame through the recorder and every
-    * session's resume, so the per-viewer pick reads (`fromOpen` and the
-    * selections) are part of every pull here.
+  /** Per-viewer decisions: a tab bar over the plain variable `mode` (two panels
+    * of [[ViewerPanelLeaves]] lights) and an If over `mode` and a light, ten
+    * sessions half on each tab. One op moves a light in panel `a` and toggles
+    * the If's light: a frame through the recorder and every session's resume,
+    * so the per-viewer decisions are part of every pull here.
     */
   @Benchmark
   def viewerPull(bh: Blackhole): Unit = bh.consume(viewerOp())
@@ -2385,7 +2412,12 @@ object RenderBench {
 
   /** Lights in each panel of [[viewerDash]], and the few outside the tabs. */
   final val ViewerPanelLeaves = 20
-  final val ViewerEntities = 2 * ViewerPanelLeaves + 5
+  final val ViewerEntities = 2 * ViewerPanelLeaves + 6
+
+  /** The light the mixed If of [[viewerDash]] reads, toggled by every
+    * [[viewerPull]] op.
+    */
+  final val ViewerIfLight = 2 * ViewerPanelLeaves + 5
 
   val ViewerMode: VarKey = VarKey(NodeId.derived("viewers"), "mode")
 
@@ -2420,7 +2452,9 @@ object RenderBench {
 
   /** A tab bar over the node variable `mode`, as `c.chooser(c.select(mode))`
     * lowers to: two buttons choosing it, and a pick over it holding a panel per
-    * value. Entities are disjoint per panel, and five lights sit outside.
+    * value. Entities are disjoint per panel, and five lights sit outside. Below
+    * them an If over `mode == "a"`, else a light being on, which is decided per
+    * viewer.
     */
   def viewerDash(): Dashboard = {
     def panel(from: Int) =
@@ -2448,6 +2482,39 @@ object RenderBench {
                   "branch" -> Slots.byVar(
                     "mode",
                     List("a" -> panel(0), "b" -> panel(ViewerPanelLeaves))
+                  )
+                )
+              ),
+              // `mode == "a"`, else the light on, else nothing: a tab-`a`
+              // viewer's case never moves, a tab-`b` one's does with the light.
+              LayoutNode.Component(
+                "ifhost",
+                Map(
+                  "branch" -> Slots.chosen(
+                    ValueExpr(
+                      Value.List(
+                        ValueType.Bool,
+                        List(
+                          ValueExpr(
+                            Value.Var("mode"),
+                            List(
+                              Step.Compare(Op.Eq, Value.Literal(Lit.Text("a")))
+                            )
+                          ),
+                          Conds.cmp(
+                            "state",
+                            Op.Eq,
+                            Json.fromString("on"),
+                            entity = Some(entityId(ViewerIfLight))
+                          )
+                        )
+                      ),
+                      List(Step.IndexOfTrue)
+                    ),
+                    List(
+                      Lit.Whole(0) -> LayoutNode.Component("col"),
+                      Lit.Whole(1) -> leaf(true)(ViewerIfLight)
+                    )
                   )
                 )
               ),

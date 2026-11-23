@@ -400,15 +400,18 @@ declaration.
 **Pick** — deciding a nodes slot's choice: its `by` is read once and its case looked up, else the
 otherwise, else nothing (`Ready.Pick`, `SurfaceGraph`). A `by` that is a node variable (a tab bar,
 a `c.select`, an If over a variable, ADR 0033) is decided per viewer, a lookup of the
-viewer's value (`Shared.viewing`, `SurfaceGraph.decideByVariable`) that nothing keeps; any other reads
-state and is decided once per version, in `Shared`. Each case is a node
+viewer's value (`Shared.viewing`, `SurfaceGraph.decideByVariable`) that nothing keeps; one that
+computes over a variable, alone or with state (an If chain mixing `valueIs` and a light), is a
+**viewer pick**, decided per viewer and kept per values (`SurfaceGraph.decideByViewer`); any
+other reads state alone and is decided once per version, in `Shared`. Each case is a node
 with the id a fixed node at its index of the slot would have, the otherwise after the cases, and
 the index records which case holds each node below it. Inside a candidate set's clause, a pick is
 that clause's: every clause of a member shares its nodes' ids, so the clause is part of the pick's
 id (`<host>_k<clause>`), not of the cases'.
 
-**Flip** — a pick over state changing which case is shown because *entity state* moved, not
-because a user clicked. Server truth, so every viewer gets it. Only a pick shown before
+**Flip** — a pick changing which case is shown because *entity state* moved, not because a user
+clicked. Over state alone it is server truth, so every viewer gets it; a viewer pick flips per
+values, for the viewers whose case the change moves and no others. Only a pick shown before
 and after flips: one inside a set member whose arrival or clause switch places it, or below
 another pick that flips, is in that placement instead. ADR 0007.
 

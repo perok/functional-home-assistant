@@ -262,9 +262,15 @@ rendered per viewer, a leaf's value slot, and `validate` refuses one:
   it reads, so every viewer shares it;
 - in a structural card's own slots, which are never re-rendered for a viewer.
 
-`c.iff(v.valueIs(x))` is not a decision there: it is a match on the variable's value, picked per
-viewer. A choice reading a variable and state together is refused until R4d of
-`docs/plan-regions.md`.
+A choice (a pick) is not a decision there: it is decided per viewer whenever it reads a variable.
+Over the plain variable (`c.iff(v.valueIs(x))`, a match on `v.value`) that is a lookup of the
+viewer's value. Computing over a variable, alone or with state (`c.iff(v.valueIs(x))` with an
+`elif` over a light, or a `match` through steps), it is a viewer pick: `by` read once at the
+viewer's values and its case looked up, kept per values in the version's `Shared`
+(`SurfaceGraph.decideByViewer`, `Shared.branchAt`) and carried by the dirty rule of the entities
+it reads; one reading no entity is never dirtied. A write re-plans each pick reading the key at
+the writer's host (`VarGraph.picksDecidedBy`), and a state change moving a viewer pick's case
+for some viewers is logged as a flip for those alone (ADR 0007).
 
 ## Why not
 
