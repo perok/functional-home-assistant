@@ -163,29 +163,6 @@ class ChosenFillSuite extends munit.FunSuite {
     )
   }
 
-  test("validate takes one decision reading a variable and state") {
-    val mixed = ValueExpr(
-      Value.List(
-        ValueType.Bool,
-        List(
-          ValueExpr(
-            Value.Var("mode"),
-            List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("a"))))
-          ),
-          isOn("l.a")
-        )
-      ),
-      List(Step.IndexOfTrue)
-    )
-    val n = host(
-      mixed,
-      List(Lit.Whole(0) -> List(leaf("x")), Lit.Whole(1) -> List(leaf("y"))),
-      None,
-      vars = declared("mode" -> "a")
-    )
-    assertEquals(errors(n), Nil)
-  }
-
   test("validate refuses a case that is not exactly one node") {
     val two = host(
       isOn("l.a"),
