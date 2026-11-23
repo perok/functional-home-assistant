@@ -2063,7 +2063,7 @@ class Server(
     val popupFromUrl =
       s"$$_popupUrl = new URLSearchParams(location.search).get('$popupParamName') ?? ''; " +
         s"$$_popupUrl === $$$popupSignalName || ($$_popupUrl ? " +
-        s"@post('sse/surface/$slug/open/' + $$_popupUrl) : @post('sse/popup/$slug/close'))"
+        s"@post('sse/surface/$slug/open/' + $$_popupUrl, {retryMaxCount: 0}) : @post('sse/popup/$slug/close', {retryMaxCount: 0}))"
     val varSeed = committed.toList
       .sortBy(_._1.committedSignal)
       .map { (key, v) =>

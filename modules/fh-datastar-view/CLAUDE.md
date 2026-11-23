@@ -112,9 +112,9 @@ same commit; ADRs that change the pipeline update it too.
    - **Playwright's Java client dispatches event callbacks only while the calling thread is
      inside one of its calls.** A `page.onRequestFailed` collector polled from a plain `IO`
      never fills, and the test hangs to its timeout rather than failing.
-   - **A tap's POST is sent once** (`retryMaxCount: 0`, ADR 0024): one that cannot be sent ends
-     as `retries-failed`, not `error`. A surface open or close still has the bundle's default
-     retries.
+   - **Every action POST is sent once** (`retryMaxCount: 0`, ADR 0024): a call, a surface open
+     or close, the popstate handler's. One that cannot be sent ends as `retries-failed`, not
+     `error`. Only the stream retries.
    - **Service workers are blocked in `SmokeSuite`'s contexts** and should stay blocked:
      `fhRegisterSw` runs on localhost, which is a secure context, so otherwise a worker claims
      every smoke page mid-test.

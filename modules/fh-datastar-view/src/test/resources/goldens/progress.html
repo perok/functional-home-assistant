@@ -1,7 +1,7 @@
 <!-- ==== as fixtured · body ==== -->
 <div class="fh-cell fh-col" id="c">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_0"
-  data-signals="{_e: {sensor: {washer_remaining: {t#1: '47m'}, washer_status: {t#2: 'Rinsing'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/progress/open/c_0_self')"
+  data-signals="{_e: {sensor: {washer_remaining: {t#1: '47m'}, washer_status: {t#2: 'Rinsing'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/progress/open/c_0_self', {retryMaxCount: 0})"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0__error = ''))"
   data-fh-node="c_0"
@@ -179,7 +179,7 @@
 <!-- ==== unavailable · body ==== -->
 <div class="fh-cell fh-col" id="c">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_0"
-  data-signals="{_e: {sensor: {washer_remaining: {t#1: ''}, washer_status: {t#2: 'unavailable'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/progress/open/c_0_self')"
+  data-signals="{_e: {sensor: {washer_remaining: {t#1: ''}, washer_status: {t#2: 'unavailable'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/progress/open/c_0_self', {retryMaxCount: 0})"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0__error = ''))"
   data-fh-node="c_0"

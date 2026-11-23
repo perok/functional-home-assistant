@@ -522,7 +522,7 @@
                   "kind" : "Value",
                   "source" : {
                     "kind" : "Cel",
-                    "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+                    "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self', {retryMaxCount: 0})\""
                   },
                   "type" : "textRaw"
                 },
@@ -957,7 +957,7 @@
                   "kind" : "Value",
                   "source" : {
                     "kind" : "Cel",
-                    "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+                    "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self', {retryMaxCount: 0})\""
                   },
                   "type" : "textRaw"
                 },
@@ -1052,7 +1052,7 @@
                   "kind" : "Value",
                   "source" : {
                     "kind" : "Cel",
-                    "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/detail')\""
+                    "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/detail', {retryMaxCount: 0})\""
                   },
                   "type" : "textRaw"
                 },
@@ -1264,7 +1264,7 @@
                   "kind" : "Value",
                   "source" : {
                     "kind" : "Cel",
-                    "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+                    "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self', {retryMaxCount: 0})\""
                   },
                   "type" : "textRaw"
                 },
@@ -1881,7 +1881,7 @@
                                                       "kind" : "Value",
                                                       "source" : {
                                                         "kind" : "Cel",
-                                                        "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+                                                        "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self', {retryMaxCount: 0})\""
                                                       },
                                                       "type" : "textRaw"
                                                     },
@@ -2578,7 +2578,7 @@
                             "kind" : "Value",
                             "source" : {
                               "kind" : "Cel",
-                              "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+                              "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self', {retryMaxCount: 0})\""
                             },
                             "type" : "textRaw"
                           },
@@ -2634,7 +2634,7 @@
                   "kind" : "Value",
                   "source" : {
                     "kind" : "Cel",
-                    "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self')\""
+                    "src" : "\"@post('sse/surface/\" + dashboard_slug + \"/open/@@NODE_ID@@_self', {retryMaxCount: 0})\""
                   },
                   "type" : "textRaw"
                 },

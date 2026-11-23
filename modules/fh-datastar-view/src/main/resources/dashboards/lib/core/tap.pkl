@@ -416,7 +416,7 @@ const local function openSurfaceOnclick(surfaceId: String): slotMod.Reading =
   clickSlot(
     // `"\""`, not `#"""#`, which would open a multi-line string.
     #""@post('sse/surface/""# + #" + dashboard_slug + "/open/"# + surfaceId +
-      #"')""#
+      #"', {retryMaxCount: 0})""#
   )
 
 /// `call("scene/turn_on", dump.entities.scene_kveld)`. An area or floor target

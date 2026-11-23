@@ -1,7 +1,7 @@
 <!-- ==== as fixtured · body ==== -->
 <div class="fh-cell fh-col" id="c">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_0"
-  data-signals="{_e: {sensor: {outside_temp: {t#1: '12.4 °C'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/cards/open/c_0_self')"
+  data-signals="{_e: {sensor: {outside_temp: {t#1: '12.4 °C'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/cards/open/c_0_self', {retryMaxCount: 0})"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0__error = ''))"
   data-fh-node="c_0"
@@ -65,7 +65,7 @@
   data-text="$_e.climate.hallway.t#6">heat</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_4"
   data-signals="{_e: {binary_sensor: {front_door: {t#2: false, t#7: 'off'}}}}"
-  data-class:fh-active="$_e.binary_sensor.front_door.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : @post('sse/surface/cards/open/c_4_self')"
+  data-class:fh-active="$_e.binary_sensor.front_door.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : @post('sse/surface/cards/open/c_4_self', {retryMaxCount: 0})"
   data-indicator="_c_4__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_4__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_4__error = ''))"
   data-fh-node="c_4"
@@ -97,7 +97,7 @@
   data-text="$_e.media_player.tv.t#9">paused</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_6"
   data-signals="{_e: {lock: {front_door: {t#10: false, t#11: 'mdi mdi-lock', t#12: 'locked'}}}}"
-  data-class:fh-active="$_e.lock.front_door.t#10">  <div class="fh-tile fh-tappable "  data-on:click="$_c_6__busy ? '' : @post('sse/surface/cards/open/c_6_self')"
+  data-class:fh-active="$_e.lock.front_door.t#10">  <div class="fh-tile fh-tappable "  data-on:click="$_c_6__busy ? '' : @post('sse/surface/cards/open/c_6_self', {retryMaxCount: 0})"
   data-indicator="_c_6__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_6__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_6__error = ''))"
   data-fh-node="c_6"
@@ -343,7 +343,7 @@
   data-class:fh-busy-spin="$_s_c_6_self__c_0_0_features_0_1__busy_slow"
   data-attr:aria-busy="$_s_c_6_self__c_0_0_features_0_1__busy_slow"><i class="mdi mdi-lock-open-variant" ></i></span><span class="fh-text"><span class="fh-text-run">Unlock</span></span></button></div><button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_1"
   data-signals="{_e: {lock: {front_door: {t#18: false}}}}"
-  data-on:click="$_s_c_6_self__c_0_0_features_1__busy ? '' : $_e.lock.front_door.t#18 ? '' : @post('sse/surface/cards/open/s_c_6_self__c_0_0_features_1_self')"
+  data-on:click="$_s_c_6_self__c_0_0_features_1__busy ? '' : $_e.lock.front_door.t#18 ? '' : @post('sse/surface/cards/open/s_c_6_self__c_0_0_features_1_self', {retryMaxCount: 0})"
   data-attr:disabled="$_e.lock.front_door.t#18"
   data-indicator="_s_c_6_self__c_0_0_features_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_6_self__c_0_0_features_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_1__error = ''))"
@@ -590,7 +590,7 @@
   data-attr:aria-busy="$_s_c_6_self__c_0_0_features_0_1__busy_slow"><i class="mdi mdi-lock-open-variant" ></i></span><span class="fh-text"><span class="fh-text-run">Unlock</span></span></button>
 <!-- ==== as fixtured · patch s_c_6_self__c_0_0_features_1 ==== -->
 <button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_1"
-  data-on:click="$_s_c_6_self__c_0_0_features_1__busy ? '' : $_e.lock.front_door.t#18 ? '' : @post('sse/surface/cards/open/s_c_6_self__c_0_0_features_1_self')"
+  data-on:click="$_s_c_6_self__c_0_0_features_1__busy ? '' : $_e.lock.front_door.t#18 ? '' : @post('sse/surface/cards/open/s_c_6_self__c_0_0_features_1_self', {retryMaxCount: 0})"
   data-attr:disabled="$_e.lock.front_door.t#18"
   data-indicator="_s_c_6_self__c_0_0_features_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_6_self__c_0_0_features_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_1__error = ''))"
@@ -626,7 +626,7 @@
 <!-- ==== flipped · body ==== -->
 <div class="fh-cell fh-col" id="c">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_0"
-  data-signals="{_e: {sensor: {outside_temp: {t#1: '12.4 °C'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/cards/open/c_0_self')"
+  data-signals="{_e: {sensor: {outside_temp: {t#1: '12.4 °C'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/cards/open/c_0_self', {retryMaxCount: 0})"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0__error = ''))"
   data-fh-node="c_0"
@@ -690,7 +690,7 @@
   data-text="$_e.climate.hallway.t#6">heat</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="c_4"
   data-signals="{_e: {binary_sensor: {front_door: {t#2: true, t#7: 'on'}}}}"
-  data-class:fh-active="$_e.binary_sensor.front_door.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : @post('sse/surface/cards/open/c_4_self')"
+  data-class:fh-active="$_e.binary_sensor.front_door.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : @post('sse/surface/cards/open/c_4_self', {retryMaxCount: 0})"
   data-indicator="_c_4__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_4__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_4__error = ''))"
   data-fh-node="c_4"
@@ -722,7 +722,7 @@
   data-text="$_e.media_player.tv.t#9">paused</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_6"
   data-signals="{_e: {lock: {front_door: {t#10: false, t#11: 'mdi mdi-lock', t#12: 'locked'}}}}"
-  data-class:fh-active="$_e.lock.front_door.t#10">  <div class="fh-tile fh-tappable "  data-on:click="$_c_6__busy ? '' : @post('sse/surface/cards/open/c_6_self')"
+  data-class:fh-active="$_e.lock.front_door.t#10">  <div class="fh-tile fh-tappable "  data-on:click="$_c_6__busy ? '' : @post('sse/surface/cards/open/c_6_self', {retryMaxCount: 0})"
   data-indicator="_c_6__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_6__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_6__error = ''))"
   data-fh-node="c_6"
@@ -891,7 +891,7 @@
 <!-- ==== unavailable · body ==== -->
 <div class="fh-cell fh-col" id="c">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_0"
-  data-signals="{_e: {sensor: {outside_temp: {t#1: 'unavailable'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/cards/open/c_0_self')"
+  data-signals="{_e: {sensor: {outside_temp: {t#1: 'unavailable'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_0__busy ? '' : @post('sse/surface/cards/open/c_0_self', {retryMaxCount: 0})"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0__error = ''))"
   data-fh-node="c_0"
@@ -955,7 +955,7 @@
   data-text="$_e.climate.hallway.t#6">unavailable</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_4"
   data-signals="{_e: {binary_sensor: {front_door: {t#2: false, t#7: 'unavailable'}}}}"
-  data-class:fh-active="$_e.binary_sensor.front_door.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : @post('sse/surface/cards/open/c_4_self')"
+  data-class:fh-active="$_e.binary_sensor.front_door.t#2">  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : @post('sse/surface/cards/open/c_4_self', {retryMaxCount: 0})"
   data-indicator="_c_4__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_4__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_4__error = ''))"
   data-fh-node="c_4"
@@ -987,7 +987,7 @@
   data-text="$_e.media_player.tv.t#9">unavailable</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_6"
   data-signals="{_e: {lock: {front_door: {t#10: false, t#11: 'mdi mdi-lock', t#12: 'unavailable'}}}}"
-  data-class:fh-active="$_e.lock.front_door.t#10">  <div class="fh-tile fh-tappable "  data-on:click="$_c_6__busy ? '' : @post('sse/surface/cards/open/c_6_self')"
+  data-class:fh-active="$_e.lock.front_door.t#10">  <div class="fh-tile fh-tappable "  data-on:click="$_c_6__busy ? '' : @post('sse/surface/cards/open/c_6_self', {retryMaxCount: 0})"
   data-indicator="_c_6__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_6__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_6__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_6__error = ''))"
   data-fh-node="c_6"
@@ -1227,7 +1227,7 @@
   data-class:fh-busy-spin="$_s_c_6_self__c_0_0_features_0_1__busy_slow"
   data-attr:aria-busy="$_s_c_6_self__c_0_0_features_0_1__busy_slow"><i class="mdi mdi-lock-open-variant" ></i></span><span class="fh-text"><span class="fh-text-run">Unlock</span></span></button></div><button class="fh-cell fh-press fh-size-large fh-badged" id="s_c_6_self__c_0_0_features_1"
   data-signals="{_e: {lock: {front_door: {t#18: false}}}}"
-  data-on:click="$_s_c_6_self__c_0_0_features_1__busy ? '' : $_e.lock.front_door.t#18 ? '' : @post('sse/surface/cards/open/s_c_6_self__c_0_0_features_1_self')"
+  data-on:click="$_s_c_6_self__c_0_0_features_1__busy ? '' : $_e.lock.front_door.t#18 ? '' : @post('sse/surface/cards/open/s_c_6_self__c_0_0_features_1_self', {retryMaxCount: 0})"
   data-attr:disabled="$_e.lock.front_door.t#18"
   data-indicator="_s_c_6_self__c_0_0_features_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_6_self__c_0_0_features_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_6_self__c_0_0_features_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_6_self__c_0_0_features_1__error = ''))"

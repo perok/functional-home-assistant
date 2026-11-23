@@ -162,6 +162,18 @@ class RenderGoldenSuite extends munit.FunSuite {
     )
   }
 
+  test("every action a test dashboard renders is sent once") {
+    val sentOnce =
+      """@post\('[^']*'(?:\s*\+\s*\$\w+)?,\s*\{retryMaxCount: 0""".r
+    FixtureEntries.all.foreach { e =>
+      val golden =
+        os.read(TextSnapshot.resources / "goldens" / s"${e.slug}.html")
+      val posts = "@post\\(".r.findAllMatchIn(golden).size
+      assert(posts > 0 || e.slug == "layout", e.slug)
+      assertEquals(sentOnce.findAllMatchIn(golden).size, posts, e.slug)
+    }
+  }
+
   // On demand: `sbt dashboardGoldensVs <rev>` (defaults to HEAD).
   for (e <- FixtureEntries.all) {
     test(

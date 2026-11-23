@@ -486,6 +486,11 @@ class ServerRoutesSuite extends ServerHarness {
       // A blip is not latched: 1 must fall back to 0, or an ordinary refetch
       // pins "Reconnecting…".
       assert(!handler.contains("$_sse >= 1"), clue = handler)
+      // The shell's own posts (Back and Forward) are sent once, as a tap is.
+      val posts = "@post\\(".r.findAllMatchIn(html).size
+      val once = """@post\('[^']*'(?:\s*\+\s*\$\w+)?,\s*\{retryMaxCount: 0""".r
+      assert(posts > 0, clue = html)
+      assertEquals(once.findAllMatchIn(html).size, posts, clue = html)
     }
   }
 

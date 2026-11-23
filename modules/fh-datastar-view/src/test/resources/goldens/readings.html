@@ -42,7 +42,7 @@
   data-class:fh-error="$_c_2__error"><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Lights off</span></span><span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e._x.t#6">1 on</span></span></span></button>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_3"
-  data-signals="{_e: {sensor: {outside_temp: {t#7: '12.4 °C', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self')"
+  data-signals="{_e: {sensor: {outside_temp: {t#7: '12.4 °C', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self', {retryMaxCount: 0})"
   data-indicator="_c_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_3__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_3__error = ''))"
   data-fh-node="c_3"
@@ -289,7 +289,7 @@
   data-class:fh-error="$_c_2__error"><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Lights off</span></span><span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e._x.t#6">1 on</span></span></span></button>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_3"
-  data-signals="{_e: {sensor: {outside_temp: {t#7: '12.4 °C', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self')"
+  data-signals="{_e: {sensor: {outside_temp: {t#7: '12.4 °C', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self', {retryMaxCount: 0})"
   data-indicator="_c_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_3__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_3__error = ''))"
   data-fh-node="c_3"
@@ -373,7 +373,7 @@
   data-class:fh-error="$_c_2__error"><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Lights off</span></span><span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e._x.t#6">0 on</span></span></span></button>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_3"
-  data-signals="{_e: {sensor: {outside_temp: {t#7: 'unavailable', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self')"
+  data-signals="{_e: {sensor: {outside_temp: {t#7: 'unavailable', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self', {retryMaxCount: 0})"
   data-indicator="_c_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_3__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_3__error = ''))"
   data-fh-node="c_3"

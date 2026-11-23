@@ -129,7 +129,9 @@ would paint the control as failed for doing what it says.
 A refused `seen` names the field and both values (`service: "lock/lock" shown,
 "lock/unlock" now`), so the toast says what moved.
 
-**A press is sent once** (`retryMaxCount: 0` in `core/tap.pkl`'s `post`). The
+**A press is sent once** (`retryMaxCount: 0`): every action POST — a call
+(`core/tap.pkl`'s `post`), a surface open, a popup close, the shell's popstate
+handler — and only the stream retries. The
 bundle's default retries an unreachable server for minutes with backoff, and
 that held the control busy across a server restart and would have posted, when
 it landed, a value the control had since let go of. A press that cannot be sent
