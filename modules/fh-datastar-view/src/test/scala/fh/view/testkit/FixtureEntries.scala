@@ -200,9 +200,8 @@ object FixtureEntries {
   )
 
   /** A set ordered per viewer: its key reads `mode` and a member's state (a
-    * lights first, b unlit first). Not in [[all]]: the oracle's GraalJS page
-    * hangs applying a repaint that reorders its members (the same frames are
-    * instant on V8), so only the suites naming it read it.
+    * lights first, b unlit first). Not in [[all]] nor the oracle's property
+    * list: only the suites naming it read it.
     */
   val viewerOrder: Entry = Entry(
     "viewer-order",

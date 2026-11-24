@@ -228,6 +228,17 @@ for (const k of ["MutationObserver", "CustomEvent", "Event", "DOMParser", "HTMLE
   g[k] = dom[k]
 const { document } = dom
 
+// linkedom calls an observer back even when a disconnect emptied its records,
+// where a browser skips it. Datastar's `data-attr` re-observes in its callback,
+// so an instance a morph had cleaned up came back, and two observers of one
+// attribute woke each other forever (the microtask queue never drained).
+const LinkedomObserver = g.MutationObserver
+g.MutationObserver = class extends LinkedomObserver {
+  constructor(callback) {
+    super((records, observer) => records.length && callback(records, observer))
+  }
+}
+
 // Datastar parses every patch with `DOMParser`, and linkedom does not adopt a
 // node another document made when it is inserted, so the page's
 // MutationObserver never heard a morph's new elements and none of their
