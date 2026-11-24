@@ -466,8 +466,9 @@ private[model] object Validate:
       * rendered per viewer: a leaf's value slot. A signal is named by what it
       * reads and shared by every viewer, and structure is never re-rendered.
       * The exception is `v.valueIs(x)` in a bool signal, on any card, which the
-      * browser reads off the variable's own signals. A decision's are
-      * [[decisionVarErrors]]'.
+      * browser reads off the variable's own signals. A `valueWhile` is read as
+      * part of its slot: decided at the viewer's values, it makes the slot the
+      * viewer's too.
       */
     def slotVarErrors(
         nodeId: String,
@@ -477,9 +478,7 @@ private[model] object Validate:
     ): List[String] =
       val structural = cards.get(cardName).exists(_.isStructure)
       labelled(slots).flatMap { (_, name, s) =>
-        val read = (s.expr.variables ++ s.inputs.values.flatMap(
-          _.variables
-        )).distinct.sorted
+        val read = s.variables.sorted
         val where = read.map(v => s"'$v'").mkString(", ")
         read
           .filterNot(scope.contains)
@@ -1202,15 +1201,20 @@ private[model] object Validate:
           fieldErrors ++ dataKeyErrors
         }
 
-    // A decision's reads are what it asks every version, so its window is
-    // written down: one chosen by state would be a pick per version.
+    // A decision's reads are what it asks every version, whoever is viewing,
+    // so its window is written down: one chosen by state would be a pick per
+    // version, and one a viewer's variable chooses would be asked per viewer.
+    // Lifting it: resolve the decision's fetches at the viewer's values (the
+    // memo's key already carries them) and answer them with the viewer's env
+    // (`Server.decisionAnswers`); reopen when a card needs a decision over a
+    // chosen window.
     val decisionFetchErrors: List[String] =
       decisionFetches.flatMap((where, f) =>
         f.window match
           case Choice.Chosen(by, _, _) if by.variables.nonEmpty =>
             by.variables.map(v =>
-              s"$where reads the fetch '${f.key}': a decision is made for " +
-                s"every viewer at once, so its fetch cannot read the variable '$v'"
+              s"$where reads the fetch '${f.key}': a decision asks for its " +
+                s"fetches every version, so its window cannot read the variable '$v'"
             )
           case _: Choice.Chosen[?] =>
             List(
@@ -1220,21 +1224,9 @@ private[model] object Validate:
           case Choice.Fixed(_) => Nil
       )
 
-    val decisionVarErrors: List[String] =
-      versionDecisionExprs
-        .flatMap((where, e) =>
-          e.variables.map(v =>
-            s"$where reads the variable '$v': a decision is made for every " +
-              "viewer at once, so it cannot read a viewer's value — a " +
-              "variable chooses a branch through c.iff(v.valueIs(x))"
-          )
-        )
-        .distinct
-
     authoredIdErrors ++
       callErrors ++
       decisionFetchErrors ++
-      decisionVarErrors ++
       structureLiveSlotErrors ++
       regionHoleErrors ++
       viewErrors ++

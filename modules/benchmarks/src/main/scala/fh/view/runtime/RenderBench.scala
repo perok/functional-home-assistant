@@ -667,7 +667,8 @@ class RenderBench {
     * the If's light: a frame through the recorder and every session's resume,
     * so the per-viewer decisions are part of every pull here. A set of
     * [[ViewerSetLights]] lights kept by `mode == "a"` or the light being on
-    * moves one of them too: tab `b` loses or gains it.
+    * moves one of them too: tab `b` loses or gains it. A light's name is read
+    * only while `mode == "b"`.
     */
   @Benchmark
   def viewerPull(bh: Blackhole): Unit = bh.consume(viewerOp())
@@ -2158,7 +2159,8 @@ object RenderBench {
       signals: Boolean,
       distinct: Int = Int.MaxValue,
       signalOnly: Boolean = false,
-      valued: Boolean = false
+      valued: Boolean = false,
+      nameWhile: Option[ValueExpr] = None
   )(
       i: Int
   ): LayoutNode.Component = {
@@ -2179,7 +2181,8 @@ object RenderBench {
             else
               // Opted in (ADR 0028) — see [[NameSlot]] on what this models and
               // what the shipped card actually does.
-              ValueExpr(Value.Entity(subject, Part.Attr("friendly_name")))
+              ValueExpr(Value.Entity(subject, Part.Attr("friendly_name"))),
+            valueWhile = nameWhile
           ),
           "state" -> TemplateSlot(
             ValueExpr(
@@ -2434,7 +2437,8 @@ object RenderBench {
   final val ViewerPanelLeaves = 20
   final val ViewerSetLights = 4
   final val ViewerSetFirst = 2 * ViewerPanelLeaves + 6
-  final val ViewerEntities = ViewerSetFirst + ViewerSetLights
+  final val ViewerGateLight = ViewerSetFirst + ViewerSetLights
+  final val ViewerEntities = ViewerGateLight + 1
 
   /** The light the mixed If of [[viewerDash]] reads, toggled by every
     * [[viewerPull]] op.
@@ -2582,6 +2586,16 @@ object RenderBench {
                   )
                   .toMap
               ),
+              // Named only while `mode == "b"`: tab `a` gets it empty.
+              leaf(
+                true,
+                nameWhile = Some(
+                  ValueExpr(
+                    Value.Var("mode"),
+                    List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("b"))))
+                  )
+                )
+              )(ViewerGateLight),
               outside(3),
               outside(4)
             ))*

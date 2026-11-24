@@ -256,8 +256,7 @@ fetches and literals is decided once per state version, for every viewer; one re
 is decided per viewer, as that viewer's bytes render. So a read stands only where bytes are
 rendered per viewer, a leaf's value slot, and `validate` refuses one:
 
-- in any decision made once for every viewer: a state surface's condition, a `valueWhile`, a set
-  a press acts on (`Dashboard.versionDecisionExprs`);
+- in a call's service, target or data, which the server evaluates once for the press (`callErrors`);
 - in any signal slot, `cellClassWhen` and `cellStyle` included: a display signal is named by what
   it reads, so every viewer shares it;
 - in a structural card's own slots, which are never re-rendered for a viewer.
@@ -280,6 +279,18 @@ on the page only as a viewer's `Shared` has it, so the recorder plans and logs o
 values (`Server.recordFrame`), and a write re-plans the set's host for its writer alone. The
 guard and order mix variables and state freely, in one condition (`q.any`/`q.all` over `valueIs`
 and a comparison).
+
+A slot's `valueWhile` reading a variable is decided per viewer the same way (ADR 0034): its level
+is `Viewer` at the slot's node (`Shared.holdsAt`, `Renderer.gateHolds`), kept per values beside the
+version's gates, and the slot is the viewer's own like any slot reading one, so a signal slot, an
+undeclared variable and a structural card's own slot refuse it as they do any read
+(`Validate.slotVarErrors`). A write re-renders the gated node for its writer (it reads the
+variable, `Ready.Component.variables`) and the pre-read asks its fetches only for the viewers it
+holds for. What stays refused in a decision is a fetch whose window a variable chooses
+(`decisionFetchErrors`): a decision asks its fetches every version, whoever is viewing. To lift
+it, the decision's fetches would resolve at the viewer's values (the memo's key already carries
+them) and `Server.decisionAnswers` would answer with the viewer's env; reopen when a card needs a
+decision over a chosen window.
 
 ## Why not
 

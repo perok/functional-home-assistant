@@ -142,15 +142,36 @@ object FixtureEntries {
   /** A decision per viewer: a chooser's variable, an If whose chain reads it
     * and a light's state, so the case shown depends on both; and a set whose
     * guard reads it and a member's state (a keeps every member, b the lit
-    * ones). The set has lights of its own, so the kitchen moves only the If.
+    * ones); and a card whose second line has a value only while `mode` is b.
+    * The set and the card have lights of their own, so the kitchen moves only
+    * the If.
     */
   val viewerDecisions: Entry = Entry(
     "viewer-decisions",
-    header +
+    header.replace(
+      "import \"@fh-dashboard/theme.pkl\" as th",
+      "import \"@fh-dashboard/theme.pkl\" as th\n" +
+        "import \"@fh-dashboard/core/node.pkl\" as nodeMod\n" +
+        "import \"@fh-dashboard/core/slot.pkl\" as slotMod"
+    ) +
       """
+        |const local stateSlot = slotMod.slot("state")
+        |
+        |/// `<p>{{state}}</p>`, the light's state while `gate` holds: a plain byte slot.
+        |local class Attic extends nodeMod.Node {
+        |  card = "attic"
+        |  cardDef = new nodeMod.CardDef { template = "<p>\(stateSlot)</p>" }
+        |  hidden entityId: String
+        |  hidden gate: slotMod.Expr
+        |  slots {
+        |    stateSlot.of(let (e = entityId) let (g = gate) new slotMod.Reading { entityId = e; valueWhile = g })
+        |  }
+        |}
+        |
         |local mode = c.variable("mode")
         |local hall = dump.entities.light_hall
         |local porch = dump.entities.light_porch
+        |local attic = dump.entities.light_attic
         |
         |card = (c.column) {
         |  children {
@@ -165,12 +186,17 @@ object FixtureEntries {
         |          .where(q.any(List(mode.valueIs("a"), q.eq(q.stateProp, "on"))))
         |          .render((e) -> c.toggle(e))
         |          .build()
+        |        new Attic { entityId = attic.entity_id; gate = mode.valueIs("b") }
         |      }
         |    }
         |  }
         |}
         |""".stripMargin,
-    List(lamp("hall", "Hall", "off"), lamp("porch", "Porch", "on"))
+    List(
+      lamp("hall", "Hall", "off"),
+      lamp("porch", "Porch", "on"),
+      lamp("attic", "Attic", "on")
+    )
   )
 
   /** A set ordered per viewer: its key reads `mode` and a member's state (a

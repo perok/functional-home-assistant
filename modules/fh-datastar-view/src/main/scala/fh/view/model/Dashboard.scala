@@ -499,6 +499,11 @@ object Fetching:
     lazy val reads: Set[SlotRead] =
       SlotAsk.decision(valueWhile.bound.fetches.map(_.fetch))
 
+    /** The node variables it reads: it is decided at the viewer's values of
+      * them, in the order they are kept by, or once a version with none.
+      */
+    lazy val variables: List[String] = valueWhile.bound.variables.sorted
+
     /** By content, so two slots gated alike share one decision. */
     lazy val key: String = s"${entity.getOrElse("")}|${valueWhile.valueKey}"
 
@@ -1203,15 +1208,7 @@ case class Dashboard(
     * surface, a set a press acts on. Each asks its fetches every version, so
     * none reads a window a variable chooses.
     */
-  lazy val decisionExprs: List[(String, ValueExpr)] = decisionExprsOf(true)
-
-  /** [[decisionExprs]] but a set's clauses and order, which a variable makes
-    * per viewer: the ones made once for every viewer.
-    */
-  lazy val versionDecisionExprs: List[(String, ValueExpr)] =
-    decisionExprsOf(false)
-
-  private def decisionExprsOf(sets: Boolean): List[(String, ValueExpr)] = {
+  lazy val decisionExprs: List[(String, ValueExpr)] = {
     def walk(n: LayoutNode): List[(String, ValueExpr)] = n match
       case c: LayoutNode.Component =>
         c.bound.toList.sortBy((k, _) => SlotKey.label(k)).flatMap { (k, s) =>
@@ -1219,17 +1216,12 @@ case class Dashboard(
             .flatMap(w => w.expr :: w.inputs.values.toList)
             .map(s"slot '${SlotKey.label(k)}''s valueWhile" -> _)
         } ++ c.allChildren.flatMap(walk) ++ c.set.toList.flatMap { (_, s) =>
-          Option
-            .when(sets)(
-              s.orderBy.map("a set's order" -> _.by) ++
-                s.members.toList.sortBy(_._1).flatMap { (_, m) =>
-                  m match
-                    case Choice.Chosen(by, _, _) => List("a set's clause" -> by)
-                    case Choice.Fixed(_)         => Nil
-                }
-            )
-            .toList
-            .flatten ++ s.nodes.flatMap(walk)
+          s.orderBy.map("a set's order" -> _.by) ++
+            s.members.toList.sortBy(_._1).flatMap { (_, m) =>
+              m match
+                case Choice.Chosen(by, _, _) => List("a set's clause" -> by)
+                case Choice.Fixed(_)         => Nil
+            } ++ s.nodes.flatMap(walk)
         }
 
     // A choice reading a variable is decided per viewer, so it is left out

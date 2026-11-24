@@ -113,7 +113,8 @@ a slot placed in a hole its type does not name. Text, a number, a bool and `dyn`
 the slot and nowhere else (ADR 0034).
 
 **Value while** — a slot's `valueWhile`: a boolean input deciding whether the slot has a value at
-all. While it does not hold the value is `""`, and the slot's steps and fetches are not run.
+all. While it does not hold the value is `""`, and the slot's steps and fetches are not run. It
+may read a node variable, and is then the viewer's own.
 Not a **guard**, which is a tap's (ADR 0019), and not `c.iff`, which shows or hides a region's
 content, a card's own part included.
 ADR 0034.
@@ -441,7 +442,7 @@ which branch a state group shows, whether each `valueWhile` holds. Held in that 
 **`Shared`**, so the pre-read, the walk and the paint ask rather than decide again, and every
 viewer of that version shares them. A decision may read a fetch; it is then made in **rounds**: a
 walk that lacks its answers reads it as not shown and walks again once they are answered. One that
-reads a variable is made at the viewer's values and kept per values (`Shared.branchAt`). A viewer's
+reads a variable is made at the viewer's values and kept per values (`Shared.branchAt`, `setAt`, `holdsAt`). A viewer's
 open popup is not a decision, it is in its `Viewing`.
 
 **`Shared`** — one dashboard's state version for every viewer: the entity states and the

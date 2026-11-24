@@ -41,9 +41,9 @@ class Variable {
 
   /// Its value as this viewer holds it, a text reading: `label.of(window.value)`.
   /// The viewer's own, so only a leaf's value slot reads it; the build refuses it
-  /// in a signal, on a card holding a nodes slot, and in what is decided once for
-  /// every viewer (a `valueWhile`). A choice (`nodeMod.match`) and a set's clause
-  /// or order may read it, decided per viewer. [[valueIs]]
+  /// in a signal, on a card holding a nodes slot, and in a call, which is made
+  /// once for the press. A choice (`nodeMod.match`), a set's clause or order and
+  /// a `valueWhile` may read it, decided per viewer. [[valueIs]]
   /// may also light a class (`cellClassWhen`).
   fixed value: slotMod.Reading =
     let (n = name) new slotMod.Reading { source = new slotMod.VarRead { name = n } }

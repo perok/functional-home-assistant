@@ -55,8 +55,8 @@ object Ready:
 
     /** Per slot, each with the `valueWhile` it waits for. Not in
       * [[liveEntities]]: otherwise a sensor ticking every second would refetch
-      * its history every second. Ungated without an entity to decide over:
-      * asking too much is safe where too little raises.
+      * its history every second. Ungated without an entity or a variable to
+      * decide over: asking too much is safe where too little raises.
       */
     lazy val fetching: List[Fetching] =
       slots.values.toList.flatMap { s =>
@@ -64,7 +64,10 @@ object Ready:
           case SlotShape.State(src) => src.fetches
           case SlotShape.Fetch(q)   => List(q)
         Option.when(asks.nonEmpty)(
-          Fetching(asks, s.gate.filter(_.entity.isDefined))
+          Fetching(
+            asks,
+            s.gate.filter(g => g.entity.isDefined || g.variables.nonEmpty)
+          )
         )
       }
 

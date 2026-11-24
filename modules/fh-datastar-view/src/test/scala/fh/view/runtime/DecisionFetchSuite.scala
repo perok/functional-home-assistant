@@ -303,8 +303,8 @@ class DecisionFetchSuite extends munit.FunSuite {
       errs.exists(
         _.contains(
           "a set's clause reads the fetch '" + chosen.key + "': a decision " +
-            "is made for every viewer at once, so its fetch cannot read the " +
-            "variable 'window'"
+            "asks for its fetches every version, so its window cannot read " +
+            "the variable 'window'"
         )
       ),
       clue = errs

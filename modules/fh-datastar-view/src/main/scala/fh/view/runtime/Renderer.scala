@@ -543,25 +543,42 @@ class Renderer(validated: Dashboard.Validated) {
       env: VarEnv
   ): List[SlotRead] =
     asks.flatMap { (id, f) =>
-      if (f.gate.forall(gateHolds(_, shared)))
+      if (f.gate.forall(g => gateHolds(g, id, viewedFor(g, shared, env))))
         f.asks.flatMap(readOf(_, shared.states, env.getOrElse(id, Map.empty)))
       else Nil
     }.distinct
 
-  /** Whether a `valueWhile` holds, decided once per snapshot by the pre-read,
-    * the render key and the paint alike; only a real `true` holds.
+  /** `shared` at `env`, for a gate reading a variable: the pre-read is handed
+    * the viewer beside the version.
     */
-  private def gateHolds(g: Fetching.Gate, shared: Shared): Boolean =
-    shared.holds(g.key, g.reads) { f =>
+  private def viewedFor(
+      g: Fetching.Gate,
+      shared: Shared,
+      env: VarEnv
+  ): Shared =
+    if (g.variables.isEmpty) shared else shared.viewing(env)
+
+  /** Whether the `valueWhile` of the slot at `at` holds, decided once per
+    * snapshot (per viewer's values, reading a variable) by the pre-read, the
+    * render key and the paint alike; only a real `true` holds.
+    */
+  private def gateHolds(
+      g: Fetching.Gate,
+      at: NodeId,
+      shared: Shared
+  ): Boolean = {
+    def derive(f: Shared.Fetched): Boolean =
       resolveStateSlotValue(
         g.entity,
-        gateRuns.computeIfAbsent(g.key, _ => live(g.valueWhile)),
+        gateRuns.computeIfAbsent(g.key, _ => live(g.valueWhile, at)),
         shared,
         f
       ) match
         case b: Boolean => b
         case _          => false
-    }
+    if (g.variables.isEmpty) shared.holds(g.key, g.reads)(derive)
+    else shared.holdsAt(g.key, at, g.variables, g.reads)(derive)
+  }
 
   /** What renders at `id` now: a static node's own, a member's whole subtree in
     * its current clause, a node below one in that clause, and nothing for a
@@ -1673,15 +1690,17 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private enum Planned:
     case Constant(value: SlotValue, js: String)
-    case Live(source: Ready.Slot)
+    case Live(source: Ready.Slot, at: NodeId)
 
-  private def live(source: Ready.Slot): Planned.Live = Planned.Live(source)
+  private def live(source: Ready.Slot, at: NodeId): Planned.Live =
+    Planned.Live(source, at)
 
   /** `once` reads only identity, so the plan holds it; the memo is keyed by
     * entity, which is why a fetch slot never enters it.
     */
   private def plan(
       source: Ready.Slot,
+      at: NodeId,
       shared: Shared
   ): Planned = source.constant match
     case Some(flag: Boolean) => Planned.Constant(flag, Datastar.jsValue(flag))
@@ -1699,13 +1718,13 @@ class Renderer(validated: Dashboard.Validated) {
           // A fetch is live, so a `once` value reads none.
           resolveStateSlotValue(
             source.entityId,
-            live(source),
+            live(source, at),
             shared,
             Evaluator.unanswered
           )
       )
       Planned.Constant(once, Datastar.jsValue(once))
-    case None => live(source)
+    case None => live(source, at)
 
   /** A `valueWhile` planned once per renderer, by what it decides. */
   private val gateRuns =
@@ -1715,7 +1734,7 @@ class Renderer(validated: Dashboard.Validated) {
       planned: Planned.Live,
       shared: Shared
   ): Boolean =
-    planned.source.gate.exists(!gateHolds(_, shared))
+    planned.source.gate.exists(!gateHolds(_, planned.at, shared))
 
   /** One plan per node an id shows, matched by identity: bounded only because
     * every node is built once (a member's with the graph, see the pipeline
@@ -1742,7 +1761,7 @@ class Renderer(validated: Dashboard.Validated) {
       c: Ready.Component,
       shared: Shared
   ): NodePlan = {
-    val slots = c.slots.view.mapValues(plan(_, shared)).toMap
+    val slots = c.slots.view.mapValues(plan(_, id, shared)).toMap
     // A signal slot is always `live` and non-literal, so its name is constant
     // per node.
     val named = c.slots.toList.flatMap { case (slot, src) =>

@@ -73,7 +73,9 @@ open class Reading extends Expr {
   ///   valueWhile = q.entity(left).gt(q.prop("state"), 0)
   ///
   /// A constant, or a value expression of a bool (a condition, a reading, CEL),
-  /// over the card's subject when it names none; none may read a fetch.
+  /// over the card's subject when it names none; none may read a fetch. It may
+  /// read a node variable (`mode.valueIs("b")`), and the slot is then the viewer's
+  /// own: no signal.
   hidden valueWhile: nodeMod.BooleanInput = true
   valueWhileSlot: Reading? =
     if (valueWhile == true) null

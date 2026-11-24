@@ -12,8 +12,8 @@ import fh.view.testkit.TestCard
 import scala.collection.immutable.ListMap
 
 /** A node variable is a source (`Value.Var`): a leaf's value slot shows the
-  * viewer's value, and a write re-renders it. A `valueWhile`, which is decided
-  * once for every viewer, and every slot whose bytes are shared, refuse one.
+  * viewer's value, and a write re-renders it. Every slot whose bytes are shared
+  * refuses one.
   */
 class VarSourceSuite extends munit.FunSuite {
 
@@ -201,20 +201,5 @@ class VarSourceSuite extends munit.FunSuite {
       )
     )
     refused(dash(panel(titled)), "holds regions")
-  }
-
-  test("a valueWhile refuses one: it is decided for every viewer") {
-    val gated = LayoutNode.Component(
-      "plain",
-      slots = Slots.values(
-        Map(
-          "name" -> TemplateSlot(
-            ValueExpr(Value.Cel("'x'")),
-            valueWhile = Some(isWindow("7d"))
-          )
-        )
-      )
-    )
-    refused(dash(panel(gated)), "valueWhile reads the variable 'window'")
   }
 }

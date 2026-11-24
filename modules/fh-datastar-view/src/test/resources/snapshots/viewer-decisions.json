@@ -784,6 +784,34 @@
                             "kind" : "Nodes"
                           }
                         }
+                      },
+                      {
+                        "card" : "attic",
+                        "kind" : "Component",
+                        "vars" : [
+                        ],
+                        "wireSlots" : {
+                          "state" : {
+                            "kind" : "Value",
+                            "source" : {
+                              "kind" : "Entity",
+                              "of" : "light.attic"
+                            },
+                            "valueWhile" : {
+                              "source" : {
+                                "kind" : "Var",
+                                "name" : "mode"
+                              },
+                              "steps" : [
+                                {
+                                  "kind" : "Compare",
+                                  "op" : "eq",
+                                  "to" : "b"
+                                }
+                              ]
+                            }
+                          }
+                        }
                       }
                     ],
                     "kind" : "Nodes"
@@ -800,6 +828,9 @@
     }
   },
   "cards" : {
+    "attic" : {
+      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><p>{{state}}</p></div>"
+    },
     "chooser" : {
       "regions" : [
         "bar",

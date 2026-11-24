@@ -355,6 +355,12 @@ through `p.history.chosen`: a decision asks for its history on every change, not
 for one viewer's window, so the build refuses a window a viewer picks.
 Your template decides what `""` looks like; the progress bar hides.
 
+It can read a node variable too, `valueWhile = mode.valueIs("detail")`: the
+slot then has a value for the viewers on `detail` and `""` for the rest, and its
+history is read only for the first. A slot that reads a variable is for the
+viewer alone, so it is not a signal, and the variable must be declared at or
+above the node.
+
 Such a decision is kept until an entity it reads changes, and the history's own
 sensor is not one of them: a `where` over `size(past) > 0` alone keeps its first
 answer. Add `.updateOnEntityChange()` to the history,

@@ -105,6 +105,24 @@ private[runtime] final class Shared private (
             t.once(k, at, names, values)(derive(in))
   }
 
+  /** A `valueWhile` read at the values of `names` in scope at its slot's node
+    * `at`, as [[branchAt]] reads a pick's case.
+    */
+  def holdsAt(
+      key: String,
+      at: NodeId,
+      names: List[String],
+      reads: Set[SlotRead]
+  )(derive: Shared.Fetched => Boolean): Boolean =
+    decideAt(
+      tables.viewerGates,
+      key,
+      at,
+      names,
+      reads,
+      java.lang.Boolean.FALSE
+    )(f => java.lang.Boolean.valueOf(derive(f))).booleanValue
+
   def set(gid: SetId, reads: Set[SlotRead], missing: => GroupMembers)(
       derive: Shared.Fetched => GroupMembers
   ): GroupMembers = decide(tables.sets, gid, reads, missing)(derive)
@@ -188,6 +206,12 @@ private[runtime] final class Shared private (
       live
     )
     from.viewerSets.carryInto(to.viewerSets, dirty.sets, _ => true, live)
+    from.viewerGates.carryInto(
+      to.viewerGates,
+      dirty.gates,
+      marked.gate,
+      live
+    )
   }
 }
 
@@ -262,6 +286,7 @@ private[runtime] object Shared {
     val gates = new Table[String, java.lang.Boolean]
     val viewerBranches = new ByValues[NodeId, Option[Int]]
     val viewerSets = new ByValues[SetId, GroupMembers]
+    val viewerGates = new ByValues[String, java.lang.Boolean]
     val signals = new ConcurrentHashMap[NodeId, Map[SignalId, SlotValue]]()
   }
 

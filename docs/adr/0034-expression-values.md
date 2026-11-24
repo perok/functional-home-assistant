@@ -122,10 +122,9 @@ the next version until a change dirties them (pipeline doc §1a); a set whose cl
 a variable is made per viewer's values instead (ADR 0033). Only a decision a walk reaches asks for
 its fetches: one it lacks the answers for reads as not shown, and the walk runs again once a batch
 has answered them (`Renderer.decide`), so a hidden branch's fetch is never asked, and a decision
-inside another costs a round. Because a state surface's, a `valueWhile`'s and a press's decision
-is made once for every viewer, the build refuses a viewer's variable in one, read directly or by
-a fetch's window (ADR 0033); a set's, made per viewer, still refuses a fetch whose window a
-variable chooses. As in a slot, a moved answer wakes nothing: the decision is made again when its
+inside another costs a round. A decision may read a viewer's variable (ADR 0033), and is then made
+per viewer's values; a call's is made for the press, so a call refuses one. Every decision
+refuses a fetch whose window a variable chooses, since it asks its fetches every version. As in a slot, a moved answer wakes nothing: the decision is made again when its
 entities change, or an entity its fetch names with `updateOnEntityChange()` (a value's
 `dependsOn`, an edge like an entity read). Without it, a decision over a fetch alone is carried as
 made; an author who wants the history to count opts in, since it costs a re-decision on every
@@ -199,13 +198,15 @@ doc's §1a), keyed by content (the entity it is decided over, `Ready.Slot.gate` 
 rule, and the condition) so two slots gated alike share one. A node's fetching slots each carry
 their `valueWhile` (`Fetching`), and the pre-read asks a slot's fetches only where it holds; the
 render key, the paint and the signal path ask the same decisions, so none decides it again. A
-`valueWhile` over no entity is asked ungated, because asking too much is safe and asking too
-little raises. The condition's entities wake the slot, and it is part of the slot's `valueKey`, so the signal a slot
+`valueWhile` over no entity and no variable is asked ungated, because asking too much is safe and
+asking too little raises. One reading a variable is decided at the viewer's values, at the slot's
+node, and kept per values (ADR 0033), so a viewer on one value is asked for the fetches another
+is not. The condition's entities wake the slot, and it is part of the slot's `valueKey`, so the signal a slot
 with one sends is not the one a card without one shares (ADR 0017). It may read a fetch, as every
 decision may: it is decided in an earlier round than the fetches it gates, so it never waits on
-them. A decision is made once for every viewer, so the build refuses a viewer's variable in
-one, read directly or by a fetch's window. It also refuses one that does not produce
-a bool, and one on a `once` slot, whose memo would keep its first answer.
+them. The build refuses a variable chosen window on a fetch it reads, as in every decision. It
+also refuses one that does not produce a bool, and one on a `once` slot, whose memo would keep its
+first answer; and, reading a variable, the slot is the viewer's, so it is no signal slot.
 
 `""` is the empty value, as a CEL `null` already is: a `null` in a signals frame deletes the signal
 (ADR 0017). What it means is the card's to say; the progress bar hides itself on it.
