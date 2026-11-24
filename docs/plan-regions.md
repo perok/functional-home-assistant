@@ -22,9 +22,8 @@ it as `Activation.Var`.
 
 **State:** direction agreed in chat (2026-11-10); the prework is on main (below); R1 is built
 (`slot-classes`), R2 is built (`set-fill`), R3 is built (`choices-in-pkl`), R4a and R4b are built
-(`one-runtime-path`), R4c is built (`root-hosts`), R4d's D0.1 and D0.2 are built (`the-planner`),
-the rest not. The opening describes the shape before
-R1.
+(`one-runtime-path`), R4c is built (`root-hosts`), R4d's D0–D5 are built (`the-planner`), D6
+not; R5's design is agreed (2026-11-24), not built. The opening describes the shape before R1.
 
 ## What this builds on
 
@@ -298,16 +297,37 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
     again, with no search. Cheaper, but right only if the log never misses one, and a write to a
     variable an order reads moves members it cannot name. Worth it only if the bench shows the
     search costs.
-- **Popups** are one `nodeMod.match(popups, …)` on the root, in the chrome's `#popups` (the one host
-  that is not a card's root; `validate` already checks the chrome writes it): one case per popup
-  on the dashboard, nothing otherwise. What the spike (step 0) settled:
-  - **The root declares `popups`, and a popup's content starts with the root's scope**: the root
-    is above every place a popup opens from, so an opener inside a popup (the colour wheel in a
-    more-info) resolves the variable. Today a popup is its own scope root (`Dashboard.varScopes`,
-    `scopeOf`); after this every root variable reaches popups, a root window chooser included.
-    The name is reserved: `validate` refuses an author's declaration of `popups`, which would hide
-    the root's from every opener below it (ADR 0033 records a `root.` reference as the
-    alternative, should an author ever need to reach past a nearer declaration).
+- **Popups** are a library layer on ordinary nodes slots (agreed 2026-11-24); nothing in `core/`
+  or on the wire says "popup":
+  - **The page is a card.** `core/page.pkl`'s page card has two nodes slots: `body`, holding the
+    dashboard's root card (`card`, which keeps the id `c`, so no id below it moves), and `popups`.
+    The theme's `chrome` is its template, placing `\(body)` and `\(popups)` (the theme still
+    imports nothing), so Pkl's "nodes slot is never placed" check replaces `validate`'s chrome
+    check, and Scala's default `<main id="dashboard">` frame becomes the card's default template.
+    `entry.pkl` builds the page node with the authored id `root`, and a repaint targets it. `root`
+    and `popups` are reserved node ids, refused by name.
+  - **The root declares `popups`** (`components/popup.pkl`), a reserved name: `validate` refuses an
+    author's declaration of it, which would hide the root's from every opener below (ADR 0033
+    records a `root.` reference as the alternative). Its default is no value; it is in history. A
+    variable the root declares spells its URL parameter `v.<name>` (`v.popups=moreinfo_light_kitchen`),
+    which cannot be confused with `v.<declarer>.<name>` since a node id has no `.`; `VarKey` owns
+    the spelling.
+  - **A popup is a node with an authored id**, required: `c.view.popup("help", body)`. The
+    library's own derive theirs from the entity (`moreinfo_<domain>_<object id>`, the lock's
+    confirm, the colour wheel). The variable's value is that id.
+  - **An open is a `SetVar` on `popups` choosing the id.** The tap carries the popup's node as a
+    `hidden` property, so the wire has only the call. `entry.pkl` collects every opened popup from
+    `body`, recursing into each popup's content and stopping at an id already collected, into
+    `popups`: a group with the id `popups` holding `nodeMod.match(popups, …)`, one case per id.
+    Equal content under one id is one case (two cards for one entity share its more-info, and
+    whatever is chosen inside it); different content is a Pkl error. Since Pkl is lazy, a popup
+    holding its own opener is a reference, and `moreinfo.pkl`'s pinned tap goes.
+  - **A close is a clear** of `popups`, the pick's ordinary leave: the `remove` on `#popups > *` a
+    close already sends (#684). The slot shows one case, so one popup is on screen at a time, and
+    a popup may hold another's opener.
+  - **A popup's content starts with the root's scope**: it is a case of the page node's match, the
+    rule a tab panel already has, so ADR 0033's rule 6 exception goes, and every root variable
+    reaches popups.
   - **No value is `null`**, the value language's own (ADR 0035): `Match` takes `otherwise`,
     `valueIs` does not hold, and every step passes it on, whatever the variable's type. Scala
     holds it as no value (`Option`). The wire drops a `null` (ADR 0006), so a declaration's
@@ -317,10 +337,6 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
     an absent URL parameter, which no chosen value can be. The build declares `popups` with `{}`,
     and a clear reads the default again. ADR 0033's future-work entry on "no value" takes this
     answer, and its pointer to `core/stage.pkl`, which does not exist, goes.
-  - **An open** is a `SetVar` call choosing the popup's id, a lookup and one patch. Inline ids are
-    tokens already (`<set>_<entity>_self`, `s_<panel>__c_0_self`, spliced before decode); a
-    registered `surfaces` key is typed `varMod.Value`. A close chooses nothing, the pick's
-    ordinary leave, the `remove` on `#popups > *` a close already sends (#684).
   - **Back and Forward:** a declaration opts in to history (`.inHistory()`, name open): its URL
     mirror pushes an entry per choice (`data-fh-url__history`, which only `ui.popups` uses
     today). On a popstate the shell posts the page's query string once, and the server re-reads
@@ -333,17 +349,21 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
     and to strip every history parameter from an entry it did not make before its first push.
     Today `history.state.fhPushed` names one key, so a link naming two builds entries where Back
     reopens one, and changing one while on the other's entry erases it there.
-  - **The URL parameter is the variable's own**, `v.<root>.popups`, so a load seeds the variable
-    as it does every other; the spike kept `ui.popups`, and a refresh left the variable empty with
-    the popup shown. `?ui.popups=` links stop working (agreed). The call body's `ui_popups` goes,
+  - **The URL parameter is the variable's own**, `v.popups`, so a load seeds the variable as it
+    does every other; the spike kept `ui.popups`, and a refresh left the variable empty with the
+    popup shown. `?ui.popups=` links stop working (agreed). The call body's `ui_popups` goes,
     since the session holds the open popup.
   - **A popup outlives its opener**: a set member leaving, or a tab switching away, keeps its
     popup open and the variable holding it, as today.
-  `c.view.openPopup` and `openPopupInline` build the calls; `tapMod.OpenSurface`'s click,
-  `Selections.popup`, the popup case in `committedSelection`, `ui_popups`/`ui.popups`, the
-  shell's `popupFromUrl` and the `/sse/surface/…/open` and `/sse/popup/…/close` routes go; the
-  build collects every popup in the tree into the match, as the inline-surface hoist collects
-  them today.
+  - **Goes:** the `surfaces` registry, `openPopup`, `openPopupInline`, `inlineSurfaces`, the hoist
+    and `@@NODE_ID@@` (whose only user it is), `defaultOpen` and `Activation.User`,
+    `tapMod.OpenSurface`, `Selections.popup`, the popup case in `committedSelection`,
+    `ui_popups`/`ui.popups`, the shell's `popupFromUrl`, and the `/sse/surface/…/open` and
+    `/sse/popup/…/close` routes. `core/surface.pkl` goes, its `Popup` card moving to
+    `components/base/`; "surface" leaves the vocabulary (a container and a pick's case remain).
+  - **Not built:** a popup that state shows, through the slot's own choice (its close would be a
+    second variable); opening one at the start; an entity chosen by a variable (ADR 0033, "Why
+    not": the typed bodies, the written-down reads, signals, calls and fetches all rely on it).
 - `SurfaceGraph`'s bake groups became picks in R4b; `MemberGraph`'s special nesting
   (`WalkAt.InMember`, `innerSetId`, `groupAt`) goes into the one path in R4c/R4d;
   `SurfaceGraph`'s popup half and the inline-surface hoist in R5.
@@ -352,8 +372,8 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
 
 The rule: Scala renders markup Pkl wrote and fills only values it owns. What is left is the set's
 root (§5, `Renderer.groupOpen`). What stays in Scala, as the contract: the page shell, the root
-`<div data-signals…>` with its seeds, the toast and reload handlers, the error page, and the
-default `<main id="dashboard">` chrome. The back-button handler becomes the shell's one popstate
+`<div data-signals…>` with its seeds, the toast and reload handlers, and the error page; the
+default `<main id="dashboard">` chrome becomes the page card's template in R5. The back-button handler becomes the shell's one popstate
 post of the query string (§7).
 
 ## Steps
@@ -882,38 +902,45 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        the render phase and whether compiled templates are still freed with their renderer, not
        by validate's own time.
      - Docs in each step's commit. Folded in where cheap: the ADRs' "state surface" wording.
-5. **R5, popups on the pick.**
-   - **`#popups` is an ordinary node:** the build adds a `group` (`core/group.pkl`) with the
-     authored id `popups`, holding the root's `nodeMod.match(popups, …)`; the chrome places it
-     through a hole instead of writing `id="popups"` (ADR 0002, 0020: the chrome warning becomes
-     a template check). It is its own root in the index, outside `#dashboard`, its scope
-     starting at the page root. Goes: `PopupHostId` as a special case, `swapHost`'s popup branch,
-     repaint's popup case, `Patch.Insert`, `invalidates`; the oracle's list check covers it.
-   - **A popup's value is a name**, since every open becomes a history entry and an edit that
-     moves a card must not break Back into its popup. The Pkl library derives it (a more-info's
-     from its entity; equal popups merge) or the author names it (`.named(…)`), and the wire
-     carries only the one generic name, whatever derived it. Settle first: two different
-     more-info contents for one entity.
-   - Popups as §7 has them, their taps `SetVar` calls on `popups`: the root's `popups`, its name
-     reserved, a popup
-     starting with the root's scope (`NodeVariablesSuite`'s "a SURFACE is its own scope root"
-     becomes "a popup starts with the root's scope", agreed 2026-11-15), a default of no value
-     (`varMod.noValue`, `{}` on the wire),
-     `.inHistory()`, the popstate re-read of the URL and the mirror's own-entry marking, and the
-     `v.<root>.popups` parameter. Also check why two of the spike's pulls sent nothing (a member
-     leaving, a tab switch, both on a session with no stream).
-   - **`SessionState.open` goes.** D5.1 took the picks off it. With the popup a variable, a pick
-     on D5's decisions, every container a viewer shows follows from its variables and the state,
-     so each step computes D0.3's `BitSet` from them. Nothing spelled as a container then crosses
-     a swap, only `VarKey`s, which `recheck` already checks; `Selections`, the open set's
-     `reveal` and the recorder's reading of `open` go with it.
-   - **`defaultOpen`** becomes the `popups` default: that popup's id, not no value. Today
-     `selectedSurfaces` adds every `defaultOpen` popup while `#popups` holds one, so what two of
-     them mean is settled before this is built.
-   - Smoke tests (CI) for Back and Forward over a popup, over two history variables, and from a
-     link naming both.
-   - R4's costs-nothing test for a popup. Bench a popup open and close, and state changes with
-     many popups unopened, on the largest test dashboard.
+5. **R5, popups on the pick.** The design is §7's "Popups" (agreed 2026-11-24). Each step is green,
+   has its bench gate against the step before, and carries its docs.
+   - **R5.0, the base and two spikes.** New benches on the base (fb1e8714): a popup open and close,
+     and state changes with many popups unopened (the largest page bench with a more-info per
+     entity), with `validated`'s time and the wire size of that dashboard. Spikes: the page node
+     (an authored `root` is written as given at the root, `card` keeps `c`, and
+     `dashboardGoldensVs` shows no other id moving), and Pkl collecting hidden popup nodes,
+     a more-info that opens itself included. Also why two of the regions spike's pulls sent
+     nothing (a member leaving, a tab switch, both on a session with no stream).
+   - **R5.1, no value and history.** `varMod.noValue` / `v.startingEmpty()` (`{}` on the wire,
+     `Option` in Scala, `''` in the committed signal and an absent URL parameter; ADR 0033's
+     future-work entry takes it, and its `core/stage.pkl` pointer goes). `.inHistory()`: the
+     shell's one popstate post of the query string, the server's re-read of every `v.` parameter
+     (a `notInUrl()` variable left alone), and the mirror marking the entries it made for two
+     history variables. Popups keep their own history until R5.3.
+   - **R5.2, the page card.** `core/page.pkl` with `body` and `popups`, the theme's `chrome` its
+     template, `entry.pkl` building the page node `root`, `root` and `popups` reserved, `v.<name>`
+     for a variable the root declares, a repaint aimed at `root`, the chrome check moved to Pkl,
+     and Scala's default frame gone. The `popups` slot holds an empty group with the id `popups`,
+     which today's popup swap still fills. ADRs 0002, 0020.
+   - **R5.3, popups as a variable.** `components/popup.pkl`: `popups` on the root, required ids
+     (`c.view.popup`, the library's derived ones), the hidden node and its collection into the
+     match, a close as a clear, a popup starting with the root's scope (`NodeVariablesSuite`'s "a
+     SURFACE is its own scope root" becomes "a popup starts with the root's scope"), Back and
+     Forward through `.inHistory()`, and `v.popups`. In the same step everything §7 lists under
+     "Goes", `defaultOpen` included, and the popup's own patching: `PopupHostId`,
+     `Server.swapPopup`, `Patch.Insert`, `invalidates` and repaint's popup case; the oracle's list
+     check covers the host. Docs: `writing-dashboards.md`, `writing-components.md`, ADRs 0002,
+     0005, 0006, 0007, 0033 (rule 6, the future-work entries on the root and on `@@NODE_ID@@`,
+     and "Why not": an entity chosen by a variable), terminology (surface out, root, the page
+     card), the pipeline doc.
+   - **R5.4, `SessionState.open` goes.** D5.1 took the picks off it. With the popup a variable,
+     every container a viewer shows follows from its variables and the state, so each step
+     computes D0.3's `BitSet` from them. Nothing spelled as a container then crosses a swap, only
+     `VarKey`s, which `recheck` already checks; `Selections`, the open set's `reveal` and the
+     recorder's reading of `open` go with it.
+   - **R5.5, smoke and the bench.** Smoke tests (CI) for Back and Forward over a popup, over two
+     history variables, and from a link naming both; R4's costs-nothing test for a popup; R5.0's
+     benches against the base.
 6. **R6, markup.** A test that no Scala source writes markup outside the contract in §8.
 
 Docs go in each step's commit: ADRs 0002 (popups), 0003 (sets), 0005/0025/0033 (the popup
@@ -953,9 +980,9 @@ variables and the tap routes. This plan is deleted when the work lands.
   change to the entity it names re-decides every one (`publishSetNamedGuard`, about 0.9 µs a
   member). Raise after R4, with a real dashboard's numbers.
 - **Variable URL names.** A variable's URL name, `v.<declarer id>.<name>`, moves when its
-  declarer does (popup values are R5's). Check before adding `.urlName(…)`: the declarer is
-  spelled by its node id, so an authored id on it already makes the URL position-free, and one
-  name could be the DOM id, the URL prefix and a popup's name.
+  declarer does; the root's are `v.<name>` (R5). Check before adding `.urlName(…)`: the
+  declarer is spelled by its node id, so an authored id on it already makes the URL
+  position-free, and one name could be the DOM id and the URL prefix.
 
 ## Open questions
 
