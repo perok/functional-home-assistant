@@ -62,7 +62,8 @@ class OracleSuite extends HedgehogSuite {
   // Each has something a viewer's choice or an entity's change can move:
   // sets: a filtered, ordered and cut candidate set, and its leader as a condition.
   // branches: tabs, a state If, and a branch a node variable picks.
-  // viewerDecisions: an If reading a variable and a light's state.
+  // viewerDecisions: an If, a set's guard and a set's order each reading a
+  // variable and a light's state.
   // taps: a popup, an inline popup and calls beside them.
   // sliderGroups, lightControls: a slider's main controls, a match over its
   // `control` variable, per member in a group.
@@ -314,7 +315,7 @@ class OracleSuite extends HedgehogSuite {
     * and `b`'s each its own way, and each live page is the fresh one.
     */
   test("viewer-decisions: a light reorders each viewer's list its own way") {
-    val e = FixtureEntries.viewerOrder
+    val e = FixtureEntries.viewerDecisions
     val desk = e.entities.find(_.entityId == "light.desk").get
     val mode = VarKey(NodeId.derived("c_0"), "mode")
     val r = served(build(e), e, 2)

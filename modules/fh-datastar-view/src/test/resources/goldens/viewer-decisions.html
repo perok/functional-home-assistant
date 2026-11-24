@@ -76,7 +76,77 @@
   data-fh-node="c_0_1_light_porch" />
     <span></span>
   </label></div></article></div>
-<div class="fh-cell" id="c_0_2"><p></p></div></div></div>
+<div class="fh-cell" id="c_0_2"><p></p></div>
+<div class="fh-cell fh-group" id="c_0_3">
+<article class="fh-cell fh-card fh-toggle fh-tile-card fh-active" id="c_0_3_light_shelf"
+  data-signals="{_c_0_3_light_shelf__checked: 'on', _e: {light: {shelf: {t#1: true, t#2: 'on', t#3: false}}}}"
+  data-class:fh-active="$_e.light.shelf.t#1"
+  data-attr:data-switched="$_e.light.shelf.t#2"
+  data-class:fh-disabled="$_c_0_3_light_shelf__busy || $_e.light.shelf.t#3"
+  data-class:fh-loading="$_c_0_3_light_shelf__busy"
+  data-class:fh-error="$_c_0_3_light_shelf__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_3_light_shelf__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_shelf__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_3_light_shelf__busy_slow = $_c_0_3_light_shelf__busy"
+  data-class:fh-busy-spin="$_c_0_3_light_shelf__busy_slow"
+  data-attr:aria-busy="$_c_0_3_light_shelf__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Shelf</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on" checked data-bind="_c_0_3_light_shelf__checked"
+  data-on:click="$_c_0_3_light_shelf__busy ? '' : $_e.light.shelf.t#3 ? '' : @post('sse/call/viewer-decisions/call_5?node=c_0_3_light_shelf', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.shelf.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_shelf__error$/}"
+  data-on-signal-patch="$_c_0_3_light_shelf__error && ($_c_0_3_light_shelf__checked = $_e.light.shelf.t#2)"
+  data-indicator="_c_0_3_light_shelf__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_3_light_shelf__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_3_light_shelf__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_3_light_shelf__error = ''))"
+  data-fh-node="c_0_3_light_shelf" />
+    <span></span>
+  </label></div></article>
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_3_light_desk"
+  data-signals="{_c_0_3_light_desk__checked: '', _e: {light: {desk: {t#1: false, t#2: '', t#3: false}}}}"
+  data-class:fh-active="$_e.light.desk.t#1"
+  data-attr:data-switched="$_e.light.desk.t#2"
+  data-class:fh-disabled="$_c_0_3_light_desk__busy || $_e.light.desk.t#3"
+  data-class:fh-loading="$_c_0_3_light_desk__busy"
+  data-class:fh-error="$_c_0_3_light_desk__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_3_light_desk__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_desk__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_3_light_desk__busy_slow = $_c_0_3_light_desk__busy"
+  data-class:fh-busy-spin="$_c_0_3_light_desk__busy_slow"
+  data-attr:aria-busy="$_c_0_3_light_desk__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Desk</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_3_light_desk__checked"
+  data-on:click="$_c_0_3_light_desk__busy ? '' : $_e.light.desk.t#3 ? '' : @post('sse/call/viewer-decisions/call_6?node=c_0_3_light_desk', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.desk.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_desk__error$/}"
+  data-on-signal-patch="$_c_0_3_light_desk__error && ($_c_0_3_light_desk__checked = $_e.light.desk.t#2)"
+  data-indicator="_c_0_3_light_desk__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_3_light_desk__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_3_light_desk__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_3_light_desk__error = ''))"
+  data-fh-node="c_0_3_light_desk" />
+    <span></span>
+  </label></div></article>
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_3_light_sofa"
+  data-signals="{_c_0_3_light_sofa__checked: '', _e: {light: {sofa: {t#1: false, t#2: '', t#3: false}}}}"
+  data-class:fh-active="$_e.light.sofa.t#1"
+  data-attr:data-switched="$_e.light.sofa.t#2"
+  data-class:fh-disabled="$_c_0_3_light_sofa__busy || $_e.light.sofa.t#3"
+  data-class:fh-loading="$_c_0_3_light_sofa__busy"
+  data-class:fh-error="$_c_0_3_light_sofa__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_3_light_sofa__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_sofa__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_3_light_sofa__busy_slow = $_c_0_3_light_sofa__busy"
+  data-class:fh-busy-spin="$_c_0_3_light_sofa__busy_slow"
+  data-attr:aria-busy="$_c_0_3_light_sofa__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Sofa</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_3_light_sofa__checked"
+  data-on:click="$_c_0_3_light_sofa__busy ? '' : $_e.light.sofa.t#3 ? '' : @post('sse/call/viewer-decisions/call_7?node=c_0_3_light_sofa', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.sofa.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_sofa__error$/}"
+  data-on-signal-patch="$_c_0_3_light_sofa__error && ($_c_0_3_light_sofa__checked = $_e.light.sofa.t#2)"
+  data-indicator="_c_0_3_light_sofa__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_3_light_sofa__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_3_light_sofa__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_3_light_sofa__error = ''))"
+  data-fh-node="c_0_3_light_sofa" />
+    <span></span>
+  </label></div></article></div></div></div>
 <!-- ==== as fixtured · case c_0_0_branch_0 ==== -->
 <div class="fh-cell fh-row" id="c_0_0_branch_0"><h2 class="fh-cell fh-section fh-text" id="c_0_0_branch_0_0"><span class="fh-text-run">Mode a</span></h2></div>
 <!-- ==== as fixtured · case c_0_0_branch_1 ==== -->
@@ -95,7 +165,7 @@
   data-attr:aria-busy="$_c_0_0_branch_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on" checked data-bind="_c_0_0_branch_1_0__checked"
-  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_5?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_8?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_0_branch_1_0__error$/}"
   data-on-signal-patch="$_c_0_0_branch_1_0__error && ($_c_0_0_branch_1_0__checked = $_e.light.kitchen.t#2)"
@@ -122,7 +192,7 @@
   data-attr:aria-busy="$_c_0_0_branch_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_0_0_branch_1_0__checked"
-  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_5?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_8?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_0_branch_1_0__error$/}"
   data-on-signal-patch="$_c_0_0_branch_1_0__error && ($_c_0_0_branch_1_0__checked = $_e.light.kitchen.t#2)"
@@ -181,6 +251,75 @@
   </label></div></article>
 <!-- ==== as fixtured · patch c_0_2 ==== -->
 <div class="fh-cell" id="c_0_2"><p></p></div>
+<!-- ==== as fixtured · patch c_0_3_light_desk ==== -->
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_3_light_desk"
+  data-class:fh-active="$_e.light.desk.t#1"
+  data-attr:data-switched="$_e.light.desk.t#2"
+  data-class:fh-disabled="$_c_0_3_light_desk__busy || $_e.light.desk.t#3"
+  data-class:fh-loading="$_c_0_3_light_desk__busy"
+  data-class:fh-error="$_c_0_3_light_desk__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_3_light_desk__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_desk__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_3_light_desk__busy_slow = $_c_0_3_light_desk__busy"
+  data-class:fh-busy-spin="$_c_0_3_light_desk__busy_slow"
+  data-attr:aria-busy="$_c_0_3_light_desk__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Desk</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_3_light_desk__checked"
+  data-on:click="$_c_0_3_light_desk__busy ? '' : $_e.light.desk.t#3 ? '' : @post('sse/call/viewer-decisions/call_6?node=c_0_3_light_desk', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.desk.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_desk__error$/}"
+  data-on-signal-patch="$_c_0_3_light_desk__error && ($_c_0_3_light_desk__checked = $_e.light.desk.t#2)"
+  data-indicator="_c_0_3_light_desk__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_3_light_desk__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_3_light_desk__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_3_light_desk__error = ''))"
+  data-fh-node="c_0_3_light_desk" />
+    <span></span>
+  </label></div></article>
+<!-- ==== as fixtured · patch c_0_3_light_shelf ==== -->
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_3_light_shelf"
+  data-class:fh-active="$_e.light.shelf.t#1"
+  data-attr:data-switched="$_e.light.shelf.t#2"
+  data-class:fh-disabled="$_c_0_3_light_shelf__busy || $_e.light.shelf.t#3"
+  data-class:fh-loading="$_c_0_3_light_shelf__busy"
+  data-class:fh-error="$_c_0_3_light_shelf__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_3_light_shelf__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_shelf__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_3_light_shelf__busy_slow = $_c_0_3_light_shelf__busy"
+  data-class:fh-busy-spin="$_c_0_3_light_shelf__busy_slow"
+  data-attr:aria-busy="$_c_0_3_light_shelf__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Shelf</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_3_light_shelf__checked"
+  data-on:click="$_c_0_3_light_shelf__busy ? '' : $_e.light.shelf.t#3 ? '' : @post('sse/call/viewer-decisions/call_5?node=c_0_3_light_shelf', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.shelf.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_shelf__error$/}"
+  data-on-signal-patch="$_c_0_3_light_shelf__error && ($_c_0_3_light_shelf__checked = $_e.light.shelf.t#2)"
+  data-indicator="_c_0_3_light_shelf__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_3_light_shelf__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_3_light_shelf__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_3_light_shelf__error = ''))"
+  data-fh-node="c_0_3_light_shelf" />
+    <span></span>
+  </label></div></article>
+<!-- ==== as fixtured · patch c_0_3_light_sofa ==== -->
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_3_light_sofa"
+  data-class:fh-active="$_e.light.sofa.t#1"
+  data-attr:data-switched="$_e.light.sofa.t#2"
+  data-class:fh-disabled="$_c_0_3_light_sofa__busy || $_e.light.sofa.t#3"
+  data-class:fh-loading="$_c_0_3_light_sofa__busy"
+  data-class:fh-error="$_c_0_3_light_sofa__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_3_light_sofa__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_sofa__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_3_light_sofa__busy_slow = $_c_0_3_light_sofa__busy"
+  data-class:fh-busy-spin="$_c_0_3_light_sofa__busy_slow"
+  data-attr:aria-busy="$_c_0_3_light_sofa__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Sofa</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_3_light_sofa__checked"
+  data-on:click="$_c_0_3_light_sofa__busy ? '' : $_e.light.sofa.t#3 ? '' : @post('sse/call/viewer-decisions/call_7?node=c_0_3_light_sofa', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.sofa.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_sofa__error$/}"
+  data-on-signal-patch="$_c_0_3_light_sofa__error && ($_c_0_3_light_sofa__checked = $_e.light.sofa.t#2)"
+  data-indicator="_c_0_3_light_sofa__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_3_light_sofa__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_3_light_sofa__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_3_light_sofa__error = ''))"
+  data-fh-node="c_0_3_light_sofa" />
+    <span></span>
+  </label></div></article>
 <!-- ==== as fixtured · patch c_0_bar_0_0 ==== -->
 <a class="" id="c_0_bar_0_0"
   data-class:fh-chosen="String(($_var_c_0__mode__pending || $_var_c_0__mode)) === 'a'"
@@ -287,7 +426,77 @@
   data-fh-node="c_0_1_light_porch" />
     <span></span>
   </label></div></article></div>
-<div class="fh-cell" id="c_0_2"><p></p></div></div></div>
+<div class="fh-cell" id="c_0_2"><p></p></div>
+<div class="fh-cell fh-group" id="c_0_3">
+<article class="fh-cell fh-card fh-toggle fh-tile-card fh-active" id="c_0_3_light_desk"
+  data-signals="{_c_0_3_light_desk__checked: 'on', _e: {light: {desk: {t#1: true, t#2: 'on', t#3: false}}}}"
+  data-class:fh-active="$_e.light.desk.t#1"
+  data-attr:data-switched="$_e.light.desk.t#2"
+  data-class:fh-disabled="$_c_0_3_light_desk__busy || $_e.light.desk.t#3"
+  data-class:fh-loading="$_c_0_3_light_desk__busy"
+  data-class:fh-error="$_c_0_3_light_desk__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_3_light_desk__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_desk__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_3_light_desk__busy_slow = $_c_0_3_light_desk__busy"
+  data-class:fh-busy-spin="$_c_0_3_light_desk__busy_slow"
+  data-attr:aria-busy="$_c_0_3_light_desk__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Desk</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on" checked data-bind="_c_0_3_light_desk__checked"
+  data-on:click="$_c_0_3_light_desk__busy ? '' : $_e.light.desk.t#3 ? '' : @post('sse/call/viewer-decisions/call_6?node=c_0_3_light_desk', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.desk.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_desk__error$/}"
+  data-on-signal-patch="$_c_0_3_light_desk__error && ($_c_0_3_light_desk__checked = $_e.light.desk.t#2)"
+  data-indicator="_c_0_3_light_desk__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_3_light_desk__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_3_light_desk__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_3_light_desk__error = ''))"
+  data-fh-node="c_0_3_light_desk" />
+    <span></span>
+  </label></div></article>
+<article class="fh-cell fh-card fh-toggle fh-tile-card fh-active" id="c_0_3_light_sofa"
+  data-signals="{_c_0_3_light_sofa__checked: 'on', _e: {light: {sofa: {t#1: true, t#2: 'on', t#3: false}}}}"
+  data-class:fh-active="$_e.light.sofa.t#1"
+  data-attr:data-switched="$_e.light.sofa.t#2"
+  data-class:fh-disabled="$_c_0_3_light_sofa__busy || $_e.light.sofa.t#3"
+  data-class:fh-loading="$_c_0_3_light_sofa__busy"
+  data-class:fh-error="$_c_0_3_light_sofa__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_3_light_sofa__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_sofa__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_3_light_sofa__busy_slow = $_c_0_3_light_sofa__busy"
+  data-class:fh-busy-spin="$_c_0_3_light_sofa__busy_slow"
+  data-attr:aria-busy="$_c_0_3_light_sofa__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Sofa</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on" checked data-bind="_c_0_3_light_sofa__checked"
+  data-on:click="$_c_0_3_light_sofa__busy ? '' : $_e.light.sofa.t#3 ? '' : @post('sse/call/viewer-decisions/call_7?node=c_0_3_light_sofa', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.sofa.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_sofa__error$/}"
+  data-on-signal-patch="$_c_0_3_light_sofa__error && ($_c_0_3_light_sofa__checked = $_e.light.sofa.t#2)"
+  data-indicator="_c_0_3_light_sofa__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_3_light_sofa__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_3_light_sofa__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_3_light_sofa__error = ''))"
+  data-fh-node="c_0_3_light_sofa" />
+    <span></span>
+  </label></div></article>
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_3_light_shelf"
+  data-signals="{_c_0_3_light_shelf__checked: '', _e: {light: {shelf: {t#1: false, t#2: '', t#3: false}}}}"
+  data-class:fh-active="$_e.light.shelf.t#1"
+  data-attr:data-switched="$_e.light.shelf.t#2"
+  data-class:fh-disabled="$_c_0_3_light_shelf__busy || $_e.light.shelf.t#3"
+  data-class:fh-loading="$_c_0_3_light_shelf__busy"
+  data-class:fh-error="$_c_0_3_light_shelf__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_3_light_shelf__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_shelf__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_3_light_shelf__busy_slow = $_c_0_3_light_shelf__busy"
+  data-class:fh-busy-spin="$_c_0_3_light_shelf__busy_slow"
+  data-attr:aria-busy="$_c_0_3_light_shelf__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Shelf</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_3_light_shelf__checked"
+  data-on:click="$_c_0_3_light_shelf__busy ? '' : $_e.light.shelf.t#3 ? '' : @post('sse/call/viewer-decisions/call_5?node=c_0_3_light_shelf', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.shelf.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_shelf__error$/}"
+  data-on-signal-patch="$_c_0_3_light_shelf__error && ($_c_0_3_light_shelf__checked = $_e.light.shelf.t#2)"
+  data-indicator="_c_0_3_light_shelf__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_3_light_shelf__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_3_light_shelf__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_3_light_shelf__error = ''))"
+  data-fh-node="c_0_3_light_shelf" />
+    <span></span>
+  </label></div></article></div></div></div>
 <!-- ==== flipped · case c_0_0_branch_0: as fixtured ==== -->
 <!-- ==== flipped · case c_0_0_branch_1 ==== -->
 <div class="fh-cell fh-row" id="c_0_0_branch_1">
@@ -305,7 +514,7 @@
   data-attr:aria-busy="$_c_0_0_branch_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_0_0_branch_1_0__checked"
-  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_5?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_8?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_0_branch_1_0__error$/}"
   data-on-signal-patch="$_c_0_0_branch_1_0__error && ($_c_0_0_branch_1_0__checked = $_e.light.kitchen.t#2)"
@@ -321,6 +530,9 @@
 <!-- ==== flipped · patch c_0_1_light_hall: as fixtured ==== -->
 <!-- ==== flipped · patch c_0_1_light_porch: as fixtured ==== -->
 <!-- ==== flipped · patch c_0_2: as fixtured ==== -->
+<!-- ==== flipped · patch c_0_3_light_desk: as fixtured ==== -->
+<!-- ==== flipped · patch c_0_3_light_shelf: as fixtured ==== -->
+<!-- ==== flipped · patch c_0_3_light_sofa: as fixtured ==== -->
 <!-- ==== flipped · patch c_0_bar_0_0: as fixtured ==== -->
 <!-- ==== flipped · patch c_0_bar_0_1: as fixtured ==== -->
 <!-- ==== unavailable · body ==== -->
@@ -399,7 +611,74 @@
   data-fh-node="c_0_1_light_porch" />
     <span></span>
   </label></div></article></div>
-<div class="fh-cell" id="c_0_2"><p></p></div></div></div>
+<div class="fh-cell" id="c_0_2"><p></p></div>
+<div class="fh-cell fh-group" id="c_0_3">
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_3_light_desk"
+  data-signals="{_c_0_3_light_desk__checked: '', _e: {light: {desk: {t#1: false, t#2: '', t#3: true}}}}"
+  data-class:fh-active="$_e.light.desk.t#1"
+  data-attr:data-switched="$_e.light.desk.t#2"
+  data-class:fh-disabled="$_c_0_3_light_desk__busy || $_e.light.desk.t#3"
+  data-class:fh-loading="$_c_0_3_light_desk__busy"
+  data-class:fh-error="$_c_0_3_light_desk__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_3_light_desk__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_desk__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_3_light_desk__busy_slow = $_c_0_3_light_desk__busy"
+  data-class:fh-busy-spin="$_c_0_3_light_desk__busy_slow"
+  data-attr:aria-busy="$_c_0_3_light_desk__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Desk</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_3_light_desk__checked"
+  data-on:click="$_c_0_3_light_desk__busy ? '' : $_e.light.desk.t#3 ? '' : @post('sse/call/viewer-decisions/call_6?node=c_0_3_light_desk', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.desk.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_desk__error$/}"
+  data-on-signal-patch="$_c_0_3_light_desk__error && ($_c_0_3_light_desk__checked = $_e.light.desk.t#2)"
+  data-indicator="_c_0_3_light_desk__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_3_light_desk__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_3_light_desk__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_3_light_desk__error = ''))"
+  data-fh-node="c_0_3_light_desk" />
+    <span></span>
+  </label></div></article>
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_3_light_shelf"
+  data-signals="{_c_0_3_light_shelf__checked: '', _e: {light: {shelf: {t#1: false, t#2: '', t#3: true}}}}"
+  data-class:fh-active="$_e.light.shelf.t#1"
+  data-attr:data-switched="$_e.light.shelf.t#2"
+  data-class:fh-disabled="$_c_0_3_light_shelf__busy || $_e.light.shelf.t#3"
+  data-class:fh-loading="$_c_0_3_light_shelf__busy"
+  data-class:fh-error="$_c_0_3_light_shelf__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_3_light_shelf__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_shelf__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_3_light_shelf__busy_slow = $_c_0_3_light_shelf__busy"
+  data-class:fh-busy-spin="$_c_0_3_light_shelf__busy_slow"
+  data-attr:aria-busy="$_c_0_3_light_shelf__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Shelf</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_3_light_shelf__checked"
+  data-on:click="$_c_0_3_light_shelf__busy ? '' : $_e.light.shelf.t#3 ? '' : @post('sse/call/viewer-decisions/call_5?node=c_0_3_light_shelf', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.shelf.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_shelf__error$/}"
+  data-on-signal-patch="$_c_0_3_light_shelf__error && ($_c_0_3_light_shelf__checked = $_e.light.shelf.t#2)"
+  data-indicator="_c_0_3_light_shelf__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_3_light_shelf__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_3_light_shelf__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_3_light_shelf__error = ''))"
+  data-fh-node="c_0_3_light_shelf" />
+    <span></span>
+  </label></div></article>
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_3_light_sofa"
+  data-signals="{_c_0_3_light_sofa__checked: '', _e: {light: {sofa: {t#1: false, t#2: '', t#3: true}}}}"
+  data-class:fh-active="$_e.light.sofa.t#1"
+  data-attr:data-switched="$_e.light.sofa.t#2"
+  data-class:fh-disabled="$_c_0_3_light_sofa__busy || $_e.light.sofa.t#3"
+  data-class:fh-loading="$_c_0_3_light_sofa__busy"
+  data-class:fh-error="$_c_0_3_light_sofa__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_3_light_sofa__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_sofa__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_3_light_sofa__busy_slow = $_c_0_3_light_sofa__busy"
+  data-class:fh-busy-spin="$_c_0_3_light_sofa__busy_slow"
+  data-attr:aria-busy="$_c_0_3_light_sofa__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Sofa</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_3_light_sofa__checked"
+  data-on:click="$_c_0_3_light_sofa__busy ? '' : $_e.light.sofa.t#3 ? '' : @post('sse/call/viewer-decisions/call_7?node=c_0_3_light_sofa', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.sofa.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_3_light_sofa__error$/}"
+  data-on-signal-patch="$_c_0_3_light_sofa__error && ($_c_0_3_light_sofa__checked = $_e.light.sofa.t#2)"
+  data-indicator="_c_0_3_light_sofa__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_3_light_sofa__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_3_light_sofa__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_3_light_sofa__error = ''))"
+  data-fh-node="c_0_3_light_sofa" />
+    <span></span>
+  </label></div></article></div></div></div>
 <!-- ==== unavailable · case c_0_0_branch_0: as fixtured ==== -->
 <!-- ==== unavailable · case c_0_0_branch_1 ==== -->
 <div class="fh-cell fh-row" id="c_0_0_branch_1">
@@ -417,7 +696,7 @@
   data-attr:aria-busy="$_c_0_0_branch_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_0_0_branch_1_0__checked"
-  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_5?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
+  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_8?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_0_branch_1_0__error$/}"
   data-on-signal-patch="$_c_0_0_branch_1_0__error && ($_c_0_0_branch_1_0__checked = $_e.light.kitchen.t#2)"
   data-indicator="_c_0_0_branch_1_0__busy"
@@ -432,5 +711,8 @@
 <!-- ==== unavailable · patch c_0_1_light_hall: as fixtured ==== -->
 <!-- ==== unavailable · patch c_0_1_light_porch: as fixtured ==== -->
 <!-- ==== unavailable · patch c_0_2: as fixtured ==== -->
+<!-- ==== unavailable · patch c_0_3_light_desk: as fixtured ==== -->
+<!-- ==== unavailable · patch c_0_3_light_shelf: as fixtured ==== -->
+<!-- ==== unavailable · patch c_0_3_light_sofa: as fixtured ==== -->
 <!-- ==== unavailable · patch c_0_bar_0_0: as fixtured ==== -->
 <!-- ==== unavailable · patch c_0_bar_0_1: as fixtured ==== -->

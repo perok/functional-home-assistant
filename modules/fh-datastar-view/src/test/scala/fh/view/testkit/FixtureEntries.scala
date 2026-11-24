@@ -142,9 +142,10 @@ object FixtureEntries {
   /** A decision per viewer: a chooser's variable, an If whose chain reads it
     * and a light's state, so the case shown depends on both; and a set whose
     * guard reads it and a member's state (a keeps every member, b the lit
-    * ones); and a card whose second line has a value only while `mode` is b.
-    * The set and the card have lights of their own, so the kitchen moves only
-    * the If.
+    * ones); a card whose second line has a value only while `mode` is b; and a
+    * set whose order key reads it and a member's state (a lit first, b unlit
+    * first). The sets and the card have lights of their own, so the kitchen
+    * moves only the If.
     */
   val viewerDecisions: Entry = Entry(
     "viewer-decisions",
@@ -172,6 +173,12 @@ object FixtureEntries {
         |local hall = dump.entities.light_hall
         |local porch = dump.entities.light_porch
         |local attic = dump.entities.light_attic
+        |local lit = c.expr("value.state == 'on'")
+        |local ordered = q.from(List(dump.entities.light_desk, dump.entities.light_shelf, dump.entities.light_sofa))
+        |  .orderBy(q.asc(q.any(List(
+        |    q.all(List(mode.valueIs("a"), lit)),
+        |    q.all(List(mode.valueIs("b"), q.not(lit)))
+        |  ))))
         |
         |card = (c.column) {
         |  children {
@@ -187,6 +194,7 @@ object FixtureEntries {
         |          .render((e) -> c.toggle(e))
         |          .build()
         |        new Attic { entityId = attic.entity_id; gate = mode.valueIs("b") }
+        |        ordered.render((e) -> c.toggle(e)).build()
         |      }
         |    }
         |  }
@@ -195,37 +203,7 @@ object FixtureEntries {
     List(
       lamp("hall", "Hall", "off"),
       lamp("porch", "Porch", "on"),
-      lamp("attic", "Attic", "on")
-    )
-  )
-
-  /** A set ordered per viewer: its key reads `mode` and a member's state (a
-    * lights first, b unlit first). Not in [[all]] nor the oracle's property
-    * list: only the suites naming it read it.
-    */
-  val viewerOrder: Entry = Entry(
-    "viewer-order",
-    header +
-      """
-        |local mode = c.variable("mode")
-        |local lit = c.expr("value.state == 'on'")
-        |local ordered = q.from(List(dump.entities.light_desk, dump.entities.light_shelf, dump.entities.light_sofa))
-        |  .orderBy(q.asc(q.any(List(
-        |    q.all(List(mode.valueIs("a"), lit)),
-        |    q.all(List(mode.valueIs("b"), q.not(lit)))
-        |  ))))
-        |
-        |card = (c.column) {
-        |  children {
-        |    (c.chooser(c.select(mode).options(List("a", "b")))) {
-        |      children {
-        |        ordered.render((e) -> c.toggle(e)).build()
-        |      }
-        |    }
-        |  }
-        |}
-        |""".stripMargin,
-    List(
+      lamp("attic", "Attic", "on"),
       lamp("desk", "Desk", "off"),
       lamp("shelf", "Shelf", "on"),
       lamp("sofa", "Sofa", "off")

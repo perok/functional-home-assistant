@@ -8,10 +8,10 @@ import fh.view.testkit.{FixtureEntries, FixtureEntity, PklFixture}
 import scala.concurrent.duration.*
 
 /** What a viewer's own `mode` decides beside state (`FixtureEntries.
-  * viewerDecisions`, `viewerOrder`), so each is made per viewer: an If, whose
-  * `mode == "a"` shows a title, else the kitchen light while it is on, else
-  * "Neither"; a set of two lights whose guard is `mode == "a"` or lit (a keeps
-  * both, b the lit one); and a set of three ordered by lit under a, unlit under b.
+  * viewerDecisions`), so each is made per viewer: an If, whose `mode == "a"`
+  * shows a title, else the kitchen light while it is on, else "Neither"; a set
+  * of two lights whose guard is `mode == "a"` or lit (a keeps both, b the lit
+  * one); and a set of three ordered by lit under a, unlit under b.
   */
 class ViewerDecisionsSuite extends ServerHarness {
 
@@ -19,18 +19,10 @@ class ViewerDecisionsSuite extends ServerHarness {
   private val mode = VarKey(NodeId.derived("c_0"), "mode")
   private val pick = NodeId.derived("c_0_0")
   private val guarded = NodeId.derived("c_0_1")
-  private val ordered = NodeId.derived("c_0_0")
+  private val ordered = NodeId.derived("c_0_3")
 
   private val dash =
     PklFixture.buildDashboard(entry.slug, entry.source, entry.dump)
-
-  private val orderEntry = FixtureEntries.viewerOrder
-
-  private val orderDash = PklFixture.buildDashboard(
-    orderEntry.slug,
-    orderEntry.source,
-    orderEntry.dump
-  )
 
   private def withKitchen(state: String): List[FixtureEntity] =
     entry.entities.map(e =>
@@ -61,10 +53,9 @@ class ViewerDecisionsSuite extends ServerHarness {
     assertEquals(r.surfaces.varPicks, Set.empty[NodeId])
     // A write of `mode` re-plans this pick, which is no plain panel, and the
     // set whose guard reads it, or whose order does.
-    assertEquals(r.vars.picksDecidedBy(mode).toSet, Set(pick, guarded))
     assertEquals(
-      Renderer.create(orderDash).vars.picksDecidedBy(mode),
-      List(ordered)
+      r.vars.picksDecidedBy(mode).toSet,
+      Set(pick, guarded, ordered)
     )
     assertEquals(r.vars.panelsSelectedBy(mode), Nil)
   }
@@ -220,7 +211,7 @@ class ViewerDecisionsSuite extends ServerHarness {
   }
 
   test("an order key reading mode: each viewer ordered its own way") {
-    TestServer.resource(orderDash, orderEntry.entities).use { ts =>
+    served("off") { ts =>
       (ts.page(), ts.page("?v.c_0.mode=b")).tupled.map { (a, b) =>
         assertEquals(listed(a, sofas*), List("Shelf", "Desk", "Sofa"), clue = a)
         assertEquals(listed(b, sofas*), List("Desk", "Sofa", "Shelf"), clue = b)
@@ -229,7 +220,7 @@ class ViewerDecisionsSuite extends ServerHarness {
   }
 
   test("a state change reorders each viewer its own way") {
-    TestServer.resource(orderDash, orderEntry.entities).use { ts =>
+    served("off") { ts =>
       for {
         onA <- ts.connect()
         onB <- ts.connect(onMode("b"))

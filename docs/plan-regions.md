@@ -851,10 +851,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          with its screens, logging the union; a dashboard without one keeps the single pass. A
          write re-plans the set host for its writer (`VarGraph.picksDecidedBy` takes the set).
          The set's clause and order left `decisionVarErrors`; their variables are checked
-         against the set's scope. `viewer-decisions` holds the guard set; the ordered set is
-         its own entry, `viewerOrder`, outside the oracle's property list (two directed oracle
-         tests cover order per viewer). The hang that kept it out was the oracle's linkedom
-         observer (fixed in `setup.js`); folding it into `viewer-decisions` is open.
+         against the set's scope. `viewer-decisions` holds the guard set and the ordered set,
+         so the oracle's property runs both; directed oracle tests cover each per viewer.
        - **D5.4, a `valueWhile` reading a variable.** BUILT (bd5c7a9c). Its gate is kept per
          values at the slot's node (`Shared.holdsAt`), and the pre-read views the version at the
          viewer's env, so its fetch is asked only while it holds; a variable-only gate stays a
