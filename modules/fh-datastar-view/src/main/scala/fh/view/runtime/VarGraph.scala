@@ -44,7 +44,8 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
       if (d.initialTransform.isDefined) s"$$$initialValueSignal"
       else
         s"'${Server.escapeHtml(Server.escapeJsString(d.default.getOrElse("")))}'"
-    s"""data-fh-url:$name="['$urlParam', $$$committedSignal, $unchanged]""""
+    val history = if (d.inHistory) "__history" else ""
+    s"""data-fh-url:$name$history="['$urlParam', $$$committedSignal, $unchanged]""""
   }
 
 object VarKey:
@@ -115,6 +116,9 @@ private[runtime] final class VarGraph(
     */
   val mirroredInitials: Set[VarKey] =
     initialTransforms.keySet.filter(declarations(_).inUrl)
+
+  /** The declarations a URL names, which Back and Forward move. */
+  val inUrl: Set[VarKey] = declarations.keySet.filter(declarations(_).inUrl)
 
   /** Total over declarations, so a control never shows the declared value over
     * a choice. No value is `''`, which no value a viewer can choose spells.

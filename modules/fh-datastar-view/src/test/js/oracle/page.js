@@ -44,6 +44,7 @@ globalThis.__page = {
   signals: () => JSON.stringify(root),
   problems: () => JSON.stringify(o.problems),
   reloaded: () => o.reloaded(),
+  entries: () => JSON.stringify(o.entries()),
   apply,
   /** Clicks the first element whose click handler posts to `path`. */
   press: (path) => {

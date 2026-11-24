@@ -72,6 +72,49 @@ class FakePageSuite extends munit.CatsEffectSuite {
     p.close()
   }
 
+  private val twoInHistory =
+    """<div data-signals="{_var_c__a: '', _var_c__b: '', _var_c__w: ''}"
+      | data-fh-url:a__history="['v.c.a', $_var_c__a, '']"
+      | data-fh-url:b__history="['v.c.b', $_var_c__b, '']"
+      | data-fh-url:w="['v.c.w', $_var_c__w, '']"></div>""".stripMargin
+
+  private def signals(p: FakePage, json: String) =
+    p("datastar-patch-signals", s"signals $json")
+
+  test("each history variable's choice is an entry, and keeps the others'") {
+    val p = page(twoInHistory)
+    signals(p, """{"_var_c__a":"1"}""")
+    signals(p, """{"_var_c__w":"7d"}""")
+    signals(p, """{"_var_c__b":"2"}""")
+    signals(p, """{"_var_c__a":"3"}""")
+    assertEquals(
+      p.entries,
+      List(
+        "" -> false,
+        "?v.c.a=1&v.c.w=7d" -> true,
+        "?v.c.a=1&v.c.w=7d&v.c.b=2" -> true,
+        "?v.c.a=3&v.c.w=7d&v.c.b=2" -> true
+      )
+    )
+    p.close()
+  }
+
+  test("a link naming two history variables is one entry above the dashboard") {
+    val p = js().load(
+      s"""<!doctype html><html><head><base href="/"></head><body>
+         |<main id="dashboard"><div data-signals="{_var_c__a: '1', _var_c__b: '2', _var_c__w: '7d'}"
+         | data-fh-url:a__history="['v.c.a', $$_var_c__a, '']"
+         | data-fh-url:b__history="['v.c.b', $$_var_c__b, '']"
+         | data-fh-url:w="['v.c.w', $$_var_c__w, '']"></div></main></body></html>""".stripMargin,
+      "http://fake.test/d/s?v.c.a=1&v.c.b=2&v.c.w=7d"
+    )
+    assertEquals(
+      p.entries,
+      List("?v.c.w=7d" -> false, "?v.c.a=1&v.c.b=2&v.c.w=7d" -> true)
+    )
+    p.close()
+  }
+
   test("a reconnect carries the signals the stream's filter lets through") {
     val p = page(
       """<div id="m" data-signals="{conn: 'k1', _var_c__tab: '1', _var_c__tab__pending: '', _e: {s: 'on'}}"></div>""",

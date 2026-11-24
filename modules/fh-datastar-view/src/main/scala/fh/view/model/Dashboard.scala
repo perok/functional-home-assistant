@@ -1344,15 +1344,16 @@ object Dashboard:
 
   /** One node's declaration of a node variable: its default (`None`: it holds
     * no value until a viewer chooses), whether a choice is mirrored into the
-    * URL (ADR 0005), and where a session opens it instead of at the default,
-    * evaluated once as the session opens and never followed, so a head does not
-    * move under the viewer's finger.
+    * URL (ADR 0005) and pushed as a history entry, and where a session opens it
+    * instead of at the default, evaluated once as the session opens and never
+    * followed, so a head does not move under the viewer's finger.
     */
   final case class Declaration(
       name: String,
       default: Option[String],
       inUrl: Boolean = true,
-      initialTransform: Option[InitialTransform] = None
+      initialTransform: Option[InitialTransform] = None,
+      inHistory: Boolean = false
   )
 
   object Declaration:
@@ -1377,7 +1378,8 @@ object Dashboard:
           .flatMap(_.as[Option[String]])
         inUrl <- c.getOrElse[Boolean]("inUrl")(true)
         initial <- c.get[Option[InitialTransform]]("initialTransform")
-      yield Declaration(name, default, inUrl, initial)
+        inHistory <- c.getOrElse[Boolean]("inHistory")(false)
+      yield Declaration(name, default, inUrl, initial, inHistory)
     )
 
   /** Where a session opens a node variable: CEL over one entity's state. */

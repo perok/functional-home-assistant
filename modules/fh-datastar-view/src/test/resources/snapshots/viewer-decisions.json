@@ -19,6 +19,7 @@
               "vars" : [
                 {
                   "default" : "a",
+                  "inHistory" : false,
                   "inUrl" : true,
                   "name" : "mode"
                 }

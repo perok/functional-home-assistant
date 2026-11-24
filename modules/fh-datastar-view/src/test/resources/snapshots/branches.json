@@ -19,6 +19,7 @@
               "vars" : [
                 {
                   "default" : "0",
+                  "inHistory" : false,
                   "inUrl" : true,
                   "name" : "tab"
                 }
@@ -568,6 +569,7 @@
               "vars" : [
                 {
                   "default" : "simple",
+                  "inHistory" : false,
                   "inUrl" : true,
                   "name" : "view"
                 }

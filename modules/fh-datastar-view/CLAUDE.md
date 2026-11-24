@@ -216,8 +216,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   The CEL spelling is left to the surface and popup taps. The slug is applied in
   `DashboardBuild.decode` BEFORE validation, so a `Validated` is final and a `fh push --slug`
   rename cannot leave a compiled tap URL naming the old dashboard.
-  The surface taps carry it too — `POST /sse/surface/:slug/open/:id`, `POST /sse/popup/:slug/close`
-  — so the gate checks them as every route. A tap under a `conn` this process has forgotten (an
+  The surface taps carry it too — `POST /sse/surface/:slug/open/:id`, `POST /sse/popup/:slug/close`,
+  and Back/Forward's `POST /sse/history/:slug` + the page's query (ADR 0005) — so the gate checks them as every route. A tap under a `conn` this process has forgotten (an
   idle page outliving its session's linger, a restart) is REFUSED with a toast, never minted: a
   tap carries too little of the page to rebuild its session, and the reconnecting stream, which
   carries the viewer's choices and its cursor, rebuilds it (ADR 0024). Standing principle from the same ADR, aspirational and

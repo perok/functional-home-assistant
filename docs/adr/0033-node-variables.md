@@ -53,8 +53,9 @@ decides, never where it is shown. Rule 6 is what keeps that true for surfaces �
 opened from many places, so inheriting from its opener would be dynamic scoping.
 
 **Declaration.** `LayoutNode.Component.vars: List[Declaration]`, one per name:
-`Declaration(name, default, inUrl, initialTransform)` — the value it holds before anyone chooses,
-whether a choice is mirrored into the URL (ADR 0005), and where a session opens it instead. In Pkl
+`Declaration(name, default, inUrl, initialTransform, inHistory)` — the value it holds before anyone chooses,
+whether a choice is mirrored into the URL and pushed as a history entry (ADR 0005), and where a
+session opens it instead. In Pkl
 a node amends `vars { window.defaultingTo("24h") }`, or `vars { v.startingEmpty() }` for one that
 holds **no value** until a viewer chooses: `{}` on the wire (`varMod.noValue`), since a `null`
 property is dropped (ADR 0006), and `None` in Scala. A reading of it is then `null` (ADR 0035), a

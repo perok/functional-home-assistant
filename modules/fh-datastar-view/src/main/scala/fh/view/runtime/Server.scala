@@ -243,6 +243,12 @@ class Server(
       withSession(req, slug)((session, renderer, selections) =>
         swapPopup(session, renderer, None, selections)
       )
+
+    // The query string is the page's, which Back or Forward just moved.
+    case req @ POST -> Root / "sse" / "history" / slug =>
+      withSession(req, slug)((session, renderer, selections) =>
+        fromHistory(session, renderer, Server.varChoicesOf(req), selections)
+      )
   }
 
   /** Refused unless this dashboard declares the call and the pressed node
@@ -1289,34 +1295,14 @@ class Server(
       chosen: Option[String],
       selections: Selections
   )(s: SessionState): IO[Session.Step[Unit]] = {
-    val readers = renderer.vars.readersOf(key)
-    val groups = renderer.vars.picksDecidedBy(key)
     val proposed = chosen.fold(s.vars - key)(v => s.vars + (key -> v))
-    val value = (s.initialValues ++ proposed)
-      .get(key)
-      .orElse(renderer.vars.defaults(key))
-      .getOrElse("")
     for {
       store <- stateStore.current
-      reached <- decidedFor(renderer, store, renderer.vars.env(s.values)) {
-        at =>
-          val open = renderer.surfaces.screen(s.open, at)
-          val shown = renderer.surfaces.visibleNode(_, open, at)
-          (
-            shown(key.declarer),
-            groups.filter(gid =>
-              shown(gid) && renderer.members
-                .setContainer(gid)
-                .fold(renderer.surfaces.groupShown(gid, at))(
-                  renderer.members.setShown(_, at)
-                )
-            ),
-            readers.filter(shown)
-          )
-      }
-      ((declarerShown, shownGroups, targets), _) = reached
+      reach <- reached(renderer, store, s, List(key))
       _ <- IO.raiseWhen(
-        (readers.isEmpty && groups.isEmpty) || !declarerShown
+        (renderer.vars.readersOf(key).isEmpty &&
+          renderer.vars.picksDecidedBy(key).isEmpty) ||
+          !reach.declarersShown(key)
       )(
         FHError.notFound(
           s"no node this viewer is shown reads the variable '${key.name}' declared on '${key.declarer}'"
@@ -1327,11 +1313,95 @@ class Server(
         case refused =>
           IO.raiseError(FHError.badCondition(refused.mkString("; ")))
       }
-      env = renderer.vars.env(s.initialValues ++ proposed)
-      _ <- session.reveal(Set.empty, s.initialValues ++ proposed)
+      step <- commitVars(session, renderer, store, s, proposed, List(key))(
+        reach,
+        selections
+      )
+    } yield step
+  }
+
+  /** Back or Forward moved the URL to `url`'s variables (`.inHistory()`, ADR
+    * 0005): each one in the URL is read again as a page load reads it, a
+    * refused value dropped, and whatever moved is re-rendered as a press would.
+    * One kept out of the URL is left alone, since its absent parameter would
+    * read as its default.
+    */
+  private def fromHistory(
+      session: Session,
+      renderer: Renderer,
+      url: Map[VarKey, String],
+      selections: Selections
+  )(s: SessionState): IO[Session.Step[Unit]] = {
+    val inUrl = renderer.vars.inUrl
+    val (proposed, refused) = renderer.adopt(
+      s.vars.filterNot((k, _) => inUrl(k)),
+      url.view.filterKeys(inUrl).toMap
+    )
+    val before = renderer.vars.committed(s.values)
+    val after = renderer.vars.committed(s.initialValues ++ proposed)
+    val moved = after.keys.filter(k => before.get(k) != after.get(k)).toList
+    for {
+      _ <- IO.whenA(refused.nonEmpty)(
+        logger.warn(
+          s"a history entry carried choices no reader takes, ignored: ${refused.mkString("; ")}"
+        )
+      )
+      store <- stateStore.current
+      reach <- reached(renderer, store, s, moved)
+      step <- commitVars(session, renderer, store, s, proposed, moved)(
+        reach,
+        selections
+      )
+    } yield step
+  }
+
+  /** What a write to `keys` reaches on this viewer's screen before it: the
+    * declarers shown, and the picks, sets and readers it moves.
+    */
+  private def reached(
+      renderer: Renderer,
+      store: StoreState,
+      s: SessionState,
+      keys: List[VarKey]
+  ): IO[Server.Reach] = {
+    val readers = keys.flatMap(renderer.vars.readersOf).distinct
+    val groups = keys.flatMap(renderer.vars.picksDecidedBy).distinct
+    decidedFor(renderer, store, renderer.vars.env(s.values)) { at =>
+      val open = renderer.surfaces.screen(s.open, at)
+      val shown = renderer.surfaces.visibleNode(_, open, at)
+      Server.Reach(
+        keys.filter(k => shown(k.declarer)).toSet,
+        groups.filter(gid =>
+          shown(gid) && renderer.members
+            .setContainer(gid)
+            .fold(renderer.surfaces.groupShown(gid, at))(
+              renderer.members.setShown(_, at)
+            )
+        ),
+        readers.filter(shown)
+      )
+    }.map(_._1)
+  }
+
+  /** Keep `proposed`, already checked, and send what `reach` moves, planned
+    * against what this session's host holds. Committed last even when no bytes
+    * moved: the commit ends the pending ask (ADR 0025).
+    */
+  private def commitVars(
+      session: Session,
+      renderer: Renderer,
+      store: StoreState,
+      s: SessionState,
+      proposed: Map[VarKey, String],
+      keys: List[VarKey]
+  )(reach: Server.Reach, selections: Selections): IO[Session.Step[Unit]] = {
+    val values = s.initialValues ++ proposed
+    val env = renderer.vars.env(values)
+    for {
+      _ <- session.reveal(Set.empty, values)
       pulled <- decidedFor(renderer, store, env) { at =>
         val o =
-          Patches.written(renderer, s.holds, at, targets, shownGroups)
+          Patches.written(renderer, s.holds, at, reach.targets, reach.groups)
         o -> renderer.readsForPull(o.touched, o.filled, at, selections, env)
       }
       ((owing, reads), shared) = pulled
@@ -1347,13 +1417,17 @@ class Server(
           owing
         )
       )
+      signals = renderer.vars.committed(values).view.filterKeys(keys.toSet)
     } yield Session.Step(
       s.copy(
         vars = proposed,
         holds = patches.foldLeft(s.holds)(Patches.applied(renderer.index, _, _))
       ),
-      Patches.encode(patches) :+
-        Datastar.patchSignals(VarKey.signalsJson(Map(key -> value)).noSpaces),
+      Patches.encode(patches) ++ Option
+        .when(signals.nonEmpty)(
+          Datastar.patchSignals(VarKey.signalsJson(signals.toMap).noSpaces)
+        )
+        .toList,
       ()
     )
   }
@@ -2101,7 +2175,11 @@ class Server(
     val popupFromUrl =
       s"$$_popupUrl = new URLSearchParams(location.search).get('$popupParamName') ?? ''; " +
         s"$$_popupUrl === $$$popupSignalName || ($$_popupUrl ? " +
-        s"@post('sse/surface/$slug/open/' + $$_popupUrl, {retryMaxCount: 0}) : @post('sse/popup/$slug/close', {retryMaxCount: 0}))"
+        s"@post('sse/surface/$slug/open/' + $$_popupUrl, {retryMaxCount: 0}) : @post('sse/popup/$slug/close', {retryMaxCount: 0}))" +
+        // The variables' own: the server reads the whole query string again.
+        (if (committed.isEmpty) ""
+         else
+           s"; @post('sse/history/$slug' + location.search, {retryMaxCount: 0})")
     val varSeed = committed.toList
       .sortBy(_._1.committedSignal)
       .map { (key, v) =>
@@ -3217,9 +3295,15 @@ object Server {
       .replace("\"", "&quot;")
       .replace("'", "&#39;")
 
-  /** A press's body (`tapMod.post`): the values the card posts, and what the
-    * node showed of the fields it sees. A blank body is neither.
+  /** What a write to node variables reaches on one viewer's screen: the
+    * declarers shown, the picks and sets it moves, and the readers.
     */
+  final case class Reach(
+      declarersShown: Set[VarKey],
+      groups: List[NodeId],
+      targets: List[NodeId]
+  )
+
   /** `tapMod.post`'s body: the page's `conn` and popup, which only a choice
     * reads, and what the press posts and saw.
     */

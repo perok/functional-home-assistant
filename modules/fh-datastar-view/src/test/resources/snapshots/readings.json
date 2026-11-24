@@ -465,6 +465,7 @@
                                         "vars" : [
                                           {
                                             "default" : "24h",
+                                            "inHistory" : false,
                                             "inUrl" : true,
                                             "name" : "window"
                                           }

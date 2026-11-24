@@ -360,6 +360,11 @@ Each is a *variable*:
 - **A choice can stay out of the address**, for one a reload may forget, such
   as each light's control in a long list: `view.defaultingTo("simple").notInUrl()`.
   A link that names it still works.
+- **A choice can be a step for Back**, `view.defaultingTo("simple").inHistory()`:
+  each choice is a browser history entry, so Back returns to the previous one and
+  then leaves the dashboard. Back returns the whole previous address, so another
+  choice made since then in the address goes back with it. A choice kept out of
+  the address cannot be in history; the build says so.
 - **A choice can start empty**, `vars { view.startingEmpty() }`: until a viewer
   chooses, `view.value` reads nothing and a `match` over it shows its otherwise,
   or nothing.

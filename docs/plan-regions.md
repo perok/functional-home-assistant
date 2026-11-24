@@ -924,10 +924,14 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      `NoValueSuite`). Its gate (EA off, B/op, against 3aeffa8e): `VarEnvBench` `env` 440 → 376,
      `pullPlain` 6,600 → 6,536, `refusals` 40,648 → 40,520, `viewerPull` 230,272 → 230,208,
      `viewerPage` 159,680 → 159,584, `publish` equal; `env` builds each scope with a builder, since
-     a `flatMap` over `Option`s first cost it 18%. Left (R5.1b): `.inHistory()`: the
-     shell's one popstate post of the query string, the server's re-read of every `v.` parameter
-     (a `notInUrl()` variable left alone), and the mirror marking the entries it made for two
-     history variables. Popups keep their own history until R5.3.
+     a `flatMap` over `Option`s first cost it 18%. History is BUILT (R5.1b): `.inHistory()`
+     (`inHistory` on the wire, refused in Pkl with `notInUrl()`), the shell's popstate post of
+     the query string (`POST /sse/history/<slug>`, beside the popup's own until R5.3),
+     `Server.fromHistory` reading every URL variable again through `Renderer.adopt` and the
+     press's commit (`setVar` split into `reached` and `commitVars`), and the mirror marking its
+     own entries (`fhPushed: true`) and stripping every history parameter from a foreign entry
+     in one push a microtask later; `VarHistorySuite`, `FakePageSuite`'s two history cases, ADR
+     0005. No bench: nothing on a render, pull or validate path moved.
    - **R5.2, the page card.** `core/page.pkl` with `body` and `popups`, the theme's `chrome` its
      template, `entry.pkl` building the page node `root`, `root` and `popups` reserved, `v.<name>`
      for a variable the root declares, a repaint aimed at `root`, the chrome check moved to Pkl,

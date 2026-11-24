@@ -156,6 +156,21 @@ final class FakePage private (context: Context, page: Value)
       .filter(_.nonEmpty)
       .fold("")("?" + _)
 
+  /** The tab's history, oldest first: each entry's query, and whether the URL
+    * mirror pushed it.
+    */
+  def entries: List[(String, Boolean)] =
+    io.circe.parser
+      .parse(call("entries").asString)
+      .flatMap(_.as[List[JsonObject]])
+      .fold(throw _, identity)
+      .map(o =>
+        (
+          o("query").flatMap(_.asString).getOrElse(""),
+          o("pushed").flatMap(_.asBoolean).getOrElse(false)
+        )
+      )
+
   /** The ids of `id`'s element and its siblings, in page order. */
   def siblingIds(id: String): Option[List[String]] =
     Option(doc.getElementById(id))

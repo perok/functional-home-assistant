@@ -140,6 +140,28 @@ the server keeps showing one.
 - Nothing resets on a close. The session still holds a window chosen in the
   popup, and the entry going back to restores the URL it had.
 
+**A variable can opt in to the same history** (`v.defaultingTo(x).inHistory()`,
+`Declaration.inHistory`): its mirror carries `__history` too, so each choice is
+an entry. Only a variable in the URL can, since an entry is a URL; Pkl refuses
+`.notInUrl().inHistory()`.
+
+- **Back returns the whole previous URL.** On a `popstate` the shell posts the
+  page's query string once (`POST /sse/history/<slug>`), and the server reads
+  every `v.` param again as a page load does: a refused value dropped, an
+  absent param the declared value, and whatever moved re-rendered as a press
+  would. So a choice made since then to a variable in the URL but not in history
+  (a window chooser) goes back too. A variable kept out of the URL is left
+  alone, since its absent param would read as its declared value.
+- **The mirror marks the entries it made, not by key.** A mark naming one key
+  erased a second history variable's param from that one's own entry, and a link
+  naming two pushed one entry each, so Back reopened one. Now an entry the mirror
+  did not make loses every history param before the first push, which keeps them
+  all, so a link naming two is one entry above the dashboard. That first push
+  waits a microtask, since a mirror applied later in the same Datastar scan is a
+  history param the strip must know.
+- Popups keep their own `popstate` post beside this one until the popup is a
+  variable itself.
+
 Tiering discipline (do not blur it):
 
 - **entity truth → server `StateStore`.** Never mirror a value that reflects an

@@ -392,6 +392,7 @@ g.__oracle = {
   step,
   problems,
   reloaded: () => reloaded,
+  entries: () => entries.map(({ state, href }) => ({ pushed: state?.fhPushed === true, query: new URL(href).search })),
   streams,
   pending,
   response,
