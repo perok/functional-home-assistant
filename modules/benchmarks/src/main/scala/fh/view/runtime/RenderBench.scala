@@ -22,6 +22,7 @@ import fh.view.model.{
   Step,
   Value,
   ValueExpr,
+  Surface,
   TemplateSlot
 }
 import cats.effect.IO
@@ -350,6 +351,14 @@ class RenderBench {
   private var viewerCache: RenderCache = null
   private var viewerSessions: Vector[ViewerSession] = null
   private var viewerRot = 0
+  // [[popupOpen]], [[popupClose]], [[publishManyPopups]]: the page fixture with
+  // a more-info per leaf, none open.
+  private var popups: Renderer = null
+  private var popupShared: Shared = null
+  private var popupSpellings: Vector[String] = null
+  private var heldPopupPage: Map[Ix, Held] = null
+  private var heldPopupOpen: Map[Ix, Held] = null
+  private var popupRot = 0
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -535,6 +544,53 @@ class RenderBench {
       viewerSession(viewers, viewerPaint, if (i % 2 == 0) "a" else "b")
     )
     checkViewerShape()
+    popups = Renderer.create(popupsDash(Leaves))
+    popupShared = popups.shared(StoreState(st, 0L))
+    popupSpellings = Vector.tabulate(Leaves)(i =>
+      popups.surfaces
+        .popupSpelling(popupId(i))
+        .getOrElse(sys.error(s"no popup ${popupId(i)}"))
+    )
+    heldPopupPage = popups.renderPageTraced(st).painted.map { case (ix, p) =>
+      ix -> p.held
+    }
+    heldPopupOpen = popupFill(0)
+      .fold(sys.error("popupOpen fills nothing"))(
+        Patches.applied(popups.index, heldPopupPage, _)
+      )
+  }
+
+  private def popupFill(i: Int): Option[Addressed] =
+    Patches.popupFill(
+      popups,
+      Some(popupSpellings(i % Leaves)),
+      popupShared,
+      Viewing(Selections.none, FetchSnapshot.empty)
+    )
+
+  /** One viewer opening a more-info over a page that holds [[Leaves]] of them:
+    * the popup's render and what it leaves the session holding.
+    */
+  @Benchmark
+  def popupOpen(bh: Blackhole): Unit = {
+    popupRot += 1
+    val patch = popupFill(popupRot)
+    bh.consume(patch.map(Patches.applied(popups.index, heldPopupPage, _)))
+    bh.consume(patch)
+  }
+
+  /** Closing it: what the session stops holding. */
+  @Benchmark
+  def popupClose(bh: Blackhole): Unit =
+    bh.consume(heldPopupOpen -- popups.ixsOf(Patches.popupEvicts(popups)))
+
+  /** [[publish]]'s frame against the page with a more-info per leaf, none open:
+    * an unopened popup should cost the recorder nothing.
+    */
+  @Benchmark
+  def publishManyPopups(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(popups, pubFrames(pubRot % 4)))
   }
 
   /** [[viewerPull]] only prices per-viewer decisions if the pick separates the
@@ -2259,6 +2315,27 @@ object RenderBench {
         )
     stack(List.tabulate(leaves)(leaf(signals, distinct, signalOnly, valued)))
   }
+
+  def popupId(i: Int): String = s"info_$i"
+
+  /** [[tree]] with a registered more-info per leaf: its entity's card and a
+    * second card of it, the shape `moreInfoBody` holds.
+    */
+  def popupsDash(leaves: Int): Dashboard =
+    Dashboard(
+      cards,
+      tree(leaves, 4),
+      surfaces = List
+        .tabulate(leaves)(i =>
+          popupId(i) -> Surface(
+            LayoutNode.Component(
+              "col",
+              slots = Slots.kids(leaf(signals = true)(i), leaf(false)(i))
+            )
+          )
+        )
+        .toMap
+    )
 
   /** Leaves in EACH branch of the flip fixture. Smaller than [[Leaves]] on
     * purpose: a state group holds a section of a dashboard, not the whole page,

@@ -904,13 +904,19 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      - Docs in each step's commit. Folded in where cheap: the ADRs' "state surface" wording.
 5. **R5, popups on the pick.** The design is §7's "Popups" (agreed 2026-11-24). Each step is green,
    has its bench gate against the step before, and carries its docs.
-   - **R5.0, the base and two spikes.** New benches on the base (fb1e8714): a popup open and close,
-     and state changes with many popups unopened (the largest page bench with a more-info per
-     entity), with `validated`'s time and the wire size of that dashboard. Spikes: the page node
-     (an authored `root` is written as given at the root, `card` keeps `c`, and
-     `dashboardGoldensVs` shows no other id moving), and Pkl collecting hidden popup nodes,
-     a more-info that opens itself included. Also why two of the regions spike's pulls sent
-     nothing (a member leaving, a tab switch, both on a session with no stream).
+   - **R5.0, the base and two spikes.** BUILT. `RenderBench` gained `popupOpen`, `popupClose`
+     and `publishManyPopups` (the page bench's 200 leaves, a registered more-info each, none
+     open). On fb1e8714 (EA off, B/op): `popupOpen` 192,421, `popupClose` 214,953 (it evicts
+     every popup's nodes), `publishManyPopups` 21,032 against `publish`'s 18,408, so a popup
+     nobody has open costs the recorder 14% today; `ValidateBench` `taps` 4,075,563 and `cards`
+     4,084,893, their snapshots 166,858 and 152,510 bytes (`.agent/r5/base.json`). The page node
+     needs nothing new: the index derives an id from its parent (`TreeIndex.scala:171`) and an
+     authored child takes its own (`Dashboard.scala:870`), so `root` above an authored `c` moves
+     no id. Pkl's collection (spiked on the 0.32 CLI) merges two openers, collects a popup opened
+     inside a popup, stops at a more-info that opens itself, and refuses two contents under one
+     id; plain `==` terminates on the self-reference. The spike's two empty pulls were the
+     spike's: `PopupOutlivesOpenerSuite` pins both cases on today's popups, each pull sending the
+     opener's patch and keeping the popup open.
    - **R5.1, no value and history.** `varMod.noValue` / `v.startingEmpty()` (`{}` on the wire,
      `Option` in Scala, `''` in the committed signal and an absent URL parameter; ADR 0033's
      future-work entry takes it, and its `core/stage.pkl` pointer goes). `.inHistory()`: the
