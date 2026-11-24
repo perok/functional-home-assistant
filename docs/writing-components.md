@@ -313,10 +313,10 @@ alone. A node above the card must declare the variable, or the build fails.
 
 Because the value is the viewer's, only a plain value slot of a card that holds
 no other cards may read one. The build refuses it in a signal slot (and so in
-`cellStyle`) and in a `valueWhile`: those are worked out once for everyone. To
-show a different branch per viewer, use `c.iff(v.valueIs(x))`; to show a
-different set of members, or the same ones in another order, read it in the set
-(below).
+`cellStyle`), which every viewer shares. To show a different branch per viewer,
+use `c.iff(v.valueIs(x))`; to show a different set of members, or the same ones
+in another order, read it in the set (below); to give a slot a value only for
+some viewers, read it in its `valueWhile`.
 
 The one exception is a class: `cellClassWhen` takes `v.valueIs(x)` on any card.
 It is how a tab bar lights the open tab:

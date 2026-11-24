@@ -103,7 +103,9 @@ class ViewerGateSuite extends ServerHarness {
     )
   }
 
-  test("two viewers at one version: the slot is empty for one, read for the other") {
+  test(
+    "two viewers at one version: the slot is empty for one, read for the other"
+  ) {
     val r = Renderer.create(withGate)
     assert(!page(r, "a").contains("101"), clue = page(r, "a"))
     assert(page(r, "b").contains("<b>101</b>"), clue = page(r, "b"))
@@ -131,28 +133,33 @@ class ViewerGateSuite extends ServerHarness {
       choices("mode", "a", "b") :+ LayoutNode.Component(
         "gated",
         slots = Slots.values(
-          Map("of" -> TemplateSlot(
+          Map(
+            "of" -> TemplateSlot(
               ValueExpr(Value.Entity(Some("sensor.left"), Part.State)),
               valueWhile = Some(isB)
-            ))
+            )
+          )
         )
       )
     )
-    TestServer.resource(live, List(FixtureEntity("sensor.left", "46"))).use { ts =>
-      for {
-        a <- ts.load().map(_.conn)
-        b <- ts.load().map(_.conn)
-        sa <- ts.sessions.get(a)
-        sb <- ts.sessions.get(b)
-        _ <- drain(sa)
-        _ <- drain(sb)
-        _ <- ts.choose(a, mode, Some("b"))
-        sentA <- drain(sa)
-        sentB <- drain(sb)
-      } yield {
-        assert(sentA.contains("46"), clue = sentA)
-        assertEquals(sentB, "")
+    TestServer
+      .resource(live, List(FixtureEntity("sensor.left", "46")))
+      .use { ts =>
+        for {
+          a <- ts.load().map(_.conn)
+          b <- ts.load().map(_.conn)
+          sa <- ts.sessions.get(a)
+          sb <- ts.sessions.get(b)
+          _ <- drain(sa)
+          _ <- drain(sb)
+          _ <- ts.choose(a, mode, Some("b"))
+          sentA <- drain(sa)
+          sentB <- drain(sb)
+        } yield {
+          assert(sentA.contains("46"), clue = sentA)
+          assertEquals(sentB, "")
+        }
       }
-    }.timeout(30.seconds)
+      .timeout(30.seconds)
   }
 }
