@@ -143,9 +143,9 @@ class UiSmokeSuite extends SmokeSuite {
     // A down stream changes nothing but the banner (ADR 0025): the ask stays
     // until a commit, a refusal or an error answers it. The banner is the sync
     // point: it reads the same `_sse` the old sweep did, so by the time it shows
-    // a sweep would have run. The POST is aborted, so no status and no `error`
-    // event. The stream is also
-    // cut server-side (`forgetConnections`): a `page.route` only meets new
+    // a sweep would have run. The POST is held, never answered: an aborted one
+    // fails the tap at once (ADR 0024), which is not what this asks. The stream
+    // is cut server-side (`forgetConnections`): a `page.route` only meets new
     // requests, so the open stream would survive and the banner would assert a
     // healthy connection. The blocked reconnect keeps it failed.
     withPage(scene) { (page, ts) =>
@@ -158,10 +158,11 @@ class UiSmokeSuite extends SmokeSuite {
       for {
         _ <- ts.awaitLive()
         _ <- IO.blocking(page.route("**/sse/**", route => route.abort()))
-        // Wait for the POST to be issued. An aborted request has no response,
-        // and Playwright's Java client dispatches callbacks only while this
-        // thread is in one of its calls, so polling a buffer from `IO` waits
-        // forever.
+        // The later route wins; a handler that never answers holds the POST.
+        _ <- IO.blocking(page.route("**/sse/call/**", _ => ()))
+        // Wait for the POST to be issued. A held request has no response, and
+        // Playwright's Java client dispatches callbacks only while this thread
+        // is in one of its calls, so polling a buffer from `IO` waits forever.
         _ <- IO.blocking(
           page.waitForRequest("**/sse/call/**", () => climateTab.click())
         )
