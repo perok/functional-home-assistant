@@ -744,7 +744,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          decides only a clause-split id and makes `since` a `BitSet`. What is left is D3.4's
          planner, ~2.1 KB per client (`covered`, `hostsAt`, `owe`'s closures): slimmed in the
          finishing pass (D6).
-     - **D5, one decision mechanism; the variable-read refusals go:** the mixed `by`, a computed
+     - **D5, one decision mechanism; the variable-read refusals go:** BUILT, D5.0–D5.5
+       (ebb77d83 … c474a1ff); open: the ordered set outside the oracle's property (D5.3). The mixed `by`, a computed
        read of a variable, set guards, order keys and `valueWhile` (§4), with a test of one guard
        reading a variable and a state, two viewers on different values. Agreed 2026-11-22: one
        mechanism whose level the renderer knows in advance, not deciders beside the shared ones,
@@ -785,8 +786,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          covers every watched session's screen and a node it misses is a recorder bug the sweep
          would hide; only a reconnect sweeps, its screen being one no frame may have covered.
        - **Stays refused:** a decision's fetch whose window a variable chooses
-         (`decisionFetchErrors`), its message reworded since a decision is no longer made for
-         every viewer at once. To lift it, the decision's fetches resolve at the viewer's values
+         (`decisionFetchErrors`, reworded: a decision asks for its fetches every version). To
+         lift it, the decision's fetches resolve at the viewer's values
          (the memo key already carries them) and `Server.decisionAnswers` answers with the
          viewer's env; reopen when a card needs a decision over a chosen window. The note goes in
          ADR 0034 beside the rule.
@@ -840,35 +841,33 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          cases, a match through steps. Docs: ADR 0007 (selection semantics), 0033, the pipeline
          doc §4, terminology (flip), writing-dashboards.md (an If mixing a variable and state),
          writing-components.md, the doc comments in `choice.pkl` and `variable.pkl`.
-       - **D5.3, a set whose guard or order reads a variable.** Its level is `Viewer` at the
-         set's node; `groupOf`, `memberAt`, `deltas`, `binding` and `ownerPresent` take the
-         values, and `record` logs per values. Goes: `decisionVarErrors`' set clause and order;
-         their variables are checked against the set's scope as a pick's are. Files:
-         `MemberGraph`, `Patches`, `Server`, `VarGraph`, `Validate`. Test deleted:
-         `VarSourceSuite` "a set's clause and order refuse one". New, the plan's test: a guard
-         reading `mode` and the member's state, viewer A on a value keeping every member and B
-         on one keeping the lit ones; a light goes off: B's member leaves, A keeps it (its tile
-         morphs); B writes A's value: the member is placed for B alone. An order key reading
-         `mode`: two viewers ordered differently, a state change reordering each its own way.
-         A → B → A for a member present for one viewer only, while that viewer is away and an
-         inner node changes: the returning page gets the change. Check first: what a `where` over
-         `valueIs` and state lowers to (`q.all`/`q.any` take a `slotMod.Expr`). Core:
-         `MemberGraph` per values, `record`. Docs: ADR 0003, 0011, 0033, the pipeline doc §3 and
-         §4b, writing-dashboards.md (a `where` or `orderBy` over a variable),
-         writing-components.md.
-       - **D5.4, a `valueWhile` reading a variable.** Its gate's level is `Viewer` at the slot's
-         node, and the gated node reads the variable (`VarGraph.readsAt` takes the `valueWhile`
-         and its inputs), so a write morphs it. Goes: the rest of `decisionVarErrors` (a call
-         keeps its own refusal in `callErrors`); `decisionFetchErrors` reworded, with the revisit
-         note. Files: `Renderer`, `VarGraph`, `Validate`, `Dashboard`. Test deleted:
-         `VarSourceSuite` "a valueWhile refuses one"; `DecisionFetchSuite`'s message assertion
-         follows the rewording. New: a slot gated by `mode.valueIs("on")`, two viewers; a write
-         re-renders it for its writer alone; its fetch is read only while it holds. Docs: ADR
-         0033, 0034, writing-components.md ("A value only while something holds"),
-         `variable.pkl`.
-       - **D5.5, the bench and a sweep.** The usual list against eff9d517 and D5.0's against
-         D5.0's commit. A grep of docs, doc comments and Pkl for "every viewer", "not built yet",
-         "R4d", `decisionVarErrors`, `panels`; the plan bullet BUILT.
+       - **D5.3, a set whose guard or order reads a variable.** BUILT (2f4d36ab). A `where` over
+         `v.valueIs(x)` and state is one guard (`ValueIs` is a `slotMod.Expr`, folded into one
+         `PAnd`/`POr`); an order key's variables ride on `Evaluator.Keys`. Such a set is kept
+         per values at the set's node (`Shared.setAt`, a `ByValues` beside the picks'), and a
+         member of it is its set's decision. Since it decides what is on the page below it (a
+         pick's `groupShown`, a nested set's `ownerPresent`, `binding`, `record`'s keys), the
+         recorder runs `plan` + `record` once per distinct live values, each as that viewer
+         with its screens, logging the union; a dashboard without one keeps the single pass. A
+         write re-plans the set host for its writer (`VarGraph.picksDecidedBy` takes the set).
+         The set's clause and order left `decisionVarErrors`; their variables are checked
+         against the set's scope. `viewer-decisions` holds the guard set; the ordered set is
+         its own entry, `viewerOrder`, outside the oracle's property list, which hung in GraalJS
+         with both shapes in one page (open; two directed oracle tests cover order per viewer).
+       - **D5.4, a `valueWhile` reading a variable.** BUILT (bd5c7a9c). Its gate is kept per
+         values at the slot's node (`Shared.holdsAt`), and the pre-read views the version at the
+         viewer's env, so its fetch is asked only while it holds; a variable-only gate stays a
+         gate rather than ungated. The gated node reads the variable, so a write re-renders it
+         for its writer. `decisionVarErrors` is gone (a call keeps its refusal in `callErrors`);
+         a gated slot is held to `slotVarErrors`' rules; `decisionFetchErrors` is reworded, the
+         revisit note in ADR 0034.
+       - **D5.5, the bench and a sweep.** BUILT (73ab1fa8, c474a1ff). Against 4d4dedaf (EA
+         off, B/op): page +0.02%, pageSet +0.01%, publishSet −1.47%, publishSetOrdered −0.21%,
+         resumeMorphs +0.21%, resumeMorphsFanout +0.04%, tickRender +0.6%; `viewerPull`
+         230,271 and `viewerPage` 159,680 are the new base, their dashboard having gained the
+         set and the gate. First run: publishSet +1.8%, profiled to carrying the two new,
+         empty per-values tables each frame; an empty table now carries nothing. The sweep
+         found one stale sentence (writing-components.md).
      - **D6, benches** that span steps: everything R2 measured, `publishSetOrdered` also with
        many sessions, one session's `holds` size, and a profile of D2b's `page` +1.7% (the
        lists' arrays, `Trace.held`'s second map), and D3.4's planner closures on the pull
