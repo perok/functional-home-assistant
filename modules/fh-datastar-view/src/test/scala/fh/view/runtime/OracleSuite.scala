@@ -284,6 +284,57 @@ class OracleSuite extends HedgehogSuite {
       case failure        => throw AssertionError(failure.toString)
   }
 
+  /** A member only `a`'s values keep: its viewer goes to `b` and back while the
+    * light inside it changes, and the page it returns to is the current one.
+    */
+  test("viewer-decisions: a member one viewer's values drop returns current") {
+    val e = FixtureEntries.viewerDecisions
+    val hall = e.entities.find(_.entityId == "light.hall").get
+    val mode = VarKey(NodeId.derived("c_0"), "mode")
+    val r = served(build(e), e, 1)
+      .use { (ts, viewers) =>
+        val v = viewers(0)
+        for {
+          _ <- v.choose(mode, Some("b")) *> v.deliver
+          away <- v.check
+          _ <- ts.record(hall.copy(state = "on")) *> v.deliver
+          still <- v.check
+          _ <- v.choose(mode, Some("a")) *> v.deliver
+          back <- v.check
+        } yield away.and(still).and(back)
+      }
+      .timeout(1.minute)
+      .unsafeRunSync()
+    r match
+      case Result.Success => ()
+      case failure        => throw AssertionError(failure.toString)
+  }
+
+  /** An order key reading `mode` and a light: one change reorders `a`'s list
+    * and `b`'s each its own way, and each live page is the fresh one.
+    */
+  test("viewer-decisions: a light reorders each viewer's list its own way") {
+    val e = FixtureEntries.viewerOrder
+    val desk = e.entities.find(_.entityId == "light.desk").get
+    val mode = VarKey(NodeId.derived("c_0"), "mode")
+    val r = served(build(e), e, 2)
+      .use { (ts, viewers) =>
+        val (a, b) = (viewers(0), viewers(1))
+        for {
+          _ <- b.choose(mode, Some("b")) *> b.deliver
+          _ <- ts.record(desk.copy(state = "on")) *> a.deliver *> b.deliver
+          on <- (a.check, b.check).mapN(_.and(_))
+          _ <- ts.record(desk.copy(state = "off")) *> a.deliver *> b.deliver
+          off <- (a.check, b.check).mapN(_.and(_))
+        } yield on.and(off)
+      }
+      .timeout(1.minute)
+      .unsafeRunSync()
+    r match
+      case Result.Success => ()
+      case failure        => throw AssertionError(failure.toString)
+  }
+
   /** A popup opened while the stream is down waits in the backlog; the
     * reconnect's request still says none, and taking it over the backlog left
     * the dialog on screen with `ui_popups` empty.

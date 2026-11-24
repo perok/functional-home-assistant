@@ -313,9 +313,10 @@ alone. A node above the card must declare the variable, or the build fails.
 
 Because the value is the viewer's, only a plain value slot of a card that holds
 no other cards may read one. The build refuses it in a signal slot (and so in
-`cellStyle`), in a `valueWhile`, and in a set's `where` or `orderBy`: those are
-worked out once for everyone. To show a different branch per viewer, use
-`c.iff(v.valueIs(x))`.
+`cellStyle`) and in a `valueWhile`: those are worked out once for everyone. To
+show a different branch per viewer, use `c.iff(v.valueIs(x))`; to show a
+different set of members, or the same ones in another order, read it in the set
+(below).
 
 The one exception is a class: `cellClassWhen` takes `v.valueIs(x)` on any card.
 It is how a tab bar lights the open tab:
@@ -350,8 +351,8 @@ It takes what `active` and `disabled` take: `true`/`false`, a condition
 `bool` (`slotMod.expr("int(value.state) > 0")`). A condition is the fast choice, and
 one that names no entity reads the slot's. A reading here can read history as
 above, and so can one in a set's `where` or `orderBy` or in a `c.iff`, but not
-through `p.history.chosen`: these are decided once for every viewer, so the
-build refuses a window a viewer picks.
+through `p.history.chosen`: a decision asks for its history on every change, not
+for one viewer's window, so the build refuses a window a viewer picks.
 Your template decides what `""` looks like; the progress bar hides.
 
 Such a decision is kept until an entity it reads changes, and the history's own
@@ -504,6 +505,13 @@ is a `group` of its own.
 When a card that holds a set is itself a member of another set, a change to
 its own members re-sends that whole card. Put the inner set in a `group`
 below the card's root if that card is large.
+
+A set's `where` and `orderBy` may read a node variable, alone or mixed with state
+in one condition: `.where(q.any(List(mode.valueIs("all"), q.eq(q.stateProp, "on"))))`
+keeps every member for a viewer on `all` and the lit ones for the rest, and each
+viewer's list follows their own value. The variable must be declared at or above
+the node holding the set. What is inside such a set depends on the viewer, so
+a viewer's page holds only the members that viewer is shown.
 
 A nodes slot can also hold a **choice**: one of several branches, picked live.
 Over live state, for every viewer:

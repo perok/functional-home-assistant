@@ -7,19 +7,30 @@ import fh.view.testkit.{FixtureEntries, FixtureEntity, PklFixture}
 
 import scala.concurrent.duration.*
 
-/** An If whose chain reads a variable and a light (`FixtureEntries.
-  * viewerDecisions`): `mode == "a"` shows a title, else the kitchen light while
-  * it is on, else "Neither". Which case a viewer is shown depends on its own
-  * `mode` and on the light, so the decision is made per viewer.
+/** What a viewer's own `mode` decides beside state (`FixtureEntries.
+  * viewerDecisions`, `viewerOrder`), so each is made per viewer: an If, whose
+  * `mode == "a"` shows a title, else the kitchen light while it is on, else
+  * "Neither"; a set of two lights whose guard is `mode == "a"` or lit (a keeps
+  * both, b the lit one); and a set of three ordered by lit under a, unlit under b.
   */
 class ViewerDecisionsSuite extends ServerHarness {
 
   private val entry = FixtureEntries.viewerDecisions
   private val mode = VarKey(NodeId.derived("c_0"), "mode")
   private val pick = NodeId.derived("c_0_0")
+  private val guarded = NodeId.derived("c_0_1")
+  private val ordered = NodeId.derived("c_0_0")
 
   private val dash =
     PklFixture.buildDashboard(entry.slug, entry.source, entry.dump)
+
+  private val orderEntry = FixtureEntries.viewerOrder
+
+  private val orderDash = PklFixture.buildDashboard(
+    orderEntry.slug,
+    orderEntry.source,
+    orderEntry.dump
+  )
 
   private def withKitchen(state: String): List[FixtureEntity] =
     entry.entities.map(e =>
@@ -48,8 +59,13 @@ class ViewerDecisionsSuite extends ServerHarness {
     assertEquals(r.surfaces.viewerPicks, Set(pick))
     assertEquals(r.surfaces.statePicks, Set.empty[NodeId])
     assertEquals(r.surfaces.varPicks, Set.empty[NodeId])
-    // A write of `mode` re-plans this pick, which is no plain panel.
-    assertEquals(r.vars.picksDecidedBy(mode), List(pick))
+    // A write of `mode` re-plans this pick, which is no plain panel, and the
+    // set whose guard reads it, or whose order does.
+    assertEquals(r.vars.picksDecidedBy(mode).toSet, Set(pick, guarded))
+    assertEquals(
+      Renderer.create(orderDash).vars.picksDecidedBy(mode),
+      List(ordered)
+    )
     assertEquals(r.vars.panelsSelectedBy(mode), Nil)
   }
 
@@ -134,6 +150,102 @@ class ViewerDecisionsSuite extends ServerHarness {
         assert(!sentA.contains("Mode a"), clue = sentA)
         assertEquals(sentB, "")
         assertEquals(stateA.map(_.vars), Some(Map(mode -> "b")))
+      }
+    }
+  }
+
+  /** The names in the order the page lists them. */
+  private def listed(html: String, names: String*): List[String] =
+    names.filter(html.contains).sortBy(html.indexOf(_)).toList
+
+  private val lights = List("Hall", "Porch")
+  private val sofas = List("Desk", "Shelf", "Sofa")
+
+  test("a set's guard reading mode and a light: each viewer its own members") {
+    served("off") { ts =>
+      (ts.page(), ts.page("?v.c_0.mode=b")).tupled.map { (a, b) =>
+        assertEquals(listed(a, lights*), List("Hall", "Porch"), clue = a)
+        assertEquals(listed(b, lights*), List("Porch"), clue = b)
+      }
+    }
+  }
+
+  test(
+    "a light going off: the member leaves for b, a keeps it and is sent it"
+  ) {
+    served("off") { ts =>
+      for {
+        onA <- ts.connect()
+        onB <- ts.connect(onMode("b"))
+        _ <- onA.drain
+        _ <- onB.drain
+        _ <- ts.change("light.porch", "off")
+        a <- onA.drain
+        b <- onB.drain
+        pageA <- ts.page()
+        pageB <- ts.page("?v.c_0.mode=b")
+      } yield {
+        assert(
+          domEvents(b).exists(_._1 == "remove"),
+          clue = ("b loses its member", b)
+        )
+        assert(
+          !domEvents(a).exists(_._1 == "remove"),
+          clue = ("a keeps it", a)
+        )
+        assert(a.exists(_.renderString.contains("porch")), clue = ("a", a))
+        assertEquals(listed(pageA, lights*), List("Hall", "Porch"))
+        assertEquals(listed(pageB, lights*), Nil)
+      }
+    }
+  }
+
+  test("a write of a's value places the member for its writer alone") {
+    served("off") { ts =>
+      for {
+        a <- ts.load().map(_.conn)
+        b <- ts.load("?v.c_0.mode=b").map(_.conn)
+        sa <- ts.sessions.get(a)
+        sb <- ts.sessions.get(b)
+        _ <- drain(sa)
+        _ <- drain(sb)
+        _ <- ts.choose(b, mode, Some("a"))
+        sentA <- drain(sa)
+        sentB <- drain(sb)
+      } yield {
+        assert(sentB.contains("Hall"), clue = sentB)
+        assertEquals(sentA, "")
+      }
+    }
+  }
+
+  test("an order key reading mode: each viewer ordered its own way") {
+    TestServer.resource(orderDash, orderEntry.entities).use { ts =>
+      (ts.page(), ts.page("?v.c_0.mode=b")).tupled.map { (a, b) =>
+        assertEquals(listed(a, sofas*), List("Shelf", "Desk", "Sofa"), clue = a)
+        assertEquals(listed(b, sofas*), List("Desk", "Sofa", "Shelf"), clue = b)
+      }
+    }
+  }
+
+  test("a state change reorders each viewer its own way") {
+    TestServer.resource(orderDash, orderEntry.entities).use { ts =>
+      for {
+        onA <- ts.connect()
+        onB <- ts.connect(onMode("b"))
+        _ <- onA.drain
+        _ <- onB.drain
+        _ <- ts.change("light.desk", "on")
+        a <- onA.drain
+        b <- onB.drain
+        pageA <- ts.page()
+        pageB <- ts.page("?v.c_0.mode=b")
+      } yield {
+        assert(domEvents(a).nonEmpty, clue = ("a", a))
+        assert(domEvents(b).nonEmpty, clue = ("b", b))
+        assertNotEquals(domEvents(a), domEvents(b))
+        assertEquals(listed(pageA, sofas*), List("Desk", "Shelf", "Sofa"))
+        assertEquals(listed(pageB, sofas*), List("Sofa", "Desk", "Shelf"))
       }
     }
   }

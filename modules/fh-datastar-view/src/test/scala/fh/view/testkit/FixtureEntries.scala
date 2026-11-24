@@ -132,14 +132,25 @@ object FixtureEntries {
         |""".stripMargin
   )
 
-  /** A decision per viewer: a chooser's variable and an If whose chain reads it
-    * and a light's state, so the case shown depends on both.
+  private def lamp(id: String, name: String, state: String): FixtureEntity =
+    FixtureEntity(
+      s"light.$id",
+      state,
+      Map("friendly_name" -> Json.fromString(name))
+    )
+
+  /** A decision per viewer: a chooser's variable, an If whose chain reads it
+    * and a light's state, so the case shown depends on both; and a set whose
+    * guard reads it and a member's state (a keeps every member, b the lit
+    * ones). The set has lights of its own, so the kitchen moves only the If.
     */
   val viewerDecisions: Entry = Entry(
     "viewer-decisions",
     header +
       """
         |local mode = c.variable("mode")
+        |local hall = dump.entities.light_hall
+        |local porch = dump.entities.light_porch
         |
         |card = (c.column) {
         |  children {
@@ -150,11 +161,50 @@ object FixtureEntries {
         |          .elif(q.entity(kitchen).stateIs("on"))
         |          .then(c.toggle(kitchen))
         |          .`else`(c.title("Neither"))
+        |        q.from(List(hall, porch))
+        |          .where(q.any(List(mode.valueIs("a"), q.eq(q.stateProp, "on"))))
+        |          .render((e) -> c.toggle(e))
+        |          .build()
         |      }
         |    }
         |  }
         |}
-        |""".stripMargin
+        |""".stripMargin,
+    List(lamp("hall", "Hall", "off"), lamp("porch", "Porch", "on"))
+  )
+
+  /** A set ordered per viewer: its key reads `mode` and a member's state (a
+    * lights first, b unlit first). Not in [[all]]: the oracle's GraalJS page
+    * hangs applying a repaint that reorders its members (the same frames are
+    * instant on V8), so only the suites naming it read it.
+    */
+  val viewerOrder: Entry = Entry(
+    "viewer-order",
+    header +
+      """
+        |local mode = c.variable("mode")
+        |local lit = c.expr("value.state == 'on'")
+        |local ordered = q.from(List(dump.entities.light_desk, dump.entities.light_shelf, dump.entities.light_sofa))
+        |  .orderBy(q.asc(q.any(List(
+        |    q.all(List(mode.valueIs("a"), lit)),
+        |    q.all(List(mode.valueIs("b"), q.not(lit)))
+        |  ))))
+        |
+        |card = (c.column) {
+        |  children {
+        |    (c.chooser(c.select(mode).options(List("a", "b")))) {
+        |      children {
+        |        ordered.render((e) -> c.toggle(e)).build()
+        |      }
+        |    }
+        |  }
+        |}
+        |""".stripMargin,
+    List(
+      lamp("desk", "Desk", "off"),
+      lamp("shelf", "Shelf", "on"),
+      lamp("sofa", "Sofa", "off")
+    )
   )
 
   /** A candidate set: filtered, ordered and cut, and its leader as a condition.

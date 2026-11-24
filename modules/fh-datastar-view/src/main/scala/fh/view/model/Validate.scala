@@ -921,6 +921,18 @@ private[model] object Validate:
                       s"'${Steps.text(k.is.raw)}' twice"
                   )
         }
+        // Read at the set's node, as a pick's are at its host: a member's own
+        // declarations exist only once it does.
+        val undeclared =
+          (s.orderBy.flatMap(_.by.variables) ++ s.members.values.flatMap {
+            case Choice.Chosen(by, _, _) => by.variables
+            case Choice.Fixed(_)         => Nil
+          }).distinct.sorted
+            .filterNot((scope ++ c.defaults).contains)
+            .map(v =>
+              s"$setId: a set's guard or order reads the variable '$v', " +
+                "which no node at or above the set declares"
+            )
         val unmembered = s.candidates.filterNot(s.members.contains).map { cd =>
           s"$setId: candidate '$cd' has no member entry — it could never " +
             "render, so the build dropped it inconsistently"
@@ -945,7 +957,8 @@ private[model] object Validate:
             s"$setId: a member is itself a set — put the set inside a card " +
               "the member renders"
         }.distinct
-        whole ++ order ++ members ++ unmembered ++ readsMember ++ bare
+        whole ++ order ++ members ++ undeclared ++ unmembered ++ readsMember ++
+          bare
       } ++ index
         .children(ix)
         .filter(index.step(_).isEmpty)
@@ -1208,7 +1221,7 @@ private[model] object Validate:
       )
 
     val decisionVarErrors: List[String] =
-      decisionExprs
+      versionDecisionExprs
         .flatMap((where, e) =>
           e.variables.map(v =>
             s"$where reads the variable '$v': a decision is made for every " +

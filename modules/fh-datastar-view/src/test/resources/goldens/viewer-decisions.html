@@ -28,7 +28,54 @@
   data-on-signal-patch__delay.300ms="$_c_0_bar_0_1__busy_slow = $_c_0_bar_0_1__busy"
   data-class:fh-busy-after="$_c_0_bar_0_1__busy_slow">b</a></div>
 <div class="fh-cell fh-ifhost fh-cols-full" id="c_0_0">
-<div class="fh-cell fh-row" id="c_0_0_branch_0"><h2 class="fh-cell fh-section fh-text" id="c_0_0_branch_0_0"><span class="fh-text-run">Mode a</span></h2></div></div></div></div>
+<div class="fh-cell fh-row" id="c_0_0_branch_0"><h2 class="fh-cell fh-section fh-text" id="c_0_0_branch_0_0"><span class="fh-text-run">Mode a</span></h2></div></div>
+<div class="fh-cell fh-group" id="c_0_1">
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_1_light_hall"
+  data-signals="{_c_0_1_light_hall__checked: '', _e: {light: {hall: {t#1: false, t#2: '', t#3: false}}}}"
+  data-class:fh-active="$_e.light.hall.t#1"
+  data-attr:data-switched="$_e.light.hall.t#2"
+  data-class:fh-disabled="$_c_0_1_light_hall__busy || $_e.light.hall.t#3"
+  data-class:fh-loading="$_c_0_1_light_hall__busy"
+  data-class:fh-error="$_c_0_1_light_hall__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_1_light_hall__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_hall__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_1_light_hall__busy_slow = $_c_0_1_light_hall__busy"
+  data-class:fh-busy-spin="$_c_0_1_light_hall__busy_slow"
+  data-attr:aria-busy="$_c_0_1_light_hall__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Hall</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_1_light_hall__checked"
+  data-on:click="$_c_0_1_light_hall__busy ? '' : $_e.light.hall.t#3 ? '' : @post('sse/call/viewer-decisions/call_3?node=c_0_1_light_hall', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.hall.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_hall__error$/}"
+  data-on-signal-patch="$_c_0_1_light_hall__error && ($_c_0_1_light_hall__checked = $_e.light.hall.t#2)"
+  data-indicator="_c_0_1_light_hall__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1_light_hall__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1_light_hall__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1_light_hall__error = ''))"
+  data-fh-node="c_0_1_light_hall" />
+    <span></span>
+  </label></div></article>
+<article class="fh-cell fh-card fh-toggle fh-tile-card fh-active" id="c_0_1_light_porch"
+  data-signals="{_c_0_1_light_porch__checked: 'on', _e: {light: {porch: {t#1: true, t#2: 'on', t#3: false}}}}"
+  data-class:fh-active="$_e.light.porch.t#1"
+  data-attr:data-switched="$_e.light.porch.t#2"
+  data-class:fh-disabled="$_c_0_1_light_porch__busy || $_e.light.porch.t#3"
+  data-class:fh-loading="$_c_0_1_light_porch__busy"
+  data-class:fh-error="$_c_0_1_light_porch__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_1_light_porch__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_porch__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_1_light_porch__busy_slow = $_c_0_1_light_porch__busy"
+  data-class:fh-busy-spin="$_c_0_1_light_porch__busy_slow"
+  data-attr:aria-busy="$_c_0_1_light_porch__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Porch</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on" checked data-bind="_c_0_1_light_porch__checked"
+  data-on:click="$_c_0_1_light_porch__busy ? '' : $_e.light.porch.t#3 ? '' : @post('sse/call/viewer-decisions/call_4?node=c_0_1_light_porch', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.porch.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_porch__error$/}"
+  data-on-signal-patch="$_c_0_1_light_porch__error && ($_c_0_1_light_porch__checked = $_e.light.porch.t#2)"
+  data-indicator="_c_0_1_light_porch__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1_light_porch__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1_light_porch__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1_light_porch__error = ''))"
+  data-fh-node="c_0_1_light_porch" />
+    <span></span>
+  </label></div></article></div></div></div>
 <!-- ==== as fixtured · case c_0_0_branch_0 ==== -->
 <div class="fh-cell fh-row" id="c_0_0_branch_0"><h2 class="fh-cell fh-section fh-text" id="c_0_0_branch_0_0"><span class="fh-text-run">Mode a</span></h2></div>
 <!-- ==== as fixtured · case c_0_0_branch_1 ==== -->
@@ -47,7 +94,7 @@
   data-attr:aria-busy="$_c_0_0_branch_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on" checked data-bind="_c_0_0_branch_1_0__checked"
-  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_3?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_5?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_0_branch_1_0__error$/}"
   data-on-signal-patch="$_c_0_0_branch_1_0__error && ($_c_0_0_branch_1_0__checked = $_e.light.kitchen.t#2)"
@@ -74,7 +121,7 @@
   data-attr:aria-busy="$_c_0_0_branch_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_0_0_branch_1_0__checked"
-  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_3?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_5?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_0_branch_1_0__error$/}"
   data-on-signal-patch="$_c_0_0_branch_1_0__error && ($_c_0_0_branch_1_0__checked = $_e.light.kitchen.t#2)"
@@ -85,6 +132,52 @@
   </label></div></article>
 <!-- ==== as fixtured · patch c_0_0_branch_2_0 ==== -->
 <h2 class="fh-cell fh-section fh-text" id="c_0_0_branch_2_0"><span class="fh-text-run">Neither</span></h2>
+<!-- ==== as fixtured · patch c_0_1_light_hall ==== -->
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_1_light_hall"
+  data-class:fh-active="$_e.light.hall.t#1"
+  data-attr:data-switched="$_e.light.hall.t#2"
+  data-class:fh-disabled="$_c_0_1_light_hall__busy || $_e.light.hall.t#3"
+  data-class:fh-loading="$_c_0_1_light_hall__busy"
+  data-class:fh-error="$_c_0_1_light_hall__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_1_light_hall__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_hall__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_1_light_hall__busy_slow = $_c_0_1_light_hall__busy"
+  data-class:fh-busy-spin="$_c_0_1_light_hall__busy_slow"
+  data-attr:aria-busy="$_c_0_1_light_hall__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Hall</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_1_light_hall__checked"
+  data-on:click="$_c_0_1_light_hall__busy ? '' : $_e.light.hall.t#3 ? '' : @post('sse/call/viewer-decisions/call_3?node=c_0_1_light_hall', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.hall.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_hall__error$/}"
+  data-on-signal-patch="$_c_0_1_light_hall__error && ($_c_0_1_light_hall__checked = $_e.light.hall.t#2)"
+  data-indicator="_c_0_1_light_hall__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1_light_hall__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1_light_hall__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1_light_hall__error = ''))"
+  data-fh-node="c_0_1_light_hall" />
+    <span></span>
+  </label></div></article>
+<!-- ==== as fixtured · patch c_0_1_light_porch ==== -->
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_1_light_porch"
+  data-class:fh-active="$_e.light.porch.t#1"
+  data-attr:data-switched="$_e.light.porch.t#2"
+  data-class:fh-disabled="$_c_0_1_light_porch__busy || $_e.light.porch.t#3"
+  data-class:fh-loading="$_c_0_1_light_porch__busy"
+  data-class:fh-error="$_c_0_1_light_porch__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_1_light_porch__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_porch__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_1_light_porch__busy_slow = $_c_0_1_light_porch__busy"
+  data-class:fh-busy-spin="$_c_0_1_light_porch__busy_slow"
+  data-attr:aria-busy="$_c_0_1_light_porch__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Porch</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_1_light_porch__checked"
+  data-on:click="$_c_0_1_light_porch__busy ? '' : $_e.light.porch.t#3 ? '' : @post('sse/call/viewer-decisions/call_4?node=c_0_1_light_porch', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.porch.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_porch__error$/}"
+  data-on-signal-patch="$_c_0_1_light_porch__error && ($_c_0_1_light_porch__checked = $_e.light.porch.t#2)"
+  data-indicator="_c_0_1_light_porch__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1_light_porch__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1_light_porch__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1_light_porch__error = ''))"
+  data-fh-node="c_0_1_light_porch" />
+    <span></span>
+  </label></div></article>
 <!-- ==== as fixtured · patch c_0_bar_0_0 ==== -->
 <a class="" id="c_0_bar_0_0"
   data-class:fh-chosen="String(($_var_c_0__mode__pending || $_var_c_0__mode)) === 'a'"
@@ -113,7 +206,84 @@
   data-on-signal-patch-filter="{include:/^_c_0_bar_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_0_bar_0_1__busy_slow = $_c_0_bar_0_1__busy"
   data-class:fh-busy-after="$_c_0_bar_0_1__busy_slow">b</a>
-<!-- ==== flipped · body: as fixtured ==== -->
+<!-- ==== flipped · body ==== -->
+<div class="fh-cell fh-col" id="c">
+<div class="fh-cell fh-col fh-cols-full" id="c_0"
+  data-fh-url:mode="['v.c_0.mode', $_var_c_0__mode, 'a']">
+<div class="fh-cell fh-tabs fh-select" id="c_0_bar_0"><a class=" fh-chosen" id="c_0_bar_0_0"
+  data-class:fh-chosen="String(($_var_c_0__mode__pending || $_var_c_0__mode)) === 'a'"
+  data-on:click="$_c_0_bar_0_0__busy ? '' : $_var_c_0__mode__pending = 'a'; @post('sse/call/viewer-decisions/call_1?node=c_0_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-indicator="_c_0_bar_0_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_bar_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_bar_0_0__error = ''))"
+  data-fh-node="c_0_bar_0_0"
+  data-class:fh-disabled="$_c_0_bar_0_0__busy"
+  data-class:fh-loading="$_c_0_bar_0_0__busy"
+  data-class:fh-error="$_c_0_bar_0_0__error"
+  data-signals__ifmissing="{_c_0_bar_0_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_bar_0_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_bar_0_0__busy_slow = $_c_0_bar_0_0__busy"
+  data-class:fh-busy-after="$_c_0_bar_0_0__busy_slow">a</a><a class="" id="c_0_bar_0_1"
+  data-class:fh-chosen="String(($_var_c_0__mode__pending || $_var_c_0__mode)) === 'b'"
+  data-on:click="$_c_0_bar_0_1__busy ? '' : $_var_c_0__mode__pending = 'b'; @post('sse/call/viewer-decisions/call_2?node=c_0_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-indicator="_c_0_bar_0_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_bar_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_bar_0_1__error = ''))"
+  data-fh-node="c_0_bar_0_1"
+  data-class:fh-disabled="$_c_0_bar_0_1__busy"
+  data-class:fh-loading="$_c_0_bar_0_1__busy"
+  data-class:fh-error="$_c_0_bar_0_1__error"
+  data-signals__ifmissing="{_c_0_bar_0_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_bar_0_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_bar_0_1__busy_slow = $_c_0_bar_0_1__busy"
+  data-class:fh-busy-after="$_c_0_bar_0_1__busy_slow">b</a></div>
+<div class="fh-cell fh-ifhost fh-cols-full" id="c_0_0">
+<div class="fh-cell fh-row" id="c_0_0_branch_0"><h2 class="fh-cell fh-section fh-text" id="c_0_0_branch_0_0"><span class="fh-text-run">Mode a</span></h2></div></div>
+<div class="fh-cell fh-group" id="c_0_1">
+<article class="fh-cell fh-card fh-toggle fh-tile-card fh-active" id="c_0_1_light_hall"
+  data-signals="{_c_0_1_light_hall__checked: 'on', _e: {light: {hall: {t#1: true, t#2: 'on', t#3: false}}}}"
+  data-class:fh-active="$_e.light.hall.t#1"
+  data-attr:data-switched="$_e.light.hall.t#2"
+  data-class:fh-disabled="$_c_0_1_light_hall__busy || $_e.light.hall.t#3"
+  data-class:fh-loading="$_c_0_1_light_hall__busy"
+  data-class:fh-error="$_c_0_1_light_hall__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_1_light_hall__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_hall__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_1_light_hall__busy_slow = $_c_0_1_light_hall__busy"
+  data-class:fh-busy-spin="$_c_0_1_light_hall__busy_slow"
+  data-attr:aria-busy="$_c_0_1_light_hall__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Hall</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on" checked data-bind="_c_0_1_light_hall__checked"
+  data-on:click="$_c_0_1_light_hall__busy ? '' : $_e.light.hall.t#3 ? '' : @post('sse/call/viewer-decisions/call_3?node=c_0_1_light_hall', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.hall.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_hall__error$/}"
+  data-on-signal-patch="$_c_0_1_light_hall__error && ($_c_0_1_light_hall__checked = $_e.light.hall.t#2)"
+  data-indicator="_c_0_1_light_hall__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1_light_hall__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1_light_hall__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1_light_hall__error = ''))"
+  data-fh-node="c_0_1_light_hall" />
+    <span></span>
+  </label></div></article>
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_1_light_porch"
+  data-signals="{_c_0_1_light_porch__checked: '', _e: {light: {porch: {t#1: false, t#2: '', t#3: false}}}}"
+  data-class:fh-active="$_e.light.porch.t#1"
+  data-attr:data-switched="$_e.light.porch.t#2"
+  data-class:fh-disabled="$_c_0_1_light_porch__busy || $_e.light.porch.t#3"
+  data-class:fh-loading="$_c_0_1_light_porch__busy"
+  data-class:fh-error="$_c_0_1_light_porch__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_1_light_porch__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_porch__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_1_light_porch__busy_slow = $_c_0_1_light_porch__busy"
+  data-class:fh-busy-spin="$_c_0_1_light_porch__busy_slow"
+  data-attr:aria-busy="$_c_0_1_light_porch__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Porch</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_1_light_porch__checked"
+  data-on:click="$_c_0_1_light_porch__busy ? '' : $_e.light.porch.t#3 ? '' : @post('sse/call/viewer-decisions/call_4?node=c_0_1_light_porch', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-attr:disabled="$_e.light.porch.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_porch__error$/}"
+  data-on-signal-patch="$_c_0_1_light_porch__error && ($_c_0_1_light_porch__checked = $_e.light.porch.t#2)"
+  data-indicator="_c_0_1_light_porch__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1_light_porch__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1_light_porch__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1_light_porch__error = ''))"
+  data-fh-node="c_0_1_light_porch" />
+    <span></span>
+  </label></div></article></div></div></div>
 <!-- ==== flipped · case c_0_0_branch_0: as fixtured ==== -->
 <!-- ==== flipped · case c_0_0_branch_1 ==== -->
 <div class="fh-cell fh-row" id="c_0_0_branch_1">
@@ -131,7 +301,7 @@
   data-attr:aria-busy="$_c_0_0_branch_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_0_0_branch_1_0__checked"
-  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_3?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_5?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_0_branch_1_0__error$/}"
   data-on-signal-patch="$_c_0_0_branch_1_0__error && ($_c_0_0_branch_1_0__checked = $_e.light.kitchen.t#2)"
@@ -144,9 +314,86 @@
 <!-- ==== flipped · patch c_0_0_branch_0_0: as fixtured ==== -->
 <!-- ==== flipped · patch c_0_0_branch_1_0: as fixtured ==== -->
 <!-- ==== flipped · patch c_0_0_branch_2_0: as fixtured ==== -->
+<!-- ==== flipped · patch c_0_1_light_hall: as fixtured ==== -->
+<!-- ==== flipped · patch c_0_1_light_porch: as fixtured ==== -->
 <!-- ==== flipped · patch c_0_bar_0_0: as fixtured ==== -->
 <!-- ==== flipped · patch c_0_bar_0_1: as fixtured ==== -->
-<!-- ==== unavailable · body: as fixtured ==== -->
+<!-- ==== unavailable · body ==== -->
+<div class="fh-cell fh-col" id="c">
+<div class="fh-cell fh-col fh-cols-full" id="c_0"
+  data-fh-url:mode="['v.c_0.mode', $_var_c_0__mode, 'a']">
+<div class="fh-cell fh-tabs fh-select" id="c_0_bar_0"><a class=" fh-chosen" id="c_0_bar_0_0"
+  data-class:fh-chosen="String(($_var_c_0__mode__pending || $_var_c_0__mode)) === 'a'"
+  data-on:click="$_c_0_bar_0_0__busy ? '' : $_var_c_0__mode__pending = 'a'; @post('sse/call/viewer-decisions/call_1?node=c_0_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-indicator="_c_0_bar_0_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_bar_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_bar_0_0__error = ''))"
+  data-fh-node="c_0_bar_0_0"
+  data-class:fh-disabled="$_c_0_bar_0_0__busy"
+  data-class:fh-loading="$_c_0_bar_0_0__busy"
+  data-class:fh-error="$_c_0_bar_0_0__error"
+  data-signals__ifmissing="{_c_0_bar_0_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_bar_0_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_bar_0_0__busy_slow = $_c_0_bar_0_0__busy"
+  data-class:fh-busy-after="$_c_0_bar_0_0__busy_slow">a</a><a class="" id="c_0_bar_0_1"
+  data-class:fh-chosen="String(($_var_c_0__mode__pending || $_var_c_0__mode)) === 'b'"
+  data-on:click="$_c_0_bar_0_1__busy ? '' : $_var_c_0__mode__pending = 'b'; @post('sse/call/viewer-decisions/call_2?node=c_0_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-indicator="_c_0_bar_0_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_bar_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_bar_0_1__error = ''))"
+  data-fh-node="c_0_bar_0_1"
+  data-class:fh-disabled="$_c_0_bar_0_1__busy"
+  data-class:fh-loading="$_c_0_bar_0_1__busy"
+  data-class:fh-error="$_c_0_bar_0_1__error"
+  data-signals__ifmissing="{_c_0_bar_0_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_bar_0_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_bar_0_1__busy_slow = $_c_0_bar_0_1__busy"
+  data-class:fh-busy-after="$_c_0_bar_0_1__busy_slow">b</a></div>
+<div class="fh-cell fh-ifhost fh-cols-full" id="c_0_0">
+<div class="fh-cell fh-row" id="c_0_0_branch_0"><h2 class="fh-cell fh-section fh-text" id="c_0_0_branch_0_0"><span class="fh-text-run">Mode a</span></h2></div></div>
+<div class="fh-cell fh-group" id="c_0_1">
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_1_light_hall"
+  data-signals="{_c_0_1_light_hall__checked: '', _e: {light: {hall: {t#1: false, t#2: '', t#3: true}}}}"
+  data-class:fh-active="$_e.light.hall.t#1"
+  data-attr:data-switched="$_e.light.hall.t#2"
+  data-class:fh-disabled="$_c_0_1_light_hall__busy || $_e.light.hall.t#3"
+  data-class:fh-loading="$_c_0_1_light_hall__busy"
+  data-class:fh-error="$_c_0_1_light_hall__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_1_light_hall__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_hall__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_1_light_hall__busy_slow = $_c_0_1_light_hall__busy"
+  data-class:fh-busy-spin="$_c_0_1_light_hall__busy_slow"
+  data-attr:aria-busy="$_c_0_1_light_hall__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Hall</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_1_light_hall__checked"
+  data-on:click="$_c_0_1_light_hall__busy ? '' : $_e.light.hall.t#3 ? '' : @post('sse/call/viewer-decisions/call_3?node=c_0_1_light_hall', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.hall.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_hall__error$/}"
+  data-on-signal-patch="$_c_0_1_light_hall__error && ($_c_0_1_light_hall__checked = $_e.light.hall.t#2)"
+  data-indicator="_c_0_1_light_hall__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1_light_hall__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1_light_hall__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1_light_hall__error = ''))"
+  data-fh-node="c_0_1_light_hall" />
+    <span></span>
+  </label></div></article>
+<article class="fh-cell fh-card fh-toggle fh-tile-card" id="c_0_1_light_porch"
+  data-signals="{_c_0_1_light_porch__checked: '', _e: {light: {porch: {t#1: false, t#2: '', t#3: true}}}}"
+  data-class:fh-active="$_e.light.porch.t#1"
+  data-attr:data-switched="$_e.light.porch.t#2"
+  data-class:fh-disabled="$_c_0_1_light_porch__busy || $_e.light.porch.t#3"
+  data-class:fh-loading="$_c_0_1_light_porch__busy"
+  data-class:fh-error="$_c_0_1_light_porch__error">  <div class="fh-tile"><span class="fh-badge fh-icon-shape  fh-onoff"
+  data-signals__ifmissing="{_c_0_1_light_porch__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_porch__busy$/}"
+  data-on-signal-patch__delay.300ms="$_c_0_1_light_porch__busy_slow = $_c_0_1_light_porch__busy"
+  data-class:fh-busy-spin="$_c_0_1_light_porch__busy_slow"
+  data-attr:aria-busy="$_c_0_1_light_porch__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Porch</span></span></span>
+  <label class="fh-switch">
+    <input type="checkbox" value="on"  data-bind="_c_0_1_light_porch__checked"
+  data-on:click="$_c_0_1_light_porch__busy ? '' : $_e.light.porch.t#3 ? '' : @post('sse/call/viewer-decisions/call_4?node=c_0_1_light_porch', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.porch.t#3"
+  data-on-signal-patch-filter="{include:/^_c_0_1_light_porch__error$/}"
+  data-on-signal-patch="$_c_0_1_light_porch__error && ($_c_0_1_light_porch__checked = $_e.light.porch.t#2)"
+  data-indicator="_c_0_1_light_porch__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1_light_porch__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1_light_porch__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1_light_porch__error = ''))"
+  data-fh-node="c_0_1_light_porch" />
+    <span></span>
+  </label></div></article></div></div></div>
 <!-- ==== unavailable · case c_0_0_branch_0: as fixtured ==== -->
 <!-- ==== unavailable · case c_0_0_branch_1 ==== -->
 <div class="fh-cell fh-row" id="c_0_0_branch_1">
@@ -164,7 +411,7 @@
   data-attr:aria-busy="$_c_0_0_branch_1_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_0_0_branch_1_0__checked"
-  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_3?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
+  data-on:click="$_c_0_0_branch_1_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/viewer-decisions/call_5?node=c_0_0_branch_1_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_0_branch_1_0__error$/}"
   data-on-signal-patch="$_c_0_0_branch_1_0__error && ($_c_0_0_branch_1_0__checked = $_e.light.kitchen.t#2)"
   data-indicator="_c_0_0_branch_1_0__busy"
@@ -176,5 +423,7 @@
 <!-- ==== unavailable · patch c_0_0_branch_0_0: as fixtured ==== -->
 <!-- ==== unavailable · patch c_0_0_branch_1_0: as fixtured ==== -->
 <!-- ==== unavailable · patch c_0_0_branch_2_0: as fixtured ==== -->
+<!-- ==== unavailable · patch c_0_1_light_hall: as fixtured ==== -->
+<!-- ==== unavailable · patch c_0_1_light_porch: as fixtured ==== -->
 <!-- ==== unavailable · patch c_0_bar_0_0: as fixtured ==== -->
 <!-- ==== unavailable · patch c_0_bar_0_1: as fixtured ==== -->

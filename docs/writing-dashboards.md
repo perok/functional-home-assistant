@@ -337,6 +337,12 @@ Each is a *variable*:
   state, each viewer getting the first branch that holds for their own value:
   `c.iff(view.valueIs("detail")).then(a).elif(q.entity(e).stateIs("on")).then(b)`.
   With no `else`, a viewer for whom none holds sees nothing there.
+- **A set can follow the choice too.** A `where` or `orderBy` may read
+  `view.valueIs(…)`, alone or with a condition on state:
+  `.where(q.any(List(view.valueIs("all"), q.eq(q.stateProp, "on"))))` shows
+  every light to a viewer on `all` and only the lit ones to the rest, and a key
+  built the same way gives each viewer their own order. Others on the page are
+  not moved when one viewer changes their choice.
 - **Any button can choose:** `c.button("Detail", view.choose("detail"))`, on a
   card at or below the one that declares `view`. `view.choose(null)` forgets
   the viewer's choice, so the variable is back where it started and leaves the

@@ -1200,10 +1200,18 @@ case class Dashboard(
 
   /** Every expression a decision reads, beside where it is read: a set's
     * clauses and order, a `valueWhile` and the inputs it reads, a state
-    * surface, a set a press acts on. Made once for every viewer, so none may
-    * read a viewer's variable.
+    * surface, a set a press acts on. Each asks its fetches every version, so
+    * none reads a window a variable chooses.
     */
-  lazy val decisionExprs: List[(String, ValueExpr)] = {
+  lazy val decisionExprs: List[(String, ValueExpr)] = decisionExprsOf(true)
+
+  /** [[decisionExprs]] but a set's clauses and order, which a variable makes
+    * per viewer: the ones made once for every viewer.
+    */
+  lazy val versionDecisionExprs: List[(String, ValueExpr)] =
+    decisionExprsOf(false)
+
+  private def decisionExprsOf(sets: Boolean): List[(String, ValueExpr)] = {
     def walk(n: LayoutNode): List[(String, ValueExpr)] = n match
       case c: LayoutNode.Component =>
         c.bound.toList.sortBy((k, _) => SlotKey.label(k)).flatMap { (k, s) =>
@@ -1211,12 +1219,17 @@ case class Dashboard(
             .flatMap(w => w.expr :: w.inputs.values.toList)
             .map(s"slot '${SlotKey.label(k)}''s valueWhile" -> _)
         } ++ c.allChildren.flatMap(walk) ++ c.set.toList.flatMap { (_, s) =>
-          s.orderBy.map("a set's order" -> _.by) ++
-            s.members.toList.sortBy(_._1).flatMap { (_, m) =>
-              m match
-                case Choice.Chosen(by, _, _) => List("a set's clause" -> by)
-                case Choice.Fixed(_)         => Nil
-            } ++ s.nodes.flatMap(walk)
+          Option
+            .when(sets)(
+              s.orderBy.map("a set's order" -> _.by) ++
+                s.members.toList.sortBy(_._1).flatMap { (_, m) =>
+                  m match
+                    case Choice.Chosen(by, _, _) => List("a set's clause" -> by)
+                    case Choice.Fixed(_)         => Nil
+                }
+            )
+            .toList
+            .flatten ++ s.nodes.flatMap(walk)
         }
 
     // A choice reading a variable is decided per viewer, so it is left out

@@ -316,7 +316,7 @@ class Renderer(validated: Dashboard.Validated) {
         .toMap,
       viewerReads = surfaces.viewerPicks
         .map(gid => gid -> surfaces.viewerVariables(gid).toSet)
-        .toMap,
+        .toMap ++ members.viewerSets,
       readsAt = id =>
         fetchesForNode(id).flatMap(_.fetch.variables).toSet ++
           variablesForNode(id)

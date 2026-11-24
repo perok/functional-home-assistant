@@ -67,20 +67,42 @@ private[runtime] final class Shared private (
     */
   def branchAt(gid: NodeId, names: List[String], reads: Set[SlotRead])(
       derive: Shared.Fetched => Option[Int]
-  ): Option[Int] = {
-    val scope = viewer.getOrElse(gid, Map.empty)
+  ): Option[Int] =
+    decideAt(tables.viewerBranches, gid, gid, names, reads, None)(derive)
+
+  /** A set's members read at the values of `names` in scope at its node `at`,
+    * as [[branchAt]] reads a pick's case.
+    */
+  def setAt(
+      gid: SetId,
+      at: NodeId,
+      names: List[String],
+      reads: Set[SlotRead],
+      missing: => GroupMembers
+  )(derive: Shared.Fetched => GroupMembers): GroupMembers =
+    decideAt(tables.viewerSets, gid, at, names, reads, missing)(derive)
+
+  private def decideAt[K, V](
+      t: ByValues[K, V],
+      k: K,
+      at: NodeId,
+      names: List[String],
+      reads: Set[SlotRead],
+      missing: => V
+  )(derive: Shared.Fetched => V): V = {
+    val scope = viewer.getOrElse(at, Map.empty)
     val values = names.map(n => scope.getOrElse(n, Evaluator.noVariable(n)))
-    tables.viewerBranches.get(gid, values) match
+    t.get(k, values) match
       case Some(v) => v
       case None    =>
         answered(reads) match
-          case None    => None
+          case None    => missing
           case Some(f) =>
             val in = new Evaluator.Lookup:
               def fetched(t: fh.view.model.FetchTemplate): Object = f.fetched(t)
               def variable(name: String): String =
                 scope.getOrElse(name, Evaluator.noVariable(name))
-            tables.viewerBranches.once(gid, gid, names, values)(derive(in))
+            t.once(k, at, names, values)(derive(in))
   }
 
   def set(gid: SetId, reads: Set[SlotRead], missing: => GroupMembers)(
@@ -165,6 +187,7 @@ private[runtime] final class Shared private (
       marked.branch,
       live
     )
+    from.viewerSets.carryInto(to.viewerSets, dirty.sets, _ => true, live)
   }
 }
 
@@ -238,6 +261,7 @@ private[runtime] object Shared {
     val branches = new Table[NodeId, Option[Int]]
     val gates = new Table[String, java.lang.Boolean]
     val viewerBranches = new ByValues[NodeId, Option[Int]]
+    val viewerSets = new ByValues[SetId, GroupMembers]
     val signals = new ConcurrentHashMap[NodeId, Map[SignalId, SlotValue]]()
   }
 

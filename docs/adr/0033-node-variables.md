@@ -256,8 +256,8 @@ fetches and literals is decided once per state version, for every viewer; one re
 is decided per viewer, as that viewer's bytes render. So a read stands only where bytes are
 rendered per viewer, a leaf's value slot, and `validate` refuses one:
 
-- in any decision made once for every viewer: a set's clause and order, a state surface's
-  condition, a `valueWhile`, a set a press acts on (`Dashboard.decisionExprs`);
+- in any decision made once for every viewer: a state surface's condition, a `valueWhile`, a set
+  a press acts on (`Dashboard.versionDecisionExprs`);
 - in any signal slot, `cellClassWhen` and `cellStyle` included: a display signal is named by what
   it reads, so every viewer shares it;
 - in a structural card's own slots, which are never re-rendered for a viewer.
@@ -271,6 +271,15 @@ viewer's values and its case looked up, kept per values in the version's `Shared
 it reads; one reading no entity is never dirtied. A write re-plans each pick reading the key at
 the writer's host (`VarGraph.picksDecidedBy`), and a state change moving a viewer pick's case
 for some viewers is logged as a flip for those alone (ADR 0007).
+
+A candidate set whose guards or order read a variable is decided per viewer the same way: its
+level is `Viewer` at the set's node, so the variable is read as the nodes at or above the set
+declare it (`Validate.setErrors` refuses one nothing there declares), and its members and their
+order are kept per values (`Shared.setAt`, `MemberGraph.decided`). Everything below such a set is
+on the page only as a viewer's `Shared` has it, so the recorder plans and logs once per distinct
+values (`Server.recordFrame`), and a write re-plans the set's host for its writer alone. The
+guard and order mix variables and state freely, in one condition (`q.any`/`q.all` over `valueIs`
+and a comparison).
 
 ## Why not
 

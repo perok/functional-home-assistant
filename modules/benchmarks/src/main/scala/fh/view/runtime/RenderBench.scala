@@ -559,9 +559,11 @@ class RenderBench {
       // it does, and a tab-b viewer's case follows it (its page began on `off`).
       if (s.tab == "a" && hosts(patches).nonEmpty)
         sys.error(s"a tab-a session must keep its If's case; got $patches")
-      if (s.tab == "b" && (morphs.nonEmpty || hosts(patches).sizeIs != 1))
+      // And the set light, which `mode == "a"` keeps for tab `a` only: tab
+      // `b` has it placed or left, tab `a` a signal.
+      if (s.tab == "b" && (morphs.nonEmpty || hosts(patches).sizeIs != 2))
         sys.error(
-          s"a tab-b session must be owed the If's host only; got $patches"
+          s"a tab-b session must be owed the If's host and the set's; got $patches"
         )
     }
   }
@@ -586,11 +588,19 @@ class RenderBench {
     val lightWas = viewerStates(light)
     val lightNow =
       lightWas.copy(state = if (lightWas.state == "on") "off" else "on")
+    val member = entityId(ViewerSetFirst)
+    val memberWas = viewerStates(member)
+    val memberNow =
+      memberWas.copy(state = if (memberWas.state == "on") "off" else "on")
     val changes = List(
       StateChange.Moved(id, Some(was), moved),
-      StateChange.Moved(light, Some(lightWas), lightNow)
+      StateChange.Moved(light, Some(lightWas), lightNow),
+      StateChange.Moved(member, Some(memberWas), memberNow)
     )
-    val states = viewerStates.updated(id, moved).updated(light, lightNow)
+    val states = viewerStates
+      .updated(id, moved)
+      .updated(light, lightNow)
+      .updated(member, memberNow)
     val version = viewerShared.version + 1
     val prev = viewerShared
     val next =
@@ -608,19 +618,27 @@ class RenderBench {
             viewers.surfaces.onScreen(s.open, now.viewing(s.env))
           )
         )
-        val visible = screens.foldLeft(scala.collection.immutable.BitSet.empty)(
-          _ | _._2._2
-        )
         val seen = screens.groupBy(_._1).values.toList.map { same =>
           SurfaceGraph.Seen(
             same.head._2._1,
             same.foldLeft(scala.collection.immutable.BitSet.empty)(_ | _._2._2)
           )
         }
-        Patches.plan(viewers, before, now, changes, visible, seen)
+        // A set read per viewer is planned as each values' viewer, as
+        // `Server.recordFrame` does.
+        seen.map(s =>
+          Patches.plan(
+            viewers,
+            before.viewing(s.env),
+            now.viewing(s.env),
+            changes,
+            s.visible,
+            List(s)
+          )
+        )
       }
       .unsafeRunSync()
-    val log = Patches.record(viewers, FragmentLog("bench"), req)
+    val log = req.foldLeft(FragmentLog("bench"))(Patches.record(viewers, _, _))
     viewerStates = states
     viewerShared = next
     viewerSessions.toList
@@ -647,7 +665,9 @@ class RenderBench {
     * of [[ViewerPanelLeaves]] lights) and an If over `mode` and a light, ten
     * sessions half on each tab. One op moves a light in panel `a` and toggles
     * the If's light: a frame through the recorder and every session's resume,
-    * so the per-viewer decisions are part of every pull here.
+    * so the per-viewer decisions are part of every pull here. A set of
+    * [[ViewerSetLights]] lights kept by `mode == "a"` or the light being on
+    * moves one of them too: tab `b` loses or gains it.
     */
   @Benchmark
   def viewerPull(bh: Blackhole): Unit = bh.consume(viewerOp())
@@ -2412,7 +2432,9 @@ object RenderBench {
 
   /** Lights in each panel of [[viewerDash]], and the few outside the tabs. */
   final val ViewerPanelLeaves = 20
-  final val ViewerEntities = 2 * ViewerPanelLeaves + 6
+  final val ViewerSetLights = 4
+  final val ViewerSetFirst = 2 * ViewerPanelLeaves + 6
+  final val ViewerEntities = ViewerSetFirst + ViewerSetLights
 
   /** The light the mixed If of [[viewerDash]] reads, toggled by every
     * [[viewerPull]] op.
@@ -2517,6 +2539,48 @@ object RenderBench {
                     )
                   )
                 )
+              ),
+              // `mode == "a"` or lit: tab `a` keeps every member, tab `b` the
+              // lit ones.
+              Sets.node(
+                candidates = List.tabulate(ViewerSetLights)(i =>
+                  entityId(ViewerSetFirst + i)
+                ),
+                members = List
+                  .tabulate(ViewerSetLights)(i =>
+                    entityId(ViewerSetFirst + i) -> Sets.Member(
+                      List(
+                        Sets.Clause(
+                          Some(
+                            ValueExpr(
+                              Value.List(
+                                ValueType.Bool,
+                                List(
+                                  ValueExpr(
+                                    Value.Var("mode"),
+                                    List(
+                                      Step.Compare(
+                                        Op.Eq,
+                                        Value.Literal(Lit.Text("a"))
+                                      )
+                                    )
+                                  ),
+                                  Conds.cmp(
+                                    "state",
+                                    Op.Eq,
+                                    Json.fromString("on")
+                                  )
+                                )
+                              ),
+                              List(Step.AnyOf)
+                            )
+                          ),
+                          leaf(true)(ViewerSetFirst + i)
+                        )
+                      )
+                    )
+                  )
+                  .toMap
               ),
               outside(3),
               outside(4)

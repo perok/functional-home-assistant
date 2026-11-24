@@ -196,7 +196,7 @@ layers only look it up.
 |---|---|---|---|
 | **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL and card templates compiled (`Validated.templates`, the same tree the checks read), fetches parsed, and the tree walked into the compiled one (`Validated.ready`, `Ready.Compile`): every slot, guard, state condition and order beside its run. Everything below reads only that tree |
 | **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's fetching slots with the `valueWhile` each waits for (`Renderer`'s `Index`, one for the body and one per popup, a choice's every case included, each node with the container holding it; `Component.fetching`), which nodes an entity wakes, every member a candidate can be in each clause with its nodes and fetches (`MemberGraph`, `Member.fetching`), the sets inside each clause (`MemberGraph.setsIn`), each choice's pick and its cases' node ids (`SurfaceGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
-| **Decisions** | state version | the entity states, and the answers to the fetches a decision reads | what they decide, in that version's `Shared`: which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which case a pick over state shows, its `by` read once (`SurfaceGraph.decideByState`), and whether each `valueWhile` holds. Each is carried from the version before unless the frame between DIRTIED it (an edge in the index, read off the expression that decides it), or made on demand by the first reader that reaches it; every viewer of one version shares them. What reads a variable is the exception: it is made at the viewer's values (`Shared.viewing`) and kept per values (`Shared.branchAt`, `ByValues`), so viewers on equal values share one, a dirtying drops every value's at once, and a carry drops the values no live session holds. A pick has one of three levels, found once per renderer from what its `by` reads: state alone (`SurfaceGraph.statePicks`, `decideByState`, shared), computing over a variable, alone or with state (`viewerPicks`, `decideByViewer`, kept per values through the same dirty rule as a state pick, so a viewer pick reading no entity is never dirtied), or the plain variable (`varPicks`, not kept: a lookup of the viewer's value, `decideByVariable`). Beside them, a node's signal values (`Shared.signals`), made by the first session's signal frame and never carried; a node reading a fetch is left out, since its answer is the viewer's (ten clients' signal tick: 341 to 213 µs, `RenderBench.resumeSignalsFanout`). A viewer's own part of a send is its `Viewing`: its `Selections` (the popup) and its slot answers (§6), beside the values its `Shared` is viewed at |
+| **Decisions** | state version | the entity states, and the answers to the fetches a decision reads | what they decide, in that version's `Shared`: which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`; a set reading a variable, at the viewer's values), which case a pick over state shows, its `by` read once (`SurfaceGraph.decideByState`), and whether each `valueWhile` holds. Each is carried from the version before unless the frame between DIRTIED it (an edge in the index, read off the expression that decides it), or made on demand by the first reader that reaches it; every viewer of one version shares them. What reads a variable is the exception: it is made at the viewer's values (`Shared.viewing`) and kept per values (`Shared.branchAt` for a pick, `Shared.setAt` for a set's members and order, at the values in scope at the set's node; `ByValues`), so viewers on equal values share one, a dirtying drops every value's at once, and a carry drops the values no live session holds. A pick has one of three levels, found once per renderer from what its `by` reads: state alone (`SurfaceGraph.statePicks`, `decideByState`, shared), computing over a variable, alone or with state (`viewerPicks`, `decideByViewer`, kept per values through the same dirty rule as a state pick, so a viewer pick reading no entity is never dirtied), or the plain variable (`varPicks`, not kept: a lookup of the viewer's value, `decideByVariable`). Beside them, a node's signal values (`Shared.signals`), made by the first session's signal frame and never carried; a node reading a fetch is left out, since its answer is the viewer's (ten clients' signal tick: 341 to 213 µs, `RenderBench.resumeSignalsFanout`). A viewer's own part of a send is its `Viewing`: its `Selections` (the popup) and its slot answers (§6), beside the values its `Shared` is viewed at |
 
 Three rules keep the layers apart, and building on them is how new work stays cheap:
 
@@ -668,12 +668,19 @@ asked, and membership arrives already decided — `MemberGraph.deltas` makes eac
 "after" decision (from the changed entities alone for a stable set) and answers which sets show
 other keys than before.
 
+A set whose guards or order read a variable (`MemberGraph.readsViewer`) is decided at each
+viewer's values, so what is under it is on the page only for those whose `Shared` holds it, and
+`Server.recordFrame` makes one plan per distinct live values, each as that viewer
+(`Shared.viewing`) with the screens of its sessions, and logs the union: the set's host when its
+keys moved for some values, and each arriving member's root. A frame with no such set keeps its
+single plan.
+
 ```mermaid
 flowchart TB
   REQ["DiffRequest from Patches.plan"]
 
   REQ --> STAT["STATIC IDS<br/>ordinary bound components,<br/>a ticking MEMBER's nodes included"]
-  REQ --> DYN["SETS<br/>whose keys moved: an arrival, a departure,<br/>a reorder, a clause switch"]
+  REQ --> DYN["SETS<br/>whose keys moved, for some viewer's values:<br/>an arrival, a departure, a reorder, a clause switch"]
   REQ --> FLIP["FLIPS<br/>a state pick whose case moved,<br/>a viewer pick whose case moved<br/>for some watched viewer"]
 
   STAT --> STATW["touched: node -&gt; version"]
@@ -1097,7 +1104,7 @@ keeps its entity, its wake and its signal, and its CEL reads the answer by name.
 pipeline one argument, not a box. A decision outside a render (a set's clause and order, a state
 surface, a `valueWhile`, a press on a set) reads one too, and is made in rounds (§1a,
 `Renderer.decide`): each decision's reads come off its compiled expression (`SlotAsk.decision`,
-at no viewer's variables, which the build refuses there), only a decision the walk reaches asks,
+at no variable's window, which the build refuses there), only a decision the walk reaches asks,
 and its answers live in the run, not in `Shared`, since the resolver caches them. As for a
 slot's, an answer that moves wakes nothing; the decision is made again when what it depends on
 changes: its entities, and those a fetch names with `updateOnEntityChange()` (`dependsOn`). A value's fetch

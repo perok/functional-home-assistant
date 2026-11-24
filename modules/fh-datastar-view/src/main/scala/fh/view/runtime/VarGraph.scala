@@ -81,7 +81,8 @@ object VarKey:
   * @param panelsSelected
   *   each pick over a variable, by the variable deciding it.
   * @param viewerReads
-  *   each pick computing over variables (and state), by the variables it reads.
+  *   each pick computing over variables (and state), and each set whose guards
+  *   or order read them, by the variables it reads.
   * @param readsAt
   *   the variables a node reads, by its fetches or its slots, a member's whole
   *   subtree included.
@@ -175,9 +176,10 @@ private[runtime] final class VarGraph(
       case (gid, name) if name == key.name && declaredAt(gid, key) => gid
     }
 
-  /** The picks a write moves, swapped as a tab press is: the panels it selects
-    * and the picks computing over it. A reader as much as a fetch is, so a
-    * write reaching one is not refused for lacking a fetch.
+  /** The hosts a write moves, planned as a tab press is: the panels it selects,
+    * the picks computing over it and the sets whose guards or order read it. A
+    * reader as much as a fetch is, so a write reaching one is not refused for
+    * lacking a fetch.
     */
   def picksDecidedBy(key: VarKey): List[NodeId] =
     (panelsSelectedBy(key) ++

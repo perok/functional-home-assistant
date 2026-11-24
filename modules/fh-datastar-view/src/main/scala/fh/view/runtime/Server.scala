@@ -535,7 +535,9 @@ class Server(
   /** The shell around [[Patches.plan]] + [[Patches.record]]: one plan per
     * frame, its visibility the union of each watched viewer's screen
     * ([[Sessions.watching]]), one viewer at a time, and the screens kept apart
-    * per distinct values for the picks a viewer's values decide.
+    * per distinct values for the picks a viewer's values decide. Where a set's
+    * decision reads a variable, one plan per distinct values, each as that
+    * viewer, logged as the union.
     *
     * A slug nobody watches records nothing ([[FragmentLog.skipped]]). Safe only
     * because [[pageResponse]] registers the session BEFORE reading the snapshot
@@ -582,18 +584,45 @@ class Server(
                   val visible = screens.foldLeft(BitSet.empty)(_ | _._3)
                   // A viewer pick is decided per distinct values, each by its
                   // own sessions' screens; nothing to split without one.
-                  val seen =
-                    if (renderer.surfaces.viewerPicks.isEmpty) Nil
-                    else
-                      screens.groupBy(_._1).values.toList.map { same =>
-                        SurfaceGraph.Seen(
-                          same.head._2,
-                          same.foldLeft(BitSet.empty)(_ | _._3)
-                        )
-                      }
-                  Patches.plan(renderer, was, now, frame.changes, visible, seen)
+                  def seen =
+                    screens.groupBy(_._1).values.toList.map { same =>
+                      SurfaceGraph.Seen(
+                        same.head._2,
+                        same.foldLeft(BitSet.empty)(_ | _._3)
+                      )
+                    }
+                  // A set read per viewer decides what is on the page below
+                  // it, so each values is planned as its own viewer.
+                  if (renderer.members.readsViewer)
+                    seen.map(s =>
+                      Patches.plan(
+                        renderer,
+                        was.viewing(s.env),
+                        now.viewing(s.env),
+                        frame.changes,
+                        s.visible,
+                        List(s)
+                      )
+                    )
+                  else
+                    List(
+                      Patches.plan(
+                        renderer,
+                        was,
+                        now,
+                        frame.changes,
+                        visible,
+                        if (renderer.surfaces.viewerPicks.isEmpty) Nil else seen
+                      )
+                    )
                 }
-                .flatMap(req => written(Patches.record(renderer, _, req)))
+                .flatMap(reqs =>
+                  written(l =>
+                    reqs.foldLeft(l)((acc, req) =>
+                      Patches.record(renderer, acc, req)
+                    )
+                  )
+                )
           recorded.map(next -> _)
       }
     }
@@ -1244,9 +1273,9 @@ class Server(
       .flatMap((reads, shared) => answer(reads, env).map(_ -> shared))
 
   /** Set a node variable for this viewer and re-render the readers it is shown
-    * (issue #209): the nodes whose fetches or slots read it, and each pick it
-    * selects, planned against what this session's host holds. Per session: it
-    * reads and logs nothing.
+    * (issue #209): the nodes whose fetches or slots read it, and each pick or
+    * set it moves, planned against what this session's host holds. Per session:
+    * it reads and logs nothing.
     *
     * The untrusted value is checked ([[Renderer.refusals]]) before it is kept.
     * `None` drops the choice, so the variable holds what it opened at again.
@@ -1274,7 +1303,11 @@ class Server(
           (
             shown(key.declarer),
             groups.filter(gid =>
-              shown(gid) && renderer.surfaces.groupShown(gid, at)
+              shown(gid) && renderer.members
+                .setContainer(gid)
+                .fold(renderer.surfaces.groupShown(gid, at))(
+                  renderer.members.setShown(_, at)
+                )
             ),
             readers.filter(shown)
           )

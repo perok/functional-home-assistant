@@ -106,7 +106,9 @@ private object GroupMembers {
 
 /** Who is in every candidate set, and in what order: the graph decides presence
   * and order, the renderer paints (ADR 0003). Presence is a function of a
-  * version, kept in its [[Shared]], which the recorder and every render read.
+  * version, kept in its [[Shared]], which the recorder and every render read; a
+  * set whose guards or order read a variable is kept there per values, so what
+  * is below it is on the page only as a viewer's [[Shared]] has it.
   *
   * @param setNodes
   *   the statically indexed sets; nested ones are discovered from these.
@@ -127,6 +129,13 @@ private[runtime] final class MemberGraph(
     val reads: Set[SlotRead] =
       s.members.values.flatMap(_.guard).flatMap(_.reads).toSet
         ++ s.order.fold(Set.empty[SlotRead])(_.reads)
+
+    /** The node variables its guards and order read, in the order its
+      * per-values decision is kept by: none, and it is decided once a version.
+      */
+    val variables: List[String] =
+      (s.members.toList.sortBy(_._1).flatMap(_._2.guard).flatMap(_.variables)
+        ++ s.order.toList.flatMap(_.variables)).distinct
 
     /** entity -> the candidates it can decide, so a frame costs its changes,
       * not the candidate list.
@@ -495,21 +504,56 @@ private[runtime] final class MemberGraph(
   private def groupOf(gid: SetId, shared: Shared): GroupMembers =
     sources.get(gid) match
       case None    => GroupMembers.empty
-      case Some(s) =>
-        shared.set(gid, s.src.reads, GroupMembers.empty)(
-          s.materialise(shared.states, _)
-        )
+      case Some(s) => decided(s, shared)(s.materialise(shared.states, _))
+
+  /** Once a version, or, reading a variable, at the values in scope at the
+    * set's node for `shared`'s viewer: a member's own declarations exist only
+    * once it does.
+    */
+  private def decided(s: Source, shared: Shared)(
+      derive: Shared.Fetched => GroupMembers
+  ): GroupMembers =
+    if (s.src.variables.isEmpty)
+      shared.set(s.gid, s.src.reads, GroupMembers.empty)(derive)
+    else
+      shared.setAt(
+        s.gid,
+        s.at,
+        s.src.variables,
+        s.src.reads,
+        GroupMembers.empty
+      )(derive)
+
+  /** Whether some set's decision reads a viewer's values. */
+  val readsViewer: Boolean = sourcesWithOwner.exists(_.src.variables.nonEmpty)
+
+  /** Each set whose decision reads variables, by the variables it reads. */
+  val viewerSets: Map[NodeId, Set[String]] =
+    sourcesWithOwner.collect {
+      case s if s.src.variables.nonEmpty =>
+        (s.gid: NodeId) -> s.src.variables.toSet
+    }.toMap
 
   /** Only a set with a `limit` needs its neighbours: order alone never decides
-    * presence.
+    * presence. A member of a set read per viewer is its set's, which is kept
+    * per values already.
     */
   def memberAt(id: NodeId, shared: Shared): Option[Member] =
     memberSlot.get(id).flatMap { case (s, entityId) =>
-      shared.member(id, s.src.reads)(f =>
-        if (s.src.s.limit.isEmpty) s.memberOf(entityId, shared.states, f)
-        else groupOf(s.gid, shared).members.find(_.id == id)
-      )
+      if (s.src.variables.nonEmpty)
+        groupOf(s.gid, shared).members.find(_.id == id)
+      else
+        shared.member(id, s.src.reads)(f =>
+          if (s.src.s.limit.isEmpty) s.memberOf(entityId, shared.states, f)
+          else groupOf(s.gid, shared).members.find(_.id == id)
+        )
     }
+
+  /** Whether `gid` is on the page as `shared` has it: always, unless a member
+    * owns it, and then only while that member is present in its clause.
+    */
+  def setShown(gid: SetId, shared: Shared): Boolean =
+    sources.get(gid).forall(ownerPresent(_, shared))
 
   /** Which of `sets` show other keys at `next` than at `prev`: an arrival, a
     * departure, a reorder or a clause switch, each a key's root moving.
@@ -554,7 +598,7 @@ private[runtime] final class MemberGraph(
   ): Boolean = {
     val was = groupOf(s.gid, prev)
     // `was` stands in only while `next` does: one run answers both.
-    val now = next.set(s.gid, s.src.reads, GroupMembers.empty) { f =>
+    val now = decided(s, next) { f =>
       if (s.src.stable)
         touched.foldLeft(was)(applyOne(s, _, _, next.states, f))
       else s.materialise(next.states, f)

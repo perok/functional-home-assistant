@@ -454,7 +454,9 @@ from the DOM. A live pull takes the log alone, which is a claim, not a shortcut:
 recorder covers every watched viewer's screen (a session is watched from before its
 page renders), and a tab press or a popup renders what arrives itself, so a node the
 log misses is a recorder bug. Sweeping the screen would hide it; `OracleSuite` is
-what catches it. Each candidate is rendered once from the current snapshot and sent unless
+what catches it. A set whose guard or order reads a viewer's variable is decided at each
+viewer's values, so the recorder plans once per distinct values among the watched sessions (each
+with its own screens) and logs the union; `OracleSuite` covers a guard with `viewer-decisions` and an order in two directed tests. Each candidate is rendered once from the current snapshot and sent unless
 this SESSION's `holds` already names those exact bytes, with a missing entry counting as
 "send" — and with `holds` consulted at all only once the client's cursor has proved it
 applied what we last announced (above). Nothing is special-cased by kind. This is the same call a live tick makes — a

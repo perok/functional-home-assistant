@@ -42,16 +42,17 @@ class Variable {
   /// Its value as this viewer holds it, a text reading: `label.of(window.value)`.
   /// The viewer's own, so only a leaf's value slot reads it; the build refuses it
   /// in a signal, on a card holding a nodes slot, and in what is decided once for
-  /// every viewer (a set's clause or order, a `valueWhile`). A choice may read it
-  /// (`nodeMod.match`), decided per viewer. [[valueIs]]
+  /// every viewer (a `valueWhile`). A choice (`nodeMod.match`) and a set's clause
+  /// or order may read it, decided per viewer. [[valueIs]]
   /// may also light a class (`cellClassWhen`).
   fixed value: slotMod.Reading =
     let (n = name) new slotMod.Reading { source = new slotMod.VarRead { name = n } }
 
   /// Whether it holds `at`: `value == at`, a bool reading. As an If's condition,
-  /// `c.iff(window.valueIs("30d"))`, it picks the branch per viewer. Not a
-  /// predicate, so it does not combine with one inside a condition; an If's chain
-  /// may still mix it with conditions over state, one `elif` each, and is then
+  /// `c.iff(window.valueIs("30d"))`, it picks the branch per viewer. An If's chain
+  /// may mix it with conditions over state, one `elif` each; a set's `where` may
+  /// combine it with one inside `q.any`/`q.all` (`q.any(List(window.valueIs("30d"),
+  /// q.eq(q.stateProp, "on")))`), and `orderBy` takes it as a key. Either is then
   /// decided per viewer. Named beside `q`'s `stateIs`, since `is` is a Pkl
   /// keyword.
   function valueIs(at: Value): ValueIs = let (self = this) new ValueIs { variable = self; value = at }

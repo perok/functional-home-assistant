@@ -446,7 +446,9 @@ open popup is not a decision, it is in its `Viewing`.
 
 **`Shared`** — one dashboard's state version for every viewer: the entity states and the
 decisions made from them, carried from the version before or made on demand. `viewing(env)` reads
-it as one viewer, at that viewer's values; a decision that reads a variable raises with none.
+it as one viewer, at that viewer's values; a decision that reads a variable raises with none. A
+decision that reads one is a pick (a **viewer pick**) or a candidate set whose guard or order does
+(a **viewer set**): each is kept per values, a set at the values in scope at its own node.
 
 **`Viewing`** — one viewer's part of one send, beside the `Shared` it was read against: its
 popup (`Selections`), and its slot fetches' answers (at its node variables).

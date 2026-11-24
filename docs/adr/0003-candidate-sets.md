@@ -108,7 +108,11 @@ Three more things fell out of the same change:
   and each candidate runs its own, even one that reads no member and so answers
   every candidate alike. Sharing equal guards' compile, and running a
   member-free one once per decision, both saved nothing measurable
-  (`docs/experiments.md`).
+  (`docs/experiments.md`). A guard reading a node variable (`mode.valueIs(x)`,
+  alone or beside state in one `q.any`/`q.all`) is the exception to "once per
+  version": the set is decided at each viewer's values, kept per values in the
+  version's `Shared`, and what is below it is on the page only for the viewers
+  it shows (ADR 0033).
 - **Order** — `orderBy` is a lexicographic list of `SortTerm`s, each a value read
   per member (`by`, a `ValueExpr`): a property, or a condition's truth, true
   first under `asc`. They are compared only among the PRESENT members, and a
@@ -137,7 +141,8 @@ different member past the cut.
 
 Only a CHANGED entity can have moved a candidate's presence, so a frame costs
 O(changes) per set. The graph holds the member ORDER, so "the successor of this
-arrival" — what an `insert before` needs — is a lookup rather than a sort.
+arrival" — what an `insert before` needs — is a lookup rather than a sort. A set decided per viewer's values keeps one such
+order per distinct values among the live viewers.
 
 The frame boundary is still where the question is asked, because two entities
 can move in opposite directions in one tick and each single-entity view of that

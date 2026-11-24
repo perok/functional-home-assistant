@@ -253,7 +253,8 @@ private[view] object Evaluator {
       descending: Array[Boolean],
       // Beyond the member's own: what dirties the whole ordering.
       val entities: List[String],
-      val reads: Set[SlotRead]
+      val reads: Set[SlotRead],
+      val variables: List[String]
   ) {
 
     /** A candidate the store lacks reads as nothing: false, or no value. Term
@@ -340,7 +341,8 @@ private[view] object Evaluator {
             cs.map(_.out == ValueType.Bool).toArray,
             terms.map(_.descending).toArray,
             terms.flatMap(_.entities).distinct,
-            SlotAsk.decision(terms.flatMap(_.by.fetches))
+            SlotAsk.decision(terms.flatMap(_.by.fetches)),
+            terms.flatMap(_.by.variables).distinct
           )
         )
 

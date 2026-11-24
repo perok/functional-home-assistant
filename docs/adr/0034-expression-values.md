@@ -117,16 +117,19 @@ build time and raises if one ever reaches it. Its entity is written down at buil
 fetch slot's is, so no viewer's value can move it (ADR 0023).
 
 A decision reads one too: a set's clause and order, a state surface's condition, a `valueWhile`,
-the set a press acts on. Those are made outside a render, once per state version for every viewer,
-and kept into the next version until a change dirties them (pipeline doc §1a). Only a decision a
-walk reaches asks for its fetches: one it lacks the answers for reads as not shown, and the walk
-runs again once a batch has answered them (`Renderer.decide`), so a hidden branch's fetch is never
-asked, and a decision inside another costs a round. Because the decision is shared, the build
-refuses a viewer's variable in one, read directly or by a fetch's window (ADR 0033). As in a slot, a moved
-answer wakes nothing: the decision is made again when its entities change, or an entity its fetch
-names with `updateOnEntityChange()` (a value's `dependsOn`, an edge like an entity read). Without
-it, a decision over a fetch alone is carried as made; an author who wants the history to count
-opts in, since it costs a re-decision on every change of that entity.
+the set a press acts on. Those are made outside a render, once per state version, and kept into
+the next version until a change dirties them (pipeline doc §1a); a set whose clause or order reads
+a variable is made per viewer's values instead (ADR 0033). Only a decision a walk reaches asks for
+its fetches: one it lacks the answers for reads as not shown, and the walk runs again once a batch
+has answered them (`Renderer.decide`), so a hidden branch's fetch is never asked, and a decision
+inside another costs a round. Because a state surface's, a `valueWhile`'s and a press's decision
+is made once for every viewer, the build refuses a viewer's variable in one, read directly or by
+a fetch's window (ADR 0033); a set's, made per viewer, still refuses a fetch whose window a
+variable chooses. As in a slot, a moved answer wakes nothing: the decision is made again when its
+entities change, or an entity its fetch names with `updateOnEntityChange()` (a value's
+`dependsOn`, an edge like an entity read). Without it, a decision over a fetch alone is carried as
+made; an author who wants the history to count opts in, since it costs a re-decision on every
+change of that entity.
 
 Resuming a blocked walk (Haxl-style continuations) was weighed against walking again: it walks
 once, but needs a second description of what is shown, the chain of decisions the build would

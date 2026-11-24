@@ -192,7 +192,7 @@ final class TestServer(
               slug,
               key,
               value.map(_.refineUnsafe[VarValue.Token]),
-              r.shared(now)
+              r.shared(now).viewing(r.vars.env(Map.empty))
             )
           )
           .getOrElse(sys.error(s"no node places the choice $value of $key"))
