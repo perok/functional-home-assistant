@@ -124,7 +124,7 @@ object VarEnvBench {
           List.tabulate(4)(i => chart(s"sensor.main_$i")))*
       ),
       id = Some("root"),
-      vars = List(Dashboard.Declaration("window", "24h"))
+      vars = List(Dashboard.Declaration("window", Some("24h")))
     )
   )
 }

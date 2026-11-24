@@ -185,7 +185,7 @@ class WireShapeSuite extends munit.FunSuite {
   }
 
   test("a node variable's declaration agrees on both sides") {
-    check("Declaration", Dashboard.Declaration("view", "plain"))
+    check("Declaration", Dashboard.Declaration("view", Some("plain")))
     check("InitialTransform", Dashboard.InitialTransform("light.a", "'x'"))
   }
 

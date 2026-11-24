@@ -62,7 +62,7 @@ object DashboardBuilders {
     * else.
     */
   def declared(defaults: (String, String)*): List[Dashboard.Declaration] =
-    defaults.toList.map(Dashboard.Declaration(_, _))
+    defaults.toList.map((name, d) => Dashboard.Declaration(name, Some(d)))
 
   /** The card [[choices]] places, under [[ChoiceCard]]. */
   val choiceCard: CardDef =

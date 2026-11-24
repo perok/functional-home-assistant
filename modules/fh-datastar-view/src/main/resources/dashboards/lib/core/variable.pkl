@@ -62,6 +62,12 @@ class Variable {
   function defaultingTo(value: Value): Declaration =
     let (self = this) let (v = value) new Declaration { variable = self; default = v }
 
+  /// Its declaration, holding no value until a viewer chooses: a reading of it
+  /// is `null`, a `match` over it takes its otherwise, and [[valueIs]] holds for
+  /// nothing.
+  function startingEmpty(): Declaration =
+    let (self = this) new Declaration { variable = self; default = noValue }
+
   /// Choose `at`, from the declarer or a node below it; null clears the
   /// choice, back to the declared value. It sets only the pending ask; the
   /// server commits once the readers have re-rendered (ADR 0025).
@@ -75,8 +81,8 @@ class Declaration {
   /// What it declares, for the readers below: `d.variable.value`.
   hidden variable: Variable
   fixed name: Name = variable.name
-  /// What it holds before anyone chooses.
-  default: Value
+  /// What it holds before anyone chooses: a value, or [[noValue]].
+  default: Value | NoValue
   /// Whether a choice is mirrored into the page URL, so a refresh or a link
   /// keeps it. Off, it lives as long as the page: [[notInUrl]].
   inUrl: Boolean = true
@@ -93,6 +99,12 @@ class Declaration {
     let (self = this) let (id = e.entity_id)
       (self) { initialTransform = new InitialTransform { entityId = id; transform = cel } }
 }
+
+/// What a declaration holds before anyone chooses, when that is nothing. An
+/// object rather than `null`, which the wire would drop (ADR 0006).
+class NoValue {}
+
+const noValue: NoValue = new {}
 
 /// A node variable at one value: what an If over a variable is chosen by, and a
 /// bool reading wherever a variable may be read.

@@ -1293,7 +1293,9 @@ class Server(
     val groups = renderer.vars.picksDecidedBy(key)
     val proposed = chosen.fold(s.vars - key)(v => s.vars + (key -> v))
     val value = (s.initialValues ++ proposed)
-      .getOrElse(key, renderer.vars.defaults(key))
+      .get(key)
+      .orElse(renderer.vars.defaults(key))
+      .getOrElse("")
     for {
       store <- stateStore.current
       reached <- decidedFor(renderer, store, renderer.vars.env(s.values)) {
@@ -1928,7 +1930,10 @@ class Server(
               haDown = !live,
               committed = renderer.vars.committed(initialValues ++ choices),
               initialValues = renderer.vars.mirroredInitials.toList.map { key =>
-                key -> initialValues.getOrElse(key, renderer.vars.defaults(key))
+                key -> initialValues
+                  .get(key)
+                  .orElse(renderer.vars.defaults(key))
+                  .getOrElse("")
               }.toMap
             )
             // Flush, not close: `readOutputStream` owns the stream.
@@ -2709,7 +2714,8 @@ object Server {
 
   /** The committed values a reconnect carries for this build's declarations,
     * looked up by exact name: a declarer id may itself contain `__`, so the
-    * signal name cannot be parsed back. Untrusted; the caller checks them.
+    * signal name cannot be parsed back. An empty one is no value, not a choice.
+    * Untrusted; the caller checks them.
     */
   private[runtime] def carriedVars(
       req: Request[IO],
@@ -2717,7 +2723,11 @@ object Server {
   ): Map[VarKey, String] =
     signalsOf(req).fold(Map.empty) { c =>
       renderer.vars.defaults.keys.toList.flatMap { key =>
-        c.downField(key.committedSignal).as[String].toOption.map(key -> _)
+        c.downField(key.committedSignal)
+          .as[String]
+          .toOption
+          .filter(_.nonEmpty)
+          .map(key -> _)
       }.toMap
     }
 

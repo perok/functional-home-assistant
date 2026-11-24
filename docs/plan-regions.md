@@ -917,9 +917,14 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      id; plain `==` terminates on the self-reference. The spike's two empty pulls were the
      spike's: `PopupOutlivesOpenerSuite` pins both cases on today's popups, each pull sending the
      opener's patch and keeping the popup open.
-   - **R5.1, no value and history.** `varMod.noValue` / `v.startingEmpty()` (`{}` on the wire,
-     `Option` in Scala, `''` in the committed signal and an absent URL parameter; ADR 0033's
-     future-work entry takes it, and its `core/stage.pkl` pointer goes). `.inHistory()`: the
+   - **R5.1, no value and history.** No value is BUILT (R5.1a): `varMod.noValue` /
+     `v.startingEmpty()` (`{}` on the wire, `Option` in Scala, absent from a viewer's
+     environment so a read is `null`, `''` in the committed signal and no URL parameter; a choice
+     over it showing nothing is not refused; ADR 0033 records it, its future-work entry gone;
+     `NoValueSuite`). Its gate (EA off, B/op, against 3aeffa8e): `VarEnvBench` `env` 440 → 376,
+     `pullPlain` 6,600 → 6,536, `refusals` 40,648 → 40,520, `viewerPull` 230,272 → 230,208,
+     `viewerPage` 159,680 → 159,584, `publish` equal; `env` builds each scope with a builder, since
+     a `flatMap` over `Option`s first cost it 18%. Left (R5.1b): `.inHistory()`: the
      shell's one popstate post of the query string, the server's re-read of every `v.` parameter
      (a `notInUrl()` variable left alone), and the mirror marking the entries it made for two
      history variables. Popups keep their own history until R5.3.

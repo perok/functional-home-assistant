@@ -97,7 +97,7 @@ private[model] object Validate:
         nodeId: String,
         cardName: String,
         slots: Map[SlotKey, BoundSlot],
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       labelled(slots).flatMap { case (key, name, src) =>
         val stepErrors =
@@ -182,7 +182,7 @@ private[model] object Validate:
         nodeId: String,
         name: String,
         template: FetchTemplate,
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       val at = s"$nodeId: slot '$name'"
       val problems = template.window.all
@@ -204,7 +204,7 @@ private[model] object Validate:
         what: String,
         the: String,
         c: Choice.Chosen[?],
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       val Choice.Chosen(by, cases, _) = c
       val refErrors = by.variables.sorted
@@ -248,7 +248,10 @@ private[model] object Validate:
         )
         .toList
       val declared =
-        if (refErrors.nonEmpty || keyType.isLeft || !c.refusesUntaken) Nil
+        if (
+          refErrors.nonEmpty || keyType.isLeft || !c.refusesUntaken ||
+          by.variables.exists(scope.get(_).contains(None))
+        ) Nil
         else
           val read = FetchTemplate.atDeclared(scope)(by)
           val reads =
@@ -273,7 +276,7 @@ private[model] object Validate:
         nodeId: String,
         name: String,
         src: BoundSlot,
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       src.fetch.toList.flatMap { template =>
         val stageError = src.expr.steps match
@@ -474,7 +477,7 @@ private[model] object Validate:
         nodeId: String,
         cardName: String,
         slots: Map[SlotKey, BoundSlot],
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       val structural = cards.get(cardName).exists(_.isStructure)
       labelled(slots).flatMap { (_, name, s) =>
@@ -629,12 +632,13 @@ private[model] object Validate:
     /** A nodes slot's choice: keys typed by `by`, one node per case. A `by`
       * reading variables and state decides per viewer, and a value no case
       * takes shows nothing; only the plain variable's declared value is held to
-      * a case, since it would show nothing before anyone chooses.
+      * a case, since it would show nothing before anyone chooses. One declared
+      * with no value means to.
       */
     def choiceFillErrors(
         nodeId: String,
         c: LayoutNode.Component,
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       c.chosen.toList.sortBy(_._1).flatMap { (n, k) =>
         val at = s"$nodeId: nodes slot '$n'"
@@ -650,6 +654,7 @@ private[model] object Validate:
           case Some(v) if k.otherwise.isEmpty =>
             scope
               .get(v)
+              .flatten
               .filterNot(d => k.cases.exists(_.is == Lit.Text(d)))
               .map(d =>
                 s"$at is chosen by '$v', declared '$d', which no case takes " +
@@ -666,7 +671,7 @@ private[model] object Validate:
     def choiceErrors(
         nodeId: String,
         c: LayoutNode.Component,
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       c.calls.toList.sortBy(_._1).collect {
         case (n, CallDecl.SetVar(v, _)) if !scope.contains(v) =>
@@ -740,7 +745,7 @@ private[model] object Validate:
               " — the value would stop updating"
           )
 
-    def childErrors(ix: Ix, scope: Map[String, String]): List[String] =
+    def childErrors(ix: Ix, scope: Dashboard.Declared): List[String] =
       index.children(ix).filter(index.step(_).isDefined).flatMap(walk(_, scope))
 
     // Interpolated into a `class` attribute unescaped.
@@ -807,7 +812,7 @@ private[model] object Validate:
     ): List[(SlotKey, String, BoundSlot)] =
       slots.toList.map((k, s) => (k, SlotKey.label(k), s)).sortBy(_._2)
 
-    def walk(ix: Ix, scope: Map[String, String]): List[String] =
+    def walk(ix: Ix, scope: Dashboard.Declared): List[String] =
       val nodeId = index.id(ix)
       index.node(ix) match
         case c @ LayoutNode.Component(card, _, cell, _, vars, _, _) =>
@@ -847,7 +852,7 @@ private[model] object Validate:
     def setErrors(
         ix: Ix,
         c: LayoutNode.Component,
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       val setId = index.id(ix)
       val sets = c.fills.toList.sortBy(_._1).collect { case (n, s: Fill.Set) =>

@@ -360,3 +360,6 @@ Each is a *variable*:
 - **A choice can stay out of the address**, for one a reload may forget, such
   as each light's control in a long list: `view.defaultingTo("simple").notInUrl()`.
   A link that names it still works.
+- **A choice can start empty**, `vars { view.startingEmpty() }`: until a viewer
+  chooses, `view.value` reads nothing and a `match` over it shows its otherwise,
+  or nothing.

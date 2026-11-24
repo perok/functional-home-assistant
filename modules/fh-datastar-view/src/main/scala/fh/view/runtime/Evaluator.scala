@@ -44,7 +44,7 @@ private[view] object Evaluator {
     */
   trait Lookup:
     def fetched(f: FetchTemplate): Object
-    def variable(name: String): String
+    def variable(name: String): String | Null
 
     /** Only a press has a posted value, and only its call reads one. */
     def posted(key: String): Any =
@@ -54,13 +54,18 @@ private[view] object Evaluator {
     /** Answers and no variables: a decision's. */
     def answering(answer: FetchTemplate => Object): Lookup = new Lookup:
       def fetched(f: FetchTemplate): Object = answer(f)
-      def variable(name: String): String = noVariable(name)
+      def variable(name: String): String | Null = noVariable(name)
 
     /** Variables and no answers: what a chosen window's `by` reads. */
     def of(vars: Map[String, String]): Lookup = new Lookup:
       def fetched(f: FetchTemplate): Object = unanswered.fetched(f)
-      def variable(name: String): String =
-        vars.getOrElse(name, noVariable(name))
+      def variable(name: String): String | Null = held(vars, name)
+
+  /** `name` as a viewer holds it: absent from `vars` is no value, `null` (ADR
+    * 0035), since `validate` gives every read a declarer.
+    */
+  def held(vars: Map[String, String], name: String): String | Null =
+    vars.getOrElse(name, null)
 
   def noVariable(name: String): Nothing =
     throw FHError.internal(
@@ -240,7 +245,7 @@ private[view] object Evaluator {
       throw FHError.internal(
         s"a value read the fetch '${f.key}' where none is answered"
       )
-    def variable(name: String): String = noVariable(name)
+    def variable(name: String): String | Null = noVariable(name)
 
   /** An ordering, its keys read once per candidate rather than per comparison
     * (`publishSetOrdered`): a bool key sorts `true` first under `asc`; a

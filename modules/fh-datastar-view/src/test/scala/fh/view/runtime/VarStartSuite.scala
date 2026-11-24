@@ -80,7 +80,7 @@ class VarStartSuite extends CatsEffectSuite {
   private def control(start: Dashboard.InitialTransform) =
     Dashboard.Declaration(
       "control",
-      "brightness",
+      Some("brightness"),
       initialTransform = Some(start)
     )
 
@@ -90,7 +90,7 @@ class VarStartSuite extends CatsEffectSuite {
     val ok = Dashboard.InitialTransform("light.lamp", "'colour'")
     assertEquals(startOn(control(ok)).validate(), Nil)
     assert(
-      startOn(control(ok), Dashboard.Declaration("control", "colour"))
+      startOn(control(ok), Dashboard.Declaration("control", Some("colour")))
         .validate()
         .exists(_.contains("declares the variable 'control' more than once"))
     )

@@ -42,7 +42,8 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
   def urlMirrorAttr(d: Dashboard.Declaration): String = {
     val unchanged =
       if (d.initialTransform.isDefined) s"$$$initialValueSignal"
-      else s"'${Server.escapeHtml(Server.escapeJsString(d.default))}'"
+      else
+        s"'${Server.escapeHtml(Server.escapeJsString(d.default.getOrElse("")))}'"
     s"""data-fh-url:$name="['$urlParam', $$$committedSignal, $unchanged]""""
   }
 
@@ -99,8 +100,10 @@ private[runtime] final class VarGraph(
       VarKey(in.declarer, name) -> in.declaration
     }.toMap
 
-  /** Every declaration, with the value it holds before anyone chooses. */
-  val defaults: Map[VarKey, String] =
+  /** Every declaration, with the value it holds before anyone chooses (`None`:
+    * no value).
+    */
+  val defaults: Map[VarKey, Option[String]] =
     declarations.view.mapValues(_.default).toMap
 
   /** The declarations a session may open elsewhere. */
@@ -114,10 +117,12 @@ private[runtime] final class VarGraph(
     initialTransforms.keySet.filter(declarations(_).inUrl)
 
   /** Total over declarations, so a control never shows the declared value over
-    * a choice.
+    * a choice. No value is `''`, which no value a viewer can choose spells.
     */
   def committed(chosen: Map[VarKey, String]): Map[VarKey, String] =
-    defaults.map((key, default) => key -> chosen.getOrElse(key, default))
+    defaults.map((key, default) =>
+      key -> chosen.get(key).orElse(default).getOrElse("")
+    )
 
   // Every node under one declarer chain sees the same scope, so a page has a
   // handful of distinct ones however many nodes it has.
@@ -138,12 +143,18 @@ private[runtime] final class VarGraph(
   def env(chosen: Map[VarKey, String]): VarEnv =
     VarGraph.SharedEnv(
       scopeIndex,
-      distinctScopes.map(_.map { case (name, in) =>
-        name -> chosen.getOrElse(
-          VarKey(in.declarer, name),
-          in.declaration.default
-        )
-      })
+      distinctScopes.map { scope =>
+        // A builder, not `flatMap`: an `Option` per entry cost `env` 18%.
+        val held = Map.newBuilder[String, String]
+        scope.foreach { (name, in) =>
+          val v = chosen.getOrElse(
+            VarKey(in.declarer, name),
+            in.declaration.default.orNull
+          )
+          if v != null then held += name -> v
+        }
+        held.result()
+      }
     )
 
   /** Every node with a variable in scope, each set member's included. */

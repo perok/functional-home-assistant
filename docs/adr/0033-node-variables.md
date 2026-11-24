@@ -55,7 +55,12 @@ opened from many places, so inheriting from its opener would be dynamic scoping.
 **Declaration.** `LayoutNode.Component.vars: List[Declaration]`, one per name:
 `Declaration(name, default, inUrl, initialTransform)` — the value it holds before anyone chooses,
 whether a choice is mirrored into the URL (ADR 0005), and where a session opens it instead. In Pkl
-a node amends `vars { window.defaultingTo("24h") }`. A `varMod.Declaration` holds the `Variable`
+a node amends `vars { window.defaultingTo("24h") }`, or `vars { v.startingEmpty() }` for one that
+holds **no value** until a viewer chooses: `{}` on the wire (`varMod.noValue`), since a `null`
+property is dropped (ADR 0006), and `None` in Scala. A reading of it is then `null` (ADR 0035), a
+`match` over it takes its otherwise or shows nothing, which `validate` does not refuse, and
+`valueIs` holds for nothing; the viewer's environment omits it, its committed signal is `''` and
+the URL names nothing, which no value a viewer can choose spells. A clear returns to it. A `varMod.Declaration` holds the `Variable`
 it declares (hidden, so not on the wire); a reader holds only the `Variable`, written without
 knowing which node above declares it. The decoder is derived, and `Component.defaults` is the
 name → default view most readers want. Nothing else: no type, no list of allowed values (below).
@@ -369,12 +374,6 @@ instead.
 
 ## Future work, recorded so it is not rediscovered
 
-- **A variable with NO value — "nothing selected yet".** A real UI state, not built because no
-  reader can use it: `history`'s parameters are all required. A provider with an optional
-  parameter is what would make it worth building. **Null cannot spell it** — `omitNullProperties`
-  drops a null property, so `default = null` would read as no default given (ADR 0006). Spell it as
-  a field of the `Declaration` that says so, not as an absent `default`. `""` is a different
-  question; `core/stage.pkl` already keeps absent and empty apart.
 - **A type, if a variable ever needs one, must be a real one** — the build's `ValueType`
   (`ValueExpr.scala`), not string enums, with one answer for where it is checked and one for how a
   control is derived.

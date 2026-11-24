@@ -435,10 +435,17 @@ object FetchTemplate:
   /** A `by` read at the declared values `scope`, over no state, as the build
     * reads one: a read of an entity is null there, so it decides no case.
     */
-  def atDeclared(scope: Map[String, String]): ValueExpr => Any = by =>
+  def atDeclared(scope: Dashboard.Declared): ValueExpr => Any = by =>
     Evaluator
       .compile(by, Evaluator.Scope(""))
-      .fold(_ => null, _.run(null, Map.empty, Evaluator.Lookup.of(scope)))
+      .fold(
+        _ => null,
+        _.run(
+          null,
+          Map.empty,
+          Evaluator.Lookup.of(scope.collect { case (n, Some(v)) => n -> v })
+        )
+      )
 
   given Decoder[FetchTemplate] = Decoder.instance { c =>
     c.get[String]("provider").flatMap {
@@ -824,10 +831,10 @@ object LayoutNode:
     def allChildren: List[LayoutNode] =
       slotNodes.toList.sortBy(_._1).flatMap(_._2)
 
-    /** Each declared name and its default. A repeated name keeps the last;
-      * `validate` rejects one.
+    /** Each declared name and its default, `None` for no value. A repeated name
+      * keeps the last; `validate` rejects one.
       */
-    lazy val defaults: Map[String, String] =
+    lazy val defaults: Map[String, Option[String]] =
       vars.map(d => d.name -> d.default).toMap
 
     /** `validate` holds `entity_id` to a literal. */
@@ -1268,7 +1275,7 @@ case class Dashboard(
     */
   def fetchesIn(
       n: LayoutNode,
-      start: Map[String, String] = Map.empty
+      start: Dashboard.Declared = Map.empty
   ): List[SlotRead] =
     scopedSlots(n, start).flatMap { case (s, scope) =>
       s.fetches.flatMap(_.resolve(FetchTemplate.atDeclared(scope)))
@@ -1289,8 +1296,8 @@ case class Dashboard(
   /** `scope` is where a tree starts. */
   private def scopedSlots(
       n: LayoutNode,
-      scope: Map[String, String]
-  ): List[(BoundSlot, Map[String, String])] = n match
+      scope: Dashboard.Declared
+  ): List[(BoundSlot, Dashboard.Declared)] = n match
     case c: LayoutNode.Component =>
       val here = scope ++ c.defaults
       c.bound.values.toList.map(_ -> here) ++
@@ -1330,17 +1337,48 @@ object Dashboard:
   /** A node variable as seen from a node: who declared it, and how. */
   final case class InScope(declarer: NodeId, declaration: Declaration)
 
-  /** One node's declaration of a node variable: its default, whether a choice
-    * is mirrored into the URL (ADR 0005), and where a session opens it instead
-    * of at the default, evaluated once as the session opens and never followed,
-    * so a head does not move under the viewer's finger.
+  /** The variables in scope at a node, by name, each at its declared value
+    * (`None`: no value).
+    */
+  type Declared = Map[String, Option[String]]
+
+  /** One node's declaration of a node variable: its default (`None`: it holds
+    * no value until a viewer chooses), whether a choice is mirrored into the
+    * URL (ADR 0005), and where a session opens it instead of at the default,
+    * evaluated once as the session opens and never followed, so a head does not
+    * move under the viewer's finger.
     */
   final case class Declaration(
       name: String,
-      default: String,
+      default: Option[String],
       inUrl: Boolean = true,
       initialTransform: Option[InitialTransform] = None
-  ) derives ConfiguredDecoder
+  )
+
+  object Declaration:
+    /** The wire's `default` is a value or `{}`, since a `null` is dropped (ADR
+      * 0006); an absent one is still an error.
+      */
+    private given Decoder[Option[String]] = Decoder.instance(c =>
+      c.as[String]
+        .map(Some(_))
+        .orElse(c.as[io.circe.JsonObject].map(_ => None))
+    )
+
+    given Decoder[Declaration] = Decoder.instance(c =>
+      for
+        name <- c.get[String]("name")
+        default <- c
+          .downField("default")
+          .success
+          .toRight(
+            io.circe.DecodingFailure("a declaration has no default", c.history)
+          )
+          .flatMap(_.as[Option[String]])
+        inUrl <- c.getOrElse[Boolean]("inUrl")(true)
+        initial <- c.get[Option[InitialTransform]]("initialTransform")
+      yield Declaration(name, default, inUrl, initial)
+    )
 
   /** Where a session opens a node variable: CEL over one entity's state. */
   final case class InitialTransform(entityId: String, transform: String)

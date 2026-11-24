@@ -100,8 +100,8 @@ private[runtime] final class Shared private (
           case Some(f) =>
             val in = new Evaluator.Lookup:
               def fetched(t: fh.view.model.FetchTemplate): Object = f.fetched(t)
-              def variable(name: String): String =
-                scope.getOrElse(name, Evaluator.noVariable(name))
+              def variable(name: String): String | Null =
+                Evaluator.held(scope, name)
             t.once(k, at, names, values)(derive(in))
   }
 

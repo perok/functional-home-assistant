@@ -185,7 +185,8 @@ What a variable holds, highest first:
   whole entity as `value` (`Declaration.initialTransform`, `withInitialTransform` in Pkl), run ONCE as the
   page opens. Not a choice (no URL param) and not a flip (it never follows the entity). A slider's
   `opensOn` is one.
-- **Default** — the value it holds before anybody chooses (`defaultingTo`).
+- **Default** — the value it holds before anybody chooses (`defaultingTo`), or **no value**
+  (`startingEmpty`): a reading of it is `null` and a `match` over it shows its otherwise or nothing.
 
 A declaration is a NAME, its default, whether a choice is mirrored into the URL, and an optional
 initial transform — that is the whole of it. **There is no "allowed values" on the wire**, deliberately: what a variable may hold

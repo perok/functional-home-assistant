@@ -124,7 +124,9 @@ private[runtime] enum SlotForm derives CanEqual {
   def isPatch: Boolean = this == SlotForm.Patch
 }
 
-/** Per render, never cached on the renderer ([[VarGraph.env]]). */
+/** Per render, never cached on the renderer ([[VarGraph.env]]). A variable
+  * holding no value is absent from its node's map.
+  */
 type VarEnv = Map[NodeId, Map[String, String]]
 
 /** Container kinds are templates splicing `children`, not cases here. A popup
@@ -486,7 +488,7 @@ class Renderer(validated: Dashboard.Validated) {
         val values = posted
         val in = new Evaluator.Lookup:
           def fetched(f: FetchTemplate): Object = answers.fetched(f)
-          def variable(name: String): String = answers.variable(name)
+          def variable(name: String): String | Null = answers.variable(name)
           override def posted(key: String): Any = values.getOrElse(key, null)
         def run(r: Evaluator.Run): Any = r(null, shared.states, in)
         def targetIds(m: ListMap[IdKind, List[Evaluator.Run]]) =
@@ -2012,8 +2014,8 @@ class Renderer(validated: Dashboard.Validated) {
     def fetched(f: FetchTemplate): Object =
       readOf(SlotAsk(f, Step.Json), states, fragments.varsAt(node))
         .fold(null)(r => Series.celPoints(fragments.staged(r).value))
-    def variable(name: String): String =
-      fragments.varsAt(node).getOrElse(name, Evaluator.noVariable(name))
+    def variable(name: String): String | Null =
+      Evaluator.held(fragments.varsAt(node), name)
 
   private def resolveStateSlotValue(
       srcEntity: Option[String],
