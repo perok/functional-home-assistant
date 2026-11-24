@@ -333,10 +333,14 @@ private[runtime] object Shared {
     ): Unit = {
       dropped = k => dirty(k) || !marked(k)
       next = to
-      // Only fills can hold an unmarked key: none is ever carried.
-      to.carried = fills.asScala.iterator
-        .filterNot((k, _) => dropped(k))
-        .foldLeft(carried.removedAll(dirty))(_ + _)
+      // Most dashboards never fill the per-values tables, and walking an empty
+      // one each frame was +1.8% B/op on `publishSet`.
+      if (fills.isEmpty && carried.isEmpty) ()
+      else
+        // Only fills can hold an unmarked key: none is ever carried.
+        to.carried = fills.asScala.iterator
+          .filterNot((k, _) => dropped(k))
+          .foldLeft(carried.removedAll(dirty))(_ + _)
     }
   }
 }
