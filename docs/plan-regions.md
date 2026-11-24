@@ -745,7 +745,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          planner, ~2.1 KB per client (`covered`, `hostsAt`, `owe`'s closures): slimmed in the
          finishing pass (D6).
      - **D5, one decision mechanism; the variable-read refusals go:** BUILT, D5.0–D5.5
-       (ebb77d83 … c474a1ff); open: the ordered set outside the oracle's property (D5.3). The mixed `by`, a computed
+       (ebb77d83 … c474a1ff, fed719aa). The mixed `by`, a computed
        read of a variable, set guards, order keys and `valueWhile` (§4), with a test of one guard
        reading a variable and a state, two viewers on different values. Agreed 2026-11-22: one
        mechanism whose level the renderer knows in advance, not deciders beside the shared ones,
