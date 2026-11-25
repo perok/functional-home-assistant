@@ -4,7 +4,7 @@ import cats.effect.{IO, Ref, Resource}
 import cats.syntax.all.*
 import cats.effect.std.Supervisor
 import fh.view.build.{DashboardBuild, PklDump, Site}
-import fh.view.model.Dashboard
+import fh.view.model.{Access, Dashboard}
 import fh.view.testkit.{HouseFixture, PklWorkspace}
 import fs2.concurrent.SignallingRef
 import org.http4s.*
@@ -388,6 +388,38 @@ class FailedDashboardSuite extends ServerHarness {
     }
   }
 
+  // KNOWN BUG, `.fail` until fixed: the site's rule is folded into each
+  // `Validated` (`Site.decode`), not into the model `planSite` compares, so an
+  // unchanged dashboard keeps its old rule until a restart.
+  test(
+    "a reload applies a changed site access rule to unchanged dashboards".fail
+  ) {
+    staged(Broken).use { ws =>
+      for {
+        _ <- IO.blocking(
+          os.write.over(ws / Site.EntryFile, kitchenSite(access = "admin"))
+        )
+        ref <- SignallingRef[IO].of(Server.RendererState.Failed("seeded"))
+        site <- Server.LiveSite.of(
+          Map("dash" -> ref),
+          Map("dash" -> (Left("seeded"): Either[String, Dashboard])),
+          "dash"
+        )
+        imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
+        _ <- ServerApp.reloadSite(ws, site, imports)
+        before <- site.permissionFor(Some("dash"))
+        _ <- IO.blocking(
+          os.write.over(ws / Site.EntryFile, kitchenSite(access = "public"))
+        )
+        _ <- ServerApp.reloadSite(ws, site, imports)
+        after <- site.permissionFor(Some("dash"))
+      } yield {
+        assertEquals(before.access, Access.Admin)
+        assertEquals(after.access, Access.Public)
+      }
+    }
+  }
+
   test("a reload validates only the dashboards it changed") {
     // A slug that decodes equal to what it serves is handed back as served,
     // so `planSite` drops it without its validate having run.
@@ -572,12 +604,14 @@ class FailedDashboardSuite extends ServerHarness {
   private def kitchenSite(
       extra: String = "",
       default: String = "",
-      title: String = "Kitchen"
+      title: String = "Kitchen",
+      access: String = ""
   ) =
     s"""amends "@fh-dashboard/site.pkl"
        |import "@fh-dashboard/components.pkl" as c
        |import "@fh-home/dump.pkl" as dump
        |${if (default.isEmpty) "" else s"""default = "$default""""}
+       |${if (access.isEmpty) "" else s"access = c.access.$access"}
        |dashboards {
        |  ["dash"] {
        |    title = "$title"
