@@ -836,16 +836,16 @@ object LayoutNode:
 
   case class Step(region: String, index: Int)
 
-  /** The default region contributes only its index, keeping a tab URL's
-    * `ui.<id>` short. `validate` rejects an all-digit region name, so the two
-    * shapes cannot be confused.
+  /** The default region contributes only its index, keeping a variable's URL
+    * name, `v.<declarer id>.<name>`, short. `validate` rejects an all-digit
+    * region name, so the two shapes cannot be confused.
     */
   def segment(s: Step): String =
     if s.region == DefaultRegion then s.index.toString
     else s"${sanitize(s.region)}_${s.index}"
 
   /** Without the `c` root, for ids nested under something else
-    * ([[MemberGraph.innerSetId]]).
+    * ([[innerSetId]]).
     */
   def segments(path: List[Step]): String = path.map(segment).mkString("_")
 

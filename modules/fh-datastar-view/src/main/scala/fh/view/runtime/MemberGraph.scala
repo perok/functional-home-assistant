@@ -627,9 +627,8 @@ private[runtime] final class MemberGraph(
     !(now eq was) && !now.keys.sameElements(was.keys)
   }
 
-  /** By clause, which fixes the node; not by node, since hoisting lifts a
-    * slider's heads out of it and two slider clauses can leave equal nodes over
-    * different surfaces.
+  /** By clause, not by node: two clauses may hold equal nodes, and a switch
+    * between them is still another key.
     */
   private def applyOne(
       s: Source,

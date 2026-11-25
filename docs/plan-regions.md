@@ -20,10 +20,10 @@ for "something picks what fills a host": `SurfaceGraph` bakes a choice into a ho
 slots, a bool signal slot and a fetch window's `Choice.Chosen.by`, but a bake member still reads
 it as `Activation.Var`.
 
-**State:** direction agreed in chat (2026-11-10); the prework is on main (below); R1 is built
-(`slot-classes`), R2 is built (`set-fill`), R3 is built (`choices-in-pkl`), R4a and R4b are built
-(`one-runtime-path`), R4c is built (`root-hosts`), R4d's D0–D5 are built (`the-planner`), D6
-not; R5 is built (`the-planner`), its smoke tests waiting on CI. The opening describes the shape before R1.
+**State:** every step is built, R1 through R6 and R4d's D0–D6, on stacked branches from
+`var-signal-reads` to `d6-benches` (#714–#726, #731), none merged; R5's smoke tests are green on
+CI. Left: Later and the open questions below, then this plan's deletion. The opening describes
+the shape before R1.
 
 ## What this builds on
 
@@ -501,7 +501,6 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        does; R5 moves popups onto the pick.
      - Scala's `validate` refuses a choice on a card placing another region, as it does a set;
        the exact "whole template" comparison is Pkl's (the wire template carries the root).
-     - ADRs' "state surface" still name a case by its old word.
    - **R4d, the planner**, branch `the-planner` on `pkl-fixtures` (F, #725). Agreed
      2026-11-19. D0 first, a refactor with no behaviour change, then D1, D2a, D2b, D3, D5 (D5.0–D5.5), D6 (D4 merged into D3).
      - **D0.1, one tree index.** Today about eight walks mint ids themselves (`Dashboard.picks`,
@@ -648,9 +647,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        - Bench (B/op, EA off, vs 4a2f793f): `page` −0.1%, `pageSet` −0.2%, `tickRender` −0.4%,
          `resumeMorphs` −0.2%, `resumeMorphsFanout` −0.5%, `publishSet`/`publishSetOrdered`
          equal; times within error.
-     - **D2b, `holds` keeps what each host shows**, in the order sent (§7), written and not yet
-       read. BUILT (0e9e2f61, c16033d2); two items open. Goldens byte-identical; non-Slow 1430
-       green.
+     - **D2b, `holds` keeps what each host shows**, in the order sent (§7), read from D3 on.
+       BUILT (0e9e2f61, c16033d2). Goldens byte-identical; non-Slow 1430 green.
        - `Held.shows: Option[IArray[Ix]]` on the host node (one host per node, §2).
        - The structural patches name their host and key, so one value gives the bytes and the
          change to `holds`: `Patch.Fill(host, target, html, shows)` (inner), `Place(host,
