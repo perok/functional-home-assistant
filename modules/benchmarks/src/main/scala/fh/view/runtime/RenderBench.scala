@@ -257,6 +257,7 @@ class RenderBench {
   private var flat: Renderer = null
   private var set: Renderer = null
   private var setOrdered: Renderer = null
+  private var heldOrdered: Map[Ix, Held] = null
   private var setPlain: Renderer = null
   private var setGuarded: Renderer = null
   private var setNamedGuard: Renderer = null
@@ -379,6 +380,9 @@ class RenderBench {
     set = Renderer.create(Dashboard(cards, setTree(Leaves)))
     setOrdered =
       Renderer.create(Dashboard(cards, setTree(Leaves, orderBy = LitBrightest)))
+    heldOrdered = setOrdered.renderPageTraced(st).painted.map { case (ix, p) =>
+      ix -> p.held
+    }
     setPlain =
       Renderer.create(Dashboard(cards, setTree(Leaves, signals = false)))
     setGuarded = Renderer.create(
@@ -1501,6 +1505,34 @@ class RenderBench {
   def publishSetOrdered(bh: Blackhole): Unit = {
     pubRot += 1
     bh.consume(publishPass(setOrdered, pubFrames(pubRot % 4)))
+  }
+
+  /** [[publishSetOrdered]] and then its pull for [[WireClients]] sessions, each
+    * holding the ordered page's first paint.
+    */
+  @Benchmark
+  def publishSetOrderedFanout(bh: Blackhole): Unit = {
+    pubRot += 1
+    val log = publishPass(setOrdered, pubFrames(pubRot % 4))
+    val shared = heldBy(setOrdered)
+    bh.consume(
+      (1 to WireClients).toList
+        .traverse(_ =>
+          Patches.resume(
+            setOrdered,
+            liveCache,
+            log,
+            heldOrdered,
+            shared,
+            _ => IO.pure(FetchSnapshot.empty),
+            _ => IO.pure(FetchSnapshot.empty),
+            Map.empty,
+            pubRot.toLong,
+            Patches.Coverage.Logged
+          )
+        )
+        .unsafeRunSync()
+    )
   }
 
   /** [[publishSet]] with one guard on every candidate, reading the member: one
