@@ -346,3 +346,21 @@ set, and a sort order changes far less often than members tick.
 
 **Worth asking again if** a dashboard with a large ordered set shows the pull in a profile, or
 a set's reorders become frequent (an order on a fast-moving value, such as power draw).
+
+## A viewer's open cases, decided once a pull
+
+`PickGraph.chosen` (the case roots a viewer's values pick) is derived again by each caller in
+one pull: `Patches.owing`, and `Renderer.caseAsks` through `PickGraph.shownWithin`. Is passing
+one answer down worth it?
+
+**How.** `RenderBench.viewerPull` (a tab bar and an If over a variable, a 4-light set, ten
+sessions), allocation profile (async-profiler, escape analysis off) after D6's D.
+
+**Numbers.** 207,092 B/op; `chosen` is ~9% of it overall, ~4% under `owing` and about as much
+from `caseAsks`.
+
+**Verdict.** Not built. Sharing it means a new parameter threaded from the pull through
+`Renderer`'s reads, for a few percent of a pull that is mostly per session anyway.
+
+**Worth asking again if** a dashboard with many variable or viewer picks shows `chosen` near the
+top of a pull's profile, or a third caller starts deriving it.
