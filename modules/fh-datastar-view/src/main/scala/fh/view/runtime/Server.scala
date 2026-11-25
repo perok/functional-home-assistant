@@ -569,7 +569,7 @@ class Server(
                     (
                       w.values,
                       env,
-                      renderer.surfaces.onScreen(w.open, now.viewing(env))
+                      renderer.picks.onScreen(w.open, now.viewing(env))
                     )
                   }
                   val visible = screens.foldLeft(BitSet.empty)(_ | _._3)
@@ -577,7 +577,7 @@ class Server(
                   // own sessions' screens; nothing to split without one.
                   def seen =
                     screens.groupBy(_._1).values.toList.map { same =>
-                      SurfaceGraph.Seen(
+                      PickGraph.Seen(
                         same.head._2,
                         same.foldLeft(BitSet.empty)(_ | _._3)
                       )
@@ -603,7 +603,7 @@ class Server(
                         now,
                         frame.changes,
                         visible,
-                        if (renderer.surfaces.viewerPicks.isEmpty) Nil else seen
+                        if (renderer.picks.viewerPicks.isEmpty) Nil else seen
                       )
                     )
                 }
@@ -1208,14 +1208,14 @@ class Server(
     val readers = keys.flatMap(renderer.vars.readersOf).distinct
     val groups = keys.flatMap(renderer.vars.picksDecidedBy).distinct
     decidedFor(renderer, store, renderer.vars.env(s.values)) { at =>
-      val open = renderer.surfaces.screen(s.open, at)
-      val shown = renderer.surfaces.visibleNode(_, open, at)
+      val open = renderer.picks.screen(s.open, at)
+      val shown = renderer.picks.visibleNode(_, open, at)
       Server.Reach(
         keys.filter(k => shown(k.declarer)).toSet,
         groups.filter(gid =>
           shown(gid) && renderer.members
             .setContainer(gid)
-            .fold(renderer.surfaces.groupShown(gid, at))(
+            .fold(renderer.picks.groupShown(gid, at))(
               renderer.members.setShown(_, at)
             )
         ),
@@ -1485,7 +1485,7 @@ class Server(
       .void
 
   private def warnAnomalies(renderer: Renderer, env: VarEnv): IO[Unit] =
-    renderer.surfaces.selectionAnomalies(env).traverse_(w => logger.warn(w))
+    renderer.picks.selectionAnomalies(env).traverse_(w => logger.warn(w))
 
   private def callService(
       domain: String,

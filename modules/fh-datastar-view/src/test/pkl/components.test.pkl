@@ -22,8 +22,9 @@ import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switch
 import "../../main/resources/dashboards/lib/components/base/slider.pkl" as sliderBase
 import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseMod
-import "../../main/resources/dashboards/lib/components/base/surface.pkl" as surfacesMod
-import "../../main/resources/dashboards/lib/components/base/popup.pkl" as surfaceMod
+import "../../main/resources/dashboards/lib/components/base/tabs.pkl" as tabsMod
+import "../../main/resources/dashboards/lib/components/base/iff.pkl" as iffMod
+import "../../main/resources/dashboards/lib/components/base/popup.pkl" as popupBaseMod
 import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
 import "../../main/resources/dashboards/lib/theme-beer.pkl" as beerMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
@@ -127,7 +128,7 @@ local class OwnSlots extends nodeMod.Node {
 /// The bar a progress card shows, inside the `c.iff` that shows it only while
 /// it runs.
 local function barOf(card: c.ProgressCard): barBaseMod.ProgressBar =
-  let (f = card.features[0]) (if (f is surfacesMod.If) f.`then`[0] else f) as barBaseMod.ProgressBar
+  let (f = card.features[0]) (if (f is iffMod.If) f.`then`[0] else f) as barBaseMod.ProgressBar
 
 // Every class in the library, so a new card's builders are in.
 local libClasses: List<reflect.Class> =
@@ -298,7 +299,7 @@ facts {
       == #"<a class="my-tab{{{cellClasses}}}"{{{cell}}} data-on:click="go()" data-class:warm="$w">x</a>"#
     wireOf.apply(new AnchorRoot {}).layoutCell == false
     // A tab is an anchor straight under the bar, never a layout box.
-    wireOf.apply(surfacesMod.tabButton(new varMod.Variable { name = "v" }, "a", "A")).template.startsWith(#"<a class="{{{cellClasses}}}"{{{cell}}} data-on:click="#)
+    wireOf.apply(tabsMod.tabButton(new varMod.Variable { name = "v" }, "a", "A")).template.startsWith(#"<a class="{{{cellClasses}}}"{{{cell}}} data-on:click="#)
   }
 
   ["a root's attrs cannot carry what the root writes itself, by attribute name"] {
@@ -811,7 +812,7 @@ facts {
     // the target test any tap inside the popup would close it.
     local popup = c.cards["popup"]
     popup.classes == "fh-popup-backdrop"
-    popup.attrs == #"data-on:click="evt.target === el && \#(surfaceMod.closeExpr)""#
+    popup.attrs == #"data-on:click="evt.target === el && \#(popupBaseMod.closeExpr)""#
     popup.template.startsWith("<dialog open class=\"fh-popup\">")
   }
 

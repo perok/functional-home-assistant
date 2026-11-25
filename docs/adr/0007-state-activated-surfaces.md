@@ -31,7 +31,7 @@ case is picked by a **condition** instead of a viewer's value:
   `.fh-ifhost:empty` collapses it when no branch holds). Each branch is a node
   of the tree, and the index records the case holding every node below it, so
   hidden-branch silence is **structural**: a node in a case nobody is shown is
-  never in what a tick patches or a page fetches (`SurfaceGraph`), not a guard
+  never in what a tick patches or a page fetches (`PickGraph`), not a guard
   bolted onto the patch loop.
 - **One pick decides a choice.** A choice's cases are nodes, and one **pick**
   decides them all (`Ready.Pick`): `by` read once, its case looked up. A popup
@@ -55,7 +55,7 @@ set member, a card — but an `If` supplies none. So every read in a state
 condition names its own entity (`Value.Entity.of`) and a count carries its own
 candidates (`Value.Present`); `Dashboard.validate` rejects one that does not
 (`ValueExpr.readsMissingSubject`), with a located message. Evaluating a
-condition is then a handful of lookups (`SurfaceGraph.decideByState` runs the
+condition is then a handful of lookups (`PickGraph.decideByState` runs the
 compiled `by` with no subject, which nothing reads), and the index of what each
 pick reads is exact rather than a heuristic: its `by` reads a known entity set,
 so a change outside it cannot move the selection.
@@ -71,15 +71,15 @@ ADR 0003.
 ### Shared-pass placement (the cache consequence)
 
 Because a state selection is server truth, a pick over state is identical for
-every viewer. `SurfaceGraph` splits its picks three ways: `statePicks` (state
+every viewer. `PickGraph` splits its picks three ways: `statePicks` (state
 alone), `varPicks` (the plain variable, a lookup of the viewer's value) and
 `viewerPicks` (anything else reading a variable, alone or with state). A
 state pick's liveness is the shared pass's job, a variable pick's the viewer's
-values (`SurfaceGraph.chosen`).
+values (`PickGraph.chosen`).
 
 A viewer pick is the one place a pick is both: its `by` reads state and the
 viewer's variables, so the case is made per viewer, at that viewer's values
-(`SurfaceGraph.decideByViewer`, kept per values by `Shared.branchAt`, ADR 0033),
+(`PickGraph.decideByViewer`, kept per values by `Shared.branchAt`, ADR 0033),
 and the `If` is a flip for exactly the viewers whose case it moves. A value no
 case takes, with no `else`, shows nothing: only the plain variable's declared
 value is held to a case, since a computed `by` has no such value to check.
@@ -92,12 +92,12 @@ asks the visibility chain (below) of it as of a tab panel.
 
 Per state change, the recording pass does two things:
 
-1. **Flips** (`SurfaceGraph.affectedStateGroups`): found from the changed
+1. **Flips** (`PickGraph.affectedStateGroups`): found from the changed
    entities, through an index of what each pick's `by` reads, so a frame
    that touches no condition costs a lookup per entity however many `If`s the
    page holds. A pick flips when its case differs before and after and it
    is shown both times: its root visible past no other pick flipping
-   (`SurfaceGraph.visibleContainer`), and, inside a set member, the member
+   (`PickGraph.visibleContainer`), and, inside a set member, the member
    present in that clause. A member arriving or switching clause is
    placed whole with the branch its state picks, and a pick below another that
    flips is inside that one's fill, so neither is a flip. Record where the
@@ -105,7 +105,7 @@ Per state change, the recording pass does two things:
    Hidden-branch churn deliberately leaves stale cache entries; the flip-prune
    is what makes that correct.
 
-   A viewer pick flips per values (`SurfaceGraph.affectedViewerGroups`): the
+   A viewer pick flips per values (`PickGraph.affectedViewerGroups`): the
    same test, once per distinct values live sessions hold, each against the
    containers on screen for the sessions holding them. It is a flip if it moves
    for some, logged by its host and the case arriving for each; for the others
@@ -117,21 +117,21 @@ Per state change, the recording pass does two things:
    node: the node's own HTML embeds the branch, so morphing it would weld host
    to content, which is exactly what the leaf/structure split prevents (ADR
    0008).
-2. **Active-member liveness** (`SurfaceGraph.visibleContainer`, per container
+2. **Active-member liveness** (`PickGraph.visibleContainer`, per container
    binding a changed entity): a container contributes its affected components and
    sets only if it is visible and no pick above it is flipping. A set member's
    bindings and a set's moves are asked the same of the case they sit in,
    so a frame asks only what reads a changed entity, never every shown
-   case. Page open asks it of every case (`shownSurfaces`), and a
+   case. Page open asks it of every case (`shownCases`), and a
    member's placement renders the branch its state picks.
    Inactive STATE members are never consulted — that IS the no-updates
    guarantee, and it is structural: their ids never enter the selection.
 
    Structural silence covers state members directly. A variable's case
    nested inside an inactive branch — a tab panel inside a hidden `If` — needs
-   one more step, because `SurfaceGraph.chosen` names the case a viewer's value
+   one more step, because `PickGraph.chosen` names the case a viewer's value
    picks whether or not it is on screen. The recorder therefore asks
-   `SurfaceGraph.onScreen` (`visibleContainer` per container), the visibility
+   `PickGraph.onScreen` (`visibleContainer` per container), the visibility
    CHAIN (ADR 0012): every pick above a node holding the case it sits in, and
    inside a set member, the member in that clause. It is the one test of
    "shown": the flips, the liveness above and page open all ask it. A

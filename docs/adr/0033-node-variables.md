@@ -156,7 +156,7 @@ param spelled from the declarer's own template (`own`) or from below it (`below`
 activation of a panel, `defaultingTo(value)` for the node's `vars`, and `choose(value)` for a
 declared choice (`choose(null)` clears it). So a component writes the name once, and a misspelt signal cannot exist. The server's half
 is `VarKey(declarer, name)`, which owns the same spellings where the server commits, seeds,
-adopts a reconnect's values and reads a link, and `VarGraph`, beside `SurfaceGraph` and
+adopts a reconnect's values and reads a link, and `VarGraph`, beside `PickGraph` and
 `MemberGraph`, owns scopes (set members included), a viewer's environment, readers and the panels
 a write selects. `VarSignalNamesSuite` reads a real page's names and holds the two halves equal.
 
@@ -230,7 +230,7 @@ otherwise), and distinct keys per choice: a host is filled by a choice the serve
 variable or a condition (ADR 0007). Several bars, and a bar
 nested in another's panel, are kept apart by being different declarers. Every path that renders
 a panel takes the bar's case from the viewer's values, which the render's `Shared` carries
-(`Shared.viewing`, read by `SurfaceGraph.decideByVariable`): a lookup, kept nowhere, and a tab
+(`Shared.viewing`, read by `PickGraph.decideByVariable`): a lookup, kept nowhere, and a tab
 never joins `SessionState.open`. A stale `ui.<id>` param cannot pick a tab.
 
 **A highlight is `v.valueIs(x)` in a bool signal slot**, the one variable read a signal may
@@ -272,7 +272,7 @@ Over the plain variable (`c.iff(v.valueIs(x))`, a match on `v.value`) that is a 
 viewer's value. Computing over a variable, alone or with state (`c.iff(v.valueIs(x))` with an
 `elif` over a light, or a `match` through steps), it is a viewer pick: `by` read once at the
 viewer's values and its case looked up, kept per values in the version's `Shared`
-(`SurfaceGraph.decideByViewer`, `Shared.branchAt`) and carried by the dirty rule of the entities
+(`PickGraph.decideByViewer`, `Shared.branchAt`) and carried by the dirty rule of the entities
 it reads; one reading no entity is never dirtied. A write re-plans each pick reading the key at
 the writer's host (`VarGraph.picksDecidedBy`), and a state change moving a viewer pick's case
 for some viewers is logged as a flip for those alone (ADR 0007).

@@ -151,7 +151,7 @@ unavailable switch.
   answers and the node's variables, and throws on a read of either that is not: a decision's
   has no variables, since it has no viewer. `Dashboard.validated` walks the wire model into a second, compiled
   one (`Ready`, `Ready.Compile`), every expression beside its run, from `validate`'s own typing;
-  the renderer, `MemberGraph`, `SurfaceGraph`, the order keys and set calls read only that tree,
+  the renderer, `MemberGraph`, `PickGraph`, the order keys and set calls read only that tree,
   so nothing that runs can reach an expression with no run. An expression inside another (a CEL
   input, a guard, a list's item) compiles into its parent's run. One scope per dashboard
   (`Evaluator.Scope`) builds each CEL program the first time a `Cel.Key` asks; `Cel.asts`, the

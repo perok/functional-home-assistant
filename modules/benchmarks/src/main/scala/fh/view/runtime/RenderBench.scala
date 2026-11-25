@@ -490,7 +490,7 @@ class RenderBench {
     setIfs = Renderer.create(ifSetDash(Leaves))
     setIfsFrames = Vector.tabulate(4)(i => publishFrame(ifStates, i % 2))
     if (
-      setIfs.surfaces
+      setIfs.picks
         .affectedStateGroups(
           List(windowFlip(1)._1),
           Shared.of(ifStates),
@@ -507,7 +507,7 @@ class RenderBench {
     // After `checkPublishShape`, whose frame left `set`'s membership held.
     tickMemberIds = tickEntities.flatMap(
       set.members
-        .binding(_, _ == set.surfaces.pageRoot, heldBy(set))
+        .binding(_, _ == set.picks.pageRoot, heldBy(set))
         .toList
         .sorted
     )
@@ -690,11 +690,11 @@ class RenderBench {
         val screens = viewerSessions.map(s =>
           s.tab -> (
             s.env,
-            viewers.surfaces.onScreen(s.open, now.viewing(s.env))
+            viewers.picks.onScreen(s.open, now.viewing(s.env))
           )
         )
         val seen = screens.groupBy(_._1).values.toList.map { same =>
-          SurfaceGraph.Seen(
+          PickGraph.Seen(
             same.head._2._1,
             same.foldLeft(scala.collection.immutable.BitSet.empty)(_ | _._2._2)
           )
@@ -2386,7 +2386,7 @@ object RenderBench {
   final val FlipLeaves = 20
 
   /** The entity whose state chooses the branch — an alarm, the shipped shape
-    * for a state-activated surface.
+    * for a pick over state.
     */
   final val FlipEntity = "alarm.house"
 
@@ -2395,7 +2395,7 @@ object RenderBench {
     * [[FlipLeaves]] entity cards.
     *
     * This is the fixture the FILL benches need and nothing else here had — the
-    * page benches are one tree with no surfaces in it, so a wholesale host
+    * page benches are one tree with no picks in it, so a wholesale host
     * re-supply was unmeasured (issue #224).
     */
   def flipDash(signals: Boolean = true): Dashboard =

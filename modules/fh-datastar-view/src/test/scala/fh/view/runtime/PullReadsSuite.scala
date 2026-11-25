@@ -135,7 +135,7 @@ class PullReadsSuite extends munit.FunSuite {
   }
 
   test("an open tab's chart is asked on every pull, and only that one") {
-    // A pull re-checks every node of an open surface, and a chart's key holds
+    // A pull re-checks every node of a shown case, and a chart's key holds
     // its read's version — so the tab's chart is asked even when only a light
     // moved, and the body's is not.
     assertEquals(

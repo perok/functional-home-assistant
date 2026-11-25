@@ -39,7 +39,7 @@ import java.util.concurrent.TimeUnit
   *
   *   - `pullPlain` — a pull that moves one card, nothing open: asks nothing.
   *   - `pullPlainTabOpen` — the same with the chart tab open: the tab's four
-  *     charts are asked, since a resume re-checks every open-surface node.
+  *     charts are asked, since a resume re-checks every shown node.
   *   - `pullChart` — a pull that renders one body chart.
   *   - `pagePrepass` — resolving a page's eight reads.
   *   - `pageWithCharts` — that, plus the page walk.

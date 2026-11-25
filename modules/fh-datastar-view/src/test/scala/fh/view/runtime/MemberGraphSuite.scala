@@ -380,10 +380,10 @@ class MemberGraphSuite extends munit.FunSuite {
   test("affectedSets is scoped to the container the set lives in") {
     val r = rendererOf(set(List("light.a")), inCase = true)
     val caseGid = caseSet(r)
-    val inCase = r.surfaces.containersSpelled(caseSpelling).toSet
+    val inCase = r.picks.containersSpelled(caseSpelling).toSet
     val ch = List(StateChange.Moved("light.a", None, st("light.a", "on")))
     assertEquals(
-      r.members.affectedSetsWithin(ch, _ == r.surfaces.pageRoot),
+      r.members.affectedSetsWithin(ch, _ == r.picks.pageRoot),
       Nil
     )
     assertEquals(r.members.affectedSetsWithin(ch, inCase), List(caseGid))
@@ -457,9 +457,9 @@ class MemberGraphSuite extends munit.FunSuite {
     )
 
     val ch = List(StateChange.Moved("light.b", None, st("light.b", "on")))
-    val inCase = r.surfaces.containersSpelled(caseSpelling).toSet
+    val inCase = r.picks.containersSpelled(caseSpelling).toSet
     assertEquals(g.affectedSetsWithin(ch, inCase), List(innerId))
-    assertEquals(g.affectedSetsWithin(ch, _ == r.surfaces.pageRoot), Nil)
+    assertEquals(g.affectedSetsWithin(ch, _ == r.picks.pageRoot), Nil)
   }
 
   test(

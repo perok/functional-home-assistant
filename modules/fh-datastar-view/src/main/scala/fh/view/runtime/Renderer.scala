@@ -217,7 +217,7 @@ class Renderer(validated: Dashboard.Validated) {
 
   // Its marks are read only once the graphs are built.
   private val decided =
-    Decided(Shared.Marked(gid => surfaces.marked(gid), markedGates))
+    Decided(Shared.Marked(gid => picks.marked(gid), markedGates))
 
   /** `store`'s version: what every reader of it decides from. */
   def shared(store: StoreState): Shared = decided.at(store)
@@ -247,7 +247,7 @@ class Renderer(validated: Dashboard.Validated) {
     Shared.Dirty(
       sets,
       memberIds,
-      surfaces.dirtied(changes),
+      picks.dirtied(changes),
       changes.iterator
         .flatMap(c => gatesReading.getOrElse(c.entityId, Set.empty))
         .toSet
@@ -294,8 +294,7 @@ class Renderer(validated: Dashboard.Validated) {
   private val containerEntities: Map[Ix, Map[String, Set[NodeId]]] =
     indexes.flatMap(_.byEntity).toMap
 
-  /** Lazy: the member graph, the ancestry and the surface graph are built
-    * below.
+  /** Lazy: the member graph, the ancestry and the pick graph are built below.
     */
   private[runtime] lazy val vars: VarGraph =
     new VarGraph(
@@ -303,15 +302,15 @@ class Renderer(validated: Dashboard.Validated) {
       // host's scope.
       scopes = {
         val byNode = dashboard.varScopes.filter(_._2.nonEmpty)
-        byNode ++ (surfaces.varPicks ++ surfaces.viewerPicks).flatMap(gid =>
-          byNode.get(surfaces.hostOf(gid)).map(gid -> _)
+        byNode ++ (picks.varPicks ++ picks.viewerPicks).flatMap(gid =>
+          byNode.get(picks.hostOf(gid)).map(gid -> _)
         )
       },
-      panelsSelected = surfaces.varPicks.toList
-        .flatMap(gid => surfaces.varSelecting(gid).map(gid -> _))
+      panelsSelected = picks.varPicks.toList
+        .flatMap(gid => picks.varSelecting(gid).map(gid -> _))
         .toMap,
-      viewerReads = surfaces.viewerPicks
-        .map(gid => gid -> surfaces.viewerVariables(gid).toSet)
+      viewerReads = picks.viewerPicks
+        .map(gid => gid -> picks.viewerVariables(gid).toSet)
         .toMap ++ members.viewerSets,
       readsAt = id =>
         fetchesForNode(id).flatMap(_.fetch.variables).toSet ++
@@ -353,8 +352,8 @@ class Renderer(validated: Dashboard.Validated) {
             .flatMap(a => refusedAt(a.fetch, env.getOrElse(id, Map.empty)))
         ) ++
         vars.panelsSelectedBy(key).flatMap { gid =>
-          Option.unless(surfaces.memberAt(gid, value).isDefined)(
-            s"$gid takes ${Dashboard.membersText(surfaces.memberValues(gid))}"
+          Option.unless(picks.memberAt(gid, value).isDefined)(
+            s"$gid takes ${Dashboard.membersText(picks.memberValues(gid))}"
           )
         }).distinct
       Option.when(why.nonEmpty)(
@@ -522,9 +521,9 @@ class Renderer(validated: Dashboard.Validated) {
             case Some(setId) => setAsks(setId, shared)
             case None        =>
               pickedCase(gid, shared)
-                .flatMap(surfaces.cases(gid).lift)
+                .flatMap(picks.cases(gid).lift)
                 .toList
-                .flatMap(surfaceAsks(_, shared))
+                .flatMap(caseAsks(_, shared))
           }
         },
       shared,
@@ -692,8 +691,8 @@ class Renderer(validated: Dashboard.Validated) {
   )
 
   /** Selection and visibility, exposed on the same terms as [[members]]. */
-  private[runtime] val surfaces: SurfaceGraph =
-    new SurfaceGraph(
+  private[runtime] val picks: PickGraph =
+    new PickGraph(
       dashboard.index,
       dashboard.picks,
       members
@@ -710,7 +709,7 @@ class Renderer(validated: Dashboard.Validated) {
     * depends on a version's membership ([[MemberGraph.binding]]).
     */
   def componentsFor(entityId: String): Set[NodeId] =
-    surfaceComponentsFor(surfaces.pageRoot, entityId)
+    containerComponentsFor(picks.pageRoot, entityId)
 
   /** Empty for a candidate set (its members have ids of their own). */
   def entitiesForNode(
@@ -770,14 +769,14 @@ class Renderer(validated: Dashboard.Validated) {
   def watchedEntities: Set[String] = dashboard.watchedEntities
 
   /** The cases whose static nodes bind `entityId`: the candidates a tick asks
-    * [[SurfaceGraph.visibleContainer]] of, rather than every shown one.
+    * [[PickGraph.visibleContainer]] of, rather than every shown one.
     */
-  def surfacesBinding(entityId: String): List[Ix] =
-    surfacesByEntity.getOrElse(entityId, Nil)
+  def containersBinding(entityId: String): List[Ix] =
+    containersByEntity.getOrElse(entityId, Nil)
 
-  private lazy val surfacesByEntity: Map[String, List[Ix]] =
+  private lazy val containersByEntity: Map[String, List[Ix]] =
     containerEntities.toList
-      .filter(_._1 != surfaces.pageRoot)
+      .filter(_._1 != picks.pageRoot)
       .flatMap((c, byEntity) => byEntity.keys.map(_ -> c))
       .groupMap(_._1)(_._2)
       .view
@@ -785,7 +784,7 @@ class Renderer(validated: Dashboard.Validated) {
       .toMap
 
   /** A container's own static nodes binding `entityId`. */
-  def surfaceComponentsFor(container: Ix, entityId: String): Set[NodeId] =
+  def containerComponentsFor(container: Ix, entityId: String): Set[NodeId] =
     containerEntities
       .get(container)
       .fold(Set.empty)(_.getOrElse(entityId, Set.empty))
@@ -933,7 +932,7 @@ class Renderer(validated: Dashboard.Validated) {
   /** What a container's own static nodes ask, and its sets' present members: a
     * nested container's are asked as it is shown.
     */
-  private def asksOfSurface(
+  private def asksOfContainer(
       container: Ix,
       shared: Shared
   ): List[(NodeId, Fetching)] =
@@ -947,14 +946,14 @@ class Renderer(validated: Dashboard.Validated) {
     )
 
   /** A case's asks, the cases shown inside it included. */
-  private def surfaceAsks(
+  private def caseAsks(
       caseId: String,
       shared: Shared
   ): List[(NodeId, Fetching)] =
-    surfaces
+    picks
       .shownWithin(caseId, shared)
       .toList
-      .flatMap(i => asksOfSurface(Ix(i), shared))
+      .flatMap(i => asksOfContainer(Ix(i), shared))
 
   /** The body and every case shown in it. An unselected tab is fetched when
     * switched to.
@@ -965,11 +964,11 @@ class Renderer(validated: Dashboard.Validated) {
       env: VarEnv
   ): List[SlotRead] =
     ask(
-      asksOfSurface(surfaces.pageRoot, shared) ++
-        surfaces
-          .shownSurfaces(surfaces.screen(open, shared), shared)
+      asksOfContainer(picks.pageRoot, shared) ++
+        picks
+          .shownCases(picks.screen(open, shared), shared)
           .toList
-          .flatMap(i => asksOfSurface(Ix(i), shared)),
+          .flatMap(i => asksOfContainer(Ix(i), shared)),
       shared,
       env
     )
@@ -981,8 +980,8 @@ class Renderer(validated: Dashboard.Validated) {
     containerNodes.getOrElse(container, Nil)
 
   /** [[containerNodeIds]] of every container `spelled` names. */
-  def surfaceNodeIds(spelled: String): Set[NodeId] =
-    surfaces.containersSpelled(spelled).flatMap(containerNodeIds).toSet
+  def caseNodeIds(spelled: String): Set[NodeId] =
+    picks.containersSpelled(spelled).flatMap(containerNodeIds).toSet
 
   /** A fill of either container: a set's members, in DOM order, or a state
     * group's branch.
@@ -1015,7 +1014,7 @@ class Renderer(validated: Dashboard.Validated) {
     * is inside a member.
     */
   private[runtime] def hostIx(container: NodeId, shared: Shared): Ix = {
-    val host = surfaces.hostOf(container)
+    val host = picks.hostOf(container)
     nodeAt(host, shared).fold(index.ixsOf(host).head)(_.ix)
   }
 
@@ -1041,7 +1040,7 @@ class Renderer(validated: Dashboard.Validated) {
   private[runtime] def hostsAt(id: NodeId, shared: Shared): List[NodeId] =
     members.setContainer(id) match
       case Some(setId) => List(setId)
-      case None => surfaces.picksAt(id).filter(surfaces.groupShown(_, shared))
+      case None        => picks.picksAt(id).filter(picks.groupShown(_, shared))
 
   /** A key's root is patched by its own bytes, or only ever sent whole. */
   private[runtime] def hasOwnRendering(key: Ix): Boolean =
@@ -1084,15 +1083,15 @@ class Renderer(validated: Dashboard.Validated) {
   /** The element a pick's case or a set's members are patched into: its node's
     * root, the live fill being its card's whole template.
     */
-  def hostId(gid: NodeId): DomId = elementId(surfaces.hostOf(gid))
+  def hostId(gid: NodeId): DomId = elementId(picks.hostOf(gid))
 
   /** The index of the case `gid`'s pick shows, rendered lazily when the
     * template reaches the slot's hole. `None` for a node owning no pick, or one
     * showing nothing: the hole renders empty.
     */
   private def pickedCase(gid: NodeId, shared: Shared): Option[Int] =
-    if (surfaces.cases(gid).isEmpty) None
-    else surfaces.decide(gid, shared)
+    if (picks.cases(gid).isEmpty) None
+    else picks.decide(gid, shared)
 
   /** What a node's patch form is rendered from ([[ByteValues]]). A node's other
     * inputs are fixed per renderer (template, constants, `id`,
@@ -1122,7 +1121,7 @@ class Renderer(validated: Dashboard.Validated) {
   ): Option[Own] =
     allIndexed.get(id) match {
       case Some(c: Ready.Component) if ownRenderingOf(c) =>
-        if (surfaces.cases(id).nonEmpty)
+        if (picks.cases(id).nonEmpty)
           sys.error(
             s"node $id has its own rendering AND a pick; ADR 0012 holds " +
               "these are exclusive (a pick's host holds regions, so it is " +

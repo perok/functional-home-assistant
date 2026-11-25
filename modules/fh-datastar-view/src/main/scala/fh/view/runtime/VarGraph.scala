@@ -79,7 +79,7 @@ object VarKey:
       key.committedSignal -> Json.fromString(value)
     }*)
 
-/** Who sees which node variable, beside [[SurfaceGraph]] and [[MemberGraph]]:
+/** Who sees which node variable, beside [[PickGraph]] and [[MemberGraph]]:
   * scopes, a viewer's environment, and what a write reaches (ADR 0033).
   * `Renderer` renders with what it says and holds the write's check
   * ([[Renderer.refusals]]), which needs the fetches' parse.

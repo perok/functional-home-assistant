@@ -36,20 +36,20 @@ class ServerRoutesSuite extends ServerHarness {
 
   /** As an SSE reconnect does, and every action POST in its body. */
 
-  test("selection round-trip: a tab variable of 1 opens the index-1 surface") {
+  test("selection round-trip: a tab variable of 1 opens the index-1 panel") {
     val r = tabsRenderer
     val env = r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "1"))
     assertEquals(
-      r.surfaces.chosen(Shared.of(Map.empty).viewing(env)),
-      r.surfaces.openOf(Set("c_panel_0_1"))
+      r.picks.chosen(Shared.of(Map.empty).viewing(env)),
+      r.picks.openOf(Set("c_panel_0_1"))
     )
     assert(
       r.renderBody(Map.empty, vars = env)
         .contains("""id="c_panel_0_1"""")
     )
     assert(
-      r.surfaces.selectionAnomalies(env).isEmpty,
-      clue = r.surfaces.selectionAnomalies(env)
+      r.picks.selectionAnomalies(env).isEmpty,
+      clue = r.picks.selectionAnomalies(env)
     )
   }
 
@@ -60,9 +60,9 @@ class ServerRoutesSuite extends ServerHarness {
     // A choice with no otherwise shows nothing at a value no case takes.
     val r = tabsRenderer
     val env = r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "abc"))
-    assert(r.surfaces.chosen(Shared.of(Map.empty).viewing(env)).isEmpty)
+    assert(r.picks.chosen(Shared.of(Map.empty).viewing(env)).isEmpty)
     assert(!r.renderBody(Map.empty, vars = env).contains("c_panel_0_"))
-    assertEquals(r.surfaces.selectionAnomalies(env).size, 1)
+    assertEquals(r.picks.selectionAnomalies(env).size, 1)
   }
 
   private def posting(key: String, t: ValueType) = CallDecl.Service(

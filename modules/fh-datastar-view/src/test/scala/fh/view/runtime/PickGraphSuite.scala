@@ -37,7 +37,7 @@ import io.circe.Json
   * disagree legitimately; one over state is the same for everyone, so its cases
   * hide nothing.
   */
-class SurfaceGraphSuite extends munit.FunSuite {
+class PickGraphSuite extends munit.FunSuite {
 
   private def col(kids: LayoutNode*) =
     LayoutNode.Component("col", slots = Slots.kids(kids*))
@@ -103,10 +103,10 @@ class SurfaceGraphSuite extends munit.FunSuite {
   private def rendererOf(card: LayoutNode): Renderer =
     Renderer.create(Dashboard(cards = cards, card = card))
 
-  private def graphOf(card: LayoutNode = col()): SurfaceGraph =
-    rendererOf(card).surfaces
+  private def graphOf(card: LayoutNode = col()): PickGraph =
+    rendererOf(card).picks
 
-  extension (g: SurfaceGraph)
+  extension (g: PickGraph)
     /** The one pick a graph built around a single host has. */
     private def gid: NodeId = (g.statePicks ++ g.varPicks).head
 
@@ -221,7 +221,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
   }
 
   test("a change to an entity no condition READS cannot flip anything") {
-    // The changed entities decide, not the surfaces.
+    // The changed entities decide, not the picks.
     val g = graphOf(chain(false, isOn("light.a")))
     val before = snapshot(st("light.a", "on"), st("sensor.z", "1"))
     val now = snapshot(st("light.a", "on"), st("sensor.z", "2"))
@@ -242,7 +242,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val t0 = g.cases(g.gid)(0)
     val on = snapshot(st("light.a", "on"))
     assertEquals(
-      g.shownSurfaces(BitSet.empty, Shared.of(on)),
+      g.shownCases(BitSet.empty, Shared.of(on)),
       g.openOf(Set(t0))
     )
     // A group already flipping renders its member wholesale; patching its parts
@@ -257,7 +257,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
   }
 
-  test("a user surface is visible only to a client that has it open") {
+  test("a variable pick is visible only to a client that has it open") {
     val g = graphOf(tabsAt(2))
     val List(t0, t1) = g.cases(g.gid).toList: @unchecked
     val shared = Shared.of(Map.empty)
@@ -265,7 +265,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     assert(!g.visibleContainer(g.ix(t0), g.openOf(Set(t1)), shared))
   }
 
-  test("a STATE surface is visible on state alone — `open` says nothing") {
+  test("a STATE pick is visible on state alone — `open` says nothing") {
     // Its liveness belongs to the shared pass, so it never enters an open set.
     val g = graphOf(chain(false, isOn("light.a")))
     val t0 = g.ix(g.cases(g.gid)(0))
@@ -285,7 +285,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
   }
 
-  test("a state surface is TRANSPARENT: the user tab above it decides") {
+  test("a state pick is TRANSPARENT: the user tab above it decides") {
     // Visibility walks through a state branch to what encloses it: an If's
     // branch hides nothing.
     val g = graphOf(tabsAt(1, Map(0 -> chain(false, isOn("light.a")))))
@@ -313,7 +313,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
   }
 
   test("a state pick's cases never enter a viewer's screen, a tab's do") {
-    // `Patches.Addressed` relies on this: tagging a patch with a state surface
+    // `Patches.Addressed` relies on this: tagging a patch with a state pick
     // would hide it from everybody.
     val g = graphOf(col(chain(true, isOn("light.a")), tabsAt(1)))
     val tabsGid = g.varPicks.head
@@ -342,7 +342,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
       )
     )
     val r = rendererOf(tabsAt(2, Map(1 -> setNode)))
-    val (g, members) = (r.surfaces, r.members)
+    val (g, members) = (r.picks, r.members)
     val spelled = g.cases(g.gid)(1)
     val outer = NodeId.derived(spelled)
     val setId = members.setContainer(outer).get
@@ -385,7 +385,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
       )
     )
     val r = rendererOf(tabsAt(2, Map(1 -> setNode)))
-    val (g, members) = (r.surfaces, r.members)
+    val (g, members) = (r.picks, r.members)
     val spelled = g.cases(g.gid)(1)
     val setId = members.setContainer(NodeId.derived(spelled)).get
     val off = Shared.of(snapshot(st("light.a", "off")))

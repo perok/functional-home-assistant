@@ -156,7 +156,7 @@ class CursorSuite extends munit.FunSuite {
   }
 
   test("a reconnect carries a committed node variable, not its pending ask") {
-    // A declarer id can hold `__` itself (a surface's), so the shapes are the
+    // A declarer id can hold `__` itself (a case's), so the shapes are the
     // server's own spelling rather than hand-written ones.
     val include = Server.SseInclude.r
     val declarer: fh.view.model.NodeId =

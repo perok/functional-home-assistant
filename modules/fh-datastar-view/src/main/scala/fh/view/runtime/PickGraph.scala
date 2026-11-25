@@ -20,7 +20,7 @@ import scala.collection.immutable.BitSet
   * @param picks
   *   each choice, by its id ([[Dashboard.pickId]]).
   */
-private[runtime] final class SurfaceGraph(
+private[runtime] final class PickGraph(
     index: TreeIndex,
     picks: Map[NodeId, Ready.Pick],
     members: MemberGraph
@@ -237,7 +237,7 @@ private[runtime] final class SurfaceGraph(
   /** Every container [[visibleContainer]] with `open`, which is added whole: a
     * page opens on what the viewer chose, shown or not.
     */
-  def shownSurfaces(open: BitSet, shared: Shared): BitSet =
+  def shownCases(open: BitSet, shared: Shared): BitSet =
     open | containers.filter(
       shownUpTo(_, BitSet.empty, open, shared, Set.empty)
     )
@@ -389,7 +389,7 @@ private[runtime] final class SurfaceGraph(
       changes: List[StateChange],
       prev: Shared,
       next: Shared,
-      seen: List[SurfaceGraph.Seen],
+      seen: List[PickGraph.Seen],
       stateFlips: Set[NodeId]
   ): List[(NodeId, List[Int])] = {
     val candidates = changes
@@ -426,7 +426,7 @@ private[runtime] final class SurfaceGraph(
       .flatMap(memberAt(gid, _))
 }
 
-private[runtime] object SurfaceGraph {
+private[runtime] object PickGraph {
 
   /** One distinct set of values live sessions hold, and the containers on
     * screen for those holding it.

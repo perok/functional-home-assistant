@@ -7,9 +7,9 @@ import io.circe.parser.parse
 import scala.collection.immutable.BitSet
 import scala.util.Random
 
-/** [[SurfaceGraph.affectedStateGroups]] finds flips from the changed entities.
-  * The reference here walks every group down from the page instead, through
-  * branches that are shown and did not move and into the visible surfaces they
+/** [[PickGraph.affectedStateGroups]] finds flips from the changed entities. The
+  * reference here walks every group down from the page instead, through
+  * branches that are shown and did not move and into the visible cases they
   * hold: for random frames the two must name the same groups.
   */
 class StateFlipIndexSuite extends munit.FunSuite {
@@ -73,7 +73,7 @@ class StateFlipIndexSuite extends munit.FunSuite {
 
   private def reference(
       ready: Ready.Dashboard,
-      g: SurfaceGraph,
+      g: PickGraph,
       before: Shared,
       now: Shared,
       visible: BitSet
@@ -103,9 +103,9 @@ class StateFlipIndexSuite extends munit.FunSuite {
 
   private def agree(name: String, d: Dashboard): Unit = {
     val validated = d.validated().fold(e => fail(e.mkString("; ")), identity)
-    val g = Renderer(validated).surfaces
+    val g = Renderer(validated).picks
     assert(g.statePicks.nonEmpty, s"$name has no state group to flip")
-    val userSurfaces =
+    val userCases =
       g.openOf(g.varPicks.flatMap(g.cases(_)).toSet)
     val rnd = new Random(556)
     val ids = HouseFixture.all.map(_.entityId)
@@ -118,7 +118,7 @@ class StateFlipIndexSuite extends munit.FunSuite {
         }
         val changes =
           moved.map(id => StateChange.Moved(id, states.get(id), now(id)))
-        val found = List(BitSet.empty, userSurfaces).flatMap { visible =>
+        val found = List(BitSet.empty, userCases).flatMap { visible =>
           val flips = g.affectedStateGroups(
             changes,
             Shared.of(states),

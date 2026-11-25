@@ -366,7 +366,7 @@ class ResumeSuite extends ServerHarness {
   /** The panel shows a client-chosen tab, so it is rendered per session. With
     * every viewer on the other tab, nothing records a change inside it.
     */
-  test("a resume reconciles an OPEN surface's nodes, and only what differs") {
+  test("a resume reconciles an OPEN tab's nodes, and only what differs") {
     val twoTabs = twoTabsDash
     live(
       twoTabs,

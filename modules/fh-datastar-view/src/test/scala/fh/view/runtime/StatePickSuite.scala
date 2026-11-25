@@ -6,16 +6,16 @@ import fh.view.testkit.TestIds.given
 import fh.view.runtime.RendererTestOps.ixOf
 import io.circe.Json
 
-/** State-activated surfaces on the recording pass (ADR 0007): hidden-branch
-  * silence, flips and their prune, nested groups, popup containment. Mostly a
-  * negative property, so absence is asserted as carefully as what is sent.
+/** Picks over state on the recording pass (ADR 0007): hidden-branch silence,
+  * flips and their prune, nested groups, popup containment. Mostly a negative
+  * property, so absence is asserted as carefully as what is sent.
   */
-class StateSurfaceSuite extends ServerHarness {
+class StatePickSuite extends ServerHarness {
 
   private def step(v: TestServer.Viewer, next: EntityState) =
     v.change(next).map(elementPatches)
 
-  test("state surfaces: churn in the INACTIVE branch emits ZERO patches") {
+  test("state picks: churn in the INACTIVE branch emits ZERO patches") {
     live(
       ifDash(),
       Map(
@@ -26,7 +26,7 @@ class StateSurfaceSuite extends ServerHarness {
     ) { ts =>
       for {
         v <- ts.viewer()
-        // Its member surface is never in the active set, so its index is never
+        // Its member case is never shown, so its index is never
         // consulted: structural silence, not a filtered render.
         _ <- step(v, es("sensor.b", "B1")).assertEquals(Nil)
         shown <- step(v, es("sensor.a", "A1"))
@@ -205,8 +205,8 @@ class StateSurfaceSuite extends ServerHarness {
 
   /** '''A flip while a client is away must survive the reconnect''' (ADR 0011).
     * `Patches.resume` looked members up by position in `memberEntities`, empty
-    * for a state group, so a `Placed` carrying a `Surface` was dropped: the
-    * branch vanished and nothing put one back.
+    * for a state group, so a `Placed` carrying a case was dropped: the branch
+    * vanished and nothing put one back.
     */
 
   test("a flip across a disconnect replays as the same single overwrite") {

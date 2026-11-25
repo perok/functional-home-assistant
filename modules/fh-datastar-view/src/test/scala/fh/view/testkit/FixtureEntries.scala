@@ -100,8 +100,8 @@ object FixtureEntries {
         |""".stripMargin
   )
 
-  /** The two inline-surface hoist paths, tab panels and branches, and a branch
-    * a node variable picks.
+  /** Both kinds of case, tab panels and branches, and a branch a node variable
+    * picks.
     */
   val branches: Entry = Entry(
     "branches",

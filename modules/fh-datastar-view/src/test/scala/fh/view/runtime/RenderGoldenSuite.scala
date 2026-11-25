@@ -73,12 +73,12 @@ class RenderGoldenSuite extends munit.FunSuite {
         )
       val nodes =
         (body.own.keys ++ caseIds.flatMap(
-          r.surfaceNodeIds
+          r.caseNodeIds
         )).toList.distinct.sorted
       val f = RenderGoldenSuite.answers(r, d, shared, nodes)
       section(houseName, "body", body.html)
       caseIds.foreach { id =>
-        r.surfaces
+        r.picks
           .pickShowing(id, shared)
           .flatMap((gid, i) => r.renderCaseTraced(gid, i, shared, Viewing(f)))
           .foreach((_, t) => section(houseName, s"case $id", t.html))
@@ -219,7 +219,7 @@ object RenderGoldenSuite {
   ): FetchSnapshot = {
     val env = r.vars.env(Map.empty)
     // Every case's nodes too: a golden renders each case, shown or not.
-    val cases = d.picks.values.flatMap(_.cases).flatMap(r.surfaceNodeIds)
+    val cases = d.picks.values.flatMap(_.cases).flatMap(r.caseNodeIds)
     val reads: List[SlotRead] =
       r.fetchesForPage(Set.empty, shared, env) ++
         r.readsForPull((nodes ++ cases).distinct, Nil, shared, env)

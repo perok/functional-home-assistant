@@ -48,9 +48,9 @@ class ViewerDecisionsSuite extends ServerHarness {
 
   test("the chain is a viewer pick, decided by neither state nor a lookup") {
     val r = Renderer.create(dash)
-    assertEquals(r.surfaces.viewerPicks, Set(pick))
-    assertEquals(r.surfaces.statePicks, Set.empty[NodeId])
-    assertEquals(r.surfaces.varPicks, Set.empty[NodeId])
+    assertEquals(r.picks.viewerPicks, Set(pick))
+    assertEquals(r.picks.statePicks, Set.empty[NodeId])
+    assertEquals(r.picks.varPicks, Set.empty[NodeId])
     // A write of `mode` re-plans this pick, which is no plain panel, and the
     // set whose guard reads it, or whose order does.
     assertEquals(

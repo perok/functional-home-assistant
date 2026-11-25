@@ -280,7 +280,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
     )
   }
 
-  // A tap URL built as a CEL transform, the way a surface tap's is: slug and
+  // A tap URL built as a CEL transform, the way a library tap's is: slug and
   // entity from bindings, `noSignals` inside the string.
   private val tapUrl =
     "\"@post('sse/action/\" + dashboard_slug + \"/\" + 'light/toggle' " +

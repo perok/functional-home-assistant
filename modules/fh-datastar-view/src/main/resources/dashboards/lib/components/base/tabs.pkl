@@ -1,10 +1,9 @@
-/// The cards built on a choice: a tab bar over one panel, and a conditional
-/// section whose branch live state chooses. Pure composition over
-/// `core/choice.pkl`; the backend never reads a card name (ADR 0002/0007).
-module components.base.surface
+/// A tab bar over one panel, and the tab button `c.select(v)` reuses. Pure
+/// composition over a match on a node variable; the backend never reads a
+/// card name (ADR 0033).
+module components.base.tabs
 
 import "../../core/node.pkl" as nodeMod
-import "../../core/choice.pkl" as choiceMod
 import "../../core/group.pkl" as groupMod
 import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
@@ -93,55 +92,3 @@ hidden tabs: Tabs = new Tabs {}
 /// The node variable a [[Tabs]] declares and its buttons write. Fixed, as the
 /// window chooser's is, so the declaration and its writers cannot drift.
 const tabVar: varMod.Variable = new { name = "tab" }
-
-const local branchSlot: slotMod.NodesSlot = slotMod.nodes("branch")
-
-/// A conditional section: `then` while `condition` holds, the optional `else`
-/// while it does not, and `elif`s between. The tabs machinery, and the inactive
-/// branch is neither rendered nor updated. Over live state the choice is shared
-/// by every viewer; over a node variable, alone or mixed with state in one
-/// chain, it is each viewer's own, as a tab bar's is.
-///
-///   c.iff(q.entity(dump.e_x).stateIs("on"))
-///     .then(c.title("on")).`else`(c.title("off"))
-///   c.iff(p).then(a).elif(q).then(b).`else`(x)
-///   c.iff(window.valueIs("30d")).then(c.title("Month"))
-///   (c.iff(p)) { `then` { ...cards... } `else` { ...cards... } }
-///
-/// The same chain as `nodeMod.iff`, in a node of its own.
-class If extends nodeMod.Node {
-  card = "ifhost"
-  // `fh-ifhost` lets the base stylesheet collapse a cell whose branches all
-  // failed.
-  cardDef = new nodeMod.CardDef {
-    classes = "fh-ifhost"
-    template = branchSlot.toString()
-  }
-  layoutClasses { "fh-cols-full" }
-  hidden condition: slotMod.Expr
-  hidden `then`: Listing<nodeMod.LayoutNode> = new {}
-  hidden elifs: Listing<choiceMod.Elif> = new {}
-  hidden `else`: Listing<nodeMod.LayoutNode> = new {}
-  hidden chain: choiceMod.Iff =
-    let (i = this)
-      new choiceMod.Iff { condition = i.condition; `then` = i.`then`; elifs = i.elifs; `else` = i.`else` }
-  slots { branchSlot.of(chain) }
-
-  /// Append one node, or `new Listing { ... }` for several, to the branch being
-  /// built: `then`, or the last `elif`'s.
-  function then(n: choiceMod.Branch): this = let (l = this) let (c = l.chain.then(n))
-    (l) { `then` = c.`then`; elifs = c.elifs }
-  /// A further branch, taken when none before it holds: `.elif(q).then(b)`.
-  function elif(p: choiceMod.Condition): this = let (l = this) let (c = l.chain.elif(p))
-    (l) { elifs = c.elifs }
-  /// `` .`else`(c.title("off")) ``.
-  function `else`(n: choiceMod.Branch): this = let (l = this) let (c = l.chain.`else`(n))
-    (l) { `else` = c.`else` }
-}
-
-/// `c.iff(p).then(...).`else`(...)`. A condition over state must name the
-/// entities it reads (`q.entity(e)`, or an aggregate over `q.from(…)`). A
-/// `Boolean` is accepted because the build folds: `q.from(emptyRoom).any()` is
-/// already `false`. `v.valueIs(x)` chooses by a node variable instead.
-function iff(p: choiceMod.Condition): If =
-  new If { condition = choiceMod.conditionOf(p) }

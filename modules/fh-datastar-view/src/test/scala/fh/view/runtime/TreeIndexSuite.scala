@@ -6,8 +6,8 @@ import fh.view.model.{Dashboard, Ix, NodeId}
 import fh.view.testkit.{FixtureEntries, PklFixture}
 
 /** The index against what the runtime does with the same dashboard: every id a
-  * render writes is the index's, and every container `SurfaceGraph` answers is
-  * the one the index records.
+  * render writes is the index's, and every container `PickGraph` answers is the
+  * one the index records.
   */
 class TreeIndexSuite extends munit.FunSuite {
 

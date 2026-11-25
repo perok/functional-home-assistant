@@ -125,10 +125,10 @@ private[runtime] object Patches {
     * of `seen` (one entry per distinct values, with the containers on screen
     * for them), logged by its host and each arriving case. A case binding a
     * changed entity contributes only if it is shown from the page
-    * ([[SurfaceGraph.visibleContainer]]), so a hidden branch never gets
-    * updates; a viewer's flip cuts no one's visibility here, since it moves the
-    * case for only those it flips for. `prev` is the version before, so its
-    * decisions are what viewers were sent.
+    * ([[PickGraph.visibleContainer]]), so a hidden branch never gets updates; a
+    * viewer's flip cuts no one's visibility here, since it moves the case for
+    * only those it flips for. `prev` is the version before, so its decisions
+    * are what viewers were sent.
     */
   def plan(
       renderer: Renderer,
@@ -136,11 +136,11 @@ private[runtime] object Patches {
       next: Shared,
       changes: List[StateChange],
       visible: BitSet,
-      seen: List[SurfaceGraph.Seen] = Nil
+      seen: List[PickGraph.Seen] = Nil
   ): DiffRequest = {
     val flips =
-      renderer.surfaces.affectedStateGroups(changes, prev, next, visible)
-    val viewerFlips = renderer.surfaces.affectedViewerGroups(
+      renderer.picks.affectedStateGroups(changes, prev, next, visible)
+    val viewerFlips = renderer.picks.affectedViewerGroups(
       changes,
       prev,
       next,
@@ -149,13 +149,13 @@ private[runtime] object Patches {
     )
     val flipped = flips.toSet ++ viewerFlips.map(_._1)
     val cutting = flips.toSet
-    // Per frame: every changed entity a branch binds asks of the same surface,
+    // Per frame: every changed entity a branch binds asks of the same case,
     // and each asking evaluates the conditions above it (`publishFlip`).
     val asked = scala.collection.mutable.BitSet.empty
     val reached = scala.collection.mutable.BitSet.empty
     val shown: Ix => Boolean = c =>
       if (asked.add(c.toInt)) {
-        val r = renderer.surfaces.visibleContainer(c, visible, next, cutting)
+        val r = renderer.picks.visibleContainer(c, visible, next, cutting)
         if (r) reached += c.toInt
         r
       } else reached(c.toInt)
@@ -174,9 +174,9 @@ private[runtime] object Patches {
         renderer.componentsFor(c.entityId).toList ++
           renderer.members.binding(c.entityId, shown, next) ++
           renderer
-            .surfacesBinding(c.entityId)
+            .containersBinding(c.entityId)
             .filter(shown)
-            .flatMap(renderer.surfaceComponentsFor(_, c.entityId))
+            .flatMap(renderer.containerComponentsFor(_, c.entityId))
       )
       .distinct
       .filterNot(flipped)
@@ -284,12 +284,12 @@ private[runtime] object Patches {
     }
     def arriving(l: FragmentLog, gid: NodeId, cases: List[Int]) =
       cases
-        .flatMap(renderer.surfaces.cases(gid).lift)
-        .foldLeft(touch(l, renderer.surfaces.hostOf(gid)))((acc, c) =>
+        .flatMap(renderer.picks.cases(gid).lift)
+        .foldLeft(touch(l, renderer.picks.hostOf(gid)))((acc, c) =>
           touch(acc, NodeId.derived(c))
         )
     val stateFlipped = req.flips.foldLeft(sets) { (l, gid) =>
-      arriving(l, gid, renderer.surfaces.decideByState(gid, req.next).toList)
+      arriving(l, gid, renderer.picks.decideByState(gid, req.next).toList)
     }
     req.viewerFlips.foldLeft(stateFlipped)((l, flip) =>
       arriving(l, flip._1, flip._2)
@@ -383,7 +383,7 @@ private[runtime] object Patches {
       coverage: Coverage
   ): Owing = {
     val index = renderer.index
-    val open = renderer.surfaces.screen(spelled, shared)
+    val open = renderer.picks.screen(spelled, shared)
     val logged = log.since(v)
     val fromOpen = coverage match
       case Coverage.Logged => Iterator.empty
@@ -391,7 +391,7 @@ private[runtime] object Patches {
         open.iterator
           .map(Ix(_))
           // `open` includes a tab panel inside a hidden `If`.
-          .filter(renderer.surfaces.visibleContainer(_, open, shared))
+          .filter(renderer.picks.visibleContainer(_, open, shared))
           .flatMap(renderer.containerNodeIds)
     // Only what this client can see; the rest would cost only bytes.
     // A logged place of another clause is not what this viewer is shown; an
@@ -404,7 +404,7 @@ private[runtime] object Patches {
       }
       .map(i => index.id(Ix(i)))
     val candidates = (loggedNow ++ fromOpen).distinct
-      .filter(renderer.surfaces.visibleNode(_, open, shared))
+      .filter(renderer.picks.visibleNode(_, open, shared))
       .toList
       // Document order among siblings, since ids are location-derived.
       .sorted
@@ -496,7 +496,7 @@ private[runtime] object Patches {
   ): IO[List[Addressed]] = {
     val index = renderer.index
     def rendered(key: Ix): IO[Option[(String, Map[Ix, Held])]] =
-      renderer.surfaces.caseOf(key) match
+      renderer.picks.caseOf(key) match
         case Some((gid, i)) =>
           IO(
             renderer

@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.AtomicLong
 /** A decision carried from the version before equals one made from scratch:
   * over random runs of changes to a test dashboard's house, the recorder's
   * [[Renderer.advance]] chain, read in part or not at all along the way and
-  * with a reader at times ahead of it, renders every body, surface and node
-  * patch as a fresh [[Shared]] of the same states does.
+  * with a reader at times ahead of it, renders every body, case and node patch
+  * as a fresh [[Shared]] of the same states does.
   *
   * A failing run names its seed; `HEDGEHOG_SEED=<seed>` replays it exactly.
   */

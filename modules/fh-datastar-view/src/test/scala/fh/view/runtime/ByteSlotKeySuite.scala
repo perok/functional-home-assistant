@@ -465,7 +465,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
     */
   test("no cacheable node owns a pick") {
     def check(label: String, r: Renderer, states: Map[String, EntityState]) = {
-      val owners = r.surfaces.varPicks ++ r.surfaces.statePicks
+      val owners = r.picks.varPicks ++ r.picks.statePicks
       assert(owners.nonEmpty, s"$label exercises no pick at all")
       owners.foreach(id =>
         assertEquals(

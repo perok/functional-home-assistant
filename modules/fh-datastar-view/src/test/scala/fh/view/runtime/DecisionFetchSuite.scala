@@ -19,7 +19,7 @@ import scala.collection.immutable.{BitSet, ListMap}
 import scala.collection.mutable.ListBuffer
 
 /** A decision made outside a render reads a fetch: a set's clause and order, a
-  * state surface, a `valueWhile` and a press decide by its answer, which the
+  * state pick, a `valueWhile` and a press decide by its answer, which the
   * server prepares before any of them is made.
   */
 class DecisionFetchSuite extends munit.FunSuite {
@@ -211,7 +211,7 @@ class DecisionFetchSuite extends munit.FunSuite {
     assertEquals(d.decisionFetches, List("the choice at 'c'" -> history))
     // Compiled past `validate`, which refuses a decision made by a fetch.
     val ready = Conds.compiled(Ready.Compile(Evaluator.Scope("")).dashboard(d))
-    val g = new SurfaceGraph(
+    val g = new PickGraph(
       ready.index,
       ready.picks,
       new MemberGraph(Map.empty, ready.index)

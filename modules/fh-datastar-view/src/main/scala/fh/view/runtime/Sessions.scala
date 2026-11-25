@@ -32,8 +32,8 @@ enum Tenure derives CanEqual {
   * client or a shared structure believes.
   *
   *   - `open`: the popup, by its root's DOM id, since it crosses a renderer
-  *     swap ([[SurfaceGraph.openOf]]); only it, and the tab panels `vars` pick
-  *     ([[SurfaceGraph.screen]]), are recorded and rendered, so a closed popup
+  *     swap ([[PickGraph.openOf]]); only it, and the tab panels `vars` pick
+  *     ([[PickGraph.screen]]), are recorded and rendered, so a closed popup
   *     costs nothing.
   *   - `vars`: the viewer's node-variable choices, here because a pull has no
   *     request to read them off (issue #209).
@@ -192,15 +192,15 @@ final class Session private (
       (p.state.values :: p.revealed).distinct.map(Watching(p.state.open, _))
     )
 
-  /** Show the recorder `surfaces` and `values` before the running step reads
+  /** Show the recorder `containers` and `values` before the running step reads
     * the store: a frame recorded in between without them would never reach the
     * panel being filled. Wider than the state is safe (it records a little
     * more), and the step's end, or its failure, publishes the exact state.
     */
-  def reveal(surfaces: Set[String], values: Map[VarKey, String]): IO[Unit] =
+  def reveal(containers: Set[String], values: Map[VarKey, String]): IO[Unit] =
     published.update(p =>
       Session.Published(
-        p.state.copy(open = p.state.open ++ surfaces),
+        p.state.copy(open = p.state.open ++ containers),
         values :: p.revealed
       )
     )

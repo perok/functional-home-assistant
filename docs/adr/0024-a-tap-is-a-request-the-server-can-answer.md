@@ -4,7 +4,7 @@
 - **Date:** 2026-08-22
 - **Scope:** `runtime/Server.scala` (the session routes, `withSession`,
   `inSession`), `runtime/Sessions.scala` (doc only), `model/Dashboard.scala`
-  (doc only), `lib/core/tap.pkl`, `lib/components/base/surface.pkl`
+  (doc only), `lib/core/tap.pkl`, `lib/components/base/tabs.pkl`
 - **Uses:** ADR 0023's `dashboard_slug` / `{{dashboardSlug}}` pair, for the same
   reason and by the same mechanism.
 

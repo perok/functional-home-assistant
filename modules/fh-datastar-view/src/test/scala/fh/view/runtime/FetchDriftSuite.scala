@@ -146,11 +146,11 @@ class FetchDriftSuite extends munit.FunSuite {
     val r = c.renderer
     val declared = defaults(r)
     val tabs: List[Ui] =
-      r.surfaces.varPicks.toList.sorted.flatMap { gid =>
-        val name = r.surfaces.varSelecting(gid).getOrElse(fail(s"$gid"))
-        val values = r.surfaces.memberValues(gid)
+      r.picks.varPicks.toList.sorted.flatMap { gid =>
+        val name = r.picks.varSelecting(gid).getOrElse(fail(s"$gid"))
+        val values = r.picks.memberValues(gid)
         val picking =
-          if (r.surfaces.cases(gid).sizeIs > values.size)
+          if (r.picks.cases(gid).sizeIs > values.size)
             values :+ "no case names this"
           else values
         picking.map(v =>
@@ -200,10 +200,10 @@ class FetchDriftSuite extends munit.FunSuite {
     for (c <- cases) {
       val r = c.renderer
       val painted: List[NodeId] =
-        (r.surfaces.statePicks.toList ++
-          r.surfaces.varPicks.toList
-            .flatMap(r.surfaces.cases(_))
-            .flatMap(r.surfaceNodeIds) ++
+        (r.picks.statePicks.toList ++
+          r.picks.varPicks.toList
+            .flatMap(r.picks.cases(_))
+            .flatMap(r.caseNodeIds) ++
           c.houses.flatMap(house =>
             val states = house.viewing(defaults(r))
             r.renderPageInto(
@@ -220,7 +220,7 @@ class FetchDriftSuite extends munit.FunSuite {
       val nodes =
         (painted ++ painted.flatMap(parents(r, _))).distinct.sorted
       val hosts = nodes.filter(id =>
-        r.surfaces.statePicks(id) || r.members.setContainer(id).isDefined
+        r.picks.statePicks(id) || r.members.setContainer(id).isDefined
       )
       for (house <- c.houses; ui <- uiStates(c)) {
         val states = house.viewing(ui.env)

@@ -46,7 +46,9 @@ class PopupVariableSuite extends munit.CatsEffectSuite {
       body = s"""{"${Server.ConnSignal}":"$conn"}"""
     )
 
-  test("a closed popup is not in the page, and a link opens it in the first HTML") {
+  test(
+    "a closed popup is not in the page, and a link opens it in the first HTML"
+  ) {
     served(ts =>
       for {
         closed <- ts.page()
@@ -99,13 +101,14 @@ class PopupVariableSuite extends munit.CatsEffectSuite {
         v <- ts.viewer()
         forward <- back(ts, v.document.conn, "?v.popups=help")
         state <- v.session.state.map(_.vars.get(popups))
-        refused <- ts.choose(v.document.conn, popups, Some("help")).flatMap(
-          _ =>
+        refused <- ts
+          .choose(v.document.conn, popups, Some("help"))
+          .flatMap(_ =>
             ts.postResult(
               s"sse/history/${ts.slug}?v.popups=nope",
               body = s"""{"${Server.ConnSignal}":"${v.document.conn}"}"""
             )
-        )
+          )
         after <- v.session.state.map(_.vars.get(popups))
       } yield {
         assertEquals(forward._1, Status.NoContent, clue = forward)

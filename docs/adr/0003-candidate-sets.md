@@ -158,7 +158,7 @@ recording; each session renders what it is owed when it pulls (ADR 0012),
 through the per-slug render cache, so N viewers of one set cost one render of
 each changed leaf member. A member holding nodes (a slider) arrives rendered
 per viewer instead, since what its baked regions show is each viewer's own;
-after that its leaves patch through the cache like any others. A set inside a surface no session has open is not recorded
+after that its leaves patch through the cache like any others. A set inside a case no session is shown is not recorded
 at all, and one inside an inactive state branch (ADR 0007) is structurally
 silent.
 
@@ -178,7 +178,7 @@ Three silent failure modes are worth naming, because all three were real bugs:
   which clients a patch may reach: a patch goes only to a viewer who has it
   shown. Two distinct leaks were found one after the other when a nested set
   read as the main page and went to every connected client whether or not they
-  had the surface open: the member's, which the reverse index selects, and the
+  were shown its case: the member's, which the reverse index selects, and the
   container's, which a host fill and a departing member's `remove` both name
   directly. Each member's nodes are nodes of the index, so both are placed by
   it whether or not the member is present — a departed member's `remove` is

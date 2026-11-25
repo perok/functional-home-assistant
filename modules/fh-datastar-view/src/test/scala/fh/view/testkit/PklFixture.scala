@@ -57,7 +57,7 @@ object PklFixture {
     Built(result.value, result.imports)
   }
 
-  /** Hoisting inline surfaces first, as the build phase does. */
+  /** Decoded and validated as the build phase does. */
   def buildDashboard(
       slug: String,
       entrySource: String,
@@ -103,10 +103,10 @@ object PklFixture {
        |""".stripMargin
 
   /** A library shape as the build makes it, for a test that would otherwise
-    * hand-copy it: `body` follows [[SnippetHeader]] (`card = …`, `surfaces`,
-    * locals), over the house plus `extras`. Cached per JVM by source, and every
-    * snippet over one dump shares a workspace and an evaluator, so a warm one
-    * costs a few ms where a cold [[buildDashboard]] costs about 110.
+    * hand-copy it: `body` follows [[SnippetHeader]] (`card = …`, locals), over
+    * the house plus `extras`. Cached per JVM by source, and every snippet over
+    * one dump shares a workspace and an evaluator, so a warm one costs a few ms
+    * where a cold [[buildDashboard]] costs about 110.
     */
   def snippet(body: String, extras: FixtureEntity*): Dashboard =
     snippets.getOrElseUpdate(

@@ -207,9 +207,9 @@ class SharedViewerSuite extends ServerHarness {
           .liveSlug(ts.slug)
           .flatMap(_.renderer.get)
           .map(_.rendererOf.get)
-        panelB = renderer.surfaces
+        panelB = renderer.picks
           .containersSpelled("c_1_panel_0_1")
-          .flatMap(renderer.surfaceComponentsFor(_, "sensor.b"))
+          .flatMap(renderer.containerComponentsFor(_, "sensor.b"))
           .toList
           .flatMap(renderer.index.ixsOf)
         _ <- ts.record(FixtureEntity("sensor.b", "B1"))

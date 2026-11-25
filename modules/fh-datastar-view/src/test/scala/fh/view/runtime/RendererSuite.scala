@@ -46,7 +46,7 @@ class RendererSuite extends munit.FunSuite {
 
   extension (r: Renderer)
     private def affectedSets(changes: List[StateChange]): List[SetId] =
-      r.members.affectedSetsWithin(changes, _ == r.surfaces.pageRoot)
+      r.members.affectedSetsWithin(changes, _ == r.picks.pageRoot)
     private def affectedSetIds(change: StateChange): List[String] =
       r.affectedSets(List(change))
 
@@ -1027,8 +1027,8 @@ class RendererSuite extends munit.FunSuite {
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
     assertEquals(
-      rr.surfaces.chosen(Shared.of(states).viewing(tabbedAt(rr, "0"))),
-      rr.surfaces.openOf(Set("c_panel_0_0"))
+      rr.picks.chosen(Shared.of(states).viewing(tabbedAt(rr, "0"))),
+      rr.picks.openOf(Set("c_panel_0_0"))
     )
 
     // Each case keeps its ids, so a later switch-back is byte-identical.
@@ -1059,15 +1059,15 @@ class RendererSuite extends munit.FunSuite {
     assert(panelB.contains("<span>BB</span>"), clue = panelB)
 
     assertEquals(
-      rr.surfaceComponentsFor(
-        rr.surfaces.containersSpelled("c_panel_0_0").head,
+      rr.containerComponentsFor(
+        rr.picks.containersSpelled("c_panel_0_0").head,
         "sensor.a"
       ),
       Set("c_panel_0_0_0")
     )
     assertEquals(
-      rr.surfaceComponentsFor(
-        rr.surfaces.containersSpelled("c_panel_0_1").head,
+      rr.containerComponentsFor(
+        rr.picks.containersSpelled("c_panel_0_1").head,
         "sensor.b"
       ),
       Set("c_panel_0_1_0")
@@ -1079,13 +1079,13 @@ class RendererSuite extends munit.FunSuite {
   ) {
     val rr = Renderer.create(tabsDashboard)
     assertEquals(
-      rr.surfaces.chosen(Shared.of(Map.empty).viewing(tabbedAt(rr, "1"))),
-      rr.surfaces.openOf(Set("c_panel_0_1"))
+      rr.picks.chosen(Shared.of(Map.empty).viewing(tabbedAt(rr, "1"))),
+      rr.picks.openOf(Set("c_panel_0_1"))
     )
     // A session's values are filled by every declaration; no entry shows
     // nothing.
     assert(
-      rr.surfaces.chosen(Shared.of(Map.empty).viewing(Map.empty)).isEmpty
+      rr.picks.chosen(Shared.of(Map.empty).viewing(Map.empty)).isEmpty
     )
   }
 
@@ -1110,14 +1110,14 @@ class RendererSuite extends munit.FunSuite {
   test("decideByVariable reads the chosen member, and none when none") {
     val rr = Renderer.create(tabsDashboard)
     assertEquals(
-      rr.surfaces.decideByVariable(
+      rr.picks.decideByVariable(
         "c_panel_0",
         Shared.of(Map.empty).viewing(tabbedAt(rr, "1"))
       ),
       Some(1)
     )
     assertEquals(
-      rr.surfaces.decideByVariable(
+      rr.picks.decideByVariable(
         "c_panel_0",
         Shared.of(Map.empty).viewing(Map.empty)
       ),
@@ -1197,9 +1197,9 @@ class RendererSuite extends munit.FunSuite {
     * object; `core/node.pkl` names the default slot before it emits.
     *
     * Asserted through `Dashboard`'s own decoder, the path a real
-    * `dashboard.json` takes. A bare array must fail: while both were legal, the
-    * inline-surface hoist read only the array one and silently hoisted nothing
-    * below a slot-keyed node.
+    * `dashboard.json` takes. A bare array must fail: while both were legal, a
+    * walk reading only the array one silently missed everything below a
+    * slot-keyed node.
     */
   test("nodes slots decode from a slot object, and from nothing else") {
     def decode(slotsField: String) = io.circe.parser
@@ -1610,11 +1610,11 @@ class RendererSuite extends munit.FunSuite {
   ) {
     val r = Renderer.create(ifDashboard())
     assertEquals(
-      r.surfaces.decideByState("c", Shared.of(armedStates("armed"))),
+      r.picks.decideByState("c", Shared.of(armedStates("armed"))),
       Some(0)
     )
     assertEquals(
-      r.surfaces.decideByState("c", Shared.of(armedStates("disarmed"))),
+      r.picks.decideByState("c", Shared.of(armedStates("disarmed"))),
       Some(1)
     )
   }
@@ -1622,7 +1622,7 @@ class RendererSuite extends munit.FunSuite {
   test("decideByState: no member holds -> None; the host is empty") {
     val r = Renderer.create(ifDashboard(withElse = false))
     val states = armedStates("disarmed")
-    assertEquals(r.surfaces.decideByState("c", Shared.of(states)), None)
+    assertEquals(r.picks.decideByState("c", Shared.of(states)), None)
     // The host still renders, empty, so a branch matching later has its patch
     // target in the DOM. Through the document path: an If is structure, so
     // `renderNodeById` refuses it.
@@ -1659,31 +1659,31 @@ class RendererSuite extends munit.FunSuite {
 
     val anyR = Renderer.create(dash(s"$onSet.any()"))
     assertEquals(
-      anyR.surfaces.decideByState("c", Shared.of(mixed)),
+      anyR.picks.decideByState("c", Shared.of(mixed)),
       Some(0)
     )
     assertEquals(
-      anyR.surfaces.decideByState("c", Shared.of(allOff)),
+      anyR.picks.decideByState("c", Shared.of(allOff)),
       None
     )
 
     val noneR = Renderer.create(dash(s"$onSet.none()"))
     assertEquals(
-      noneR.surfaces.decideByState("c", Shared.of(allOff)),
+      noneR.picks.decideByState("c", Shared.of(allOff)),
       Some(0)
     )
     assertEquals(
-      noneR.surfaces.decideByState("c", Shared.of(mixed)),
+      noneR.picks.decideByState("c", Shared.of(mixed)),
       None
     )
 
     val allR = Renderer.create(dash(s"$onSet.all()"))
     assertEquals(
-      allR.surfaces.decideByState("c", Shared.of(allOn)),
+      allR.picks.decideByState("c", Shared.of(allOn)),
       Some(0)
     )
     assertEquals(
-      allR.surfaces.decideByState("c", Shared.of(mixed)),
+      allR.picks.decideByState("c", Shared.of(mixed)),
       None
     )
 
@@ -1693,11 +1693,11 @@ class RendererSuite extends munit.FunSuite {
       dash("""q.entity(dump.entities.l_a).stateIs("on")""")
     )
     assertEquals(
-      oneR.surfaces.decideByState("c", Shared.of(mixed)),
+      oneR.picks.decideByState("c", Shared.of(mixed)),
       Some(0)
     )
     assertEquals(
-      oneR.surfaces.decideByState("c", Shared.of(allOff)),
+      oneR.picks.decideByState("c", Shared.of(allOff)),
       None
     )
   }
@@ -1713,11 +1713,11 @@ class RendererSuite extends munit.FunSuite {
     val bodyElse = r.renderBody(armedStates("disarmed"))
     assert(bodyElse.contains("<span>B</span>"), clue = bodyElse)
     assert(!bodyElse.contains("<span>A</span>"), clue = bodyElse)
-    assertEquals(r.surfaces.statePicks, Set("c"))
-    assertEquals(r.surfaces.varPicks, Set.empty[String])
+    assertEquals(r.picks.statePicks, Set("c"))
+    assertEquals(r.picks.varPicks, Set.empty[String])
     val tabs = Renderer.create(tabsDashboard)
-    assertEquals(tabs.surfaces.varPicks, Set("c_panel_0"))
-    assertEquals(tabs.surfaces.statePicks, Set.empty[String])
+    assertEquals(tabs.picks.varPicks, Set("c_panel_0"))
+    assertEquals(tabs.picks.statePicks, Set.empty[String])
   }
 
   /** Without declaring the region, a template splicing `{{#children}}` reads as
@@ -1851,8 +1851,8 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  test("state surfaces are transparent to visibility, user surfaces are not") {
-    // Two chains off the main page, each two surfaces deep:
+  test("state picks are transparent to visibility, variable picks are not") {
+    // Two chains off the main page, each two picks deep:
     //   main -> c_0_panel_0_0 (tab) -> if host -> b0 (state)
     //   main -> c_1_branch_0 (state) -> tabs    -> u0 (tab)
     val d = PklFixture.snippet(
@@ -1866,9 +1866,9 @@ class RendererSuite extends munit.FunSuite {
     )
     val r = Renderer.create(d)
     def shown(id: String, open: Set[String]) =
-      r.surfaces.visibleNode(
+      r.picks.visibleNode(
         NodeId.derived(id),
-        r.surfaces.openOf(open),
+        r.picks.openOf(open),
         Shared.of(Map.empty)
       )
 
@@ -2028,7 +2028,7 @@ class RendererSuite extends munit.FunSuite {
     val r = Renderer.create(tabsDashboard)
     assertEquals(r.hostId("c_panel_0"), r.elementId("c_panel_0"))
     assertEquals(
-      r.surfaces.cases("c_panel_0"),
+      r.picks.cases("c_panel_0"),
       Vector("c_panel_0_0", "c_panel_0_1")
     )
   }

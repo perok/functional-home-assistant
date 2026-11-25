@@ -74,7 +74,7 @@ class LiveStreamSuite extends ServerHarness {
         )
 
         // A main-page change reaches both: the filter must not swallow what is
-        // not surface-scoped.
+        // not case-scoped.
         _ <- world.change("sensor.shared", "s1")
         s0 <- onT0.drain
         s1 <- onT1.drain
@@ -268,7 +268,7 @@ class LiveStreamSuite extends ServerHarness {
         owed.map(_.patch.toSse.render)
       )
     )
-    // Owed per viewer because it is a different surface, not because one node
+    // Owed per viewer because it is a different case, not because one node
     // has two renderings.
     assert(
       owed.exists(_.patch.toSse.render.contains("c_0_panel_0_1")),
@@ -292,7 +292,7 @@ class LiveStreamSuite extends ServerHarness {
       r.vars.env(Map(VarKey(NodeId.derived("c_0"), "tab") -> "1"))
     // Exactly as `pageResponse` records it.
     val ids =
-      (r.containerNodeIds(r.surfaces.pageRoot) ++ r.surfaceNodeIds(
+      (r.containerNodeIds(r.picks.pageRoot) ++ r.caseNodeIds(
         "c_0_panel_0_1"
       )).toList.sorted
     val seeded = FragmentLog("w18")
@@ -346,11 +346,10 @@ class LiveStreamSuite extends ServerHarness {
     val open = Set.empty[String]
     val mine =
       r.vars.env(Map(VarKey(NodeId.derived("c_0"), "tab") -> "1"))
-    val panel = r.surfaceNodeIds("c_0_panel_0_1").toList
-    val held = (r.containerNodeIds(r.surfaces.pageRoot) ++ panel).flatMap {
-      id =>
-        r.byteSlotValues(id, Shared.of(before), FetchSnapshot.empty)
-          .map(v => r.ixOf(id) -> Held(Some(v)))
+    val panel = r.caseNodeIds("c_0_panel_0_1").toList
+    val held = (r.containerNodeIds(r.picks.pageRoot) ++ panel).flatMap { id =>
+      r.byteSlotValues(id, Shared.of(before), FetchSnapshot.empty)
+        .map(v => r.ixOf(id) -> Held(Some(v)))
     }.toMap
     val moved = before.updated("sensor.b", es("sensor.b", "B1"))
     def pull(log: FragmentLog) =
@@ -376,7 +375,7 @@ class LiveStreamSuite extends ServerHarness {
     assert(logged.exists(_.contains("B1")), clue = logged)
   }
 
-  /** ADR 0007's "an inactive branch costs nothing", for a user surface nested
+  /** ADR 0007's "an inactive branch costs nothing", for a variable pick nested
     * in one. `chosen` holds a case for every pick over a variable whether on
     * screen or not, so a tab panel in a hidden `If` is in a viewer's screen;
     * pushing it is harmless and pure waste.

@@ -91,13 +91,13 @@ broken) and the shapes the library does not write; the benches stay hand-built.
 
 A test declares the cards it exercises; **`Scene` auto-seeds the entities the
 dashboard references** (every slot `entityId` + component subject, across the
-main layout and surfaces), resolved against `HouseFixture`. So placing a card
+page card, popups included), resolved against `HouseFixture`. So placing a card
 brings its entity with it — no hand-listed entity roster to keep in sync.
 
 `Scene.empty` accumulates cards via `.card`; `Scene.of(dashboard)` wraps a
 prebuilt (Tier-A) dashboard. `.entity(..)/.entities(..)` add entities *beyond*
 what the dashboard names — a control-only click target, a **dynamic-group member
-matched by query**, a **state-activated surface's condition entity** — and double
+matched by query**, an **`If`'s condition entity** — and double
 as a resolution source that can restate a registry entity at a non-default state.
 A referenced id that nothing supplies fails loudly. `FixtureSeedSuite` pins
 `HouseFixture.all` as the guardrail.
@@ -224,7 +224,7 @@ fiber on one thread — so whichever side is ticked first parks the only thread.
 streaming hung 18 of 720 tests at their guards, a different subset per run.
 
 **Per suite, not per test, and that is forced.** A per-test switch looks tighter, but suites reach
-a document fetch through shared helpers (`AckedResumeSuite`, `SurfaceTapSuite`), so a per-test scan
+a document fetch through shared helpers (`AckedResumeSuite`, `SessionActionSuite`), so a per-test scan
 mis-classifies them — and a mis-classified test does not fail, it HANGS. What simulated time bought
 the suites that fetch documents was only poll-loop acceleration: every sleep in them is 5–300 ms and
 the windows they exercise are adoption-window-sized.

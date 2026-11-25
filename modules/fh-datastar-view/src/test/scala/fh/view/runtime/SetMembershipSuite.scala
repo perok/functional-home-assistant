@@ -278,9 +278,9 @@ class SetMembershipSuite extends ServerHarness {
     }
   }
 
-  /** '''A client is never sent a surface it is not viewing.''' Each viewer
-    * renders against its own open set. The second direction stops this passing
-    * if nobody were sent anything.
+  /** '''A client is never sent a case it is not viewing.''' Each viewer renders
+    * against its own open set. The second direction stops this passing if
+    * nobody were sent anything.
     */
   test(
     "a tab nobody is viewing is not pushed to them; the viewer still gets it"

@@ -34,7 +34,8 @@ import "components/base/bar.pkl" as barBaseMod
 import "components/bar.pkl" as barMod
 import "components/base/slider.pkl" as sliderBaseMod
 import "components/slider.pkl" as sliderMod
-import "components/base/surface.pkl" as surfaces
+import "components/base/tabs.pkl" as tabsMod
+import "components/base/iff.pkl" as iffMod
 import "components/base/popup.pkl" as popupBase
 import "components/history.pkl" as historyMod
 import "components/its.pkl" as itsMod
@@ -136,8 +137,8 @@ typealias Button = buttonMod.Button
 typealias EntityButton = control.EntityButton
 typealias Pill = buttonMod.Pill
 typealias Toggle = control.Toggle
-typealias Tabs = surfaces.Tabs
-typealias If = surfaces.If
+typealias Tabs = tabsMod.Tabs
+typealias If = iffMod.If
 typealias Slider = sliderBaseMod.Slider
 typealias EntitySlider = sliderMod.EntitySlider
 typealias SlideAxis = sliderMod.SlideAxis
@@ -154,7 +155,7 @@ hidden grid: layoutMod.Grid = layoutMod.grid
 /// Space that takes what its row or column leaves: `(c.row) { children { a; c.spacer; b } }`.
 hidden spacer: nodeMod.LayoutNode = layoutMod.spacer
 /// `(c.tabs) { tabs { ["Lights"] { ... } } }`.
-hidden tabs: surfaces.Tabs = surfaces.tabs
+hidden tabs: tabsMod.Tabs = tabsMod.tabs
 
 // ---- mixins ----
 
@@ -211,7 +212,7 @@ function select(t: selectMod.Target): selectMod.Select = selectMod.select(t)
 /// `(c.chooser(c.select(view).options(List("simple", "detail")))) { children { … } }`.
 function chooser(s: selectMod.Select): selectMod.Chooser = selectMod.chooser(s)
 /// A section shown while `p` holds over live state.
-function iff(p: slotMod.Expr|Boolean|varMod.ValueIs): surfaces.If = surfaces.iff(p)
+function iff(p: slotMod.Expr|Boolean|varMod.ValueIs): iffMod.If = iffMod.iff(p)
 /// `c.expr(#"str(math.round(num(value.state) * 10.0) / 10.0) + ' V'"#)`.
 function expr(s: String): slotMod.Reading = slotMod.expr(s)
 /// [[expr]] over another entity than the card's.
@@ -253,7 +254,8 @@ const modules: List<Module> = List(
   control,
   sliderBaseMod,
   sliderMod,
-  surfaces,
+  tabsMod,
+  iffMod,
   popupBase,
   moreinfo,
   historyMod,

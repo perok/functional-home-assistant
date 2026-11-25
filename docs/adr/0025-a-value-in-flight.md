@@ -4,7 +4,7 @@
 - **Date:** 2026-08-22
 - **Scope:** `runtime/VarGraph.scala` (`committed`), `runtime/Server.scala`
   (`setVar`, `fromHistory`, `openingSignals`), `runtime/Datastar.scala` (the no-null rule),
-  `lib/core/tap.pkl`, `lib/components/base/surface.pkl`,
+  `lib/core/tap.pkl`, `lib/components/base/tabs.pkl`,
   `lib/components/slider.pkl`
 - **Closes:** ADR 0024's open question. **Uses:** ADR 0005's selection signals
   and URL mirror, which this makes honest.

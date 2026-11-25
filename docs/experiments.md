@@ -26,7 +26,7 @@ Recorded elsewhere:
 
 **Question.** Would arrays or presized maps, in place of `List` and `Map`, cut memory where a
 collection's size is known when it is built? The candidates were the static indexes a renderer
-builds once (`MemberGraph`, `NodeAncestry`, `SurfaceGraph`, `allIndexed`) and the per-session
+builds once (`MemberGraph`, `NodeAncestry`, `PickGraph`, `allIndexed`) and the per-session
 `holds`.
 
 **How.** A throwaway `object` in `modules/benchmarks` (package `fh.view.runtime`) ran

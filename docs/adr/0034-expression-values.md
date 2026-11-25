@@ -237,7 +237,7 @@ slot, the same mechanism on its own element.
 |---|---|
 | Which entities can move it | Shared: `ValueExpr.entities`, which for a tally walks its candidates plus the entities their residuals name. They join the node's `liveEntities` (the reverse index that wakes a page node) and `referencedEntities`, so the watched set the upstream subscription asks for (ADR 0030) and ADR 0023's bound. |
 | Evaluating it | Shared: `Evaluator`, the one compiler (ADR 0035) — a tally runs as any value does, `holds` decides a condition. |
-| What fires | Not shared, deliberately. A flipped `c.iff` swaps a surface (`SurfaceGraph.affectedStateGroups`); a moved value patches a slot. Two jobs, two paths. |
+| What fires | Not shared, deliberately. A flipped `c.iff` swaps a surface (`PickGraph.affectedStateGroups`); a moved value patches a slot. Two jobs, two paths. |
 
 **The server computes the result.** The whole expression is evaluated on the server and sent the
 way its slot is carried — on a live `secondary`, a class, a `disabled` or a custom property, one

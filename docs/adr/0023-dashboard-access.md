@@ -286,7 +286,7 @@ not shown yet is refused rather than acting on what the screen did not show
 (ADR 0016).
 
 It is decidable statically because a candidate set's membership is live but its
-candidate LIST is not (ADR 0003) — the walk covers the layout and every surface
+candidate LIST is not (ADR 0003) — the walk covers the page card, popups included,
 once and cannot grow at runtime. A failed dashboard has no renderer, declares
 nothing, and therefore permits no call; that matters because a failed
 dashboard's page is a diagnostics dump.
@@ -345,7 +345,7 @@ entrypoint supplies it as a key, and `fh push --slug` can rename it), so the
 renderer supplies it. Two spellings, one fact, and each names the mechanism
 that actually fills it: `{{dashboardSlug}}` is a Mustache var for a card that
 builds its URL in its own template (every call, `tapMod.post`);
-`dashboard_slug` is a CEL binding for a surface tap, whose URL is a transform.
+`dashboard_slug` is a CEL binding for a tap whose URL is a transform.
 Spelling both `{{…}}` was tried and reverted — in a transform it reads as
 Mustache and never is one, because a transform's OUTPUT is inserted raw at
 `{{{onclick}}}` and Mustache never sees it.
