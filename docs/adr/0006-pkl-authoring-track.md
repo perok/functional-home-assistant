@@ -177,6 +177,17 @@ finished, and are deleted (issue #23).
    reads it. A node that holds others somewhere the walk does not look
    (`nodesUnder`) fails validation as an unknown card, never silently.
 
+   **Scala writes no body markup of its own.** Every element under `#root` —
+   the page frame (`core/page.pkl`), a set's root (`core/group.pkl`), a popup,
+   the connection banners, a failed fetch's label — comes from a Pkl template;
+   Scala renders those and fills only the values it owns. The markup left in
+   Scala is the document around them: `Server`'s page shell and error page
+   (head links and scripts, `<title>`, the edit overlay), the root
+   `data-signals` div with its seeds, its toast, reload, back-button and
+   pending-sweep handlers and a hidden pending-clear per variable, and `Renderer`'s head parts a patch targets (the theme `<style>`
+   and the theme-color `<meta>`s). A card wanting new markup adds a template,
+   not a Scala string.
+
    Entries do not repeat the registry line — they `amends "lib/entry.pkl"`,
    the base scaffold that sets it (decision 9).
 8. **Candidate sets: `q.from(...)` chains, not a node an author builds.**
