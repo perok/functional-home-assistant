@@ -3,7 +3,7 @@ package fh.view.runtime
 import cats.effect.{IO, Ref, Resource}
 import cats.syntax.all.*
 import cats.effect.std.Supervisor
-import fh.view.build.{PklDump, Site}
+import fh.view.build.{DashboardBuild, PklDump, Site}
 import fh.view.model.Dashboard
 import fh.view.testkit.{HouseFixture, PklWorkspace}
 import fs2.concurrent.SignallingRef
@@ -384,6 +384,40 @@ class FailedDashboardSuite extends ServerHarness {
         assert(afterAdd eq built, clue = "adding a sibling repainted this one")
         assertEquals(names, List("dash", "second"))
         assert(!(afterEdit eq built), clue = "an edit did not re-install")
+      }
+    }
+  }
+
+  test("a reload validates only the dashboards it changed") {
+    // A slug that decodes equal to what it serves is handed back as served,
+    // so `planSite` drops it without its validate having run.
+    staged(Broken).use { ws =>
+      def eval(live: Map[String, Dashboard.Validated]) =
+        DashboardBuild
+          .evalSite(ws, live = live)
+          .map(
+            _._1.dashboards.collect { case (slug, Right(v)) => slug -> v }.toMap
+          )
+      for {
+        _ <- IO.blocking(
+          os.write.over(ws / Site.EntryFile, kitchenSite(secondKey))
+        )
+        first <- eval(Map.empty)
+        same <- eval(first)
+        _ <- IO.blocking(
+          os.write.over(
+            ws / Site.EntryFile,
+            kitchenSite(secondKey, title = "Renamed")
+          )
+        )
+        edited <- eval(first)
+      } yield {
+        assertEquals(first.keySet, Set("dash", "second"))
+        first.foreach((slug, v) =>
+          assert(same(slug).ready eq v.ready, clue = slug)
+        )
+        assert(!(edited("dash").ready eq first("dash").ready))
+        assert(edited("second").ready eq first("second").ready)
       }
     }
   }

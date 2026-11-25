@@ -789,24 +789,26 @@ object ServerApp extends IOApp {
       log: SelfAwareStructuredLogger[IO] = consoleLog,
       minifier: Minifier = Minifier.none
   ): IO[Unit] =
-    DashboardBuild.evalSite(dashboardsDir, log, minifier).attempt.flatMap {
-      case Left(err) =>
-        site.failSite(Site.messageOf(err)).flatMap(report(_, log))
-      case Right((decoded, imports)) =>
-        for {
-          changes <- site.applySite(decoded.dashboards, decoded.default)
-          _ <- report(changes, log)
-          _ <- importsRef.set(watchedSet(dashboardsDir, imports))
-          reloaded = changes.collect {
-            case c @ (_: Server.Change.Added | _: Server.Change.Broke |
-                _: Server.Change.Recovered | _: Server.Change.Rebuilt) =>
-              c.describe._1
-          }
-          _ <- IO.whenA(changes.nonEmpty)(
-            log.info(s"Dashboards reloaded (${reloaded.mkString(", ")})")
-          )
-        } yield ()
-    }
+    site.serving
+      .flatMap(DashboardBuild.evalSite(dashboardsDir, log, minifier, _).attempt)
+      .flatMap {
+        case Left(err) =>
+          site.failSite(Site.messageOf(err)).flatMap(report(_, log))
+        case Right((decoded, imports)) =>
+          for {
+            changes <- site.applySite(decoded.dashboards, decoded.default)
+            _ <- report(changes, log)
+            _ <- importsRef.set(watchedSet(dashboardsDir, imports))
+            reloaded = changes.collect {
+              case c @ (_: Server.Change.Added | _: Server.Change.Broke |
+                  _: Server.Change.Recovered | _: Server.Change.Rebuilt) =>
+                c.describe._1
+            }
+            _ <- IO.whenA(changes.nonEmpty)(
+              log.info(s"Dashboards reloaded (${reloaded.mkString(", ")})")
+            )
+          } yield ()
+      }
 
   private def report(
       changes: List[Server.Change],

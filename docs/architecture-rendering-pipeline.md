@@ -267,7 +267,7 @@ lifecycle — there is no second path that could disagree:
 flowchart LR
   EDIT["a *.pkl changed<br/>(the entrypoint, an import,<br/>or a file APPEARING —<br/>the dir is watched too)"] --> RE
   DUMP["dump swapped in<br/>DumpRefresh"] --> RE
-  RE["ServerApp.reloadSite<br/>re-evaluate the ONE entrypoint"] --> DIFF{"LiveSite.applySite<br/>per slug, vs the content<br/>recorded beside it"}
+  RE["ServerApp.reloadSite<br/>re-evaluate the ONE entrypoint;<br/>validate only a slug that decodes<br/>unlike what it serves"] --> DIFF{"LiveSite.applySite<br/>per slug, vs the content<br/>recorded beside it"}
   DIFF -->|unchanged| NOOP["do nothing<br/>— a write would rotate the log<br/>and repaint every viewer"]
   DIFF -->|new or changed| INS["install<br/>origin = FromSite(content)"]
   DIFF -->|"gone, and the site's<br/>to reclaim"| RM["remove"]
@@ -299,7 +299,8 @@ Four properties worth stating, because each is silent when broken:
   in the workspace; writing a `Ready` state anyway emits on the slug's
   `SignallingRef` and rotates its log identity, which repaints every open
   browser. The comparison is per slug, so one author's edit repaints one
-  dashboard.
+  dashboard, and validates one: a slug that decodes equal to what it serves
+  gets the served `Validated` back (`LiveSite.serving`, `DashboardBuild.decode`).
 - **The registry also decides what HA is asked for.** The upstream
   `subscribe_entities` carries the union of the registered slugs'
   `watchedEntities` (ADR 0030), so installing, removing or rebuilding a

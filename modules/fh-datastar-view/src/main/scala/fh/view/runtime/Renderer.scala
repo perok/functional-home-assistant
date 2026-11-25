@@ -131,7 +131,7 @@ type VarEnv = Map[NodeId, Map[String, String]]
 /** Container kinds are templates splicing `children`, not cases here; a
   * choice's case, a popup among them, is a node of the tree holding it.
   */
-class Renderer(validated: Dashboard.Validated) {
+class Renderer(val validated: Dashboard.Validated) {
 
   private val dashboard = validated.ready
   private val templates = validated.templates

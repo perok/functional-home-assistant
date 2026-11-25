@@ -62,14 +62,18 @@ object DashboardBuild {
           .liftTo[IO]
       )
 
-  /** `sources` only locates bad transforms in their source. */
+  /** `sources` only locates bad transforms in their source. `live` is the
+    * slug's serving dashboard, given back unvalidated when this decodes equal
+    * to it: a reload re-installs only what changed (`Server.planSite`).
+    */
   def decode(
       json: Json,
       sources: Set[os.Path] = Set.empty,
       // Applied before validation, so a `Validated` is not proven against a
       // slug it no longer has.
       slug: Option[String] = None,
-      minifier: Minifier = Minifier.none
+      minifier: Minifier = Minifier.none,
+      live: Option[Dashboard.Validated] = None
   ): IO[Dashboard.Validated] =
     for {
       minified <- minifier.dashboard(json)
@@ -80,34 +84,39 @@ object DashboardBuild {
         )
         .liftTo[IO]
       dashboard = slug.fold(decoded)(s => decoded.copy(slug = s))
-      validated <- dashboard.validated(
-        SourceEval.literalLocator(sources)
-      ) match {
-        case Right(v)   => IO.pure(v)
-        case Left(errs) =>
-          FHError
-            .badCondition(
-              s"dashboard failed validation (${errs.size} error(s)):\n" +
-                errs.mkString("\n")
-            )
-            .raiseError[IO, Dashboard.Validated]
+      validated <- live.filter(_.dashboard == dashboard) match {
+        case Some(same) => IO.pure(same)
+        case None       =>
+          dashboard.validated(SourceEval.literalLocator(sources)) match {
+            case Right(v)   => IO.pure(v)
+            case Left(errs) =>
+              FHError
+                .badCondition(
+                  s"dashboard failed validation (${errs.size} error(s)):\n" +
+                    errs.mkString("\n")
+                )
+                .raiseError[IO, Dashboard.Validated]
+          }
       }
     } yield validated
 
   /** An evaluation error raises (no slug to blame); one dashboard's error is a
-    * `Left` that costs only that slug.
+    * `Left` that costs only that slug. `live`: [[decode]]'s, by slug.
     */
   def evalSite(
       dashboardsDir: os.Path,
       log: Logger[IO] = Logging.console.getLoggerFromName(LoggerName),
-      minifier: Minifier = Minifier.none
+      minifier: Minifier = Minifier.none,
+      live: Map[String, Dashboard.Validated] = Map.empty
   ): IO[(Site.Decoded, Set[os.Path])] =
     evalSource(dashboardsDir, Site.EntryFile).timed.flatMap { (took, r) =>
       val how = if (r.fromCache) "read from the eval cache" else "evaluated"
       log.info(
         s"${Site.EntryFile} $how in ${took.toMillis} ms " +
           s"(${r.imports.size} workspace files)"
-      ) *> Site.decode(r.value, r.imports, log, minifier).map(_ -> r.imports)
+      ) *> Site
+        .decode(r.value, r.imports, log, minifier, live)
+        .map(_ -> r.imports)
     }
 
   /** Issue #406: on a Pi a boot or a reload takes seconds, and these lines say

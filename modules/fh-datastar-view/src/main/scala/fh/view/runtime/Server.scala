@@ -2188,6 +2188,16 @@ object Server {
 
     def names: IO[List[String]] = entries.get.map(_.keys.toList.sorted)
 
+    /** What each slug serves now, so a reload validates only what changed. */
+    def serving: IO[Map[String, Dashboard.Validated]] =
+      entries.get.flatMap(
+        _.toList
+          .traverse((slug, e) =>
+            e.live.renderer.get.map(_.rendererOf.map(slug -> _.validated))
+          )
+          .map(_.flatten.toMap)
+      )
+
     def changes: Stream[IO, Map[String, LiveSlug]] =
       entries.discrete.map(_.view.mapValues(_.live).toMap)
 
