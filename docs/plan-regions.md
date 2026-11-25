@@ -23,7 +23,7 @@ it as `Activation.Var`.
 **State:** direction agreed in chat (2026-11-10); the prework is on main (below); R1 is built
 (`slot-classes`), R2 is built (`set-fill`), R3 is built (`choices-in-pkl`), R4a and R4b are built
 (`one-runtime-path`), R4c is built (`root-hosts`), R4d's D0–D5 are built (`the-planner`), D6
-not; R5's design is agreed (2026-11-24), R5.0–R5.4 are built. The opening describes the shape before R1.
+not; R5 is built (`the-planner`), its smoke tests waiting on CI. The opening describes the shape before R1.
 
 ## What this builds on
 
@@ -973,9 +973,15 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      checks; `reveal` takes only values and the recorder reads a session's values
      (`Watching` is gone). `FetchBench` opens its tab by the declared variable. No bench of its
      own: it removes a union with an empty set, and R5.5 measures against the base.
-   - **R5.5, smoke and the bench.** Smoke tests (CI) for Back and Forward over a popup, over two
-     history variables, and from a link naming both; R4's costs-nothing test for a popup; R5.0's
-     benches against the base.
+   - **R5.5, smoke and the bench.** BUILT. `PopupHistorySmokeSuite`'s page gains a tab in
+     history beside `popups`: Back and Forward step through a tab choice and a popup as two
+     entries, and a link naming both is one entry above the dashboard, so a close shows the
+     default tab and Forward both again (CI only: no browser driver here). The costs-nothing
+     test is `PopupVariableSuite`'s: a popup nobody has open renders, sends and logs nothing for
+     its entity's churn. R5 against R5.0's base (EA off, B/op): `popupOpen` 192,421 → 26,569,
+     `popupClose` 214,952 → 15,320, `publish` 18,408 equal, `publishManyPopups` 21,032 → 21,984
+     (+4.5%, R5.3's), `validated` taps 4,075,562 → 3,534,316 and cards 4,084,892 → 4,380,868
+     (+7%, R5.2's page card and R5.3's collection); R5.4 moved none of them.
 6. **R6, markup.** A test that no Scala source writes markup outside the contract in §8.
 
 Docs go in each step's commit: ADRs 0002 (popups), 0003 (sets), 0005/0025/0033 (the popup

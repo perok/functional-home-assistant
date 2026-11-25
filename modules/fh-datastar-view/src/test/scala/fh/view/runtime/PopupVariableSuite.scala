@@ -134,4 +134,27 @@ class PopupVariableSuite extends munit.CatsEffectSuite {
       }
     )
   }
+
+  test(
+    "a popup nobody has open costs nothing: its entity's churn renders and logs nothing"
+  ) {
+    served(ts =>
+      for {
+        shut <- ts.viewer()
+        before <- ts.log.map(_.fragments)
+        _ <- ts.record(kitchen.copy(state = "off"))
+        quiet <- shut.pull
+        after <- ts.log.map(_.fragments)
+        // The control: once someone has it open, the same churn is sent.
+        open <- ts.viewer("?v.popups=help")
+        _ <- ts.record(kitchen.copy(state = "on"))
+        seen <- open.pull.map(_.map(_.render).mkString("\n"))
+      } yield {
+        assert(!shut.document.html.contains("Helpful"), shut.document.html)
+        assertEquals(quiet.map(_.render), Nil)
+        assertEquals(after, before)
+        assert(seen.contains("kitchen"), clue = seen)
+      }
+    )
+  }
 }
