@@ -370,11 +370,11 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
 
 ### 8. Markup Scala stops writing
 
-The rule: Scala renders markup Pkl wrote and fills only values it owns. What is left is the set's
-root (§5, `Renderer.groupOpen`). What stays in Scala, as the contract: the page shell, the root
-`<div data-signals…>` with its seeds, the toast and reload handlers, and the error page; the
-frame is the page card's template (R5.2). The back-button handler becomes the shell's one
-popstate post of the query string (§7).
+The rule: Scala renders markup Pkl wrote and fills only values it owns. The set's root, the last
+exception, became the `group` card in R2. What stays in Scala, as the contract: the page shell
+(`Server.scala`), the root `<div data-signals…>` with its seeds, the toast, reload and
+pending-sweep handlers, and the error page; the frame is the page card's template (R5.2), and
+the back-button handler is the shell's one popstate post of the query string (§7).
 
 ## Steps
 
@@ -982,7 +982,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      `popupClose` 214,952 → 15,320, `publish` 18,408 equal, `publishManyPopups` 21,032 → 21,984
      (+4.5%, R5.3's), `validated` taps 4,075,562 → 3,534,316 and cards 4,084,892 → 4,380,868
      (+7%, R5.2's page card and R5.3's collection); R5.4 moved none of them.
-6. **R6, markup.** A test that no Scala source writes markup outside the contract in §8.
+6. **R6, markup.** A test that no Scala source writes markup outside the contract in §8. Nothing
+   is left to move: the test pins what R2 and R5.2 already reached.
 
 Docs go in each step's commit: ADRs 0002 (popups), 0003 (sets), 0005/0025/0033 (the popup
 variable, a popup's scope, the reserved name, the history mirror), 0007
