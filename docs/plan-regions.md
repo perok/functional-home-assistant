@@ -927,6 +927,10 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          every step of the walk to the root, and `BitSet.apply`, which boxes: once a walk now,
          and `contains`. `publishManyPopups` 21,984 → 21,184 B/op (R5.3's +4.5% is +0.7%),
          `viewerPull` −4.3%, `resumeMorphsFanout` −2.8%, `resumeMorphs` −1.3%, the rest equal.
+       - **B, the byte buffers.** Nothing to build: `page`'s and `pageSet`'s ~30% is the test
+         shim's whole-page buffer (`RendererTestOps.renderPageTraced`), and `Server` streams a
+         page (`pageWalkStream`). On the live path a buffer is at most 2.4% (`viewerPull`),
+         the node's bytes the render cache keeps.
        Then `validated`, measured 2026-11-21 on the starter (EA off): 1.65 MB/op, 39% the
        Mustache compile of the cards, 39% validate, 16% `Ready.Compile`, the index 1.3%. R2's
        +6% is its three group nodes walked, not the group card's template; R5 added +7% on
