@@ -181,10 +181,10 @@ class SharedViewerSuite extends ServerHarness {
       val tab = VarKey(NodeId.derived("c_1"), "tab")
       for {
         v <- ts.viewer()
-        before <- v.session.watching.map(_.map(_.values))
-        _ <- v.session.reveal(Set.empty, Map(tab -> "1"))
-        during <- v.session.watching.map(_.map(_.values))
-        all <- ts.sessions.watching(ts.slug).map(_.map(_.values))
+        before <- v.session.watching
+        _ <- v.session.reveal(Map(tab -> "1"))
+        during <- v.session.watching
+        all <- ts.sessions.watching(ts.slug)
       } yield {
         assertEquals(before, List(Map.empty[VarKey, String]))
         assertEquals(
@@ -215,7 +215,7 @@ class SharedViewerSuite extends ServerHarness {
         _ <- ts.record(FixtureEntity("sensor.b", "B1"))
         beforeWrite <- ts.log
         // The write's step has revealed tab 1 and not yet published it.
-        _ <- v.session.reveal(Set.empty, Map(tab -> "1"))
+        _ <- v.session.reveal(Map(tab -> "1"))
         _ <- ts.record(FixtureEntity("sensor.b", "B2"))
         afterReveal <- ts.log
       } yield {

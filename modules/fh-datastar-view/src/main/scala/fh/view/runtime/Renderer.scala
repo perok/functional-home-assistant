@@ -958,15 +958,11 @@ class Renderer(validated: Dashboard.Validated) {
   /** The body and every case shown in it. An unselected tab is fetched when
     * switched to.
     */
-  def fetchesForPage(
-      open: Set[String],
-      shared: Shared,
-      env: VarEnv
-  ): List[SlotRead] =
+  def fetchesForPage(shared: Shared, env: VarEnv): List[SlotRead] =
     ask(
       asksOfContainer(picks.pageRoot, shared) ++
         picks
-          .shownCases(picks.screen(open, shared), shared)
+          .shownCases(picks.chosen(shared), shared)
           .toList
           .flatMap(i => asksOfContainer(Ix(i), shared)),
       shared,

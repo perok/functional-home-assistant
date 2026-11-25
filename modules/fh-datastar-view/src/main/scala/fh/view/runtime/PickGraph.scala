@@ -15,7 +15,7 @@ import scala.collection.immutable.BitSet
   * case. Every node is in one, the innermost holding it (the root for the
   * page's own), and is shown while every container up its chain is picked.
   * Inside a renderer a container is its `Ix` and an open set a `BitSet` of
-  * them: the cases the viewer's values pick ([[screen]]).
+  * them: the cases the viewer's values pick ([[chosen]]).
   *
   * @param picks
   *   each choice, by its id ([[Dashboard.pickId]]).
@@ -61,14 +61,6 @@ private[runtime] final class PickGraph(
     index
       .ixsOf(NodeId.derived(spelled))
       .filter(ix => containers(ix.toInt))
-
-  /** A session's open set, read into this renderer once per step. A name
-    * nothing here has (a stale swap) drops out.
-    */
-  def openOf(spelled: Set[String]): BitSet =
-    BitSet.fromSpecific(
-      spelled.iterator.flatMap(containersSpelled).map(_.toInt)
-    )
 
   /** The node a pick fills. */
   def hostOf(gid: NodeId): NodeId = pickHosts.get(gid).fold(gid)(_._1)
@@ -180,11 +172,6 @@ private[runtime] final class PickGraph(
       )
     )
 
-  /** A viewer's open set: `spelled`'s containers and the cases its values pick.
-    */
-  def screen(spelled: Set[String], shared: Shared): BitSet =
-    openOf(spelled) | chosen(shared)
-
   /** If/else hosts over state alone: rendered once per slug for every viewer.
     */
   val statePicks: Set[NodeId] = picks.keySet -- varPicks -- viewerPicks
@@ -199,7 +186,7 @@ private[runtime] final class PickGraph(
     * `stop`, up to one of its: a container outside `stop` is not. `cut`: picks
     * switching this frame, whose fill renders what is below them. A case of a
     * pick a viewer decides is shown while `open` holds it: `open` is that
-    * viewer's [[screen]], which has [[chosen]]'s cases in it.
+    * viewer's [[chosen]].
     */
   private def shownUpTo(
       c: Int,
@@ -254,9 +241,9 @@ private[runtime] final class PickGraph(
       cut: Set[NodeId] = Set.empty
   ): Boolean = shownUpTo(c.toInt, BitSet.empty, open, shared, cut)
 
-  /** The containers of one viewer's [[screen]] that are on it. */
-  def onScreen(spelled: Set[String], shared: Shared): BitSet = {
-    val open = screen(spelled, shared)
+  /** The containers of one viewer's [[chosen]] that are on screen. */
+  def onScreen(shared: Shared): BitSet = {
+    val open = chosen(shared)
     open.filter(shownUpTo(_, BitSet.empty, open, shared, Set.empty))
   }
 

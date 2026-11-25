@@ -551,70 +551,69 @@ class Server(
         )
       // Before the gate: the carry tracks the stream, not who is watching,
       // and is the next frame's "before".
-      IO(renderer.advance(prev, frame, viewers.map(_.values).toSet)).flatMap {
-        next =>
-          val recorded =
-            if (viewers.isEmpty) written(_.skipped(version))
-            else
-              // One run for "before" and "after": a decision shown in either is
-              // made there, dirty or never made; one nobody shows is not reached.
-              renderer
-                .decide(decisionAnswers) { run =>
-                  val (was, now) = (prev.asking(run), next.asking(run))
-                  // Only cases some client can see: a tab inside a hidden
-                  // `If` is selected but on no screen. Filtered per session
-                  // before the union, because a chain is one client's.
-                  val screens = viewers.map { w =>
-                    val env = renderer.vars.env(w.values)
-                    (
-                      w.values,
-                      env,
-                      renderer.picks.onScreen(w.open, now.viewing(env))
+      IO(renderer.advance(prev, frame, viewers.toSet)).flatMap { next =>
+        val recorded =
+          if (viewers.isEmpty) written(_.skipped(version))
+          else
+            // One run for "before" and "after": a decision shown in either is
+            // made there, dirty or never made; one nobody shows is not reached.
+            renderer
+              .decide(decisionAnswers) { run =>
+                val (was, now) = (prev.asking(run), next.asking(run))
+                // Only cases some client can see: a tab inside a hidden
+                // `If` is selected but on no screen. Filtered per session
+                // before the union, because a chain is one client's.
+                val screens = viewers.map { w =>
+                  val env = renderer.vars.env(w)
+                  (
+                    w,
+                    env,
+                    renderer.picks.onScreen(now.viewing(env))
+                  )
+                }
+                val visible = screens.foldLeft(BitSet.empty)(_ | _._3)
+                // A viewer pick is decided per distinct values, each by its
+                // own sessions' screens; nothing to split without one.
+                def seen =
+                  screens.groupBy(_._1).values.toList.map { same =>
+                    PickGraph.Seen(
+                      same.head._2,
+                      same.foldLeft(BitSet.empty)(_ | _._3)
                     )
                   }
-                  val visible = screens.foldLeft(BitSet.empty)(_ | _._3)
-                  // A viewer pick is decided per distinct values, each by its
-                  // own sessions' screens; nothing to split without one.
-                  def seen =
-                    screens.groupBy(_._1).values.toList.map { same =>
-                      PickGraph.Seen(
-                        same.head._2,
-                        same.foldLeft(BitSet.empty)(_ | _._3)
-                      )
-                    }
-                  // A set read per viewer decides what is on the page below
-                  // it, so each values is planned as its own viewer.
-                  if (renderer.members.readsViewer)
-                    seen.map(s =>
-                      Patches.plan(
-                        renderer,
-                        was.viewing(s.env),
-                        now.viewing(s.env),
-                        frame.changes,
-                        s.visible,
-                        List(s)
-                      )
-                    )
-                  else
-                    List(
-                      Patches.plan(
-                        renderer,
-                        was,
-                        now,
-                        frame.changes,
-                        visible,
-                        if (renderer.picks.viewerPicks.isEmpty) Nil else seen
-                      )
-                    )
-                }
-                .flatMap(reqs =>
-                  written(l =>
-                    reqs.foldLeft(l)((acc, req) =>
-                      Patches.record(renderer, acc, req)
+                // A set read per viewer decides what is on the page below
+                // it, so each values is planned as its own viewer.
+                if (renderer.members.readsViewer)
+                  seen.map(s =>
+                    Patches.plan(
+                      renderer,
+                      was.viewing(s.env),
+                      now.viewing(s.env),
+                      frame.changes,
+                      s.visible,
+                      List(s)
                     )
                   )
+                else
+                  List(
+                    Patches.plan(
+                      renderer,
+                      was,
+                      now,
+                      frame.changes,
+                      visible,
+                      if (renderer.picks.viewerPicks.isEmpty) Nil else seen
+                    )
+                  )
+              }
+              .flatMap(reqs =>
+                written(l =>
+                  reqs.foldLeft(l)((acc, req) =>
+                    Patches.record(renderer, acc, req)
+                  )
                 )
-          recorded.map(next -> _)
+              )
+        recorded.map(next -> _)
       }
     }
 
@@ -883,7 +882,6 @@ class Server(
         answer(_, env),
         env,
         s.position + 1,
-        s.open,
         // Only reached when the log reaches `position`, and this session
         // has been watched since its page.
         Patches.Coverage.Logged
@@ -975,14 +973,13 @@ class Server(
                 decisionAnswers,
                 answer(_, env),
                 env,
-                Server.resumeFrom(req, c),
-                s.open
+                Server.resumeFrom(req, c)
               )
             )
           // Traced, so the repaint claims what it painted; clearing `holds`
           // instead would re-send the whole page on the next pull.
           val painted =
-            pageAnswers(renderer, s.open, store, env).map((fragments, at) =>
+            pageAnswers(renderer, store, env).map((fragments, at) =>
               Patches.repaint(renderer, at, Viewing(fragments))
             )
           resumedIO.flatMap { resumed =>
@@ -1037,8 +1034,8 @@ class Server(
         checked(r, s).flatMap(adoptCarriedVars(_, r, req)).flatMap { adopted =>
           val env = r.vars.env(adopted.values)
           warnAnomalies(r, env) *> session
-            .reveal(Set.empty, adopted.values)
-            .as(adopted.copy(open = Set.empty))
+            .reveal(adopted.values)
+            .as(adopted)
         }
       }
       .flatMap(openingPatches(slug, live, req, _))
@@ -1074,10 +1071,9 @@ class Server(
     // What is chosen NOW, not what this stream connected with: presses since
     // have moved the session's variables.
     val env = r.vars.env(s.values)
-    val open = Set.empty[String]
-    session.reveal(open, s.values) *> (stateStore.current, live.log.get)
+    session.reveal(s.values) *> (stateStore.current, live.log.get)
       .flatMapN { (store, log) =>
-        pageAnswers(r, open, store, env).map { (fragments, shared) =>
+        pageAnswers(r, store, env).map { (fragments, shared) =>
           val head =
             if (prev.styleHash != r.styleHash)
               Server.headPatches(r, session.slug)
@@ -1088,7 +1084,6 @@ class Server(
             Patches.repaint(r, shared, Viewing(fragments))
           Session.Step(
             s.copy(
-              open = open,
               holds = held,
               position = store.version,
               told = store.version,
@@ -1116,11 +1111,10 @@ class Server(
   /** The page's answers, and the version its render reads. */
   private def pageAnswers(
       renderer: Renderer,
-      open: Set[String],
       store: StoreState,
       env: VarEnv
   ): IO[(FetchSnapshot, Shared)] =
-    decidedFor(renderer, store, env)(renderer.fetchesForPage(open, _, env))
+    decidedFor(renderer, store, env)(renderer.fetchesForPage(_, env))
       .flatMap((reads, shared) => answer(reads, env).map(_ -> shared))
 
   /** Set a node variable for this viewer and re-render the readers it is shown
@@ -1208,7 +1202,7 @@ class Server(
     val readers = keys.flatMap(renderer.vars.readersOf).distinct
     val groups = keys.flatMap(renderer.vars.picksDecidedBy).distinct
     decidedFor(renderer, store, renderer.vars.env(s.values)) { at =>
-      val open = renderer.picks.screen(s.open, at)
+      val open = renderer.picks.chosen(at)
       val shown = renderer.picks.visibleNode(_, open, at)
       Server.Reach(
         keys.filter(k => shown(k.declarer)).toSet,
@@ -1239,7 +1233,7 @@ class Server(
     val values = s.initialValues ++ proposed
     val env = renderer.vars.env(values)
     for {
-      _ <- session.reveal(Set.empty, values)
+      _ <- session.reveal(values)
       pulled <- decidedFor(renderer, store, env) { at =>
         val o =
           Patches.written(renderer, s.holds, at, reach.targets, reach.groups)
@@ -1719,7 +1713,6 @@ class Server(
   ): IO[Response[IO]] = {
     val env = renderer.vars.env(initialValues ++ choices)
     val editMode = req.uri.query.params.get("edit").contains("1")
-    val open = Set.empty[String]
     for {
       // Read once: the banner rendered and the value recorded as told must
       // agree, or the stream repeats it or skips a real change.
@@ -1731,7 +1724,6 @@ class Server(
           logger,
           SessionState.initial
             .copy(
-              open = open,
               vars = choices,
               initialValues = initialValues,
               checkedBy = Some(renderer.generation),
@@ -1748,7 +1740,7 @@ class Server(
       // Decided before the head: the walk reaches decisions at once, where a
       // slot's answers it waits for below.
       decidedPage <- decidedFor(renderer, store, env)(
-        renderer.fetchesForPage(open, _, env)
+        renderer.fetchesForPage(_, env)
       )
       (reads, shared) = decidedPage
       // Captured now: the walk runs when the body is pulled, after this `for`

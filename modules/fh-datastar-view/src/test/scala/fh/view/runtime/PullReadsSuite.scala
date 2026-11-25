@@ -93,7 +93,6 @@ class PullReadsSuite extends munit.FunSuite {
     val snapshot = FetchSnapshot.of(
       renderer
         .fetchesForPage(
-          Set.empty,
           Shared.of(Map.empty).viewing(onTab),
           onTab
         )

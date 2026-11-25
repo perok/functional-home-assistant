@@ -23,7 +23,7 @@ it as `Activation.Var`.
 **State:** direction agreed in chat (2026-11-10); the prework is on main (below); R1 is built
 (`slot-classes`), R2 is built (`set-fill`), R3 is built (`choices-in-pkl`), R4a and R4b are built
 (`one-runtime-path`), R4c is built (`root-hosts`), R4d's D0–D5 are built (`the-planner`), D6
-not; R5's design is agreed (2026-11-24), R5.0–R5.3 are built. The opening describes the shape before R1.
+not; R5's design is agreed (2026-11-24), R5.0–R5.4 are built. The opening describes the shape before R1.
 
 ## What this builds on
 
@@ -953,7 +953,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      `publish` equal; `publishManyPopups` 21,032 → 21,984 (+4.5%, the closed popups' nodes now
      cases of one match); `viewerPage` equal; `validated` taps 4,155,329 → 3,534,305 (the hoist
      gone), cards 4,170,461 → 4,380,866 (+5%, every more-info now collected onto the page).
-     `SessionState.open` is still threaded, always empty (R5.4). Tests: `PopupVariableSuite`,
+     Tests: `PopupVariableSuite`,
      `popup.test.pkl`; `SurfaceTapSuite` is `SessionActionSuite`. As agreed:
      `components/popup.pkl`: `popups` on the root, required ids
      (`c.view.popup`, the library's derived ones), the hidden node and its collection into the
@@ -966,11 +966,13 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      0005, 0006, 0007, 0033 (rule 6, the future-work entries on the root and on `@@NODE_ID@@`,
      and "Why not": an entity chosen by a variable), terminology (surface out, root, the page
      card), the pipeline doc.
-   - **R5.4, `SessionState.open` goes.** D5.1 took the picks off it. With the popup a variable,
-     every container a viewer shows follows from its variables and the state, so each step
-     computes D0.3's `BitSet` from them. Nothing spelled as a container then crosses a swap, only
-     `VarKey`s, which `recheck` already checks; the open set's `reveal` and the recorder's
-     reading of `open` go with it (`Selections` went in R5.3).
+   - **R5.4, `SessionState.open` goes.** BUILT. With the popup a variable, every container a
+     viewer shows follows from its variables and the state, so each step computes D0.3's `BitSet`
+     from them (`PickGraph.chosen`; `screen` and `openOf` are gone, `openOf` living on as a test
+     helper). Nothing spelled as a container crosses a swap, only `VarKey`s, which `recheck`
+     checks; `reveal` takes only values and the recorder reads a session's values
+     (`Watching` is gone). `FetchBench` opens its tab by the declared variable. No bench of its
+     own: it removes a union with an empty set, and R5.5 measures against the base.
    - **R5.5, smoke and the bench.** Smoke tests (CI) for Back and Forward over a popup, over two
      history variables, and from a link naming both; R4's costs-nothing test for a popup; R5.0's
      benches against the base.

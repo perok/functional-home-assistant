@@ -355,7 +355,7 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
       Map("light.a" -> EntityState("light.a", s, Map.empty))
     def windows(tab: String, states: Map[String, EntityState]) = {
       val env = choosing(r, "tabs", "tab", tab)
-      r.fetchesForPage(Set.empty, viewedOf(states, env), env)
+      r.fetchesForPage(viewedOf(states, env), env)
         .map(r =>
           Windows.presets
             .collectFirst {

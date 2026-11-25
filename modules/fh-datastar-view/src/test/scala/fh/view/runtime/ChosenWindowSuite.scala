@@ -67,7 +67,7 @@ class ChosenWindowSuite extends munit.FunSuite {
 
   /** The pre-read at `shared`, then the body over what it answered. */
   private def paint(r: Renderer, shared: Shared): (List[SlotRead], String) =
-    val reads = r.fetchesForPage(Set.empty, shared, Map.empty)
+    val reads = r.fetchesForPage(shared, Map.empty)
     val snapshot =
       FetchSnapshot.of(reads.map(q => q -> Staged(1L, s"<svg>$q</svg>")).toMap)
     reads -> r

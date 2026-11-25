@@ -230,8 +230,8 @@ otherwise), and distinct keys per choice: a host is filled by a choice the serve
 variable or a condition (ADR 0007). Several bars, and a bar
 nested in another's panel, are kept apart by being different declarers. Every path that renders
 a panel takes the bar's case from the viewer's values, which the render's `Shared` carries
-(`Shared.viewing`, read by `PickGraph.decideByVariable`): a lookup, kept nowhere, and a tab
-never joins `SessionState.open`. A stale `ui.<id>` param cannot pick a tab.
+(`Shared.viewing`, read by `PickGraph.decideByVariable`): a lookup, kept nowhere. A stale
+`ui.<id>` param cannot pick a tab.
 
 **A highlight is `v.valueIs(x)` in a bool signal slot**, the one variable read a signal may
 hold: `cellClassWhen("fh-chosen", v.valueIs(choice))` on the tab and select buttons. The

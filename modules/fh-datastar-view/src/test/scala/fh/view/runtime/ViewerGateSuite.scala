@@ -115,7 +115,6 @@ class ViewerGateSuite extends ServerHarness {
     val r = Renderer.create(withGate)
     def asked(on: String) =
       r.fetchesForPage(
-        Set.empty,
         Shared.of(states).viewing(r.vars.env(Map(mode -> on))),
         r.vars.env(Map(mode -> on))
       )

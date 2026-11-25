@@ -327,7 +327,7 @@ The second of three layers (build, index, decisions; the pipeline doc's §1a). N
 **Container** — what may be hidden: the page's root, which never is, and a pick's case, a popup
 among them. Every node is in the innermost one holding it, and is shown while each container up its
 chain is. A container is a node of the tree **index**: inside a renderer it is that node's `Ix` and
-a viewer's open set (its `screen`) is a `BitSet` of them, the cases its values pick.
+a viewer's open set (`PickGraph.chosen`) is a `BitSet` of them, the cases its values pick.
 
 **Decisions** — what one state version decides: which members a set holds and in which clause,
 which branch a state group shows, whether each `valueWhile` holds. Held in that version's

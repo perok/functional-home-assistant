@@ -690,7 +690,7 @@ class RenderBench {
         val screens = viewerSessions.map(s =>
           s.tab -> (
             s.env,
-            viewers.picks.onScreen(s.open, now.viewing(s.env))
+            viewers.picks.onScreen(now.viewing(s.env))
           )
         )
         val seen = screens.groupBy(_._1).values.toList.map { same =>
@@ -728,7 +728,6 @@ class RenderBench {
           _ => IO.pure(FetchSnapshot.of(Map.empty, s.env)),
           s.env,
           version,
-          s.open,
           Patches.Coverage.Logged
         )
       }
@@ -1855,7 +1854,6 @@ class RenderBench {
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
           at,
-          Set.empty,
           Patches.Coverage.Logged
         )
       }
@@ -2570,7 +2568,6 @@ object RenderBench {
   final case class ViewerSession(
       tab: String,
       env: VarEnv,
-      open: Set[String],
       holds: Map[Ix, Held]
   )
 
@@ -2583,7 +2580,6 @@ object RenderBench {
     ViewerSession(
       tab,
       env,
-      Set.empty,
       renderer.renderPageHolds(
         Sink.buffer(renderer.pageBytesHint),
         Shared.of(states).viewing(env),

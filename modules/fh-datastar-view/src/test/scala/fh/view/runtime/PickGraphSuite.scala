@@ -320,7 +320,6 @@ class PickGraphSuite extends munit.FunSuite {
     val viewed =
       Shared.of(Map.empty).viewing(Map(tabsGid -> Map("tab" -> "0")))
     assertEquals(g.chosen(viewed), g.openOf(Set(g.cases(tabsGid)(0))))
-    assertEquals(g.screen(Set.empty, viewed), g.chosen(viewed))
   }
 
   test(

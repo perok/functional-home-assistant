@@ -177,7 +177,7 @@ class FetchDriftSuite extends munit.FunSuite {
       val states = house.viewing(ui.env)
       val snapshot = answered(
         ui.env,
-        r.fetchesForPage(Set.empty, states, ui.env)
+        r.fetchesForPage(states, ui.env)
       )
       val _ = r.renderPageInto(
         Sink.buffer(r.pageBytesHint),
@@ -212,7 +212,7 @@ class FetchDriftSuite extends munit.FunSuite {
               Viewing(
                 answered(
                   defaults(r),
-                  r.fetchesForPage(Set.empty, states, defaults(r))
+                  r.fetchesForPage(states, defaults(r))
                 )
               )
             ).keys

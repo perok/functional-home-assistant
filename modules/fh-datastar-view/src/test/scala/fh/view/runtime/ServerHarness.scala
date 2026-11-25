@@ -136,7 +136,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
       holds: Map[Ix, Held],
       states: Map[String, EntityState],
       v: Long,
-      open: Set[String],
       env: VarEnv = Map.empty,
       coverage: Patches.Coverage = Patches.Coverage.Swept
   ): List[Addressed] =
@@ -152,7 +151,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
           _ => IO.pure(FetchSnapshot.empty),
           env,
           v,
-          open,
           coverage
         )
       )

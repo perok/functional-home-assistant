@@ -778,7 +778,7 @@ chose, which closes the race between a tab click and a patch already in flight.
   the bundle rather than the docs. Re-verify on upgrade.
 - A resume is bounded by what the log reaches: across a stretch this slug did not
   record, or below its log's seed, a client repaints.
-- The server holds per-client state — `holds`, `position`, an open set — for as long as
+- The server holds per-client state — `holds`, `position`, the viewer's values — for as long as
   a session lives, which is its stream plus a linger. None of it is required for
   correctness (see the rejection above), and none of it survives a restart.
 - Scaling viewers costs one pull each per frame; the renders behind those pulls are

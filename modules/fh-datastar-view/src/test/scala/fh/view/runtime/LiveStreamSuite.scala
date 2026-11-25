@@ -257,7 +257,6 @@ class LiveStreamSuite extends ServerHarness {
       holds,
       states,
       1L,
-      Set.empty,
       mine
     )
 
@@ -287,7 +286,6 @@ class LiveStreamSuite extends ServerHarness {
         "sensor.a" -> es("sensor.a", "A0"),
         "sensor.b" -> es("sensor.b", "B0")
       )
-    val open = Set.empty[String]
     val mine =
       r.vars.env(Map(VarKey(NodeId.derived("c_0"), "tab") -> "1"))
     // Exactly as `pageResponse` records it.
@@ -308,7 +306,6 @@ class LiveStreamSuite extends ServerHarness {
       held,
       tab0Moved,
       2L,
-      open,
       mine
     )
     assert(
@@ -327,7 +324,6 @@ class LiveStreamSuite extends ServerHarness {
       held,
       tab1Moved,
       2L,
-      open,
       mine
     )
     assert(
@@ -343,7 +339,6 @@ class LiveStreamSuite extends ServerHarness {
         "sensor.a" -> es("sensor.a", "A0"),
         "sensor.b" -> es("sensor.b", "B0")
       )
-    val open = Set.empty[String]
     val mine =
       r.vars.env(Map(VarKey(NodeId.derived("c_0"), "tab") -> "1"))
     val panel = r.caseNodeIds("c_0_panel_0_1").toList
@@ -359,7 +354,6 @@ class LiveStreamSuite extends ServerHarness {
         held,
         moved,
         2L,
-        open,
         mine,
         Patches.Coverage.Logged
       ).map(_.patch.toSse.render)
@@ -433,7 +427,6 @@ class LiveStreamSuite extends ServerHarness {
         Map.empty,
         states,
         1L,
-        Set.empty,
         r.vars.env(Map(VarKey(NodeId.derived("c_1_branch_0_0"), "tab") -> tab))
       ).map(_.patch.toSse.render)
     assert(

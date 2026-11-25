@@ -263,7 +263,7 @@ rule stands on its own for the same reason: two live streams on one session mean
 one `holds`.
 
 The scopes are genuinely different, and that is the thing to hold on to: `holds` and `position` are
-per-DOM and can never be keyed coarser than a tab, where the open set and ui-state are per-VIEWER
+per-DOM and can never be keyed coarser than a tab, where a viewer's variables are per-VIEWER
 and could reasonably follow a user across tabs or devices. Merging them would fake one with the
 other.
 

@@ -320,13 +320,12 @@ private[runtime] object Patches {
       answers: List[SlotRead] => IO[FetchSnapshot],
       env: VarEnv,
       v: Long,
-      open: Set[String] = Set.empty,
       coverage: Coverage = Coverage.Swept
   ): IO[List[Addressed]] =
     renderer
       .decide(decisions) { run =>
         val at = shared.asking(run).viewing(env)
-        val o = owing(renderer, log, holds, at, v, open, coverage)
+        val o = owing(renderer, log, holds, at, v, coverage)
         (
           at,
           o,
@@ -379,11 +378,10 @@ private[runtime] object Patches {
       holds: Map[Ix, Held],
       shared: Shared,
       v: Long,
-      spelled: Set[String],
       coverage: Coverage
   ): Owing = {
     val index = renderer.index
-    val open = renderer.picks.screen(spelled, shared)
+    val open = renderer.picks.chosen(shared)
     val logged = log.since(v)
     val fromOpen = coverage match
       case Coverage.Logged => Iterator.empty

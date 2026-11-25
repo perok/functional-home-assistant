@@ -31,12 +31,10 @@ enum Tenure derives CanEqual {
   * written only where bytes are sent to this client, never from what another
   * client or a shared structure believes.
   *
-  *   - `open`: the popup, by its root's DOM id, since it crosses a renderer
-  *     swap ([[PickGraph.openOf]]); only it, and the tab panels `vars` pick
-  *     ([[PickGraph.screen]]), are recorded and rendered, so a closed popup
-  *     costs nothing.
   *   - `vars`: the viewer's node-variable choices, here because a pull has no
-  *     request to read them off (issue #209).
+  *     request to read them off (issue #209). Every case the viewer is shown
+  *     follows from them and the state ([[PickGraph.chosen]]), so only
+  *     `VarKey`s cross a renderer swap, which [[Renderer.recheck]] checks.
   *   - `initialValues`: where the document opened a variable that has an
   *     initial transform, decided once from the state it was rendered on. Not a
   *     choice: no `v.` param, and a reconnect does not carry it.
@@ -58,7 +56,6 @@ enum Tenure derives CanEqual {
   * sessions.
   */
 final case class SessionState(
-    open: Set[String],
     vars: Map[VarKey, String],
     holds: Map[Ix, Held],
     position: Long,
@@ -93,7 +90,7 @@ enum Painter {
 object SessionState {
   // -1: 0 is a real version a client could hold.
   val initial: SessionState =
-    SessionState(Set.empty, Map.empty, Map.empty, 0L, -1L)
+    SessionState(Map.empty, Map.empty, 0L, -1L)
 }
 
 /** A stream's mailbox: the owner appends a step's frames, the stream takes
@@ -178,32 +175,24 @@ final class Session private (
   def update(f: SessionState => SessionState): IO[Unit] =
     run(s => IO.pure(Step(f(s), Nil, ())))
 
-  /** The last state a step left (and any [[reveal]] since). For readers that
-    * must not wait on the owner — the recorder, pruning; never the base of a
-    * change, which is [[run]]'s.
+  /** The last state a step left. For readers that must not wait on the owner —
+    * the recorder, pruning; never the base of a change, which is [[run]]'s.
     */
   def state: IO[SessionState] = published.get.map(_.state)
 
-  /** What the recorder reads of this session: its popups, under its values and
-    * each revealed since its last step.
+  /** What the recorder reads of this session: its values, and each revealed
+    * since its last step.
     */
-  def watching: IO[List[Watching]] =
-    published.get.map(p =>
-      (p.state.values :: p.revealed).distinct.map(Watching(p.state.open, _))
-    )
+  def watching: IO[List[Map[VarKey, String]]] =
+    published.get.map(p => (p.state.values :: p.revealed).distinct)
 
-  /** Show the recorder `containers` and `values` before the running step reads
-    * the store: a frame recorded in between without them would never reach the
-    * panel being filled. Wider than the state is safe (it records a little
-    * more), and the step's end, or its failure, publishes the exact state.
+  /** Show the recorder `values` before the running step reads the store: a
+    * frame recorded in between without them would never reach the panel being
+    * filled. Wider than the state is safe (it records a little more), and the
+    * step's end, or its failure, publishes the exact state.
     */
-  def reveal(containers: Set[String], values: Map[VarKey, String]): IO[Unit] =
-    published.update(p =>
-      Session.Published(
-        p.state.copy(open = p.state.open ++ containers),
-        values :: p.revealed
-      )
-    )
+  def reveal(values: Map[VarKey, String]): IO[Unit] =
+    published.update(p => p.copy(revealed = values :: p.revealed))
 
   /** Deliver to `outlet` from now on, the backlog first. */
   def attach(outlet: Outlet): IO[Unit] =
@@ -319,10 +308,6 @@ final class Session private (
           .as(current -> backlog)
     }
 }
-
-/** One viewer the recorder covers: a session's popups under one of its values.
-  */
-final case class Watching(open: Set[String], values: Map[VarKey, String])
 
 object Session {
 
@@ -441,7 +426,7 @@ final class Sessions(ref: SignallingRef[IO, Map[String, Session]]) {
   /** Separately: visibility is one client's chain, and a union would mix one
     * client's tab with another's branch.
     */
-  def watching(slug: String): IO[List[Watching]] =
+  def watching(slug: String): IO[List[Map[VarKey, String]]] =
     forSlug(slug).flatMap(_.flatTraverse(_.watching))
 }
 

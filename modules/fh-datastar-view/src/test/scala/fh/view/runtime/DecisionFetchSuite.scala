@@ -126,7 +126,7 @@ class DecisionFetchSuite extends munit.FunSuite {
   ): String =
     r.decide(answer) { run =>
       val at = shared.asking(run)
-      val _ = r.fetchesForPage(Set.empty, at, r.vars.env(Map.empty))
+      val _ = r.fetchesForPage(at, r.vars.env(Map.empty))
       at
     }.map(
       r.renderBodyTraced(

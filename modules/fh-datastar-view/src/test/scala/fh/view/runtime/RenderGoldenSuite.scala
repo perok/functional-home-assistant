@@ -221,7 +221,7 @@ object RenderGoldenSuite {
     // Every case's nodes too: a golden renders each case, shown or not.
     val cases = d.picks.values.flatMap(_.cases).flatMap(r.caseNodeIds)
     val reads: List[SlotRead] =
-      r.fetchesForPage(Set.empty, shared, env) ++
+      r.fetchesForPage(shared, env) ++
         r.readsForPull((nodes ++ cases).distinct, Nil, shared, env)
     FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap, env)
   }

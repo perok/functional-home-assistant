@@ -196,7 +196,7 @@ input, clamped at the boundary:
   decides takes it (`Renderer.refusals`), so a hand-edited URL can never
   render a non-existent case; an old `ui.<id>` link is not read and lands on
   the declared tab. The restore is flash-free because the GET renders the
-  picked case directly, and the SSE connect seeds the open set from the
+  picked case directly, and the SSE connect reads the cases from the
   session's variables so it streams live from the first paint.
 - **Open popup.** The page's `popups` (ADR 0002), declared on the node `root`,
   so its parameter is `v.popups`, which no `v.<declarer>.<name>` can be, since
