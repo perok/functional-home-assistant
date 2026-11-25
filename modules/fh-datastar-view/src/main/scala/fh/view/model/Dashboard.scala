@@ -972,10 +972,7 @@ object LayoutNode:
   *     what the layout survives without (an icon font).
   *   - `scripts`: module scripts, run after first paint.
   *   - `inlineScripts`: classic, run before first paint (document listeners the
-  *     first element needs). Emitted verbatim, like `styles` and `chrome`.
-  *   - `chrome`: the frame, with the `#dashboard` swap target around
-  *     `{{{body}}}` (checked by `validate`) and any popup host. Empty falls
-  *     back to a bare `<main id="dashboard">`.
+  *     first element needs). Emitted verbatim, like `styles`.
   *   - `offlineBanners`: the connection banners' markup, placed in the page
   *     shell; empty shows none.
   *   - `classes`: what the theme adds to, or puts in place of, an `fh-` class
@@ -989,15 +986,13 @@ case class Theme(
     scripts: List[String] = Nil,
     inlineScripts: List[String] = Nil,
     styles: String = "",
-    chrome: String = "",
     offlineBanners: String = "",
     classes: ThemeClasses = ThemeClasses.empty
 ) derives ConfiguredDecoder
 
-/** A popup, rendered only while open, into the theme's popup host
-  * ([[Dashboard.PopupHostId]]). Chrome-less: the frame around it lives in the
-  * theme or card. A choice's case is a node, not a surface
-  * ([[Dashboard.picks]]).
+/** A popup, rendered only while open, into the page card's `popups` group
+  * ([[Dashboard.PopupHostId]]). Bare: the frame around it lives in the popup
+  * card. A choice's case is a node, not a surface ([[Dashboard.picks]]).
   */
 case class Surface(
     content: LayoutNode,
@@ -1026,6 +1021,9 @@ object Surface:
 
 /** The build phase's artifact.
   *
+  *   - `card`: the tree's root, a built dashboard's page card (`core/page.pkl`,
+  *     the node `root`). A dashboard a test writes in Scala may root at any
+  *     card, rendered with no frame.
   *   - `slug`: the site's `dashboards` key, applied by `DashboardBuild.decode`
   *     before validation.
   *   - `css`: the base every dashboard gets, here rather than on [[Theme]] so a
@@ -1184,26 +1182,6 @@ case class Dashboard(
       theme.classes.rewriteTemplate(failedLabel),
       Set.empty
     )
-
-  /** Problems that still build but are silent in the browser, both about the
-    * popup host only the theme can place (ADR 0002).
-    */
-  def warnings: List[String] = {
-    val popupSurfaces = surfaces.keys.toList.sorted
-    val host = s"id=\"${Dashboard.PopupHostId}\""
-    if (popupSurfaces.isEmpty) Nil
-    else if (!theme.chrome.contains(host))
-      List(
-        s"theme.chrome has no <div $host> host, so these popup surfaces can " +
-          s"never be shown: ${popupSurfaces.mkString(", ")}"
-      )
-    else if (!theme.chrome.contains("{{{popups}}}"))
-      List(
-        s"theme.chrome's <div $host> host has no {{{popups}}} hole, so a popup " +
-          "restored on a refresh arrives only once the stream connects"
-      )
-    else Nil
-  }
 
   def allFetches: List[SlotRead] =
     (fetchesIn(card) ++ surfaces.values.toList.flatMap(s =>
@@ -1401,7 +1379,15 @@ object Dashboard:
   /** A CSS custom property name; a plain property would fight the theme. */
   val CustomProperty: scala.util.matching.Regex = "--[A-Za-z0-9_-]+".r
 
-  given Decoder[Dashboard] = ConfiguredDecoder.derived[Dashboard]
+  // `card` is the page here and `root` on the wire, where `card` is the
+  // author's, the page's body.
+  given Decoder[Dashboard] = {
+    given Configuration = summon[Configuration].withTransformMemberNames {
+      case "card" => "root"
+      case other  => other
+    }
+    ConfiguredDecoder.derived[Dashboard]
+  }
 
   /** Constructed only by [[Dashboard.validated]]: the type is the proof, so its
     * constructor, `apply` and `copy` are private to the model.
@@ -1421,10 +1407,14 @@ object Dashboard:
   /** What a failed read gives [[Dashboard.failedLabel]]. */
   val FailedLabelHoles: Set[String] = Set("text")
 
-  /** The theme's popup host. The dialog is a `popup` card composed into the
-    * surface's content, so the backend renders every surface bare.
+  /** The page card's popup host (`core/page.pkl`). The dialog is a `popup` card
+    * composed into the surface's content, so the backend renders every surface
+    * bare.
     */
   val PopupHostId: DomId = DomId.derived("popups")
+
+  /** The page card's node, the root of a built dashboard's tree. */
+  val PageRootId: NodeId = NodeId.derived("root")
 
   /** Where a walk is below a set member: the member, its clause and the steps
     * down from it, which a nested set's id spells ([[LayoutNode.innerSetId]]).

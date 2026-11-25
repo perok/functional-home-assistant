@@ -1077,8 +1077,8 @@ private[model] object Validate:
         }
       }
 
-    /** What an authored `id` has to satisfy: a plain token, used once, and not
-      * inside a candidate set's clause.
+    /** What an authored `id` has to satisfy: a plain token, used once, not
+      * inside a candidate set's clause, and not one of the page card's.
       *
       * Deliberately NOT a rule: that an id must not read as another node's
       * descendant. Containment is the index's ([[TreeIndex.contains]]), which
@@ -1086,15 +1086,30 @@ private[model] object Validate:
       */
     val authoredIdErrors: List[String] = {
       val all = index.all.toList.map(ix =>
-        (index.id(ix), index.within(ix).isDefined, index.node(ix).authoredId)
+        (
+          ix,
+          index.id(ix),
+          index.within(ix).isDefined,
+          index.node(ix).authoredId
+        )
       )
-      val authored = all.collect { case (id, inSet, Some(name)) =>
-        (id, inSet, name)
+      val authored = all.collect { case (ix, id, inSet, Some(name)) =>
+        (ix, id, inSet, name)
       }
-      val ids = all.map(_._1)
+      val ids = all.map(_._2)
 
-      val shape = authored.flatMap { case (id, inSet, name) =>
-        if (inSet)
+      val shape = authored.flatMap { case (ix, id, inSet, name) =>
+        // The page card's own (`core/page.pkl`): the root, and its popup host.
+        val reserved = name match
+          case "root"   => ix != Ix(0)
+          case "popups" => !index.parent(ix).contains(Ix(0))
+          case _        => false
+        if (reserved)
+          List(
+            s"node id '$name' is reserved for the page card's own node — " +
+              "name it something else"
+          )
+        else if (inSet)
           List(
             s"node id '$name' is inside a candidate set's clause, which is " +
               "rendered once per member — every member would claim the name"
@@ -1111,15 +1126,6 @@ private[model] object Validate:
 
       shape.distinct
     }
-
-    val chromeErrors: List[String] =
-      Option
-        .when(
-          theme.chrome.nonEmpty && !theme.chrome.contains("id=\"dashboard\"")
-        )(
-          "theme.chrome must contain an element with id=\"dashboard\" wrapping {{{body}}}"
-        )
-        .toList
 
     // Given a tone and a text, nothing else: any other name would print empty.
     val failedLabelErrors: List[String] = label.fold(
@@ -1236,7 +1242,6 @@ private[model] object Validate:
       regionHoleErrors ++
       viewErrors ++
       regionNameErrors ++
-      chromeErrors ++
       failedLabelErrors ++
       theme.classes.errors ++
       unboundConditions ++

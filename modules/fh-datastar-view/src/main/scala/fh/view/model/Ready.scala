@@ -279,8 +279,7 @@ object Ready:
           calls.toMap,
           initials.toMap,
           choices.toMap,
-          d.varScopes,
-          d.warnings
+          d.varScopes
         )
       )
 
@@ -499,8 +498,7 @@ object Ready:
       initials: Map[Cel.Key, Cel.Program],
       // Each chosen window's `by`, by its `inputKey`.
       choices: Map[String, Evaluator.Run],
-      varScopes: Map[NodeId, Map[String, fh.view.model.Dashboard.InScope]],
-      warnings: List[String]
+      varScopes: Map[NodeId, Map[String, fh.view.model.Dashboard.InScope]]
   ):
     /** What a chosen window's `by` reads over `states` and `in`. */
     def answer(

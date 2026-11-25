@@ -248,27 +248,26 @@ backend** — the runtime reads only structural surface fields and variables,
 never a card name. The active tab persists via the session and the URL mirror
 (ADR 0005).
 
-### The theme owns the chrome
+### The page is a card, and the theme owns its frame
 
-`Theme.chrome` is a Mustache frame template with two holes, owning the
-`#dashboard` swap target (`{{{body}}}`) and the popup host
-(`<div id="popups">{{{popups}}}</div>`), inlined in the theme (a theme imports
-no component library — it is presentation, a leaf).
+Every dashboard's tree hangs from the **page card** (`core/page.pkl`), which
+`entry.pkl` builds around the author's `card`: the node `root`, with two nodes
+slots. `body` holds the author's card, which keeps the id `c` unless it names
+its own, so no id below it moved. `popups` holds the node `popups`, an empty
+group that a popup open fills. `Theme.chrome` is the card's template: a frame
+placing `{{{body}}}` and `{{{popups}}}`, inlined in the theme (a theme imports
+no component library — it is presentation, a leaf). A frame missing either hole
+fails the build, and `root` and `popups` are refused as an author's ids.
 
-The second hole is what makes a **restored** popup flash-free: a refresh
-carrying `?popup=<id>` (ADR 0005) bakes the dialog into the served HTML, the
-same way a selected tab panel is baked into its owner. Without it the dialog
-cannot appear until the stream connects and patches `#popups`, so the dashboard
-paints first and the dialog arrives late — most visible on a phone. The baked
-HTML is the same `renderSurface` call the connect would patch, so the patch that
-follows is a no-op morph rather than a second paint; a theme that omits the hole
-still works, it just flashes. The theme keeps deciding WHERE the host lives —
-the backend only fills a host it already addresses by id on every
-open/switch/close.
+Because the host is a node, a **restored** popup is flash-free: a refresh
+carrying `?ui.popups=<id>` (ADR 0005) bakes the dialog into `popups` in the
+served HTML, the same way a selected tab panel is baked into its owner, and a
+repaint bakes it the same way (ADR 0011). The theme keeps deciding WHERE the
+host sits in the frame — the backend only fills the node it addresses by id on
+every open/switch/close.
 
-The backend holds **zero** frame HTML; an empty chrome
-falls back to a minimal `<main id="dashboard">` frame. `Dashboard.validate`
-fails loudly if a non-empty chrome lacks `id="dashboard"`. The document shell
+The backend holds **zero** frame HTML: a tree with no page card, which only a
+test builds in Scala, renders its root bare. The document shell
 (`<head>`, Datastar `<script>`, `data-init`, the theme's
 stylesheet `<link>`s and script `<script type="module">`s — `Theme.scripts`
 carries JS a theme's CSS needs, e.g. BeerCSS's slider fill; behavior stays

@@ -376,10 +376,9 @@ must not refresh every browser when the theme is byte-identical.
   `Server.headPatches` — two element patches, no reload.
 - **`headHash`** — `<link>`ed stylesheets (the deferred ones too — deferring changes
   when a sheet applies, not that the head names it), the theme's scripts (module
-  `src`s and inline bodies), `theme.chrome`, and the `<meta name="theme-color">` pair.
-  None can be patched honestly: a `<link>` can be added but not un-applied, a script
-  cannot be un-run, the chrome is the frame the body patch lands INSIDE, and a
-  `<meta>` is markup rather than CSS — which is why exactly those two token VALUES sit
+  `src`s and inline bodies), and the `<meta name="theme-color">` pair. None can be
+  patched honestly: a `<link>` can be added but not un-applied, a script cannot be
+  un-run, and a `<meta>` is markup rather than CSS — which is why exactly those two token VALUES sit
   here while every other token patches with `styleHash`.
 
 `headPatches` is orthogonal to the resume/repaint decision, prepended to whichever
@@ -470,11 +469,12 @@ on the screen, so they are reconciled on their own ids and the dialog is never
 disturbed.
 
 A REPAINT is the one path that has to name the popup. It is not a candidate set: it
-replaces `holds` with what it painted, and the popup host lives in `theme.chrome`,
-outside `#dashboard`. A repaint of the body alone left the dialog showing what it held
-before the disconnect, with its nodes missing from `holds`, until some later pull
-re-sent them. So a repaint fills the host too (`Patches.repaint`), as an `inner` patch,
-which Datastar morphs: the open dialog is reconciled, not replaced. A swap's repaint
+replaces `holds` with what it painted, and a repaint that left the popup out left the
+dialog showing what it held before the disconnect, with its nodes missing from
+`holds`, until some later pull re-sent them. So a repaint morphs the page card's root
+(`selector #root`) with the open popup baked into its `popups` node, the walk a page
+load makes (`Patches.repaint`): one morph, so the open dialog is reconciled, not
+replaced. A popup sent as a second patch would be emptied by the first. A swap's repaint
 takes the popup from the session's open set (`SurfaceGraph.selectionsIn`) and every tab
 from the session's variables, rather than from the request, which is what the stream
 connected with: a tab clicked since would otherwise snap back on every edit. A connect

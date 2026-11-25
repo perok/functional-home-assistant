@@ -428,7 +428,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       .hoistInlineSurfaces(
         parser
           .parse(s"""
-            { "cards": {}, "card": {
+            { "cards": {}, "root": {
                 "kind": "Component", "card": "fhcol",
                 "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
                   { "kind": "Component", "card": "card" },
@@ -470,7 +470,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   test("hoistInlineSurfaces descends a candidate set's members") {
     val json = parser
       .parse("""
-        { "cards": {}, "card": {
+        { "cards": {}, "root": {
             "kind": "Component", "card": "fhcol",
             "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
               { "kind": "Component", "card": "group",
@@ -503,7 +503,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     // another case's content.
     val json = parser
       .parse("""
-        { "cards": {}, "card": {
+        { "cards": {}, "root": {
             "kind": "Component", "card": "fhcol",
             "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
               { "kind": "Component", "card": "group",
@@ -537,7 +537,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   test("hoistInlineSurfaces descends every region, at every depth") {
     val json = parser
       .parse("""
-        { "cards": {}, "card": {
+        { "cards": {}, "root": {
             "kind": "Component", "card": "fhcol",
             "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
               { "kind": "Component", "card": "slider",
@@ -588,7 +588,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   private def hoistCard(card: String, surfaces: String = "{}"): Json =
     DashboardBuild.hoistInlineSurfaces(
       parser
-        .parse(s"""{ "cards": {}, "card": $card, "surfaces": $surfaces }""")
+        .parse(s"""{ "cards": {}, "root": $card, "surfaces": $surfaces }""")
         .toOption
         .get
     )
@@ -637,7 +637,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       .parse("""
         {
           "cards": {},
-          "card": {
+          "root": {
             "kind": "Component", "card": "fhcol",
             "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
               { "kind": "Component", "card": "button",
@@ -661,7 +661,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(keys, List("c_0_self"), clue = keys)
 
     val trigger = hoisted
-      .downField("card")
+      .downField("root")
       .downField("wireSlots")
       .downField("children")
       .downField("fill")
@@ -700,7 +700,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       .parse("""
         {
           "cards": {},
-          "card": {
+          "root": {
             "kind": "Component", "card": "tabs", "entities": [],
             "params": { "initial": "@@NODE_ID@@_0", "panelHost": "panel_@@NODE_ID@@", "sig": "tab_@@NODE_ID@@" },
             "wireSlots": { "children": { "kind": "Nodes", "fill": { "kind": "Nodes", "choice": [
@@ -731,7 +731,7 @@ class BuildPhaseSuite extends munit.FunSuite {
         Some("card")
       )
 
-    val node = h.downField("card")
+    val node = h.downField("root")
     assert(node.downField("inlineSurfaces").failed, clue = "marker not removed")
     assertEquals(
       node.downField("params").get[String]("initial").toOption,
@@ -969,7 +969,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(
       DashboardBuild.unresolvedTokens(
         json(
-          """{"card":{"wireSlots":{"active":"($_@@NODE_ID@@__pending || $x) == 0"}},
+          """{"root":{"wireSlots":{"active":"($_@@NODE_ID@@__pending || $x) == 0"}},
             | "cards":{"a":{"template":"<i class=\"@@CLASSBIND:busySpin:$b@@\"></i>"}}}""".stripMargin
         )
       ),
@@ -992,7 +992,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       .parse("""
         {
           "cards": {},
-          "card": {
+          "root": {
             "kind": "Component", "card": "ifhost",
             "inlineSurfaces": { "then": {
               "content": { "kind": "Component", "card": "card" },
@@ -1023,7 +1023,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       """{ "kind": "Component", "card": "x", "inlineSurfaces": { "self": {
         |  "content": { "kind": "Component", "card": "x" } } } }""".stripMargin
     val json = parser
-      .parse(s"""{ "cards": {}, "card": { "kind": "Component", "card": "h",
+      .parse(s"""{ "cards": {}, "root": { "kind": "Component", "card": "h",
         "wireSlots": { "branch": { "kind": "Nodes", "fill": { "kind": "Nodes",
           "choice": { "kind": "Chosen",
             "by": { "source": { "kind": "Var", "name": "v" } },

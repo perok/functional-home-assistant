@@ -33,8 +33,8 @@ import scala.concurrent.duration.*
 
 /** Resume on reconnect (ADR 0011). A wrong resume is silent, stale values
   * forever, since the server believes the browser is current, so each test
-  * asserts both what the client gets and whether the full-body repaint
-  * (`selector #dashboard`) was used.
+  * asserts both what the client gets and whether the full repaint
+  * ([[ServerHarness.BodyRepaint]]) was used.
   */
 class ResumeSuite extends ServerHarness {
 
@@ -398,8 +398,8 @@ class ResumeSuite extends ServerHarness {
   }
 
   test("a popup open across the disconnect is restored fresh, not closed") {
-    // Backgrounding a phone tab must not dismiss the dialog. Its host sits
-    // outside #dashboard, so it is re-rendered from the client's own claim.
+    // Backgrounding a phone tab must not dismiss the dialog: it is re-rendered
+    // from the client's own claim.
     val hostSelector = s"selector #${Dashboard.PopupHostId}"
     val hostReset = s"selector #${Dashboard.PopupHostId} > *"
     val withPopup = liveLeafDash.copy(
@@ -477,9 +477,9 @@ class ResumeSuite extends ServerHarness {
     )
   )
 
-  /** Its host sits outside `#dashboard`, so a repaint that stopped there left
-    * the dialog showing what it held before the disconnect, and `holds` without
-    * its nodes, until the next pull happened to re-send them.
+  /** A repaint that left the popup out left the dialog showing what it held
+    * before the disconnect, and `holds` without its nodes, until the next pull
+    * happened to re-send them.
     */
   test("a repaint with a popup open repaints the popup too") {
     live(
@@ -501,7 +501,7 @@ class ResumeSuite extends ServerHarness {
       } yield {
         assert(repaint.contains(BodyRepaint), clue = repaint)
         assert(
-          repaint.contains(s"selector #${Dashboard.PopupHostId}"),
+          repaint.contains(s"""id="${Dashboard.PopupHostId}"><div"""),
           clue = repaint
         )
         assert(repaint.contains("<i>B1</i>"), clue = repaint)
@@ -513,7 +513,8 @@ class ResumeSuite extends ServerHarness {
     * closed, or another opened, since.
     */
   test("a dashboard edit repaints the popup open now, not the one at connect") {
-    val hostSelector = s"selector #${Dashboard.PopupHostId}"
+    // Baked into the repaint's popup host, as on a page load.
+    val inHost = s"""id="${Dashboard.PopupHostId}"><div"""
     live(
       popupDash("<i>{{state}}</i>"),
       Map(
@@ -548,10 +549,10 @@ class ResumeSuite extends ServerHarness {
         closedSent <- closed.drain.map(_.flatMap(_.data).mkString("\n"))
       } yield {
         assert(keptSent.contains(BodyRepaint), clue = keptSent)
-        assert(keptSent.contains(hostSelector), clue = keptSent)
+        assert(keptSent.contains(inHost), clue = keptSent)
         assert(keptSent.contains("<em>B0</em>"), clue = keptSent)
         assert(closedSent.contains(BodyRepaint), clue = closedSent)
-        assert(!closedSent.contains(hostSelector), clue = closedSent)
+        assert(!closedSent.contains(inHost), clue = closedSent)
         assert(!closedSent.contains("<em>B0</em>"), clue = closedSent)
       }
     }

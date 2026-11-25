@@ -1,0 +1,44 @@
+/// The page card: the theme's `chrome` its template, the dashboard's card its
+/// body.
+///
+/// Outside `lib/` deliberately — see `components.test.pkl`.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/core/node.pkl" as nodeMod
+import "../../main/resources/dashboards/lib/core/page.pkl" as pageMod
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+
+const local plain = slotMod.slot("plain")
+
+local class Leaf extends nodeMod.Node {
+  card = "leaf"
+  cardDef = new nodeMod.CardDef { template = "\(plain)" }
+  slots { plain.of("x") }
+}
+
+// Not `chrome = chrome`: inside the object, the name reads its own property.
+local function page(frame: String, node: nodeMod.Node): pageMod.Page =
+  new { chrome = frame; body = node }
+
+local ok = "<main>{{{body}}}</main>{{{popups}}}"
+
+facts {
+  ["the body keeps the id c, or the one it names"] {
+    page(ok, new Leaf {}).regions["body"][0].id == "c"
+    page(ok, new Leaf { id = "home" }).regions["body"][0].id == "home"
+  }
+  ["the popup host is the node popups, beside the body"] {
+    page(ok, new Leaf {}).id == "root"
+    page(ok, new Leaf {}).regions["popups"][0].id == "popups"
+  }
+  ["a frame missing either hole is a build error naming it"] {
+    module.catch(() -> nodeMod.cardsIn(List(page("<main>{{{body}}}</main>", new Leaf {}))))
+      .contains("theme.chrome places no {{{popups}}}")
+    module.catch(() -> nodeMod.cardsIn(List(page("{{{popups}}}", new Leaf {}))))
+      .contains("theme.chrome places no {{{body}}}")
+  }
+  ["a frame keeping the old popup host element is a build error, not a second id"] {
+    module.catch(() -> nodeMod.cardsIn(List(page(#"<main>{{{body}}}</main><div id="popups">{{{popups}}}</div>"#, new Leaf {}))))
+      .contains(#"theme.chrome writes id="popups""#)
+  }
+}

@@ -111,13 +111,8 @@ class OracleSuite extends HedgehogSuite {
         Vector.fill(n)(FakeBrowser.open(ts, js)).sequence.map(ts -> _)
       )
 
-  private val chrome =
-    """<main class="container" id="dashboard">{{{body}}}</main><div id="popups">{{{popups}}}</div>"""
-
-  private def build(e: FixtureEntries.Entry): Dashboard = {
-    val d = PklFixture.buildDashboard(e.slug, e.source, e.dump)
-    d.copy(theme = d.theme.copy(chrome = chrome))
-  }
+  private def build(e: FixtureEntries.Entry): Dashboard =
+    PklFixture.buildDashboard(e.slug, e.source, e.dump)
 
   private enum Step {
     case Change(entity: Int, state: Int)

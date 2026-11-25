@@ -96,7 +96,7 @@ object DashboardBuild {
       case None      => json
       case Some(obj) =>
         val (newCard, cardSurfaces) =
-          obj("card").map(walkRoot(_, "")).getOrElse((Json.Null, Nil))
+          obj("root").map(walkRoot(_, "")).getOrElse((Json.Null, Nil))
         val existing =
           obj("surfaces").flatMap(_.asObject).getOrElse(JsonObject.empty)
         val rebuilt = existing.toList.map { case (sid, sv) =>
@@ -124,7 +124,7 @@ object DashboardBuild {
           rebuilt.map(_._1) ++ collected
         )
         Json.fromJsonObject(
-          obj.add("card", newCard).add("surfaces", Json.fromJsonObject(merged))
+          obj.add("root", newCard).add("surfaces", Json.fromJsonObject(merged))
         )
     }
 

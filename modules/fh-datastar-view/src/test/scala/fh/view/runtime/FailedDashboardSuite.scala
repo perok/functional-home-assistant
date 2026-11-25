@@ -119,8 +119,7 @@ class FailedDashboardSuite extends ServerHarness {
               .compile
               .drain
               .timeout(15.seconds) *>
-            // The error document has no #dashboard or head to patch, so a
-            // reload.
+            // The error document has no root or head to patch, so a reload.
             install(failed) *> awaitReloads(seen, 1) *>
             install(
               Server.RendererState.Ready(Renderer.create(liveLeafDash))

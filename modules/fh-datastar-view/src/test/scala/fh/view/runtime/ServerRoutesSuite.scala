@@ -518,8 +518,8 @@ class ServerRoutesSuite extends ServerHarness {
   }
 
   test("the page shell seeds the popup selection from the URL, or empty") {
-    // The popup host is in theme.chrome, with no card template to declare its
-    // signal, so the shell declares it, as `ui_<hostId>` like any selection. An
+    // No node declares the popup's signal yet (the page card's root will), so
+    // the shell declares it, as `ui_<hostId>` like any selection. An
     // unknown id is dropped rather than seeded.
     val dash = titleDash("home", None).copy(
       surfaces = Map("det" -> Surface(LayoutNode.Component("col")))
@@ -849,9 +849,9 @@ class ServerRoutesSuite extends ServerHarness {
 
     val inner =
       Datastar
-        .patch("<i>e</i>", PatchMode.Inner, Some("#dashboard"))
+        .patch("<i>e</i>", PatchMode.Inner, Some("#root"))
         .render
-    assert(inner.contains("data: selector #dashboard"), clue = inner)
+    assert(inner.contains("data: selector #root"), clue = inner)
     assert(inner.contains("data: mode inner"), clue = inner)
   }
 

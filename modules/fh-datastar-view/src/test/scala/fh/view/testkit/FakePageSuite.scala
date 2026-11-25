@@ -17,7 +17,7 @@ class FakePageSuite extends munit.CatsEffectSuite {
     val onLoad = if (init.isEmpty) "" else s""" data-init="$init""""
     js().load(
       s"""<!doctype html><html><head><base href="/"></head><body$onLoad>
-         |<main id="dashboard">$body</main><div id="popups"></div></body></html>""".stripMargin,
+         |<div id="root"><main>$body</main><div id="popups"></div></div></body></html>""".stripMargin,
       "http://fake.test/d/s"
     )
 
@@ -102,10 +102,10 @@ class FakePageSuite extends munit.CatsEffectSuite {
   test("a link naming two history variables is one entry above the dashboard") {
     val p = js().load(
       s"""<!doctype html><html><head><base href="/"></head><body>
-         |<main id="dashboard"><div data-signals="{_var_c__a: '1', _var_c__b: '2', _var_c__w: '7d'}"
+         |<div id="root"><main><div data-signals="{_var_c__a: '1', _var_c__b: '2', _var_c__w: '7d'}"
          | data-fh-url:a__history="['v.c.a', $$_var_c__a, '']"
          | data-fh-url:b__history="['v.c.b', $$_var_c__b, '']"
-         | data-fh-url:w="['v.c.w', $$_var_c__w, '']"></div></main></body></html>""".stripMargin,
+         | data-fh-url:w="['v.c.w', $$_var_c__w, '']"></div></main></div></body></html>""".stripMargin,
       "http://fake.test/d/s?v.c.a=1&v.c.b=2&v.c.w=7d"
     )
     assertEquals(

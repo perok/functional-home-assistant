@@ -21,8 +21,8 @@ import scala.jdk.CollectionConverters.*
   * and never answered; its frames arrive through [[apply]]. Any other request
   * waits in [[requests]] for [[answer]].
   *
-  * [[view]] is what the oracle compares: `#dashboard` and the popup host as the
-  * page shows them, in canonical form.
+  * [[view]] is what the oracle compares: the page card's root as the page shows
+  * it, in canonical form.
   */
 final class FakePage private (context: Context, page: Value)
     extends AutoCloseable {
@@ -177,13 +177,16 @@ final class FakePage private (context: Context, page: Value)
       .flatMap(e => Option(e.parent))
       .map(_.children.asScala.toList.map(_.id))
 
-  /** `#dashboard`, then the popup host, in canonical form. A seed is left out,
-    * a morph not having to resend one whose values a signals frame moved; so
-    * are a `data-bind` control's `value` and `checked`, which its handlers own.
+  /** The page card's root (`#c` and the popup host on a fixture with none), in
+    * canonical form. A seed is left out, a morph not having to resend one whose
+    * values a signals frame moved; so are a `data-bind` control's `value` and
+    * `checked`, which its handlers own.
     */
   def view: String = {
     val d = doc
-    List("dashboard", "popups")
+    // The page card's root holds both; a fixture built in Scala roots at `c`.
+    (if d.getElementById("root") != null then List("root")
+     else List("c", "popups"))
       .flatMap(id => Option(d.getElementById(id)).map(id -> _))
       .map { (id, e) =>
         val c = e.clone()

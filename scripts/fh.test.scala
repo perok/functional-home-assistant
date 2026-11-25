@@ -139,7 +139,7 @@ object FhScriptSuite extends SimpleIOSuite:
       fh.siteSlugs(
         """{"dashboards":{"kitchen":{},"home":{}},"default":"home"}"""
       )
-    ) and expect.same(None, fh.siteSlugs("""{"cards":{},"card":{}}""")) and
+    ) and expect.same(None, fh.siteSlugs("""{"cards":{},"root":{}}""")) and
       expect.same(None, fh.siteSlugs("not json"))
   }
 

@@ -44,7 +44,7 @@ the seam.
   action POSTs, `publisherFor`) see a failed slug as absent, exactly as they
   see an unknown one. A connected SSE session is told to `reload` across both
   directions of a `Ready`⇄`Failed` transition — the error document has no
-  `#dashboard` to patch and no head to patch into, so a full reload is the
+  root to patch and no head to patch into, so a full reload is the
   only sound transition either way.
 - **Recovery is a dedicated Datastar stream, not a meta-refresh.** The error
   page's only script is the Datastar module; its `data-init` opens the

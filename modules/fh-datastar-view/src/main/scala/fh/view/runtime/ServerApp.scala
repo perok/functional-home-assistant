@@ -588,12 +588,9 @@ object ServerApp extends IOApp {
               )
           }
           .flatTap { prepared =>
-            prepared.built.traverse_ { case (slug, renderer) =>
-              renderer.warnings.traverse_(w => log.warn(s"'$slug': $w"))
-            } *>
-              prepared.failed.traverse_ { case (slug, message) =>
-                log.error(s"Dashboard '$slug' failed to build: $message")
-              }
+            prepared.failed.traverse_ { case (slug, message) =>
+              log.error(s"Dashboard '$slug' failed to build: $message")
+            }
           }
     }
   }

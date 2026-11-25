@@ -1042,7 +1042,6 @@ class PklBuildSuite extends munit.FunSuite {
     )
     assertEquals(dashboard.validate(), Nil)
     assert(dashboard.surfaces.nonEmpty, clue = dashboard.surfaces)
-    assertEquals(fh.view.runtime.Renderer.create(dashboard).warnings, Nil)
     assertEquals(dashboard.theme.tokens.get("primary-color"), Some("#03a9f4"))
     assert(dashboard.theme.tokensDark.nonEmpty)
     // The slider card's CSS makes its range input inert on touch and relies on
@@ -1053,7 +1052,7 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test(
-    "theme-beer.pkl emits the {tokens, tokensDark, stylesheets, styles, chrome} shape"
+    "theme-beer.pkl emits the {tokens, tokensDark, stylesheets, styles} shape, its chrome placing both holes"
   ) {
     // The probe re-exposes the theme so the assertions read a pinned shape,
     // independent of the lib module's other exports.
@@ -1064,16 +1063,20 @@ class PklBuildSuite extends munit.FunSuite {
       """module probe
         |import "lib/theme-beer.pkl" as themeMod
         |theme = themeMod.theme
+        |chrome = themeMod.theme.chrome
         |""".stripMargin
     )
     val result = SourceEval.eval(tmp, "probe.pkl")
     assert(result.isRight, clue = result)
-    val theme = result.toOption.get.value.hcursor.downField("theme")
+    val probe = result.toOption.get.value.hcursor
+    val theme = probe.downField("theme")
+    // The page card's template, off the wire.
+    assert(theme.downField("chrome").failed, clue = result)
     assert(
-      theme
+      probe
         .get[String]("chrome")
         .toOption
-        .exists(_.contains("id=\"dashboard\"")),
+        .exists(c => c.contains("{{{body}}}") && c.contains("{{{popups}}}")),
       clue = result
     )
     assertEquals(
@@ -1145,7 +1148,11 @@ class PklBuildSuite extends munit.FunSuite {
         |card = (c.column) { children { c.title("only this") } }
         |""".stripMargin
     )
-    assertEquals(dashboard.cards.keySet, Set("fhcol", "sectionTitle"))
+    // The page card and its popups group come with every page.
+    assertEquals(
+      dashboard.cards.keySet,
+      Set("page", "group_div__false", "fhcol", "sectionTitle")
+    )
     // The slider's structure CSS ships with a slider, not with every page.
     assert(
       !dashboard.cardCss.contains(".fh-slider-head{"),

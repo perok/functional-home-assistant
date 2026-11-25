@@ -389,9 +389,10 @@ instead.
   header cannot steer charts in a sibling column. A root declaration would, addressed through a
   reserved segment the server resolves to "this tree's root" (the root is `c` only until an author
   names it, and `s_<sid>__c` in a surface). Not built: composition covers the case that exists. It
-  is also the last step for selections: the popup host lives in `theme.chrome`, outside every
-  node, so only a root declaration lets it become a variable and retire `ui_popups`,
-  `Server.popupOf` and `Selections.popup`, the one selection a request still carries (ADR 0005).
+  is also the last step for selections: the popup host is the page card's `popups` node
+  (ADR 0002), so a declaration on the page's root `root` lets it become a variable and retire
+  `ui_popups`, `Server.popupOf` and `Selections.popup`, the one selection a request still
+  carries (ADR 0005).
 - **A global namespace**, if the root declaration ever reads badly, is Pkl sugar over it — never a
   second resolution rule.
 - **Naming the root's declaration from below a nearer one** (`root.popups`). Resolution is

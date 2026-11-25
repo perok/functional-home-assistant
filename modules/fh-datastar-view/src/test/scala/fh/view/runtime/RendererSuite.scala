@@ -5,6 +5,7 @@ import fh.view.testkit.Sets
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
+import fh.view.testkit.TestPage
 import fh.view.testkit.Conds
 import fh.view.testkit.{FixtureEntity, PklFixture}
 
@@ -480,11 +481,10 @@ class RendererSuite extends munit.FunSuite {
       )
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
-    // With no theme.chrome, renderPage falls back to the minimal `#dashboard`
-    // frame, with no popup host.
+    // With no page card, the root renders with no frame.
     assertEquals(
       page,
-      """<style id="fh-theme"></style><main class="container" id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div></div></div></main>"""
+      """<style id="fh-theme"></style><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div></div></div>"""
     )
     // A container is structure: addressable as an element for remove/insert,
     // but not rendered by id, since its bytes hold its children.
@@ -635,34 +635,35 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  test(
-    "renderPage executes the theme's chrome around renderBody, popup host included"
-  ) {
-    val d = Dashboard(
-      cards,
-      col(LayoutNode.Component("btn", Slots.values(Map("label" -> lit("Go"))))),
-      theme = Theme(chrome =
-        """<main id="dashboard">{{{body}}}</main><dialog id="popups"><div id="popups-body"></div></dialog>"""
-      )
+  test("the page card frames the body and the popup host in its template") {
+    val d = TestPage.around(
+      Dashboard(
+        cards,
+        col(
+          LayoutNode.Component("btn", Slots.values(Map("label" -> lit("Go"))))
+        )
+      ),
+      """<main class="frame">{{{body}}}</main><aside>{{{popups}}}</aside>"""
     )
     val page = Renderer.create(d).renderPage(Map.empty)
     assertEquals(
       page,
-      """<style id="fh-theme"></style><main id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><button>Go</button></div></div></div></main><dialog id="popups"><div id="popups-body"></div></dialog>"""
+      """<style id="fh-theme"></style><div class="" id="root"><main class="frame"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><button>Go</button></div></div></div></main><aside><div class="" id="popups"></div></aside></div>"""
     )
   }
 
-  test("renderPage bakes a restored popup into the chrome's popup hole") {
-    val d = Dashboard(
-      cards,
-      col(LayoutNode.Component("btn", Slots.values(Map("label" -> lit("Go"))))),
-      surfaces = Map(
-        "det" -> Surface(
-          LayoutNode.Component("btn", Slots.values(Map("label" -> lit("D"))))
+  test("renderPage bakes a restored popup into the page card's popup host") {
+    val d = TestPage.around(
+      Dashboard(
+        cards,
+        col(
+          LayoutNode.Component("btn", Slots.values(Map("label" -> lit("Go"))))
+        ),
+        surfaces = Map(
+          "det" -> Surface(
+            LayoutNode.Component("btn", Slots.values(Map("label" -> lit("D"))))
+          )
         )
-      ),
-      theme = Theme(chrome =
-        """<main id="dashboard">{{{body}}}</main><div id="popups">{{{popups}}}</div>"""
       )
     )
     val r = Renderer.create(d)
@@ -671,7 +672,7 @@ class RendererSuite extends munit.FunSuite {
     val baked = r.renderPage(Map.empty, popupOpen("det"))
     assert(
       baked.contains(
-        s"""<div id="popups">${r
+        s"""<div class="" id="popups">${r
             .renderSurfaceTraced(
               "det",
               Shared.of(Map.empty),
@@ -682,60 +683,12 @@ class RendererSuite extends munit.FunSuite {
       ),
       clue = baked
     )
-    assert(r.renderPage(Map.empty).contains("""<div id="popups"></div>"""))
+    assert(
+      r.renderPage(Map.empty).contains("""<div class="" id="popups"></div>""")
+    )
     assert(
       r.renderPage(Map.empty, Selections(r.surfaces.openPopup(Some("nope"))))
-        .contains("""<div id="popups"></div>""")
-    )
-  }
-
-  test("a popup surface with nowhere to host is a warning, not an error") {
-    // Both fail silently in the browser (a tap that does nothing, a dialog that
-    // pops in late), so build time is the only place to attribute them.
-    val popup = Map(
-      "det" -> Surface(
-        LayoutNode.Component("btn", Slots.values(Map("label" -> lit("D"))))
-      )
-    )
-    val body =
-      col(LayoutNode.Component("btn", Slots.values(Map("label" -> lit("Go")))))
-    def warningsOf(chrome: String): List[String] =
-      Renderer
-        .create(
-          Dashboard(
-            cards,
-            body,
-            surfaces = popup,
-            theme = Theme(chrome = chrome)
-          )
-        )
-        .warnings
-
-    // The fallback frame has no host either.
-    assert(clue(warningsOf("")).exists(_.contains("never be shown")))
-    assert(
-      clue(warningsOf("""<main id="dashboard">{{{body}}}</main>"""))
-        .exists(_.contains("det"))
-    )
-    // A host but no hole works, and flashes on a refresh.
-    assert(
-      clue(
-        warningsOf(
-          """<main id="dashboard">{{{body}}}</main><div id="popups"></div>"""
-        )
-      ).exists(_.contains("{{{popups}}}"))
-    )
-    assertEquals(
-      warningsOf(
-        """<main id="dashboard">{{{body}}}</main><div id="popups">{{{popups}}}</div>"""
-      ),
-      Nil
-    )
-    assertEquals(
-      Renderer
-        .create(Dashboard(cards, body, theme = Theme(chrome = "")))
-        .warnings,
-      Nil
+        .contains("""<div class="" id="popups"></div>""")
     )
   }
 
@@ -1028,9 +981,9 @@ class RendererSuite extends munit.FunSuite {
     )
     val page = Renderer.create(d).renderPage(Map.empty)
     assert(
-      // Outside #dashboard, so a body repaint need not re-send it (ADR 0011).
+      // Outside the root, so a repaint need not re-send it (ADR 0011).
       page.startsWith(
-        """<style id="fh-theme">:root{color-scheme:light dark;--accent-color:#000;--primary-color:#bada55;}.card{color:red}</style><main class="container" id="dashboard">"""
+        """<style id="fh-theme">:root{color-scheme:light dark;--accent-color:#000;--primary-color:#bada55;}.card{color:red}</style><div class="fh-cell" id="c">"""
       ),
       clue = page
     )
@@ -1109,8 +1062,8 @@ class RendererSuite extends munit.FunSuite {
   test(
     "renderSurface returns bare content — no per-surface chrome (Surface's final 5 fields)"
   ) {
-    // Surfaces are chrome-less: the frame a surface swaps into lives in
-    // theme.chrome or the tabs card's panel host.
+    // Surfaces are bare: the frame a surface swaps into is the page card's
+    // popup host or the tabs card's panel host.
     val d = Dashboard(
       cards,
       col(),
@@ -1367,7 +1320,7 @@ class RendererSuite extends munit.FunSuite {
       .decode[Dashboard](
         s"""{"cards":{"col":{"template":"<div>{{{children}}}</div>"},
            | "card":{"template":"<span>{{state}}</span>","slots":["state"]}},
-           | "card":{"kind":"Component","card":"col"$slotsField}}""".stripMargin
+           | "root":{"kind":"Component","card":"col"$slotsField}}""".stripMargin
       )
 
     val leaf =
@@ -1602,27 +1555,18 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(card("tab2").validate(), Nil)
   }
 
-  test(
-    "validate: a non-empty theme.chrome lacking id=\"dashboard\" is a hard error"
-  ) {
-    val bad = Dashboard(
-      cards,
-      col(),
-      theme = Theme(chrome = """<main>{{{body}}}</main>""")
-    )
-    assert(
-      bad.validate().exists(_.contains("theme.chrome must contain")),
-      clue = bad.validate()
-    )
-
-    val ok = Dashboard(
-      cards,
-      col(),
-      theme = Theme(chrome = """<main id="dashboard">{{{body}}}</main>""")
-    )
-    assertEquals(ok.validate(), Nil)
-
-    assertEquals(Dashboard(cards, col()).validate(), Nil)
+  test("validate: `root` and `popups` are the page card's ids alone") {
+    def named(id: String) =
+      LayoutNode.Component(
+        "btn",
+        Slots.values(Map("label" -> lit("x"))),
+        id = Some(id)
+      )
+    for id <- List("root", "popups") do
+      val errs = Dashboard(cards, col(col(named(id)))).validate()
+      assert(errs.exists(_.contains(s"node id '$id' is reserved")), clue = errs)
+    // Its own are not refused.
+    assertEquals(TestPage.around(Dashboard(cards, col())).validate(), Nil)
   }
 
   test(
@@ -1796,9 +1740,12 @@ class RendererSuite extends munit.FunSuite {
     // The host still renders, empty, so a branch matching later has its patch
     // target in the DOM. Through the document path: an If is structure, so
     // `renderNodeById` refuses it.
-    assertEquals(
-      r.renderBody(states),
-      """<div class="fh-cell fh-ifhost fh-cols-full" id="c"></div>"""
+    assert(
+      r.renderBody(states)
+        .contains(
+          """<main><div class="fh-cell fh-ifhost fh-cols-full" id="c"></div></main>"""
+        ),
+      clue = r.renderBody(states)
     )
     assertEquals(
       r.renderNodeById(

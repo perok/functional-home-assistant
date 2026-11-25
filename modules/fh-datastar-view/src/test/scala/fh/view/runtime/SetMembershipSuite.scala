@@ -352,15 +352,11 @@ class SetMembershipSuite extends ServerHarness {
     )
   )
 
-  // The chrome needs the popup hole, or the page never shows the popup and its
+  // The page card's popup host, or the page never shows the popup and its
   // session holds no list for the set.
   test("a set inside an open surface gets the same per-member treatment") {
     live(
-      surfaceDynDash.copy(theme =
-        surfaceDynDash.theme.copy(chrome =
-          """<main id="dashboard">{{{body}}}</main><div id="popups">{{{popups}}}</div>"""
-        )
-      ),
+      fh.view.testkit.TestPage.around(surfaceDynDash),
       Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
     ) { ts =>
       for {

@@ -23,8 +23,12 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
     */
   def initialValueSignal: String = s"${committedSignal}__initialValue"
 
-  /** The URL mirror, which survives a refresh. */
-  def urlParam: String = s"${VarKey.ParamPrefix}$declarer.$name"
+  /** The URL mirror, which survives a refresh: `v.<declarer>.<name>`, or
+    * `v.<name>` on the page root, unambiguous since a node id has no `.`.
+    */
+  def urlParam: String =
+    if declarer == Dashboard.PageRootId then s"${VarKey.ParamPrefix}$name"
+    else s"${VarKey.ParamPrefix}$declarer.$name"
 
   /** Empties the ask once the commit agrees. Comparing to the commit, rather
     * than clearing in the frame, keeps tap A's response from clearing tap B's
@@ -53,7 +57,8 @@ object VarKey:
   val ParamPrefix: String = "v."
   val SignalPrefix: String = "_var_"
 
-  /** `v.<declarer>.<name>`. Untrusted: the caller narrows it to declarations.
+  /** [[VarKey.urlParam]]'s spellings. Untrusted: the caller narrows it to
+    * declarations.
     */
   def fromParam(key: String): Option[VarKey] =
     Option
@@ -62,6 +67,8 @@ object VarKey:
         _.split('.').toList match {
           case node :: name :: Nil if node.nonEmpty && name.nonEmpty =>
             Some(VarKey(NodeId.derived(node), name))
+          case name :: Nil if name.nonEmpty =>
+            Some(VarKey(Dashboard.PageRootId, name))
           case _ => None
         }
       }

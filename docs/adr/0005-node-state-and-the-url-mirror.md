@@ -217,9 +217,11 @@ input, clamped at the boundary:
   ignoring a claim naming a surface this dashboard does not host, which is the
   popup's equivalent of a pick taking only the values its cases key.
 
-  It is not a node variable because no node can declare it: the popup host
-  lives in `theme.chrome`, outside every node, so the page shell declares and
-  mirrors it. ADR 0033's root declaration is what would let it become one.
+  It is not a node variable yet: the popup host is the page card's `popups`
+  node (ADR 0002), and the page shell declares and mirrors it until the page's
+  root `root` declares it. A variable declared there spells its parameter
+  `v.<name>`, which no `v.<declarer>.<name>` can be, since a node id has no `.`
+  (`VarKey.urlParam`).
 
   The signal is authoritative **whenever it is present, `""` included** — that is
   how a client says "I closed it" — and only its absence (the one signal-less

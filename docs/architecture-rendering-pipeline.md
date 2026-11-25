@@ -370,8 +370,8 @@ GET /sse/dashboard/:slug/patch
                cursor is not behind `told` — a client that never acknowledged
                what we announced has `holds` we cannot answer from
       repaint  if it does not      // claims what it painted, same as the document:
-                                   // the body AND the open popup, whose host is
-                                   // outside #dashboard (Patches.repaint),
+                                   // one morph of the root, the open popup
+                                   // baked into `popups` (Patches.repaint),
                                    // plus their signal values as a frame: a
                                    // seed whose text did not change is not
                                    // re-applied (ADR 0017)
@@ -1458,8 +1458,8 @@ Server.renderPage    fs2.io.readOutputStream(8 kB) -> the response body
   IO.blocking          BufferedWriter(8 kB)          -> collapses the CALLS
                          OutputStreamWriter(os, UTF-8) -> Sink.Streaming
     Server.pageInto      head + banners        -> the wire
-      Renderer.renderPageInto  chrome + body + restored dialog -> the wire
-                               (body and dialog are WRITER HOLES, not values)
+      Renderer.renderPageInto  the page card (chrome its template) -> the wire,
+                               the restored dialog walked into `popups`
                                own = per-node byte-slot values, off the paint
     Server.pageInto      scripts + closing tags -> the wire
   onFinalize(Succeeded)  session.holds.set(own)

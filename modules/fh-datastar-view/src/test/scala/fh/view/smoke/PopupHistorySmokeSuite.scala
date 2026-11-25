@@ -73,7 +73,7 @@ class PopupHistorySmokeSuite extends SmokeSuite {
     IO.blocking(
       page
         .evaluate(
-          s"() => !!document.elementFromPoint($x, $y)?.closest('#dashboard')"
+          s"() => !!document.elementFromPoint($x, $y)?.closest('main')"
         )
         .toString
         .toBoolean

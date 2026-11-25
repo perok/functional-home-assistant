@@ -729,10 +729,9 @@ private[runtime] object Patches {
         )
       )
 
-  /** The body and the open popup, and what they leave the session holding. The
-    * popup's host sits outside `#dashboard`: a repaint that stopped there left
-    * the dialog showing what it held before, until a pull happened to re-send
-    * its nodes.
+  /** The page, the open popup baked in as on a page load, and what it leaves
+    * the session holding. One morph: a popup sent after it would be emptied by
+    * it first, closing the dialog.
     */
   private[runtime] def repaint(
       renderer: Renderer,
@@ -740,13 +739,7 @@ private[runtime] object Patches {
       viewing: Viewing
   ): (List[SseFrame], Map[Ix, Held]) = {
     val body = renderer.renderBodyTraced(shared, viewing)
-    val popup = popupFill(
-      renderer,
-      viewing.selections.popup.flatMap(renderer.surfaces.popupSpelling),
-      shared,
-      viewing
-    )
-    val held = popup.foldLeft(body.claims)(applied(renderer.index, _, _))
+    val held = body.claims
     // The seeds alone are not enough: the morph re-applies a seed only when
     // its text changed, so on a page that missed frames (a forgotten session,
     // a restart) a value that moved and came back stayed where the frames
@@ -756,9 +749,8 @@ private[runtime] object Patches {
       .map((name, v) => name -> SlotValue.json(v))
       .toMap
     (
-      Datastar.patch(body.html, PatchMode.Inner, Some("#dashboard")) ::
-        popup.map(_.patch.toSse).toList ++
-        Option.when(values.nonEmpty)(Patch.Signals(values).toSse),
+      Datastar.patch(body.html, selector = Some(s"#${renderer.rootId}")) ::
+        Option.when(values.nonEmpty)(Patch.Signals(values).toSse).toList,
       held
     )
   }

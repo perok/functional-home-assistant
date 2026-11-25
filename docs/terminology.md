@@ -352,8 +352,8 @@ alike (ADR 0033).
 
 **Chrome** — two senses, and they are unrelated, so always say which:
 
-- **The dashboard's chrome** (`Theme.chrome`) — the frame template a dashboard's body is rendered
-  into, owning the `#dashboard` swap target and the popup host. Ours, and made of HTML.
+- **The dashboard's chrome** (`Theme.chrome`) — the frame: the page card's template, placing the
+  dashboard's card and the popup host. Ours, and made of HTML.
 - **The browser's chrome** (`ChromeColors`) — the UI the *device* paints around our page: the URL
   bar, an installed app's status bar and splash. Not ours, and made of one colour per scheme,
   which we can only ask for (`<meta name="theme-color">`, the manifest's themeable members).
@@ -424,6 +424,11 @@ another pick that flips, is in that placement instead. ADR 0007.
 
 **Node id** — a node's address, derived from its position in the tree (`c_2_0`). Not authored. ADR
 0022.
+
+**Page card** — the card a built dashboard's tree hangs from (`core/page.pkl`): the node `root`,
+its template the theme's **chrome**, its `body` slot the author's card (`c`) and its `popups`
+slot the popup host, the node `popups`. Library-written, so `root` and `popups` are not an
+author's ids. A repaint morphs it whole. ADR 0002.
 
 **Index** — what a renderer knows from the tree alone, built once when it is created: ids,
 parents, each node's fetching slots, which nodes an entity wakes, every member a candidate can be.

@@ -888,7 +888,7 @@ class LiveStreamSuite extends ServerHarness {
         opening <- client.drain
         _ = assertEquals(
           domEvents(opening).map { case (m, s, _) => (m, s) },
-          List(("inner", Some("#dashboard"))),
+          List(("outer", Some("#root"))),
           clue = opening
         )
         _ = assert(opening.exists(isCursor), clue = opening)

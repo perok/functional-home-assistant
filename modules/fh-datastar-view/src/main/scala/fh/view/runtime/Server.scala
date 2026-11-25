@@ -1098,8 +1098,8 @@ class Server(
   /** A step under a renderer other than the one `s.holds` was painted under
     * answers as a swap: a reload when the head's unpatchable part moved
     * ([[Renderer.headHash]], a morph leaves old stylesheets and scripts in
-    * place) or to or from the error page, which has no `#dashboard`; else the
-    * repaint. `None` when `holds` is this renderer's, or empty.
+    * place) or to or from the error page, which has no root; else the repaint.
+    * `None` when `holds` is this renderer's, or empty.
     */
   private def swapAnswer(
       live: Server.LiveSlug,

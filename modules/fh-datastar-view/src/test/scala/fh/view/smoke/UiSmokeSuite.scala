@@ -258,7 +258,7 @@ class UiSmokeSuite extends SmokeSuite {
         // tab selection is restored.
         _ <- IO.blocking(page.reload())
         _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
-        // Baked into the chrome's popup hole, so there is no
+        // Baked into the page card's popup host, so there is no
         // dialog-a-moment-later flash.
         html <- ts.page("?ui.popups=detail")
       } yield assert(html.contains("Kitchen Detail"), clue = html)

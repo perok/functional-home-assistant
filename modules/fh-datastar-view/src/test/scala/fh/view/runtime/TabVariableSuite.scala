@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.{Ix, LayoutNode, NodeId}
+import fh.view.model.{Ix, NodeId}
 import fh.view.testkit.FixtureEntity
 import fh.view.testkit.DashboardBuilders.declared
 import fh.view.testkit.PklFixture
@@ -30,8 +30,7 @@ class TabVariableSuite extends ServerHarness {
       |""".stripMargin
   )
 
-  private val bar = dash.card match
-    case c: LayoutNode.Component => c
+  private val bar = PklFixture.body(dash)
 
   private def served[A](f: TestServer => IO[A]): IO[A] =
     TestServer
@@ -170,14 +169,15 @@ class TabVariableSuite extends ServerHarness {
   }
 
   test("a bar's variable must be declared at the bar, at a value a tab takes") {
-    val undeclared = dash.copy(card = bar.copy(vars = Nil))
+    val undeclared = PklFixture.withBody(dash, bar.copy(vars = Nil))
     assert(
       undeclared
         .validate()
         .exists(_.contains("which no ancestor declares")),
       clue = undeclared.validate()
     )
-    val outside = dash.copy(card = bar.copy(vars = declared("tab" -> "2")))
+    val outside =
+      PklFixture.withBody(dash, bar.copy(vars = declared("tab" -> "2")))
     assert(
       outside
         .validate()

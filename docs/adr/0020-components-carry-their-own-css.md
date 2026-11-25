@@ -179,7 +179,8 @@ to import.
 
 **Every `Theme` property has a working default**, so a theme states only what it
 changes and `new Theme {}` is a complete one: the shared HA tokens, no framework,
-and a frame holding exactly the `#dashboard` and `#popups` hosts. That is what
+and a frame placing exactly the page card's two holes, `{{{body}}}` and
+`{{{popups}}}` (ADR 0002). That is what
 makes "the core kit renders under any theme" checkable rather than aspirational
 (`PklBuildSuite`, "a bare `new Theme {}`").
 

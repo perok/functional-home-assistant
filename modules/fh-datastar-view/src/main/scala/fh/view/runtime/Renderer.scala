@@ -196,7 +196,7 @@ class Renderer(validated: Dashboard.Validated) {
 
   private val mainIndex = new Index(dashboard.card)
 
-  /** The head's unpatchable part — linked stylesheets, scripts, `chrome` — so a
+  /** The head's unpatchable part — linked stylesheets and scripts — so a
     * mismatch reloads the page (ADR 0011); the patchable rest is [[styleHash]].
     * Not the whole dashboard: a body edit would reload for nothing. Stable
     * across restarts, so an add-on restart does not refresh every browser —
@@ -208,8 +208,6 @@ class Renderer(validated: Dashboard.Validated) {
     * element patches, not a reload.
     */
   val styleHash: String = Renderer.styleFingerprint(dashboard)
-
-  val warnings: List[String] = dashboard.warnings
 
   /** `reactive: false` slot values by `(entityId, transform)`: they read only
     * identity, so they never change for this renderer's life. A racing fill
@@ -821,9 +819,9 @@ class Renderer(validated: Dashboard.Validated) {
   def title: Option[String] = dashboard.title
 
   /** Tokens, then `dashboard.css`, card css, theme styles: document order is
-    * the cascade (ADR 0020). Outside `#dashboard` because it is most of a
-    * repaint's bytes (7.7 of 9.6 KB on a small demo); it is patched by id only
-    * when [[styleHash]] moves.
+    * the cascade (ADR 0020). Outside the root because it is most of a repaint's
+    * bytes (7.7 of 9.6 KB on a small demo); it is patched by id only when
+    * [[styleHash]] moves.
     */
   val themeStyleTag: String = {
     val theme = dashboard.theme
@@ -852,15 +850,20 @@ class Renderer(validated: Dashboard.Validated) {
     )
   }
 
-  private val chromeTemplate: Mustache = {
-    val chrome =
-      if (dashboard.theme.chrome.nonEmpty) dashboard.theme.chrome
-      else """<main class="container" id="dashboard">{{{body}}}</main>"""
-    Templates.compile("chrome", chrome)
-  }
+  /** The page card's `popups` group, where the open popup is baked into a page
+    * load and a repaint; -1 on a tree with no page card.
+    */
+  private val popupsHost: Int =
+    dashboard.index
+      .ixsOf(NodeId.derived(Dashboard.PopupHostId.toString))
+      .find(ix => dashboard.index.parent(ix).contains(Ix(0)))
+      .fold(-1)(_.toInt)
 
-  /** What a repaint `inner`-patches into `#dashboard`, with the per-node trace
-    * of everything baked into it.
+  /** The tree's root, `root` on a built dashboard: what a repaint morphs. */
+  private[runtime] val rootId: NodeId = dashboard.index.id(Ix(0))
+
+  /** What a repaint morphs over the root, with the per-node trace of everything
+    * baked into it.
     */
   private[runtime] def renderBodyTraced(
       shared: Shared,
@@ -873,8 +876,8 @@ class Renderer(validated: Dashboard.Validated) {
       4096
 
   /** The document path: the page walked straight into `out`, returning the
-    * per-node trace. A restored popup is baked into the chrome's `popups` hole,
-    * so a refresh does not paint the dialog late.
+    * per-node trace. A restored popup is baked into `popups`, so a refresh does
+    * not paint the dialog late.
     */
   private[runtime] def renderPageInto(
       out: Sink,
@@ -901,39 +904,14 @@ class Renderer(validated: Dashboard.Validated) {
       viewing: Viewing
   ): Trace = {
     val own = new Trace
-    // Writer holes, not Strings: building them first cost a full copy of the
-    // document each (128 kB of a page open's ~3.8 MB).
-    val root = dashboard.card
-    val bodyInto: java.io.Writer => Unit = _ =>
-      tracedInto(out, root, shared, viewing, own)
-    val dialogInto: Option[java.io.Writer => Unit] =
-      viewing.selections.popup.flatMap(sid =>
-        surfaceWalk(out, sid, shared, viewing, own)
-      )
-    // Not mustache's `execute(ctx)`, whose `StringWriter` grows from 16 chars
-    // and copies the page twice more.
     val _ = out.append(themeStyleTag)
-    val scope = new Renderer.PageScope(
-      Map("body" -> bodyInto) ++ dialogInto.map("popups" -> _)
-    )
-    Templates.run(chromeTemplate, out, scope)
+    tracedInto(out, dashboard.card, shared, viewing, own)
     own
   }
 
-  /** [[renderSurfaceTraced]] as a writer hole into the page's buffer. */
-  private def surfaceWalk(
-      out: Sink,
-      surfaceId: String,
-      shared: Shared,
-      viewing: Viewing,
-      trace: Trace
-  ): Option[java.io.Writer => Unit] =
-    // The writer is ignored: mustache's writer is `out`.
-    dashboard.surfaces.get(surfaceId).map { sfc => (_: java.io.Writer) =>
-      tracedInto(out, sfc.content, shared, viewing, trace)
-    }
-
-  /** Bare content: the host and any frame live in `theme.chrome`. */
+  /** Bare content: the host is the page card's `popups` group, and any frame
+    * the popup card's.
+    */
   private[runtime] def renderSurfaceTraced(
       surfaceId: String,
       shared: Shared,
@@ -1368,6 +1346,14 @@ class Renderer(validated: Dashboard.Validated) {
           def hole(slot: String)(fill: => Unit) =
             Map(slot -> { (_: java.io.Writer) => fill })
           val holes: Map[String, java.io.Writer => Unit] = c.content match
+            // Until popups are a variable (R5.3), the only fill not on the
+            // node: what this viewer has open.
+            case Ready.Content.Fixed(_) if c.ix.toInt == popupsHost =>
+              hole(LayoutNode.DefaultRegion) {
+                viewing.selections.popup
+                  .flatMap(dashboard.surfaces.get)
+                  .foreach(s => child(s.content))
+              }
             case Ready.Content.Fixed(r) =>
               r.map((region, nodes) =>
                 region -> { (_: java.io.Writer) => nodes.foreach(child) }
@@ -2132,13 +2118,6 @@ object Renderer {
     def fhGet(name: String): AnyRef = values.getOrElse(name, null)
   }
 
-  /** The chrome's scope: no names, only the body and dialog holes. */
-  private final class PageScope(holes: Map[String, java.io.Writer => Unit])
-      extends Templates.FhScope {
-    def fhGet(name: String): AnyRef = null
-    override def writerHoles: Map[String, java.io.Writer => Unit] = holes
-  }
-
   /** For tests and benchmarks: a dashboard the build would refuse throws. */
   def create(dashboard: Dashboard): Renderer =
     dashboard.validated() match
@@ -2160,7 +2139,6 @@ object Renderer {
         dashboard.theme.scripts,
         dashboard.theme.inlineScripts,
         dashboard.cardScripts,
-        dashboard.theme.chrome,
         dashboard.theme.offlineBanners,
         // The one token-derived head part a style patch cannot repair.
         themeColorTags(dashboard)

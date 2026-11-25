@@ -50,10 +50,10 @@ private[runtime] object RendererTestOps {
 
   extension (r: Renderer) {
 
-    /** Without the page shell and without the theme: what a repaint or navigate
-      * `inner`-patches into `#dashboard`. `vars` are the viewer's values, the
-      * declared ones unless given: they decide a pick over a variable and what
-      * a node reading one outside a pick shows.
+    /** Without the page shell and without the theme: the root a repaint morphs.
+      * `vars` are the viewer's values, the declared ones unless given: they
+      * decide a pick over a variable and what a node reading one outside a pick
+      * shows.
       */
     def renderBody(
         states: Map[String, EntityState],
@@ -107,9 +107,9 @@ private[runtime] object RendererTestOps {
         Shared.of(states).viewing(vars),
         Viewing(selections, FetchSnapshot.empty)
       )
-      // The whole page is never a patch target — a repaint replaces
-      // `#dashboard` wholesale — so it has no second form of its own. Its
-      // NODES do, and those are in `own`.
+      // The whole page is never a patch target — a repaint morphs the root
+      // wholesale — so it has no second form of its own. Its NODES do, and
+      // those are in `own`.
       r.Traced(
         out.result,
         r.index.roots.head,

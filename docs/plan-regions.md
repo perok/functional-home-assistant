@@ -23,7 +23,7 @@ it as `Activation.Var`.
 **State:** direction agreed in chat (2026-11-10); the prework is on main (below); R1 is built
 (`slot-classes`), R2 is built (`set-fill`), R3 is built (`choices-in-pkl`), R4a and R4b are built
 (`one-runtime-path`), R4c is built (`root-hosts`), R4d's D0–D5 are built (`the-planner`), D6
-not; R5's design is agreed (2026-11-24), not built. The opening describes the shape before R1.
+not; R5's design is agreed (2026-11-24), R5.0–R5.2 are built. The opening describes the shape before R1.
 
 ## What this builds on
 
@@ -373,8 +373,8 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
 The rule: Scala renders markup Pkl wrote and fills only values it owns. What is left is the set's
 root (§5, `Renderer.groupOpen`). What stays in Scala, as the contract: the page shell, the root
 `<div data-signals…>` with its seeds, the toast and reload handlers, and the error page; the
-default `<main id="dashboard">` chrome becomes the page card's template in R5. The back-button handler becomes the shell's one popstate
-post of the query string (§7).
+frame is the page card's template (R5.2). The back-button handler becomes the shell's one
+popstate post of the query string (§7).
 
 ## Steps
 
@@ -932,11 +932,21 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      own entries (`fhPushed: true`) and stripping every history parameter from a foreign entry
      in one push a microtask later; `VarHistorySuite`, `FakePageSuite`'s two history cases, ADR
      0005. No bench: nothing on a render, pull or validate path moved.
-   - **R5.2, the page card.** `core/page.pkl` with `body` and `popups`, the theme's `chrome` its
-     template, `entry.pkl` building the page node `root`, `root` and `popups` reserved, `v.<name>`
-     for a variable the root declares, a repaint aimed at `root`, the chrome check moved to Pkl,
-     and Scala's default frame gone. The `popups` slot holds an empty group with the id `popups`,
-     which today's popup swap still fills. ADRs 0002, 0020.
+   - **R5.2, the page card.** BUILT. `core/page.pkl` with `body` (the author's card, given the
+     id `c` unless it names one) and `popups` (an empty `groupMod.inner` with the id `popups`,
+     which today's popup swap still fills), the theme's `chrome` its template and off the wire
+     (`hidden`), `entry.pkl` building the page node `root` as the wire's `root` (the author's
+     `card` hidden; Scala's `Dashboard.card` decodes from it). Pkl refuses a frame missing a hole
+     or writing `id="root"`/`id="popups"`; `validate` refuses `root` and `popups` as an author's
+     ids; `VarKey` spells `v.<name>` on the root. Scala's frame (`chromeTemplate`, the default
+     `<main id="dashboard">`, the chrome check, the popup-host warnings) is gone. A page load and
+     a repaint are one walk of the root, the open popup baked into `popups`
+     (`Renderer.popupsHost`, until R5.3); a repaint is one outer morph, `selector #root`, where it
+     was an inner `#dashboard` patch plus a popup frame. Tests: `page.test.pkl`, `TestPage` for a
+     Scala fixture that needs the host, the reserved-id case. Bench (EA off, B/op): render
+     benches equal (`viewerPage` 159,584 → 159,192); `validated` +1.9% (taps 4,075,560 →
+     4,152,872, cards 4,085,540 → 4,168,446), the page card's two nodes. ADRs 0002, 0005,
+     0011, 0018, 0020, 0033, terminology (the page card), the pipeline doc.
    - **R5.3, popups as a variable.** `components/popup.pkl`: `popups` on the root, required ids
      (`c.view.popup`, the library's derived ones), the hidden node and its collection into the
      match, a close as a clear, a popup starting with the root's scope (`NodeVariablesSuite`'s "a
