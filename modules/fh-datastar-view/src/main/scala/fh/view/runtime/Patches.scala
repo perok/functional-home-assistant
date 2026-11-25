@@ -205,13 +205,19 @@ private[runtime] object Patches {
       // len(i): longest increasing run ending at i. prev(i): its predecessor.
       val len = Array.fill(n)(1)
       val prev = Array.fill(n)(-1)
-      for {
-        i <- 1 until n
-        j <- 0 until i
-        if positions(j) < positions(i) && len(j) + 1 > len(i)
-      } {
-        len(i) = len(j) + 1
-        prev(i) = j
+      // Loops, not a guarded `for`: its closure per step was over a third of
+      // a reorder's plan (RenderBench.publishSetOrderedFanout).
+      var i = 1
+      while (i < n) {
+        var j = 0
+        while (j < i) {
+          if (positions(j) < positions(i) && len(j) + 1 > len(i)) {
+            len(i) = len(j) + 1
+            prev(i) = j
+          }
+          j += 1
+        }
+        i += 1
       }
       Iterator
         .iterate((0 until n).maxBy(len))(prev(_))
@@ -750,10 +756,11 @@ private[runtime] object Patches {
         showing(holds, host)(_.flatMap(placedIn(_, shown, before)))
       case Patch.Leave(host, key) =>
         val keys = index.ixsOf(key)
-        showing(
-          holds.filterNot((ix, _) => keys.exists(index.contains(_, ix))),
-          host
-        )(_.map(_.filterNot(ix => keys.contains(ix))))
+        // A member's range, not a scan of every hold: a reorder sends one
+        // leave per moved member.
+        showing(holds -- keys.iterator.flatMap(index.subtree), host)(
+          _.map(_.filterNot(ix => keys.contains(ix)))
+        )
       case _ => holds
     // Merged per node: a morph says nothing about signals and a signal frame
     // nothing about bytes ([[Held.merge]]).

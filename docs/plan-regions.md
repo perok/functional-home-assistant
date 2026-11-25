@@ -898,6 +898,27 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        (`resumeMorphs*` +2.3%/+3.7%, accepted 2026-11-22; the allocation profile's method is
        in D3's bench line), and R5.3's `publishManyPopups` +4.5% (the closed popups' nodes now
        cases of one match). Each step keeps its own bench gate.
+       - **Profiled** 2026-11-25 on 13174750 (branch `d6-benches`): the base and the
+         allocation profiles are in `.agent/d6/`. New: `publishSetOrderedFanout` (the ordered
+         set's record, then its pull for ten sessions that fold what they were sent, as
+         `Server` does) and `HoldsSize` (JOL): one session's `holds` after its first paint,
+         200 leaves, ~76 KB. The pull benches had seeded `holds` from `Traced.painted`, which
+         drops the hosts' lists, so a set's first change planned a whole fill; they seed from
+         `claims` now, as `Server` does. D2b's `page` +1.7% no longer shows (`Trace.held` is
+         absent from `page`'s profile).
+       - **Agreed order** (2026-11-25), each fix judged by whether it keeps the code plain —
+         one that needs contorted code is discussed, not built: A a reorder's pull, G the
+         member binding, D `shownUpTo`, C `FragmentLog.touched`, B the byte buffers, F
+         `signalFrame`, E the planner (`owe`, `planHost`), H `validated` with shared cards
+         last.
+       - **A, a reorder's pull.** BUILT. Sharing a fill between sessions was the first idea
+         and is dropped: the fills were the stale seed's, and structure is never cached
+         (`RenderCache`). What a reorder of 20 among 200 costs a session is folding its leaves
+         (each scanned every hold) and `longestRun`'s closures: a leave removes its keys'
+         subtrees (`TreeIndex.subtree`), the run is loops. `publishSetOrderedFanout` 7.46 →
+         4.78 MB/op (−36%), `popupClose` 15,320 → 5,536 (−64%), `viewerPull` −2.5%, the rest
+         equal. Left: each leave and place copies the host's list, boxing; worth it only for
+         sets far larger than a room's.
        Then `validated`, measured 2026-11-21 on the starter (EA off): 1.65 MB/op, 39% the
        Mustache compile of the cards, 39% validate, 16% `Ready.Compile`, the index 1.3%. R2's
        +6% is its three group nodes walked, not the group card's template; R5 added +7% on

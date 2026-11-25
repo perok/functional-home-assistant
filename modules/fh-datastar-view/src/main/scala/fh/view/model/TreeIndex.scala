@@ -75,6 +75,10 @@ final class TreeIndex private (entries: Vector[TreeIndex.Entry]) {
   def contains(outer: Ix, inner: Ix): Boolean =
     outer.toInt <= inner.toInt && inner.toInt < entries(outer.toInt).end
 
+  /** `outer` and every node [[contains]] puts below it. */
+  def subtree(outer: Ix): Iterator[Ix] =
+    Iterator.range(outer.toInt, entries(outer.toInt).end).map(Ix(_))
+
   /** Its set's clauses by candidate, each candidate's in clause order. */
   def clauses(ix: Ix): Map[String, List[Ix]] =
     children(ix)
