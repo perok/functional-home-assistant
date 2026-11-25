@@ -2,6 +2,7 @@ package fh.view.runtime
 
 import fh.view.model.{Dashboard, Ix, NodeId, Ready, TreeIndex}
 
+import scala.annotation.tailrec
 import scala.collection.immutable.BitSet
 
 /** Selection and visibility, beside [[MemberGraph]]; `Renderer` paints what
@@ -189,28 +190,34 @@ private[runtime] final class PickGraph(
     * viewer's [[chosen]].
     */
   private def shownUpTo(
-      c: Int,
+      from: Int,
       stop: BitSet,
       open: BitSet,
       shared: Shared,
       cut: Set[NodeId]
-  ): Boolean =
-    if (stop.nonEmpty && stop(c)) true
-    else if (c == pageRoot.toInt) stop.isEmpty
-    else {
-      val gid = caseGid(c)
-      val here =
-        if (gid == null) open(c)
-        else
-          !cut(gid) && groupShown(gid, shared) &&
-          (if (isStatePick(gid))
-             decideByState(gid, shared).contains(caseIdx(c))
-           else open(c))
-      here && {
-        val up = above(c)
-        if (up < 0) stop.isEmpty else shownUpTo(up, stop, open, shared, cut)
+  ): Boolean = {
+    // Once a walk, not once a step: a `BitSet`'s emptiness test allocates,
+    // and `contains` rather than `apply`, which boxes.
+    val bounded = stop.nonEmpty
+    @tailrec def shown(c: Int): Boolean =
+      if (bounded && stop.contains(c)) true
+      else if (c == pageRoot.toInt) !bounded
+      else {
+        val gid = caseGid(c)
+        val here =
+          if (gid == null) open.contains(c)
+          else
+            !cut(gid) && groupShown(gid, shared) &&
+            (if (isStatePick(gid))
+               decideByState(gid, shared).contains(caseIdx(c))
+             else open.contains(c))
+        here && {
+          val up = above(c)
+          if (up < 0) !bounded else shown(up)
+        }
       }
-    }
+    shown(from)
+  }
 
   /** The containers shown from `spelled` down, it included, as `shared` has
     * them.
@@ -315,12 +322,14 @@ private[runtime] final class PickGraph(
     * only while the member is present and in that clause.
     */
   def groupShown(gid: NodeId, shared: Shared): Boolean =
-    clauseOf(gid).forall { k =>
-      members
-        .memberOwning(hostOf(gid))
-        .flatMap(members.memberAt(_, shared))
-        .exists(_.clause == k)
-    }
+    clauseOf(gid) match
+      // Most picks are in no member: no closure for them.
+      case None    => true
+      case Some(k) =>
+        members
+          .memberOwning(hostOf(gid))
+          .flatMap(members.memberAt(_, shared))
+          .exists(_.clause == k)
 
   /** Found from the changed entities, not by walking every pick: at 200 members
     * with an If each, the walk evaluated 200 conditions a frame. A pick counts

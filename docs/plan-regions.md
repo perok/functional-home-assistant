@@ -923,6 +923,10 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          on the order, so a decision's `Presence` carries the binding and a reorder keeps its
          predecessor's (a limit cuts by order, so a limited set builds its own).
          `publishSetOrdered` 274,752 → 120,464 B/op (−56%), the other set benches equal.
+       - **D, `shownUpTo`.** BUILT. Most of it was `BitSet.isEmpty`, which allocates, asked at
+         every step of the walk to the root, and `BitSet.apply`, which boxes: once a walk now,
+         and `contains`. `publishManyPopups` 21,984 → 21,184 B/op (R5.3's +4.5% is +0.7%),
+         `viewerPull` −4.3%, `resumeMorphsFanout` −2.8%, `resumeMorphs` −1.3%, the rest equal.
        Then `validated`, measured 2026-11-21 on the starter (EA off): 1.65 MB/op, 39% the
        Mustache compile of the cards, 39% validate, 16% `Ready.Compile`, the index 1.3%. R2's
        +6% is its three group nodes walked, not the group card's template; R5 added +7% on
