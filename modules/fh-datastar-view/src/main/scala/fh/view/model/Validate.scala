@@ -9,6 +9,10 @@ private[model] object Validate:
 
   private val PopupsVar = "popups"
 
+  // A node's slots in label order, so messages read the same on every build.
+  // Built once per node: every slot check reads it.
+  private type Labelled = List[(SlotKey, String, BoundSlot)]
+
   def errors(
       d: Dashboard,
       locateTransform: String => Option[String],
@@ -98,10 +102,10 @@ private[model] object Validate:
     def slotErrors(
         nodeId: String,
         cardName: String,
-        slots: Map[SlotKey, BoundSlot],
+        slots: Labelled,
         scope: Dashboard.Declared
     ): List[String] =
-      labelled(slots).flatMap { case (key, name, src) =>
+      slots.flatMap { case (key, name, src) =>
         val stepErrors =
           // A fetch slot's steps are `fetchErrors`' to check.
           if (src.fetch.isDefined) Nil
@@ -381,7 +385,11 @@ private[model] object Validate:
       */
     // Bound to every slot that reads one, so "read by no slot" is the
     // binding's absence.
-    def valueErrors(nodeId: String, c: LayoutNode.Component): List[String] =
+    def valueErrors(
+        nodeId: String,
+        c: LayoutNode.Component,
+        bound: Labelled
+    ): List[String] =
       val read = c.bound.values.flatMap(_.inputs.keySet).toSet
       c.inputs.keys.toList.sorted.flatMap { name =>
         if (!Dashboard.InputName.matches(name))
@@ -409,7 +417,7 @@ private[model] object Validate:
             List(_)
           )
       } ++ (
-        labelled(c.bound).map((_, n, s) =>
+        bound.map((_, n, s) =>
           (s"slot '$n'", s.expr, ValueExpr.env(c.inputs))
         ) ++ c.inputs.toList
           .sortBy(_._1)
@@ -445,7 +453,7 @@ private[model] object Validate:
             }
           }
         }
-      } ++ labelled(c.bound).map((_, n, s) => (n, s)).collect {
+      } ++ bound.map((_, n, s) => (n, s)).collect {
         // The once-cache keys by what a value IS, not by what it counts now.
         case (slot, src)
             if src.reads == Reads.Once && src.allInputs.exists(_.isLive) =>
@@ -463,7 +471,7 @@ private[model] object Validate:
           s"$nodeId: slot '${Dashboard.SubjectSlot}' must be a literal — it " +
             "names the entity the card's other slots read, which is a " +
             "build-time fact"
-      } ++ labelled(c.bound).flatMap((_, n, s) =>
+      } ++ bound.flatMap((_, n, s) =>
         s.expr.unnamedComparison(s"$nodeId: slot '$n'", s.typed)
       )
 
@@ -478,11 +486,11 @@ private[model] object Validate:
     def slotVarErrors(
         nodeId: String,
         cardName: String,
-        slots: Map[SlotKey, BoundSlot],
+        slots: Labelled,
         scope: Dashboard.Declared
     ): List[String] =
       val structural = cards.get(cardName).exists(_.isStructure)
-      labelled(slots).flatMap { (_, name, s) =>
+      slots.flatMap { (_, name, s) =>
         val read = s.variables.sorted
         val where = read.map(v => s"'$v'").mkString(", ")
         read
@@ -510,9 +518,9 @@ private[model] object Validate:
 
     def valueWhileErrors(
         nodeId: String,
-        slots: Map[SlotKey, BoundSlot]
+        slots: Labelled
     ): List[String] =
-      labelled(slots).flatMap { (_, name, src) =>
+      slots.flatMap { (_, name, src) =>
         src.valueWhile.toList.flatMap { w =>
           Option
             .when(src.reads == Reads.Once)(
@@ -529,7 +537,7 @@ private[model] object Validate:
 
     def typeErrors(
         nodeId: String,
-        slots: Map[SlotKey, BoundSlot]
+        slots: Labelled
     ): List[String] =
       // An attribute is `dyn` to CEL, but read bare it is text or a number far
       // more often than a bool.
@@ -544,7 +552,7 @@ private[model] object Validate:
         case o if o == ValueType.Series =>
           "give it a stage: json then jsonText, or a chart"
         case _ => "make it text, `str(…)` or `string(…)`"
-      labelled(slots).flatMap { case (_, name, src) =>
+      slots.flatMap { case (_, name, src) =>
         src.typed match
           case Left(ValueExpr.Mistyped(err, Some(t))) =>
             val at = locateTransform(t).fold("")(loc => s" (at $loc)")
@@ -572,7 +580,7 @@ private[model] object Validate:
                   s"${src.`type`.wire} slot does not take — ${hint(t.out, src.`type`)}"
             )
           case _ => Nil
-      } ++ labelled(slots).collect {
+      } ++ slots.collect {
         case (_, name, src)
             if src.signal.exists(_.isInstanceOf[SignalBind.Class]) &&
               !src.isBool =>
@@ -817,10 +825,7 @@ private[model] object Validate:
           )
           .toList
 
-    // In label order, for messages that read the same on every build.
-    def labelled(
-        slots: Map[SlotKey, BoundSlot]
-    ): List[(SlotKey, String, BoundSlot)] =
+    def labelled(slots: Map[SlotKey, BoundSlot]): Labelled =
       slots.toList.map((k, s) => (k, SlotKey.label(k), s)).sortBy(_._2)
 
     def walk(ix: Ix, scope: Dashboard.Declared): List[String] =
@@ -839,8 +844,11 @@ private[model] object Validate:
             .toList
           val here = scope ++ c.defaults
           // Each `valueWhile` is checked as the slot it is, under its own name.
-          val checked = c.bound ++ c.bound.flatMap((k, s) =>
-            s.valueWhile.map((SlotKey.label(k) + ".valueWhile": SlotKey) -> _)
+          val bound = labelled(c.bound)
+          val checked = labelled(
+            c.bound ++ c.bound.flatMap((k, s) =>
+              s.valueWhile.map((SlotKey.label(k) + ".valueWhile": SlotKey) -> _)
+            )
           )
           templateErrors(
             nodeId,
@@ -852,9 +860,9 @@ private[model] object Validate:
             choiceErrors(nodeId, c, here) ++
             slotErrors(nodeId, card, checked, here) ++
             varErrors(nodeId, vars) ++
-            slotVarErrors(nodeId, card, c.bound, here) ++
-            valueErrors(nodeId, c) ++
-            valueWhileErrors(nodeId, c.bound) ++
+            slotVarErrors(nodeId, card, bound, here) ++
+            valueErrors(nodeId, c, bound) ++
+            valueWhileErrors(nodeId, bound) ++
             typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++
             layoutErrors ++ childErrors(ix, here) ++ setErrors(ix, c, scope)
