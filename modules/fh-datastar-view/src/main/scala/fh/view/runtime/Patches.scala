@@ -395,10 +395,11 @@ private[runtime] object Patches {
     val fromOpen = coverage match
       case Coverage.Logged => Iterator.empty
       case Coverage.Swept  =>
-        open.iterator
+        // The page's own container is no pick's case, so not in `open`.
+        (Iterator.single(index.root) ++ open.iterator
           .map(Ix(_))
           // `open` includes a tab panel inside a hidden `If`.
-          .filter(renderer.picks.visibleContainer(_, open, shared))
+          .filter(renderer.picks.visibleContainer(_, open, shared)))
           .flatMap(renderer.containerNodeIds)
     // Only what this client can see; the rest would cost only bytes.
     // A logged place of another clause is not what this viewer is shown; an

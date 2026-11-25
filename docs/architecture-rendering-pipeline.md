@@ -646,7 +646,8 @@ arrives itself. So the log names everything a watched viewer is owed, and a
 node it misses is a recorder bug. Sweeping the screen on every pull would hide that bug and was
 ~86% of `RenderBench.viewerPull`'s allocation; without it a miss shows, and `OracleSuite` is what
 looks. Only a reconnect sweeps (`Coverage.Swept`): its screen may be one no frame was recorded
-against.
+against. The sweep is every node of the page's own container and of each case the viewer's
+values show; the page's container is no pick's case, so `PickGraph.chosen` does not hold it.
 
 A client's cursor gets `>=` where a session's `position` gets `+ 1`, and the difference is who is
 claiming: a client can hold version V having seen only part of it, where a position is what this

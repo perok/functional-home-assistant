@@ -355,6 +355,20 @@ class OracleSuite extends HedgehogSuite {
       case failure        => throw AssertionError(failure.toString)
   }
 
+  /** A page forgotten while the other viewer is on `b`, where the hall is not
+    * shown: its going unavailable is logged for nobody, so the reconnect's
+    * sweep is all that can send it. The sweep took only the chosen cases and
+    * missed the page's own container, the set's host in it.
+    */
+  test("viewer-decisions: a reconnect sweeps the page's own container") {
+    val e = FixtureEntries.viewerDecisions
+    val steps =
+      List(Step.Forget, Step.Connect(0), Step.Press(0, 1), Step.Change(2, 2))
+    run(build(e), e, steps) match
+      case Result.Success => ()
+      case failure        => throw AssertionError(failure.toString)
+  }
+
   for (e <- entries) {
     lazy val d = build(e)
     lazy val watched =

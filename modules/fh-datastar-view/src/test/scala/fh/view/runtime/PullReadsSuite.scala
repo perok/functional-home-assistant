@@ -87,9 +87,14 @@ class PullReadsSuite extends munit.FunSuite {
     choosing(renderer, "charted", "tab", "0")
 
   /** The entities of every read the pull asked for, for a viewer whose values
-    * are `env`: none chosen unless given.
+    * are `env`: none chosen unless given. A live pull's unless `coverage` says
+    * a reconnect's.
     */
-  private def asked(log: FragmentLog, env: VarEnv = Map.empty) = {
+  private def asked(
+      log: FragmentLog,
+      env: VarEnv = Map.empty,
+      coverage: Patches.Coverage = Patches.Coverage.Logged
+  ) = {
     val snapshot = FetchSnapshot.of(
       renderer
         .fetchesForPage(
@@ -111,7 +116,8 @@ class PullReadsSuite extends munit.FunSuite {
         noDecisionFetches,
         reads => seen.update(_ ++ reads).as(snapshot),
         env,
-        0L
+        0L,
+        coverage
       )
       reads <- seen.get
     } yield reads.map { case SlotRead(FetchRequest.History(e, _), _) =>
@@ -133,16 +139,18 @@ class PullReadsSuite extends munit.FunSuite {
     )
   }
 
-  test("an open tab's chart is asked on every pull, and only that one") {
-    // A pull re-checks every node of a shown case, and a chart's key holds
-    // its read's version — so the tab's chart is asked even when only a light
-    // moved, and the body's is not.
+  test(
+    "a reconnect asks for every chart on its screen, the body's and the tab's"
+  ) {
+    // A reconnect re-checks every node it shows, and a chart's key holds its
+    // read's version, so both are asked though only a light moved.
     assertEquals(
       asked(
         FragmentLog("test").touched(renderer.ixOf("plain"), 1L),
-        env = onTab
+        env = onTab,
+        coverage = Patches.Coverage.Swept
       ),
-      Set("sensor.tab")
+      Set("sensor.main", "sensor.tab")
     )
   }
 }
