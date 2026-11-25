@@ -12,6 +12,9 @@ or ADR, not here. The section below is the exception: how to measure, learned th
   new is allocated (#657: `publishIdle` +640 B and `pageSetPlain` +14 KB were this).
 - Pass JFR as `-jvmArgsAppend -XX:StartFlightRecording=settings=…,filename=…`, not
   `-prof jfr:a;b`: sbt reads the `;` as a command separator and drops the benchmark filter.
+  The same trap takes the async profiler's options; quoted inside the sbt command they survive:
+  `sbt 'benchmarks/Jmh/run -prof "async:libPath=…;event=alloc;output=collapsed;dir=…" …'`.
+  Its alloc profile also counts a `Level.Invocation` setup (`ValidateBench`'s decode, ~24%).
 
 Recorded elsewhere:
 
@@ -407,3 +410,32 @@ mostly map building.
 
 **Worth asking again if** many sessions per slug becomes the normal case (a wall of tablets on
 one dashboard), or a profile of a real tick shows `signalFrame` above the render itself.
+
+## A compiled card shared across dashboards and reloads
+
+Each `Dashboard.validated` compiles every card it uses (`Templates.card`: mustache.java's compile,
+then what the template reads off its tree, `readCodes` and `inExpression`). Nothing is shared
+between two dashboards on the same theme, or with the serving dashboard on a reload. Is a cache
+of compiled cards worth it?
+
+**How.** `ValidateBench.validated` with allocation profiles (async-profiler, escape analysis
+off), D6's H on fc2b3e67; the four checked-in snapshots compared card by card.
+
+**Numbers.** The card compile is 43% of `validated` on the starter (1.71 MB/op, ~1.3 ms), 34%
+on `branches`, 17% on `taps`: ~0.5 ms a dashboard against seconds of Pkl evaluation on a Pi.
+A card of the same name has the same template in every snapshot (`page` has two), so the four
+compile 43 cards where 25 are distinct.
+
+**Verdict.** Not built. The render phase would not move: a compiled template is already run by
+every session of a slug at once, and the renderer only looks one up by name. The cost is who
+owns the cache. `factory.compile(Reader, name)` caches nothing (only `compile(name)` does), so
+today a template is freed with its renderer; a global map would keep every template an edit
+ever produced, a weakly held one frees at GC time behind everyone's back, and the plain shape,
+`validated` taking the cards it may reuse and a reload seeding them from the serving renderers,
+needs that map threaded through `Site.decode`, `DashboardBuild.decode` and `DumpRefresh`. A
+reload no longer validates a dashboard that decodes equal to what it serves
+(`DashboardBuild.decode`'s `live`), which took the case where sharing would have saved the most.
+
+**Worth asking again if** a site of many dashboards on one theme is the normal case and a reload
+or a dump refresh that changes every one of them shows up in a Pi's heap or reload time, or the
+retained size of the compiled cards (unmeasured; a JOL count like `HoldsSize`) turns out large.

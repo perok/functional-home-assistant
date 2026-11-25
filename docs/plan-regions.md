@@ -939,17 +939,16 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          position map and run for hosts whose held list is already the decided one: those
          return no steps at once. `viewerPull` 207,092 → 184,332 B/op (−11%), the rest equal.
          `chosen` derived twice a pull (~9%) is in `docs/experiments.md`.
-       Then `validated`, measured 2026-11-21 on the starter (EA off): 1.65 MB/op, 39% the
-       Mustache compile of the cards, 39% validate, 16% `Ready.Compile`, the index 1.3%. R2's
-       +6% is its three group nodes walked, not the group card's template; R5 added +7% on
-       `cards` (R5.2's page card +1.9%, R5.3's collection of every more-info onto the page +5%),
-       while `taps` fell 13% with the hoist. Build: one
-       `Validate.labelled` per node, not ~8 (~7%), and an allocation-free
-       `Templates.View.parse` (~8%). Explore: sharing a compiled card across dashboards and
-       reloads. Each `validated` compiles each card once, but nothing is shared between two
-       dashboards or across a reload or dump refresh (up to ~39%). Judge it by what it does to
-       the render phase and whether compiled templates are still freed with their renderer, not
-       by validate's own time.
+       - **H, `validated`.** BUILT. Profiled again on fc2b3e67 (the starter, of `validated`
+         alone): the card compile 43%, `Validate.errors` 36%, `Ready.Compile` 21%. R2's +6% is
+         its three group nodes walked, not the group card's template. `labelled` is built once
+         per node, and `View.parse` matches the view in place, without a second substring or
+         the map lookup's closures: B/op taps 3,534,306 → 3,328,178 (−5.8%), readings −6.4%,
+         branches −5.3%, starter 1,706,195 → 1,596,831 (−6.4%). Sharing a compiled card across
+         dashboards and reloads is not built (`docs/experiments.md`): the render phase would
+         not move, and a template is freed with its renderer only while nothing else owns it.
+         What was built instead: a reload validates only a slug that decodes unlike what it
+         serves (`LiveSite.serving`), since `planSite` already dropped the unchanged ones.
      - Docs in each step's commit. Folded in where cheap: the ADRs' "state surface" wording.
 5. **R5, popups on the pick.** The design is §7's "Popups" (agreed 2026-11-24). Each step is green,
    has its bench gate against the step before, and carries its docs.
