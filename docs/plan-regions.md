@@ -931,6 +931,11 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          shim's whole-page buffer (`RendererTestOps.renderPageTraced`), and `Server` streams a
          page (`pageWalkStream`). On the live path a buffer is at most 2.4% (`viewerPull`),
          the node's bytes the render cache keeps.
+       - **E, the planner.** BUILT. A pull is nearly all per session (its `holds`, its open
+         cases); only `log.since` could be shared, ~1.6%. The cost was `planHost` building its
+         position map and run for hosts whose held list is already the decided one: those
+         return no steps at once. `viewerPull` 207,092 → 184,332 B/op (−11%), the rest equal.
+         `chosen` derived twice a pull (~9%) is in `docs/experiments.md`.
        Then `validated`, measured 2026-11-21 on the starter (EA off): 1.65 MB/op, 39% the
        Mustache compile of the cards, 39% validate, 16% `Ready.Compile`, the index 1.3%. R2's
        +6% is its three group nodes walked, not the group card's template; R5 added +7% on

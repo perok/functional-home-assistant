@@ -239,7 +239,10 @@ private[runtime] object Patches {
   ): List[HostStep] = held match
     case None                         => List(HostStep.Fill(decided))
     case Some(was) if decided.isEmpty => was.toList.map(HostStep.Leave(_))
-    case Some(was)                    =>
+    // Most hosts on a pull, where the search below builds its maps to say so.
+    case Some(was) if was.sameElements(decided) && !decided.exists(again) =>
+      Nil
+    case Some(was) =>
       val heldAt = was.indices.map(i => was(i) -> i).toMap
       val keepable = decided.toList.filter(k => heldAt.contains(k) && !again(k))
       if keepable.isEmpty then List(HostStep.Fill(decided))
