@@ -98,13 +98,18 @@ class VarHistorySuite extends munit.CatsEffectSuite {
         assertEquals(state.vars, Map(pick -> "y"))
         assert(frames.contains("shown a"), frames)
         assert(frames.contains(s""""${tab.committedSignal}":"a""""), frames)
-        assert(frames.contains(s""""${window.committedSignal}":"24h""""), frames)
+        assert(
+          frames.contains(s""""${window.committedSignal}":"24h""""),
+          frames
+        )
         assert(!frames.contains(pick.committedSignal), frames)
       }
     )
   }
 
-  test("a value no reader takes is dropped, and an entry that moves nothing sends nothing") {
+  test(
+    "a value no reader takes is dropped, and an entry that moves nothing sends nothing"
+  ) {
     served(ts =>
       for {
         v <- ts.viewer()
