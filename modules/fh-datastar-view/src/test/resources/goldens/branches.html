@@ -1,10 +1,11 @@
 <!-- ==== as fixtured · body ==== -->
-<div class="" id="root"><main>
+<div class="" id="root"
+  data-fh-url:popups__history="['v.popups', $_var_root__popups, '']"><main>
 <div class="fh-cell fh-col" id="c">
 <div class="fh-cell fh-col fh-cols-full" id="c_0"
   data-fh-url:tab="['v.c_0.tab', $_var_c_0__tab, '0']"><div class="fh-tabs"><a class=" fh-chosen" id="c_0_0"
   data-class:fh-chosen="String(($_var_c_0__tab__pending || $_var_c_0__tab)) === '0'"
-  data-on:click="$_c_0_0__busy ? '' : $_var_c_0__tab__pending = '0'; @post('sse/call/branches/call_1?node=c_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_0__busy ? '' : $_var_c_0__tab__pending = '0'; @post('sse/call/branches/call_1?node=c_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_0__error = ''))"
   data-fh-node="c_0_0"
@@ -16,7 +17,7 @@
   data-on-signal-patch__delay.300ms="$_c_0_0__busy_slow = $_c_0_0__busy"
   data-class:fh-busy-after="$_c_0_0__busy_slow">Light</a><a class="" id="c_0_1"
   data-class:fh-chosen="String(($_var_c_0__tab__pending || $_var_c_0__tab)) === '1'"
-  data-on:click="$_c_0_1__busy ? '' : $_var_c_0__tab__pending = '1'; @post('sse/call/branches/call_2?node=c_0_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_1__busy ? '' : $_var_c_0__tab__pending = '1'; @post('sse/call/branches/call_2?node=c_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1__error = ''))"
   data-fh-node="c_0_1"
@@ -42,7 +43,7 @@
   data-attr:aria-busy="$_c_0_panel_0_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on" checked data-bind="_c_0_panel_0_0_0__checked"
-  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_panel_0_0_0__error$/}"
   data-on-signal-patch="$_c_0_panel_0_0_0__error && ($_c_0_panel_0_0_0__checked = $_e.light.kitchen.t#2)"
@@ -67,7 +68,7 @@
   data-attr:aria-busy="$_c_1_branch_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on" checked data-bind="_c_1_branch_0_0__checked"
-  data-on:click="$_c_1_branch_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_1_branch_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_1_branch_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_1_branch_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_1_branch_0_0__error$/}"
   data-on-signal-patch="$_c_1_branch_0_0__error && ($_c_1_branch_0_0__checked = $_e.light.kitchen.t#2)"
@@ -80,7 +81,7 @@
   data-fh-url:view="['v.c_2.view', $_var_c_2__view, 'simple']">
 <div class="fh-cell fh-tabs fh-select" id="c_2_bar_0"><a class=" fh-chosen" id="c_2_bar_0_0"
   data-class:fh-chosen="String(($_var_c_2__view__pending || $_var_c_2__view)) === 'simple'"
-  data-on:click="$_c_2_bar_0_0__busy ? '' : $_var_c_2__view__pending = 'simple'; @post('sse/call/branches/call_4?node=c_2_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_2_bar_0_0__busy ? '' : $_var_c_2__view__pending = 'simple'; @post('sse/call/branches/call_4?node=c_2_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_2_bar_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_2_bar_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_2_bar_0_0__error = ''))"
   data-fh-node="c_2_bar_0_0"
@@ -92,7 +93,7 @@
   data-on-signal-patch__delay.300ms="$_c_2_bar_0_0__busy_slow = $_c_2_bar_0_0__busy"
   data-class:fh-busy-after="$_c_2_bar_0_0__busy_slow">simple</a><a class="" id="c_2_bar_0_1"
   data-class:fh-chosen="String(($_var_c_2__view__pending || $_var_c_2__view)) === 'detail'"
-  data-on:click="$_c_2_bar_0_1__busy ? '' : $_var_c_2__view__pending = 'detail'; @post('sse/call/branches/call_5?node=c_2_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_2_bar_0_1__busy ? '' : $_var_c_2__view__pending = 'detail'; @post('sse/call/branches/call_5?node=c_2_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_2_bar_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_2_bar_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_2_bar_0_1__error = ''))"
   data-fh-node="c_2_bar_0_1"
@@ -122,7 +123,7 @@
   data-attr:aria-busy="$_c_0_panel_0_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on" checked data-bind="_c_0_panel_0_0_0__checked"
-  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_panel_0_0_0__error$/}"
   data-on-signal-patch="$_c_0_panel_0_0_0__error && ($_c_0_panel_0_0_0__checked = $_e.light.kitchen.t#2)"
@@ -149,7 +150,7 @@
   data-attr:aria-busy="$_c_1_branch_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on" checked data-bind="_c_1_branch_0_0__checked"
-  data-on:click="$_c_1_branch_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_1_branch_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_1_branch_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_1_branch_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_1_branch_0_0__error$/}"
   data-on-signal-patch="$_c_1_branch_0_0__error && ($_c_1_branch_0_0__checked = $_e.light.kitchen.t#2)"
@@ -167,7 +168,7 @@
 <!-- ==== as fixtured · patch c_0_0 ==== -->
 <a class="" id="c_0_0"
   data-class:fh-chosen="String(($_var_c_0__tab__pending || $_var_c_0__tab)) === '0'"
-  data-on:click="$_c_0_0__busy ? '' : $_var_c_0__tab__pending = '0'; @post('sse/call/branches/call_1?node=c_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_0__busy ? '' : $_var_c_0__tab__pending = '0'; @post('sse/call/branches/call_1?node=c_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_0__error = ''))"
   data-fh-node="c_0_0"
@@ -181,7 +182,7 @@
 <!-- ==== as fixtured · patch c_0_1 ==== -->
 <a class="" id="c_0_1"
   data-class:fh-chosen="String(($_var_c_0__tab__pending || $_var_c_0__tab)) === '1'"
-  data-on:click="$_c_0_1__busy ? '' : $_var_c_0__tab__pending = '1'; @post('sse/call/branches/call_2?node=c_0_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_1__busy ? '' : $_var_c_0__tab__pending = '1'; @post('sse/call/branches/call_2?node=c_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1__error = ''))"
   data-fh-node="c_0_1"
@@ -206,7 +207,7 @@
   data-attr:aria-busy="$_c_0_panel_0_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_0_panel_0_0_0__checked"
-  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_panel_0_0_0__error$/}"
   data-on-signal-patch="$_c_0_panel_0_0_0__error && ($_c_0_panel_0_0_0__checked = $_e.light.kitchen.t#2)"
@@ -231,7 +232,7 @@
   data-attr:aria-busy="$_c_1_branch_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_1_branch_0_0__checked"
-  data-on:click="$_c_1_branch_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_1_branch_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_1_branch_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_1_branch_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_1_branch_0_0__error$/}"
   data-on-signal-patch="$_c_1_branch_0_0__error && ($_c_1_branch_0_0__checked = $_e.light.kitchen.t#2)"
@@ -249,7 +250,7 @@
 <!-- ==== as fixtured · patch c_2_bar_0_0 ==== -->
 <a class="" id="c_2_bar_0_0"
   data-class:fh-chosen="String(($_var_c_2__view__pending || $_var_c_2__view)) === 'simple'"
-  data-on:click="$_c_2_bar_0_0__busy ? '' : $_var_c_2__view__pending = 'simple'; @post('sse/call/branches/call_4?node=c_2_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_2_bar_0_0__busy ? '' : $_var_c_2__view__pending = 'simple'; @post('sse/call/branches/call_4?node=c_2_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_2_bar_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_2_bar_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_2_bar_0_0__error = ''))"
   data-fh-node="c_2_bar_0_0"
@@ -263,7 +264,7 @@
 <!-- ==== as fixtured · patch c_2_bar_0_1 ==== -->
 <a class="" id="c_2_bar_0_1"
   data-class:fh-chosen="String(($_var_c_2__view__pending || $_var_c_2__view)) === 'detail'"
-  data-on:click="$_c_2_bar_0_1__busy ? '' : $_var_c_2__view__pending = 'detail'; @post('sse/call/branches/call_5?node=c_2_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_2_bar_0_1__busy ? '' : $_var_c_2__view__pending = 'detail'; @post('sse/call/branches/call_5?node=c_2_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_2_bar_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_2_bar_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_2_bar_0_1__error = ''))"
   data-fh-node="c_2_bar_0_1"
@@ -275,12 +276,13 @@
   data-on-signal-patch__delay.300ms="$_c_2_bar_0_1__busy_slow = $_c_2_bar_0_1__busy"
   data-class:fh-busy-after="$_c_2_bar_0_1__busy_slow">detail</a>
 <!-- ==== flipped · body ==== -->
-<div class="" id="root"><main>
+<div class="" id="root"
+  data-fh-url:popups__history="['v.popups', $_var_root__popups, '']"><main>
 <div class="fh-cell fh-col" id="c">
 <div class="fh-cell fh-col fh-cols-full" id="c_0"
   data-fh-url:tab="['v.c_0.tab', $_var_c_0__tab, '0']"><div class="fh-tabs"><a class=" fh-chosen" id="c_0_0"
   data-class:fh-chosen="String(($_var_c_0__tab__pending || $_var_c_0__tab)) === '0'"
-  data-on:click="$_c_0_0__busy ? '' : $_var_c_0__tab__pending = '0'; @post('sse/call/branches/call_1?node=c_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_0__busy ? '' : $_var_c_0__tab__pending = '0'; @post('sse/call/branches/call_1?node=c_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_0__error = ''))"
   data-fh-node="c_0_0"
@@ -292,7 +294,7 @@
   data-on-signal-patch__delay.300ms="$_c_0_0__busy_slow = $_c_0_0__busy"
   data-class:fh-busy-after="$_c_0_0__busy_slow">Light</a><a class="" id="c_0_1"
   data-class:fh-chosen="String(($_var_c_0__tab__pending || $_var_c_0__tab)) === '1'"
-  data-on:click="$_c_0_1__busy ? '' : $_var_c_0__tab__pending = '1'; @post('sse/call/branches/call_2?node=c_0_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_1__busy ? '' : $_var_c_0__tab__pending = '1'; @post('sse/call/branches/call_2?node=c_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1__error = ''))"
   data-fh-node="c_0_1"
@@ -318,7 +320,7 @@
   data-attr:aria-busy="$_c_0_panel_0_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_0_panel_0_0_0__checked"
-  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_panel_0_0_0__error$/}"
   data-on-signal-patch="$_c_0_panel_0_0_0__error && ($_c_0_panel_0_0_0__checked = $_e.light.kitchen.t#2)"
@@ -333,7 +335,7 @@
   data-fh-url:view="['v.c_2.view', $_var_c_2__view, 'simple']">
 <div class="fh-cell fh-tabs fh-select" id="c_2_bar_0"><a class=" fh-chosen" id="c_2_bar_0_0"
   data-class:fh-chosen="String(($_var_c_2__view__pending || $_var_c_2__view)) === 'simple'"
-  data-on:click="$_c_2_bar_0_0__busy ? '' : $_var_c_2__view__pending = 'simple'; @post('sse/call/branches/call_4?node=c_2_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_2_bar_0_0__busy ? '' : $_var_c_2__view__pending = 'simple'; @post('sse/call/branches/call_4?node=c_2_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_2_bar_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_2_bar_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_2_bar_0_0__error = ''))"
   data-fh-node="c_2_bar_0_0"
@@ -345,7 +347,7 @@
   data-on-signal-patch__delay.300ms="$_c_2_bar_0_0__busy_slow = $_c_2_bar_0_0__busy"
   data-class:fh-busy-after="$_c_2_bar_0_0__busy_slow">simple</a><a class="" id="c_2_bar_0_1"
   data-class:fh-chosen="String(($_var_c_2__view__pending || $_var_c_2__view)) === 'detail'"
-  data-on:click="$_c_2_bar_0_1__busy ? '' : $_var_c_2__view__pending = 'detail'; @post('sse/call/branches/call_5?node=c_2_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_2_bar_0_1__busy ? '' : $_var_c_2__view__pending = 'detail'; @post('sse/call/branches/call_5?node=c_2_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_2_bar_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_2_bar_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_2_bar_0_1__error = ''))"
   data-fh-node="c_2_bar_0_1"
@@ -375,7 +377,7 @@
   data-attr:aria-busy="$_c_0_panel_0_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_0_panel_0_0_0__checked"
-  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_panel_0_0_0__error$/}"
   data-on-signal-patch="$_c_0_panel_0_0_0__error && ($_c_0_panel_0_0_0__checked = $_e.light.kitchen.t#2)"
@@ -401,7 +403,7 @@
   data-attr:aria-busy="$_c_1_branch_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_1_branch_0_0__checked"
-  data-on:click="$_c_1_branch_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_1_branch_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_1_branch_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_1_branch_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_1_branch_0_0__error$/}"
   data-on-signal-patch="$_c_1_branch_0_0__error && ($_c_1_branch_0_0__checked = $_e.light.kitchen.t#2)"
@@ -424,12 +426,13 @@
 <!-- ==== flipped · patch c_2_bar_0_0: as fixtured ==== -->
 <!-- ==== flipped · patch c_2_bar_0_1: as fixtured ==== -->
 <!-- ==== unavailable · body ==== -->
-<div class="" id="root"><main>
+<div class="" id="root"
+  data-fh-url:popups__history="['v.popups', $_var_root__popups, '']"><main>
 <div class="fh-cell fh-col" id="c">
 <div class="fh-cell fh-col fh-cols-full" id="c_0"
   data-fh-url:tab="['v.c_0.tab', $_var_c_0__tab, '0']"><div class="fh-tabs"><a class=" fh-chosen" id="c_0_0"
   data-class:fh-chosen="String(($_var_c_0__tab__pending || $_var_c_0__tab)) === '0'"
-  data-on:click="$_c_0_0__busy ? '' : $_var_c_0__tab__pending = '0'; @post('sse/call/branches/call_1?node=c_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_0__busy ? '' : $_var_c_0__tab__pending = '0'; @post('sse/call/branches/call_1?node=c_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_0__error = ''))"
   data-fh-node="c_0_0"
@@ -441,7 +444,7 @@
   data-on-signal-patch__delay.300ms="$_c_0_0__busy_slow = $_c_0_0__busy"
   data-class:fh-busy-after="$_c_0_0__busy_slow">Light</a><a class="" id="c_0_1"
   data-class:fh-chosen="String(($_var_c_0__tab__pending || $_var_c_0__tab)) === '1'"
-  data-on:click="$_c_0_1__busy ? '' : $_var_c_0__tab__pending = '1'; @post('sse/call/branches/call_2?node=c_0_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_1__busy ? '' : $_var_c_0__tab__pending = '1'; @post('sse/call/branches/call_2?node=c_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1__error = ''))"
   data-fh-node="c_0_1"
@@ -467,7 +470,7 @@
   data-attr:aria-busy="$_c_0_panel_0_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_0_panel_0_0_0__checked"
-  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
+  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_panel_0_0_0__error$/}"
   data-on-signal-patch="$_c_0_panel_0_0_0__error && ($_c_0_panel_0_0_0__checked = $_e.light.kitchen.t#2)"
   data-indicator="_c_0_panel_0_0_0__busy"
@@ -481,7 +484,7 @@
   data-fh-url:view="['v.c_2.view', $_var_c_2__view, 'simple']">
 <div class="fh-cell fh-tabs fh-select" id="c_2_bar_0"><a class=" fh-chosen" id="c_2_bar_0_0"
   data-class:fh-chosen="String(($_var_c_2__view__pending || $_var_c_2__view)) === 'simple'"
-  data-on:click="$_c_2_bar_0_0__busy ? '' : $_var_c_2__view__pending = 'simple'; @post('sse/call/branches/call_4?node=c_2_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_2_bar_0_0__busy ? '' : $_var_c_2__view__pending = 'simple'; @post('sse/call/branches/call_4?node=c_2_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_2_bar_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_2_bar_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_2_bar_0_0__error = ''))"
   data-fh-node="c_2_bar_0_0"
@@ -493,7 +496,7 @@
   data-on-signal-patch__delay.300ms="$_c_2_bar_0_0__busy_slow = $_c_2_bar_0_0__busy"
   data-class:fh-busy-after="$_c_2_bar_0_0__busy_slow">simple</a><a class="" id="c_2_bar_0_1"
   data-class:fh-chosen="String(($_var_c_2__view__pending || $_var_c_2__view)) === 'detail'"
-  data-on:click="$_c_2_bar_0_1__busy ? '' : $_var_c_2__view__pending = 'detail'; @post('sse/call/branches/call_5?node=c_2_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_2_bar_0_1__busy ? '' : $_var_c_2__view__pending = 'detail'; @post('sse/call/branches/call_5?node=c_2_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_2_bar_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_2_bar_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_2_bar_0_1__error = ''))"
   data-fh-node="c_2_bar_0_1"
@@ -523,7 +526,7 @@
   data-attr:aria-busy="$_c_0_panel_0_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_0_panel_0_0_0__checked"
-  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
+  data-on:click="$_c_0_panel_0_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_0_panel_0_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_0_panel_0_0_0__error$/}"
   data-on-signal-patch="$_c_0_panel_0_0_0__error && ($_c_0_panel_0_0_0__checked = $_e.light.kitchen.t#2)"
   data-indicator="_c_0_panel_0_0_0__busy"
@@ -548,7 +551,7 @@
   data-attr:aria-busy="$_c_1_branch_0_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></span>
   <label class="fh-switch">
     <input type="checkbox" value="on"  data-bind="_c_1_branch_0_0__checked"
-  data-on:click="$_c_1_branch_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_1_branch_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
+  data-on:click="$_c_1_branch_0_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/branches/call_3?node=c_1_branch_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
   data-on-signal-patch-filter="{include:/^_c_1_branch_0_0__error$/}"
   data-on-signal-patch="$_c_1_branch_0_0__error && ($_c_1_branch_0_0__checked = $_e.light.kitchen.t#2)"
   data-indicator="_c_1_branch_0_0__busy"

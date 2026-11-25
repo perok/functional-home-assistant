@@ -29,7 +29,7 @@ import { attribute, effect } from "./vendor/datastar/datastar.js"
  *
  * `replaceState`: this is view state, not navigation. Back should leave the
  * dashboard, not step back through tab clicks. The exception is `__history`,
- * which the open popup's mirror and a variable declared `.inHistory()` carry:
+ * which a variable declared `.inHistory()` carries, the page's `popups` among them:
  * each value is a history entry, so Back steps to the previous one and then to
  * the dashboard; the shell posts the URL Back moved to, and the server shows
  * what it names. A value the URL already names is not pushed, because Back or

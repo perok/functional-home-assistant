@@ -55,7 +55,7 @@ open class Switch extends nodeMod.ActiveNode {
   /// ([[restoreSwitch]]).
   hidden on: slotMod.Reading
   hidden tapAction: tapMod.TapAction = throw(buttonMod.noAction("c.switch"))
-  inlineSurfaces = tapAction.inlineSurfaces
+  carries = tapAction.carries
   /// The `<i>`'s whole class, a literal or a reading, as `Tile.glyph`.
   hidden glyph: (String|slotMod.Reading)? = null
   /// See `Button.subject`.

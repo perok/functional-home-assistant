@@ -52,18 +52,14 @@ class VarSourceSuite extends munit.FunSuite {
       id = Some("panel")
     )
 
-  private def dash(
-      root: LayoutNode,
-      surfaces: Map[String, Surface] = Map.empty
-  ) =
-    Dashboard(cards = cards, card = root, surfaces = surfaces)
+  private def dash(root: LayoutNode) = Dashboard(cards = cards, card = root)
 
   private val key = VarKey(NodeId.derived("panel"), "window")
 
   private def body(r: Renderer, chosen: Map[VarKey, String]) =
     r.renderBodyTraced(
       Shared.of(Map.empty),
-      Viewing(Selections.none, FetchSnapshot.of(Map.empty, r.vars.env(chosen)))
+      Viewing(FetchSnapshot.of(Map.empty, r.vars.env(chosen)))
     ).html
 
   test("a value slot shows the declared value, then the viewer's") {
@@ -90,7 +86,6 @@ class VarSourceSuite extends munit.FunSuite {
   test("a write reaches the slot reading it, and takes any value") {
     val r = Renderer.create(dash(panel(plain(window))))
     val reader = LayoutNode.childId(
-      "",
       NodeId.derived("panel"),
       LayoutNode.Step(LayoutNode.DefaultRegion, 0),
       plain(window)
@@ -120,7 +115,6 @@ class VarSourceSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
     val id = LayoutNode.childId(
-      "",
       NodeId.derived("panel"),
       LayoutNode.Step(LayoutNode.DefaultRegion, 0),
       lit
@@ -133,7 +127,7 @@ class VarSourceSuite extends munit.FunSuite {
       r.renderNodeById(
         id,
         Shared.of(Map.empty),
-        Viewing(Selections.none, seven)
+        Viewing(seven)
       )
     assert(patched.exists(p => classAttr.findFirstIn(p).isEmpty), patched)
     assert(patched.exists(_.contains(bind)), patched)

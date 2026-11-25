@@ -211,7 +211,7 @@ descendant host has selected — and whichever a shared structure recorded would
 somebody.
 
 **A node whose own html differs between viewers needs no special treatment.** Since the
-session renders what it is owed, it renders for its own viewer (its popup, and its values through `Shared.viewing`) and records what it sent
+session renders what it is owed, it renders for its own viewer (its values, the open popup among them, through `Shared.viewing`) and records what it sent
 in its own `holds` — no variant key, no second entry, nothing shared to disagree about.
 The rule that makes it safe is statement (1): a node's own rendering contains no region's
 contents, its own or a child's.
@@ -244,7 +244,7 @@ permanent. A DOCUMENT's cursor is the exception and needs `> V`: the page was
 rendered from one snapshot, so it has all of V by construction, and `>= V` would
 hand it back everything it already contains. The two are told apart by where the
 cursor came from — a `_cursor` signal means a reconnect, plain query params a first
-load. Not by whether any signal came: the shell seeds `conn` and the open popup, which
+load. Not by whether any signal came: the shell seeds `conn` and every variable's committed value, which
 every first connect carries, and `_cursor` is first set by the opening frame, so a store
 holding it is a page this server has already streamed to (`Server.isReconnect`).
 
@@ -282,10 +282,10 @@ runtime is how long a session lingers after its stream ends — and that decides
 reconnect is, never what is correct.
 
 **A slug nobody is watching records nothing**, which is the other half of the same
-question. The recorder reads what each session shows (`Sessions.watching`): its popups under
+question. The recorder reads what each session shows (`Sessions.watching`): its screen under
 its values, and under each value set revealed since its last step, so a write that has chosen
 a tab and not yet published it is already recorded for. The unit of a frame's visibility is one
-such viewer, never a union, since a chain of surfaces is one client's. With no session
+such viewer, never a union, since a chain of picked cases is one client's. With no session
 it writes one number (`completeFrom`) and drops the history that number makes
 unreachable. A client returning across such a stretch is answered by `reaches` — false,
 so it repaints. That gate is safe only because a document registers its session BEFORE
@@ -314,7 +314,7 @@ always a repaint, however long the log would otherwise have been kept.
 **Why 2 minutes and not 10.** The tempting read is that a longer window is nearly free and
 saves repaints. It is not free, and the reason is that the cost and the benefit are the
 same mechanism: a lingering session keeps its slug RECORDING (it is in the set
-`recordFrame` reads), and its popups and values widen what each frame records. That retention is
+`recordFrame` reads), and its values widen what each frame records. That retention is
 exactly what makes the cheap return possible — you cannot keep the window and drop the
 cost, and a version that stopped recording for lingering sessions would hand every
 returner a repaint anyway, which is the thing the window exists to avoid.
@@ -357,8 +357,8 @@ is placed whole. A fill of nothing is a `remove` of the host's children, since a
 
 Two removals that look like exceptions and are not: an entity vanishing from HA
 triggers a registry re-evaluation and therefore a renderer swap, which mints a new
-`logId`; and a popup close is a per-session patch, sent to that session alone and
-never logged.
+`logId`; and a popup close is a variable write, its `remove` sent to that session
+alone and never logged.
 
 ### The head splits in two
 
@@ -475,18 +475,15 @@ dialog showing what it held before the disconnect, with its nodes missing from
 (`selector #root`) with the open popup baked into its `popups` node, the walk a page
 load makes (`Patches.repaint`): one morph, so the open dialog is reconciled, not
 replaced. A popup sent as a second patch would be emptied by the first. A swap's repaint
-takes the popup from the session's open set (`SurfaceGraph.selectionsIn`) and every tab
-from the session's variables, rather than from the request, which is what the stream
-connected with: a tab clicked since would otherwise snap back on every edit. A connect
-that found a backlog does the same for the popup (`Session.attach` says whether it
-flushed one): the request was written before those frames ran, so a popup opened while
-the stream was down would otherwise stay on screen with `ui_popups` reset to empty.
+takes the popup and every tab from the session's variables, rather than from the
+request, which is what the stream connected with: a tab clicked or a popup opened since
+would otherwise snap back on every edit.
 
 **Why one scalar cursor is enough despite per-client visibility.** A client may be sent nothing at
 all for a change inside a tab it is not looking at, and still have its cursor advanced past that
 change. That is sound because of an invariant every reveal path holds:
 
-> **Every reveal is an unconditional complete fill.** A host swap renders the arriving surface
+> **Every reveal is an unconditional complete fill.** A host swap renders the arriving case
 > whole and inner-patches the host; a flip's placement inserts the whole branch. Neither consults a
 > version, and nothing incremental ever depends on what a client missed while a subtree was hidden.
 
@@ -495,23 +492,20 @@ later reveals arrives in full. If a reveal ever became incremental — "send onl
 this tab since you last looked" — one cursor would stop being sufficient and this design would need
 one per subtree.
 
-**The one thing still worth its own branch** is a popup claim this dashboard
-cannot serve — renamed, removed, or belonging to another dashboard. That dialog is
-in nobody's open set, so no rule reconciles it, and without emptying the host it would
-sit on screen forever. A connect and a swap both send a `remove` of the host's children
-(`#popups > *`, `Server.orphanedPopup`), so the chrome's host element stays.
+**A popup this dashboard cannot serve needs no branch.** A value no popup has —
+renamed, removed, or another dashboard's — is refused where a load or Back reads it
+(ADR 0033), and one a session held across a rebuild matches no case, so the `popups`
+pick shows nothing and the repaint's morph empties the host like any node it holds.
 
 ### The first connect carries no view state
 
 `data-init` fires from `<body>` before Datastar has merged the descendants'
 `data-signals`, so that one request carries only what the shell seeds (`conn`, the
-open popup) and no cursor. A signals-only read would
-render the DEFAULT tab and its repaint would morph the correct first paint away,
-dragging the URL mirror down with it. So `Server.Restore` puts the page's view state
-(bake selections, the open popup among them) on the `data-init` URL as ordinary
-query params; every later request carries live signals, which win wherever both
-name the same fact. A tab bar's selection needs neither: it is a node variable
-the page GET recorded on the session (ADR 0033). See ADR 0005 for where
+committed values) and no cursor. A read of those alone would repaint the body the
+document holds, so `Server.Restore` puts the cursor on the `data-init` URL as
+ordinary query params; every later request carries live signals, which win wherever
+both name the same fact. The view state needs neither: a tab's and the popup's are
+node variables the page GET recorded on the session (ADR 0033). See ADR 0005 for where
 per-connection state lives.
 
 ### Nothing may be dropped from a stream that carries a cursor
@@ -559,7 +553,7 @@ there is nothing in it worth adopting. What the old id is good for is retirement
 per-browser and make two tabs fight over one session) carries it onto the next
 connect as `?prev=`, and the server drops that session unless a stream is still
 holding it. Without it a superseded session waits out its adoption window holding
-an old `position`, and its popups and values widen what every frame records for as long
+an old `position`, and its values widen what every frame records for as long
 as it lingers.
 
 Never reusing the id is what keeps the rest simple: two tabs can never land on one
@@ -735,7 +729,7 @@ are pinned by `DatastarMorphContractSuite`.
 
 It costs one prerequisite. A structural node bakes the viewer's selected panel, so
 every path that renders one has to know the viewer. Every render path therefore takes
-the viewer: its popup (`Selections`) and its values, which the render's `Shared` carries
+the viewer: its values, the popup among them, which the render's `Shared` carries
 (`Shared.viewing`) and a tab's case is looked up from, which is also what makes any variant
 machinery unnecessary (ADR 0012).
 

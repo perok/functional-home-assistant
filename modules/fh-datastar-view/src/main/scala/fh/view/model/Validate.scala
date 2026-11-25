@@ -7,6 +7,8 @@ import fh.view.runtime.{Cel, Steps, Templates}
   */
 private[model] object Validate:
 
+  private val PopupsVar = "popups"
+
   def errors(
       d: Dashboard,
       locateTransform: String => Option[String],
@@ -601,7 +603,16 @@ private[model] object Validate:
         }
         .toList
         .sorted ++ vars.sortBy(_.name).flatMap { d =>
+        // The page's own (`components/popup.pkl`): one below it would hide the
+        // page's from every opener under it.
         Option
+          .when(
+            d.name == PopupsVar && nodeId != Dashboard.PageRootId.toString
+          )(
+            s"$nodeId: the variable name '$PopupsVar' is the page's, which " +
+              "holds the open popup — name it something else"
+          )
+          .toList ++ Option
           .when(!d.name.matches("[A-Za-z][A-Za-z0-9_]*"))(
             s"$nodeId: variable '${d.name}' is not a plain name " +
               "([A-Za-z][A-Za-z0-9_]*) — it is spelled into signal names and " +
@@ -990,9 +1001,7 @@ private[model] object Validate:
           here ++ c.allChildren.flatMap(walk) ++
             c.set.toList.flatMap((_, s) => s.nodes.flatMap(walk))
       }
-      (walk(card) ++ surfaces.toList
-        .sortBy(_._1)
-        .flatMap(s => walk(s._2.content))).distinct
+      walk(card).distinct
     }
 
     // A region renders its children under fixed ids, so it is placed exactly
@@ -1245,11 +1254,7 @@ private[model] object Validate:
       failedLabelErrors ++
       theme.classes.errors ++
       unboundConditions ++
-      index.roots.flatMap { root =>
-        val errs = walk(root, Map.empty)
-        val sid = index.tree(root)
-        if (sid.isEmpty) errs else errs.map(err => s"surface '$sid': $err")
-      }
+      walk(index.root, Map.empty)
 
   /** A clause's condition: a bool that bypasses nothing. */
   private def conditionError(e: ValueExpr): Option[String] =

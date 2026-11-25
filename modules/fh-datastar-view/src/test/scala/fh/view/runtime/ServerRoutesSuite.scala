@@ -14,7 +14,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   SlotValue,
-  Surface,
   Theme,
   Value,
   ValueExpr,
@@ -36,43 +35,6 @@ import scala.concurrent.duration.*
 class ServerRoutesSuite extends ServerHarness {
 
   /** As an SSE reconnect does, and every action POST in its body. */
-  private def signalled(signals: String): Request[IO] =
-    Request[IO](
-      Method.GET,
-      uri"/".withQueryParam("datastar", signals)
-    )
-
-  test(
-    "popupOf reads the popup's ui. param and ui_ signal, ignoring the rest"
-  ) {
-    assertEquals(
-      Server.popupOf(get("ui.popups" -> "det", "other" -> "x")),
-      Some("det")
-    )
-    // A tab bar's selection is a node variable, so its old param is not read.
-    assertEquals(Server.popupOf(get("ui.c" -> "1")), None)
-    assertEquals(Server.popupOf(get("other" -> "x")), None)
-    assertEquals(Server.popupOf(get()), None)
-    assertEquals(
-      Server.popupOf(
-        signalled("""{"ui_popups":"det","ui_c":1,"conn":"x"}""")
-      ),
-      Some("det")
-    )
-    // The signal is the live value; the URL only trails it.
-    assertEquals(
-      Server
-        .popupOf(
-          Request[IO](
-            Method.GET,
-            uri"/"
-              .withQueryParam("ui.popups", "a")
-              .withQueryParam("datastar", """{"ui_popups":"b"}""")
-          )
-        ),
-      Some("b")
-    )
-  }
 
   test("selection round-trip: a tab variable of 1 opens the index-1 surface") {
     val r = tabsRenderer
@@ -143,7 +105,7 @@ class ServerRoutesSuite extends ServerHarness {
       .foreach(body => assert(Server.callBody(body).isLeft, clue = body))
     assertEquals(
       Server.callBody(""),
-      Right(Server.CallBody(None, None, JsonObject.empty, JsonObject.empty))
+      Right(Server.CallBody(None, JsonObject.empty, JsonObject.empty))
     )
   }
 
@@ -488,7 +450,8 @@ class ServerRoutesSuite extends ServerHarness {
       assert(!handler.contains("$_sse >= 1"), clue = handler)
       // The shell's own posts (Back and Forward) are sent once, as a tap is.
       val posts = "@post\\(".r.findAllMatchIn(html).size
-      val once = """@post\('[^']*'(?:\s*\+\s*\$\w+)?,\s*\{retryMaxCount: 0""".r
+      val once =
+        """@post\('[^']*'(?:\s*\+\s*[\w.$]+)?,\s*\{retryMaxCount: 0""".r
       assert(posts > 0, clue = html)
       assertEquals(once.findAllMatchIn(html).size, posts, clue = html)
     }
@@ -514,32 +477,6 @@ class ServerRoutesSuite extends ServerHarness {
         html.contains("document.body"),
         clue = "shell.ts no longer filters the stream event to the <body> fetch"
       )
-    }
-  }
-
-  test("the page shell seeds the popup selection from the URL, or empty") {
-    // No node declares the popup's signal yet (the page card's root will), so
-    // the shell declares it, as `ui_<hostId>` like any selection. An
-    // unknown id is dropped rather than seeded.
-    val dash = titleDash("home", None).copy(
-      surfaces = Map("det" -> Surface(LayoutNode.Component("col")))
-    )
-    for {
-      seeded <- pageHtml(dash, "?ui.popups=det")
-      unknown <- pageHtml(dash, "?ui.popups=nope")
-      none <- pageHtml(dash)
-    } yield {
-      assert(seeded.contains(s"""$PopupSig: \'det\'"""), seeded)
-      assert(unknown.contains(s"""$PopupSig: \'\'"""), unknown)
-      assert(none.contains(s"""$PopupSig: \'\'"""), none)
-      // One Datastar on the page, the bundle that carries our attributes: a
-      // second copy would be an instance that never sees them.
-      val datastars = """<script type="module" src="([^"]+)">""".r
-        .findAllMatchIn(none)
-        .map(_.group(1))
-        .filter(_.contains("datastar"))
-        .toList
-      assertEquals(datastars, List(Server.DatastarScript), none)
     }
   }
 
@@ -577,19 +514,12 @@ class ServerRoutesSuite extends ServerHarness {
 
   test("the data-init SSE URL carries what the page is showing") {
     // The first connect carries no view state (data-init fires before Datastar
-    // merges descendants' data-signals), so without this the server repaints
-    // the popup closed and the URL mirror follows it. A tab is on the session.
-    val dash = titleDash("home", None).copy(
-      surfaces = Map("det" -> Surface(LayoutNode.Component("col")))
-    )
+    // merges descendants' data-signals); the choices are on the session.
+    val dash = titleDash("home", None)
     for {
-      restored <- pageHtml(dash, "?ui.popups=det")
+      restored <- pageHtml(dash)
       plain <- pageHtml(dash)
     } yield {
-      assert(
-        restored.contains("sse/dashboard/home/patch?ui.popups=det"),
-        restored
-      )
       // The version this document was rendered at, so the first connect resumes
       // instead of inner-patching a body the document already has.
       List(
@@ -621,51 +551,6 @@ class ServerRoutesSuite extends ServerHarness {
         clue = (Server.SseInclude, plain)
       )
     }
-  }
-
-  test("the popup selection: signal wins when present, URL only seeds") {
-    assertEquals(Server.popupOf(get("ui.popups" -> "det")), Some("det"))
-    // `ui_popups: ""` beside the stale param keeps a closed dialog closed on
-    // every retry: the signal is authoritative.
-    assertEquals(
-      Server
-        .popupOf(
-          Request[IO](
-            Method.GET,
-            uri"/"
-              .withQueryParam("ui.popups", "det")
-              .withQueryParam("datastar", """{"ui_popups":""}""")
-          )
-        ),
-      None
-    )
-    assertEquals(Server.popupOf(get()), None)
-  }
-
-  test("openPopup adopts only a surface this dashboard can actually host") {
-    val base = titleDash("home", None)
-    val tabs = PklFixture.shape(
-      """card = (c.tabs) { tabs { ["A"] { t.hole("p") } } }"""
-    )
-    val r = Renderer.create(
-      base.copy(
-        cards = base.cards ++ tabs.cards,
-        card = tabs.fill("p" -> LayoutNode.Component("col")),
-        surfaces = Map("det" -> Surface(LayoutNode.Component("col")))
-      )
-    )
-    assertEquals(r.surfaces.openPopup(Some("det")), Some("det"))
-    // Adopting any of these would put the session in a state its renderer
-    // cannot serve.
-    assertEquals(r.surfaces.openPopup(Some("")), None)
-    assertEquals(r.surfaces.openPopup(Some("nope")), None)
-    assertEquals(r.surfaces.openPopup(Some("c_t0")), None)
-    assertEquals(r.surfaces.openPopup(None), None)
-    assert(
-      r.surfaces
-        .selectedSurfaces(Selections(r.surfaces.openPopup(Some("det"))))
-        .contains(r.surfaces.popupSpelling("det").get)
-    )
   }
 
   test("page <title> uses the dashboard's authored title when present") {

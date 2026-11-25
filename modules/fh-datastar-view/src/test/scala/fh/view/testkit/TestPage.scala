@@ -38,3 +38,13 @@ object TestPage:
       )
     )
   }
+
+  /** A built dashboard's popups by id: the cases of the page's `popups` match
+    * (`components/popup.pkl`).
+    */
+  def popups(d: Dashboard): Map[String, LayoutNode.Component] =
+    d.index.all
+      .map(d.index.node)
+      .filter(_.card == "popup")
+      .flatMap(n => n.id.map(_ -> n))
+      .toMap

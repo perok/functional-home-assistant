@@ -18,6 +18,8 @@ class Page extends nodeMod.Node {
   hidden chrome: String
   /// Keeps the id `c` unless it names its own, so no id below it moves.
   hidden body: nodeMod.Node
+  /// What the `popups` element holds: `components/popup.pkl`'s choice.
+  hidden popupsFill: groupMod.Content = new Listing {}
   cardDef = let (p = this) new nodeMod.CardDef {
     layoutCell = false
     template =
@@ -31,6 +33,6 @@ class Page extends nodeMod.Node {
   }
   slots {
     bodySlot.of(new Listing { if (body.id == null) (body) { id = "c" } else body })
-    popupsSlot.of(new Listing { (groupMod.inner("div", "", new Listing {})) { id = "popups" } })
+    popupsSlot.of(new Listing { (groupMod.inner("div", "", popupsFill)) { id = "popups" } })
   }
 }

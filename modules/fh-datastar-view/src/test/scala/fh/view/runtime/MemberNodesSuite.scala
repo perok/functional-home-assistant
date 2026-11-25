@@ -92,7 +92,7 @@ class MemberNodesSuite extends ServerHarness {
       r.renderNodeById(
         id,
         Shared.of(allOn),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).isDefined
     )
     // Two leaves per member, each renderable on its own.

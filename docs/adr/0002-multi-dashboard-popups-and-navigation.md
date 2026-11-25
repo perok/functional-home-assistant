@@ -1,4 +1,4 @@
-# ADR 0002 — Multiple dashboards, popup surfaces, and navigation
+# ADR 0002 — Multiple dashboards, popups, and navigation
 
 - **Status:** Accepted
 - **Date:** 2026-06-23 (consolidated 2026-07-04; navigation became a real page
@@ -31,55 +31,45 @@ that key is its slug (ADR 0021). A `Renderer` is built per slug and served at
 `/d/:slug`; which slug `/` serves is the site's own `default`. A connection shows exactly one dashboard for its whole lifetime,
 so node ids are unique within a dashboard and **not slug-prefixed**.
 
-### Surfaces: lazily-activated subtrees
+### Popups: a variable on the page
 
-A **surface** (`model.Surface`) is a named layout subtree registered in
-`Dashboard.surfaces`, rendered on demand and streamed only while it is
-*active* — for a popup, while a connection has it open; for a tab panel, while
-the viewer's node variable picks it (ADR 0033); for an if/else branch (ADR
-0007), while its condition over live entity state picks it. A popup's fields
-are `(content, activation)`, `activation` being `User(defaultOpen)`; a tab
-panel or a branch is a case of a nodes slot's choice, which the build serves as
-a surface carrying its place (`Surface.pick`):
+A popup is a library layer on ordinary nodes slots (`components/popup.pkl`);
+nothing in `core/`, on the wire or in Scala says "popup":
 
-- **Every surface is chrome-less** — `renderSurface` returns bare content. A
-  popup's `<dialog>` is a plain `popup` *container card* composed into the
-  surface's content by the authoring layer (the `PopupSurface` mapping default
-  wraps registered surfaces; `openPopupInline` wraps inline ones), not backend
-  chrome; the theme styles `.fh-popup` as a class contract.
-- **The host is derived, not authored** — `Surface.hostId` is the root of the
-  node whose slot a choice fills (the choice is that card's whole template,
-  so its root holds nothing else) and the theme's popup host
-  (`Dashboard.PopupHostId`, `#popups`) otherwise. The host is both the
-  live-patch target and the eviction group.
-- **The first paint renders the picked case into its slot's hole**, so the
-  selected panel is in the initial HTML with no round-trip and no flash. A
-  pick over a variable takes the case its value keys, declared or chosen (ADR
-  0033); one over state the case its `by` keys (ADR 0007). The first HTML and
-  a later live switch are byte-identical.
-- Surface node ids are namespaced (`s_<id>__…`, `LayoutNode.surfacePrefix`) so
-  they never collide with the main page.
+- **The page declares `popups`**, a node variable holding the id of the open
+  popup, with no value while none is open (ADR 0033), in history (ADR 0005). Its
+  URL parameter is `v.popups`. `validate` refuses the name on any other node,
+  where it would hide the page's from every opener below.
+- **A popup is a node with an id**: `c.view.popup("help", body)` opens the node
+  `help`, a `popup` card around `body`; the library derives its own
+  (`moreinfo_<domain>_<object id>`, the lock's `confirm_open_…`, the colour
+  `wheel_…`). The tap is a `SetVar` choosing that id, and carries the node in a
+  hidden property, so the wire has only the call.
+- **`entry.pkl` collects every popup a tap can open** from the dashboard's card,
+  looking inside each popup for the ones it opens, and fills the page card's
+  `popups` with one match over the variable, a case per id. Equal content under
+  one id is one case: two cards for one entity share its more-info. Different
+  content under one id is a Pkl error. A popup holding its own opener is a
+  reference, since Pkl is lazy, so the walk stops at an id it has.
+- **The dialog is a card.** The `<dialog>`, its ✕, Escape and the backdrop are
+  the `popup` card's template (`components/base/popup.pkl`); the theme styles
+  `.fh-popup` as a class contract.
+- **A close is going back**: every choice is a history entry, so the ✕ is
+  `history.back()`, and Back's popstate post clears or restores the variable
+  (ADR 0005).
 
-**The server shows one popup at a time.** Two dialogs on screen at once was
-unused and is recoverable via a second overlay host; giving it up is what lets
-every surface be chrome-less and open/switch/close collapse into one primitive.
-The browser's history stacks them instead: each popup opened is a history
-entry, and closing one goes back to the popup it was opened from (ADR 0005).
+So a popup is decided as any pick over a variable is (ADR 0033, the pipeline
+doc): a case no viewer shows costs nothing, opening one is a variable write
+planned against the session's `holds` (ADR 0012), a refresh renders it in the
+first HTML, and its content starts with the page's scope. One slot shows one
+case, so **one popup is on screen at a time**; a popup may open another, and
+Back returns to the first. A popup outlives its opener: a set member leaving or
+a tab switching away is a patch of its own host.
 
-### One primitive: `swapPopup` (within a dashboard)
-
-Open, switch, and close are the same operation (`Server.swapPopup`): evict
-whatever popup occupies `#popups`, set the new occupant, inner-patch the host —
-or `remove` the host's children (`#popups > *`) for a close, so the chrome's host element and its attributes stay (`POST /sse/popup/<slug>/close`; the
-transient dialog simply disappears). No server state tracks "is a popup open" beyond the
-session's open set. A tab press is not a swap: it is a variable write
-(`Server.setVar`), which plans the panel's host like any other host (ADR 0012) and
-then commits the tab's variable; a popup swap commits `ui_popups` for what it
-actually put there. Each commit is the only thing
-entitled to say so (ADR 0025); a tap records what it asked for in a pending
-signal and nothing else. The popup's VALUE is a surface id rather than a member
-index, because any registered surface can appear there and only one at a time. Crossing to ANOTHER dashboard is not one of these — it is a
-document load (below).
+A tab panel and an if/else branch are cases of a nodes slot's choice the same
+way (ADR 0007, ADR 0033): the first paint renders the picked case into its
+slot's hole, so the selected panel is in the initial HTML with no round-trip and
+no flash, and a later live switch is byte-identical.
 
 ### Per-connection sessions over the one SSE stream
 
@@ -87,8 +77,7 @@ Each SSE connection mints a `conn` id and pushes it as the first
 `datastar-patch-signals` event; Datastar then sends `conn` among the signals on
 every action `@post`, correlating the POST to its stream. A `Session` (keyed by
 `conn` in `Sessions`) holds its `slug` — **fixed**, since another dashboard is
-another document and therefore another connection — the set of **open** surface
-ids, and a **control** queue the action handlers push patches into.
+another document and therefore another connection — the viewer's variables, and a **control** queue the action handlers push patches into.
 
 **Live entity patches are rendered once per slug, for everyone.** One background
 subscription to the state stream per dashboard (`Server.sharedPatchPublishers`,
@@ -103,9 +92,9 @@ design.
 
 **Who may see a patch is decided by the session that sends it.** Nothing is broadcast:
 the recorder writes a changelog and each connection pulls what it is owed, against its
-own open set and its own record of what its DOM holds (ADR 0012). So a patch carries no
+own screen and its own record of what its DOM holds (ADR 0012). So a patch carries no
 audience tag and passes no filter at the wire edge — it exists because the session that
-will send it asked for it. State-activated surfaces need no special handling either:
+will send it asked for it. A choice over state needs no special handling either:
 their selection is server truth, identical for every viewer (ADR 0007), so a node inside
 an `If` branch nested in a tab panel is visible exactly when that tab panel is.
 
@@ -118,7 +107,7 @@ keyed by what the render reads.
 Almost nothing else can vary anyway: only a LEAF is a patch target and a leaf holds no
 regions (ADR 0008), so only a render that CREATES a subtree can differ per viewer.
 
-This replaced a **shared/per-session split**, in which open surfaces and the hosts
+This replaced a **shared/per-session split**, in which open popups and the hosts
 of choices were re-rendered once per connection against a per-session diff cache, and then a
 **shared pass with an audience tag**, in which one render per slug was addressed to
 whoever could see it. Both were cost models — "render shared what is cheap to share" —
@@ -137,18 +126,15 @@ A component's click target is a declared call, which `tapMod.post` spells in the
 card's template, or a single `onclick` slot holding the **entire** Datastar
 expression (spliced as literal text into `data-on:click="{{{onclick}}}"`):
 
-- service call, or a choice of a node variable (a tab) →
+- service call, or a choice of a node variable (a tab, a popup) →
   `@post('sse/call/<slug>/<callId>?node=<id>', {payload: …})` (ADR 0023)
-- popup → `@post('/sse/surface/<slug>/open/<id>')` / `@post('/sse/popup/<slug>/close')`
+- a popup's close → `history.back()`
 
-Every one of them names its dashboard: an action so the call can be bounded by
-what that dashboard references (ADR 0023), a surface tap for that AND so a
-connection the server has forgotten can be re-established rather than dropped
-(ADR 0024). Which means these are transforms, not constant strings — only a
-transform reads `dashboard_slug`.
+Every route names its dashboard, so the call can be bounded by what that
+dashboard references (ADR 0023).
 
-This is why reuse "just works": `c.button(eo, action=c.view.openPopup('x'))` needs
-no new template.
+This is why reuse "just works": `c.button("Help", c.view.popup("help", body))`
+needs no new template.
 
 **Going somewhere is the exception, and it is not an expression at all.** A `TapAction`
 that navigates carries an `href` (`d/<slug>`, relative so `<base href>` resolves
@@ -175,8 +161,8 @@ literal token, so a theme's class rules reach it.
 Going to another dashboard is an ordinary document load of `/d/:slug` — an
 `<a href>` where the card can be one, `location.assign` where it cannot (above).
 The browser owns the history entry; navigation pushes nothing of its own, and
-there is no `/sse/navigate` route. (The only `pushState` and `popstate` are the
-popup stack's, ADR 0005.)
+there is no `/sse/navigate` route. (The only `pushState` and `popstate` are a
+history variable's, the page's `popups` among them, ADR 0005.)
 
 This replaced an in-place body swap over the surviving SSE stream. That design
 existed to keep one stream and one session alive across a dashboard change, and
@@ -221,22 +207,6 @@ set before the first paint.
 Per tab and per slug, so two tabs on one dashboard do not drag each other, and a
 link somebody shares does not land them mid-page.
 
-### The generic hoist: inline surfaces + `@@NODE_ID@@`
-
-Authoring is primarily a top-level `surfaces` registry referenced by
-`openPopup('id')`; an **inline** form (`openPopupInline` / per-tab content) is
-hoisted at build time (`DashboardBuild.hoistInlineSurfaces`), because the
-authoring language can't mint stable ids or mutate the registry. The pass is
-deliberately **generic** — it knows nothing about popups, tabs, buttons, or
-onclick wiring. A node carries an `inlineSurfaces: { <localKey>: {content, …} }`
-marker; the pass mints the node's position-derived id, splices it into every
-`@@NODE_ID@@` token in the subtree (the builders embed the token —
-`DashboardBuild.NodeIdToken`), and lifts each surface to
-`surfaces["<idBase>_<localKey>"]`. **One id story**: the id scheme (`pathId`,
-`surfaceRootId`, `surfacePrefix`, `sanitize`) lives in `LayoutNode`, shared by
-hoist and renderer, so a node's build-time id namespace equals its render-time
-`{{id}}`.
-
 ### Tabs are pure composition
 
 A tab group is one `tabs` card whose `panel` slot holds a match over its
@@ -244,7 +214,7 @@ variable, a case per tab: the card's template owns the button bar and places
 the panel, a `group` whose root hosts the match (`groupMod.inner("div",
 "fh-tab-panel", …)`); the bar declares the
 variable picking the panel, and its buttons write it (ADR 0033). **No tabs logic in the
-backend** — the runtime reads only structural surface fields and variables,
+backend** — the runtime reads only structural fill fields and variables,
 never a card name. The active tab persists via the session and the URL mirror
 (ADR 0005).
 
@@ -253,18 +223,17 @@ never a card name. The active tab persists via the session and the URL mirror
 Every dashboard's tree hangs from the **page card** (`core/page.pkl`), which
 `entry.pkl` builds around the author's `card`: the node `root`, with two nodes
 slots. `body` holds the author's card, which keeps the id `c` unless it names
-its own, so no id below it moved. `popups` holds the node `popups`, an empty
-group that a popup open fills. `Theme.chrome` is the card's template: a frame
+its own, so no id below it moved. `popups` holds the node `popups`, the group
+whose match shows the open popup (above). `Theme.chrome` is the card's template: a frame
 placing `{{{body}}}` and `{{{popups}}}`, inlined in the theme (a theme imports
 no component library — it is presentation, a leaf). A frame missing either hole
 fails the build, and `root` and `popups` are refused as an author's ids.
 
 Because the host is a node, a **restored** popup is flash-free: a refresh
-carrying `?ui.popups=<id>` (ADR 0005) bakes the dialog into `popups` in the
-served HTML, the same way a selected tab panel is baked into its owner, and a
-repaint bakes it the same way (ADR 0011). The theme keeps deciding WHERE the
-host sits in the frame — the backend only fills the node it addresses by id on
-every open/switch/close.
+carrying `?v.popups=<id>` (ADR 0005) renders the dialog into `popups` in the
+served HTML, the same way a selected tab panel is rendered into its owner, and a
+repaint does the same (ADR 0011). The theme decides WHERE the host sits in the
+frame.
 
 The backend holds **zero** frame HTML: a tree with no page card, which only a
 test builds in Scala, renders its root bare. The document shell
@@ -281,13 +250,16 @@ wiring, not dashboard frame.
   kind→card-name binding). The host belongs in a card template; presentation is
   data.
 - **`children` as a multi-hole slot** (render all tab panels, `data-show` the
-  active one): defeats surface laziness — hidden panels would receive SSE
+  active one): defeats a case's laziness — hidden panels would receive SSE
   patches.
-- **Stacked popups + per-surface `chrome`/`stack`/host fields**: the fields
-  co-varied; deriving the host and dropping stacking collapsed `Surface` from 8
-  fields to 5 and unified open/switch/close. The derivations are safe only
-  because the constraining assumptions (popups don't stack; a choice's host is
-  its node's root) are guaranteed, not inferred.
+- **Stacked popups**: two dialogs on screen at once was unused; one slot showing
+  one case is what lets a popup be an ordinary pick. History stacks them
+  instead.
+- **A popup registry and its own runtime path** (`surfaces`, an open/close
+  route, a swap that evicted every popup's nodes, a build-time hoist minting
+  inline popups' ids): a second mechanism beside the pick, with its own
+  patching, its own scope rule and its own URL parameter. A variable and a
+  match do the same job with the one path.
 - **A theme-composed `c.popupHost()` component**: inverted the layering (theme
   → components); the host is inlined in the theme instead.
 - **A hollow host plus a per-connection fill**: serving viewers on different tabs
@@ -305,8 +277,8 @@ wiring, not dashboard frame.
 
 ## Consequences
 
-- Open/close are pure backend state transitions whose patches ride the one SSE
-  stream; closed surfaces are free. A dashboard change is outside that model
+- Open/close are variable writes whose patches ride the one SSE stream; closed
+  popups are free. A dashboard change is outside that model
   entirely — it is a new document, a new stream, a new session.
 - There is ONE render pipeline and one log per slug. What differs per client is
   a filter (which patches reach it) and, in one case, a render performed at the

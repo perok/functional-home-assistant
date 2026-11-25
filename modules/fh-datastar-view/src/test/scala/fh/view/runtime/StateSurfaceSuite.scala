@@ -353,11 +353,10 @@ class StateSurfaceSuite extends ServerHarness {
     "a state group inside an open popup is rendered SHARED, tagged with it"
   ) {
     // A flip is a function of entity state, the same for every client that can
-    // see it, so it is rendered once for the slug and addressed to "det".
+    // see it, so it is rendered once for the slug.
     // Someone having the popup open is what makes it worth rendering.
     val d = PklFixture.snippet(
-      s"""card = new c.Column {}
-         |surfaces { ["det"] { body { ${ifSnippet()} } } }
+      s"""card = (c.column) { children { c.button("Open", c.view.popup("det", ${ifSnippet()})) } }
          |""".stripMargin,
       alarm
     )
@@ -370,21 +369,21 @@ class StateSurfaceSuite extends ServerHarness {
       )
     ) { ts =>
       for {
-        withPopup <- ts.viewer(s"?ui.${Dashboard.PopupHostId}=det")
+        withPopup <- ts.viewer("?v.popups=det")
         without <- ts.viewer()
         _ <- ts.record(FixtureEntity("alarm.h", "disarmed"))
         opened <- withPopup.pull
         closed <- without.pull
       } yield {
         assert(
-          !closed.exists(_.render.contains("selector #s_det__c_0\n")),
+          !closed.exists(_.render.contains("selector #det_0\n")),
           clue = closed.map(_.render)
         )
         val patches = elementPatches(opened)
         assertEquals(patches.size, 1, clue = patches)
-        assert(patches.head.contains("selector #s_det__c_0\n"), patches)
+        assert(patches.head.contains("selector #det_0\n"), patches)
         assert(
-          patches.head.contains("""id="s_det__c_0_branch_1""""),
+          patches.head.contains("""id="det_0_branch_1""""),
           clue = patches
         )
       }

@@ -87,8 +87,8 @@ and never flips. The library
 writes one of the fast tier's steps (ADR 0028) — a read and `Compare`, `Not`, `AllOf`/`AnyOf` over a
 `List`, `Count` over a set's **present** ids, `First` over a list of ids — and the one evaluator
 decides it as it fills a slot (ADR 0035); a build refuses one that is not a bool. So a slot can read one, which is how every boolean input (`active`,
-`disabled`, `cellClassWhen`) takes one directly. The same thing guards a clause, picks a state
-surface, and orders a set, true first under `asc`. An unnamed read in it reads the entity it is
+`disabled`, `cellClassWhen`) takes one directly. The same thing guards a clause, picks a case of a
+choice over state, and orders a set, true first under `asc`. An unnamed read in it reads the entity it is
 about: the card's subject, or in a guard or an order term the member. It can
 also be an input, a `bool` an author's CEL reads by name. An aggregate the build can settle is a plain `Boolean` instead.
 ADR 0034.
@@ -203,35 +203,16 @@ wire's `cell.layout`) and the node's cell slots (`cellClass`, `cellClassWhen`, `
 `layoutCell = false` card's root is no layout box: it keeps its id and loses `.fh-cell` and the
 layout classes. Layout is the library's job, not each card's. ADR 0008.
 
-**Surface** — a chunk of layout that is shown only sometimes and rendered only while shown: a popup,
-a tab panel, an `if`/`else` branch.
-
-Two kinds, and they are not interchangeable:
-
-- **Owned** — a tab panel, an `If` branch: a **case** of one node's choice (**pick**, below). It is
-  part of that node's definition, only that node refers to it, and it has no meaning apart from it.
-  Authored inline at that node, and a node of the tree, with the id its slot position gives it.
-- **Triggered** — a popup. It is a dashboard-level thing that any number of taps may open, and its
-  lifetime should not depend on which of them exists. Registered separately from the main tree and
-  addressed by its surface id; the runtime's `surfaces` are these alone.
-
-Either is a **container** to the runtime (`SurfaceGraph`, "Container" below): every node is in the
-innermost case or popup holding it, and is shown while each one up its chain is.
-
-**The registry** (`surfaces { ["detail"] { … } }`) is for the TRIGGERED kind, and that is the whole
-of what it is for. Registering something owned — a tab's panel by hand — throws away the ownership
-that makes it addressable, orderable and lazily rendered as part of its node. What earns a registry
-entry is being referred to by NAME from more than one place, or from somewhere that is not its
-parent; nothing else does.
-
-An **inline** surface (`openPopupInline`) is a locality convenience, not a third kind: the body is
-written where the tap is and the build lifts it into the registry. It cannot be shared — its id is
-derived from the owning node, and the `@@NODE_ID@@` token resolves only to a node's OWN id, so no
-second tap can name it. Sharing means registering it and using `openPopup("detail")`.
+**Popup** — a node with an id (`c.view.popup("help", body)`, or one the library derives:
+`moreinfo_light_kitchen`), shown while the page's `popups` variable holds that id. Any number of
+taps may open it, each a choice of `popups` carrying the popup's node, and `entry.pkl` collects
+every one into the page card's `popups`, a match over the variable with a case per id, so a popup
+is a **case** like a tab panel and a node of the tree (**pick**, below). Equal content under one id
+is one popup. One is on screen at a time; a close is going back (ADR 0005). ADR 0002.
 
 **Tap / tap action** — what a click does, as a value rather than a string: a service call on a
 **target** (an entity, an area, a floor or a query set), a viewer's choice of a node variable, a
-navigation, opening or closing a popup. A tap names its
+navigation, a popup's close. A tap names its
 own target and never borrows the card's subject entity, so one card may show an entity and act on
 another. ADR 0016, 0023, 0024.
 
@@ -329,127 +310,32 @@ the top chooses none. A name only narrows the shape a role requires. ADR 0013.
 **Entry** — the top-level Pkl module for one dashboard. `site.pkl` names every entry the instance
 serves; an entry's key in it is that dashboard's **slug** (its URL segment). ADR 0021.
 
-**Hoist** — the build step that lifts a popup defined inline inside a tap up into the top-level
-surface registry, splicing the owning node's real id into it. Why authors can write a popup where it
-is used rather than registering it elsewhere.
-
-**Token (`@@NODE_ID@@`)** — a placeholder Pkl writes because the value is not
-knowable while authoring, filled in later by a pass that is. `NODE_ID` stands for *the node that
-owns this subtree*: a card constructing its own children writes it so they can name signals the card
-owns, and the build replaces it with that node's real id — bottom-up, so the innermost owner wins.
-Note this is authorship, not tree position: it means "the card that wrote this", which is why the
-renderer cannot derive it from the parent link.
-
-A node variable's declarer needs no token: it IS tree position, the nearest node above declaring
-the name, and the server resolves it where the node sits, for a choice, a read and a highlight
-alike (ADR 0033).
-
----
-
-## Card structure — what a card's markup holds
-
-**Template** — the whole card's markup, holes included. There is one per card.
-
-**Chrome** — two senses, and they are unrelated, so always say which:
-
-- **The dashboard's chrome** (`Theme.chrome`) — the frame: the page card's template, placing the
-  dashboard's card and the popup host. Ours, and made of HTML.
-- **The browser's chrome** (`ChromeColors`) — the UI the *device* paints around our page: the URL
-  bar, an installed app's status bar and splash. Not ours, and made of one colour per scheme,
-  which we can only ask for (`<meta name="theme-color">`, the manifest's themeable members).
-  ADR 0014.
-
-The vendor is a third thing again, and the reason the sentence "Chrome ignores the chrome colour
-in an installed app" needs writing out rather than shortening.
-
-**Nodes slot** — a slot whose value is nodes, where a value slot's is a reading or a literal. A card
-module declares the handle (`const local features = slotMod.nodes("features")`), its template
-places it as a raw hole, `\(features)` printing `{{{features}}}`, once and outside every section,
-and each node fills it (`slots { features.of(nodes) }`). The handle is a `NodesSlot`, which has
-only what its kind needs, so `features.bind` is a Pkl error at the line. A value slot and a nodes
-slot share one namespace, as a template's names do, and one wire map, `slots`, each entry
-carrying its `kind`.
-
-**Fill** — what a nodes slot holds on one node: nodes written down (`Fill.Nodes` with a fixed
-choice), a choice (`Fill.Nodes` with a `Chosen`, decided by a **pick**) or a set (`Fill.Set`). A
-node's fills are the nodes slots it sets, and the card's own list of them is `WireCard.regions`.
-
-**Region** — a nodes slot, in the words the runtime and the ids still use (`c_1_head_0`, the
-`regions` of a wire card, which lists each nodes slot's name).
-
-`children` is the default nodes slot (`slotMod.childrenSlot`). `Grid { children { … } }` is the
-sugar for filling it, and a card whose template places `{{{children}}}` needs nothing in its
-`slots` for it. Every other nodes slot is named in the card's `slots` and filled there.
-
-**Leaf card** — a card with no nodes slot. Its template *is* what a live patch renders, so a leaf is
-the only kind of node a patch ever targets.
-
-**Structural card** — a card with a nodes slot. Its element contains what it holds, so a patch aimed at
-it would carry that content back with it — which is why **structure is never a patch target**. A
-structural card therefore has only what it holds to show: a live slot on one is a build error
-*unless the value travels as a signal*, which never becomes bytes in the element. ADR 0012, ADR
-0017.
-
-A card wanting its OWN markup to move puts that markup in a nodes slot, as a node — a slider's head is
-a leaf card beside the rows for exactly this reason. So the guarantee needs no rule to police it:
-every hole in a template is filled by a node with an id of its own, and a patch at one node can
-never reach another's content.
-
-**Host** — the element a choice's case or a set's members are filled through: the root of the node
-whose nodes slot the live fill is, that slot being its card's whole template (`Renderer.hostId`).
-The word the runtime uses, not the author's; not to be confused with a **region**, which is the
-declaration.
-
-**Pick** — deciding a nodes slot's choice: its `by` is read once and its case looked up, else the
-otherwise, else nothing (`Ready.Pick`, `SurfaceGraph`). A `by` that is a node variable (a tab bar,
-a `c.select`, an If over a variable, ADR 0033) is decided per viewer, a lookup of the
-viewer's value (`Shared.viewing`, `SurfaceGraph.decideByVariable`) that nothing keeps; one that
-computes over a variable, alone or with state (an If chain mixing `valueIs` and a light), is a
-**viewer pick**, decided per viewer and kept per values (`SurfaceGraph.decideByViewer`); any
-other reads state alone and is decided once per version, in `Shared`. Each case is a node
-with the id a fixed node at its index of the slot would have, the otherwise after the cases, and
-the index records which case holds each node below it. Inside a candidate set's clause, a pick is
-that clause's: every clause of a member shares its nodes' ids, so the clause is part of the pick's
-id (`<host>_k<clause>`), not of the cases'.
-
-**Flip** — a pick changing which case is shown because *entity state* moved, not because a user
-clicked. Over state alone it is server truth, so every viewer gets it; a viewer pick flips per
-values, for the viewers whose case the change moves and no others. Only a pick shown before
-and after flips: one inside a set member whose arrival or clause switch places it, or below
-another pick that flips, is in that placement instead. ADR 0007.
-
----
-
-## Runtime — how a change reaches a browser
-
 **Node id** — a node's address, derived from its position in the tree (`c_2_0`). Not authored. ADR
 0022.
 
 **Page card** — the card a built dashboard's tree hangs from (`core/page.pkl`): the node `root`,
 its template the theme's **chrome**, its `body` slot the author's card (`c`) and its `popups`
-slot the popup host, the node `popups`. Library-written, so `root` and `popups` are not an
-author's ids. A repaint morphs it whole. ADR 0002.
+slot the popup host, the node `popups`, which holds the match over the page's `popups` variable
+the node `root` declares. Library-written, so `root` and `popups` are not an author's ids, nor
+`popups` a variable below the page. A repaint morphs it whole. ADR 0002.
 
 **Index** — what a renderer knows from the tree alone, built once when it is created: ids,
 parents, each node's fetching slots, which nodes an entity wakes, every member a candidate can be.
 The second of three layers (build, index, decisions; the pipeline doc's §1a). Not the build's
 **bind** pass, which runs before any renderer exists.
 
-**Container** — what may be hidden: the page's root, a popup's root, a pick's case. Every node is
-in the innermost one holding it, and is shown while each container up its chain is. A container is
-a node of the tree **index**: inside a renderer it is that node's `Ix` and a viewer's open set (its
-`screen`) is a `BitSet` of them: its popups and the cases its values pick. `SessionState.open` holds
-the popups, which cross a renderer swap **spelled** by their root's DOM id (`s_detail__c`) and are
-read into `Ix` once per step; a case is never spelled there, the values pick it. The popup's wire name (`ui_popups`,
-its URL parameter, the open route) is its surface key, not that spelling.
+**Container** — what may be hidden: the page's root, which never is, and a pick's case, a popup
+among them. Every node is in the innermost one holding it, and is shown while each container up its
+chain is. A container is a node of the tree **index**: inside a renderer it is that node's `Ix` and
+a viewer's open set (its `screen`) is a `BitSet` of them, the cases its values pick.
 
 **Decisions** — what one state version decides: which members a set holds and in which clause,
 which branch a state group shows, whether each `valueWhile` holds. Held in that version's
 **`Shared`**, so the pre-read, the walk and the paint ask rather than decide again, and every
 viewer of that version shares them. A decision may read a fetch; it is then made in **rounds**: a
 walk that lacks its answers reads it as not shown and walks again once they are answered. One that
-reads a variable is made at the viewer's values and kept per values (`Shared.branchAt`, `setAt`, `holdsAt`). A viewer's
-open popup is not a decision, it is in its `Viewing`.
+reads a variable is made at the viewer's values and kept per values (`Shared.branchAt`, `setAt`, `holdsAt`); a
+viewer's open popup is one such, a lookup of its `popups`.
 
 **`Shared`** — one dashboard's state version for every viewer: the entity states and the
 decisions made from them, carried from the version before or made on demand. `viewing(env)` reads
@@ -457,8 +343,8 @@ it as one viewer, at that viewer's values; a decision that reads a variable rais
 decision that reads one is a pick (a **viewer pick**) or a candidate set whose guard or order does
 (a **viewer set**): each is kept per values, a set at the values in scope at its own node.
 
-**`Viewing`** — one viewer's part of one send, beside the `Shared` it was read against: its
-popup (`Selections`), and its slot fetches' answers (at its node variables).
+**`Viewing`** — one viewer's part of one send, beside the `Shared` it was read against: its slot
+fetches' answers (at its node variables).
 
 **Dirty** — a decision a change touches, found in the index from the changed entity. A dirty
 decision is not carried to the next version; it is made again only when a reader reaches it shown.
@@ -482,8 +368,8 @@ Home Assistant has a component of its own called the recorder — the database b
 the two have nothing to do with each other. Unqualified, "the recorder" is ours; HA's is always
 **HA's recorder**.
 
-**Session** — one browser tab's server-side record: what it holds, how far it has read, which
-surfaces it has open.
+**Session** — one browser tab's server-side record: what it holds, how far it has read, the values
+it has chosen.
 
 **The log / changelog** — per dashboard, `id -> the version it last moved at`: a node whose bytes
 moved, a host whose decided keys moved, and the root of each key that arrived. It says where to
@@ -511,9 +397,9 @@ client already have this?", asked per session and nowhere else: equal values, eq
 is rendered from, so, beside the node's `Ix`, both what a session holds and the render cache's
 key (`Renderer.byteSlotValues`, ADR 0012).
 
-**Claims / invalidates** — what a patch reports about itself: the nodes whose bytes it just wrote
-(so the session can record them) and the nodes it displaced (so their records stop describing
-anything). A patch that writes a whole subtree, like a tab switch, uses both.
+**Claims** — what a patch reports about itself: the nodes whose bytes it just wrote, so the session
+can record them (`Addressed.establishes`). What it displaced needs no report: applying a fill or a
+leave drops every record below what it replaced (`Patches.applied`).
 
 **Position / cursor** — how far a reader has got through the log. A session's `position` is what the
 server last sent it; a **cursor** is what a reconnecting client claims to have.

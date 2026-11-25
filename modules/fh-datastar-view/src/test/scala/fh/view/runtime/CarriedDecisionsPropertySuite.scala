@@ -29,7 +29,6 @@ class CarriedDecisionsPropertySuite extends HedgehogSuite {
     // nothing.
     val ids: Vector[String] =
       base.keys.filter(r.watchedEntities).toVector.sorted
-    val surfaceIds: List[String] = d.surfaces.keys.toList.sorted
   }
 
   private def fixture(e: FixtureEntries.Entry): Fixture = {
@@ -78,35 +77,22 @@ class CarriedDecisionsPropertySuite extends HedgehogSuite {
         f.r
           .renderBodyTraced(
             shared,
-            Viewing(
-              Selections.none,
-              RenderGoldenSuite.answers(f.r, f.d, shared, Nil)
-            )
+            Viewing(RenderGoldenSuite.answers(f.r, f.d, shared, Nil))
           )
           .html
       case Read.Everything =>
         val body = f.r.renderBodyTraced(
           shared,
-          Viewing(
-            Selections.none,
-            RenderGoldenSuite.answers(f.r, f.d, shared, Nil)
-          )
+          Viewing(RenderGoldenSuite.answers(f.r, f.d, shared, Nil))
         )
-        val nodes = (body.own.keys ++ f.surfaceIds
-          .flatMap(f.r.surfaces.popupSpelling)
-          .flatMap(f.r.surfaceNodeIds)).toList.distinct.sorted
+        val nodes = body.own.keys.toList.sorted
         val answers = RenderGoldenSuite.answers(f.r, f.d, shared, nodes)
         (body.html ::
-          f.surfaceIds.flatMap(
-            f.r
-              .renderSurfaceTraced(_, shared, Viewing(Selections.none, answers))
-              .map(_.html)
-          ) ++
           nodes.flatMap(
             f.r.renderNodeById(
               _,
               shared,
-              Viewing(Selections.none, answers),
+              Viewing(answers),
               SlotForm.Patch
             )
           )).mkString("\n")

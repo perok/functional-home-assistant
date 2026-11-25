@@ -155,14 +155,14 @@ class OracleSuite extends HedgehogSuite {
 
   private val CallPress = """sse/call/[^/]+/([^?/]+)""".r.unanchored
 
-  /** What a viewer may press that the oracle drives: a variable's choice and
-    * the popup routes.
+  /** What a viewer may press that the oracle drives: a variable's choice, a
+    * popup's open among them.
     */
   private def drivable(b: FakeBrowser, r: Renderer): List[String] =
     b.page.presses.filter {
       case CallPress(id) =>
         r.callOf(CallId.parse(id)).exists(_.decl.isInstanceOf[CallDecl.SetVar])
-      case p => p.contains("/open/") || p.contains("sse/popup/")
+      case _ => false
     }
 
   private def run(
@@ -332,8 +332,8 @@ class OracleSuite extends HedgehogSuite {
   }
 
   /** A popup opened while the stream is down waits in the backlog; the
-    * reconnect's request still says none, and taking it over the backlog left
-    * the dialog on screen with `ui_popups` empty.
+    * reconnect must keep it, or the dialog stays on screen with the variable
+    * empty.
     */
   test(
     "taps: a popup opened while the stream was down survives the reconnect"

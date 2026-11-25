@@ -157,11 +157,11 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       // of the request body. Sent once: no retry posts a stale press.
       assert(
         html.contains(
-          "{retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+          "{retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
         ),
         clue = html
       )
-      // A more-info tap is guarded too: the open answers once the popup's
+      // A more-info tap is guarded too: the choice answers once the popup's
       // fetches have resolved, and a chart's fetch is a wait (issue #412).
       assert(html.contains("data-indicator=\"_c_1__busy\""), clue = html)
       assert(html.contains("data-on:click=\"$_c_1__busy"), clue = html)

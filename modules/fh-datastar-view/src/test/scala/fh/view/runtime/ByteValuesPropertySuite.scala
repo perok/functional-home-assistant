@@ -114,7 +114,7 @@ class ByteValuesPropertySuite extends HedgehogSuite {
     } yield {
       val r = Renderer.create(dashboard(signal))
       val id = NodeId.derived("c")
-      val viewing = Viewing(Selections.none, FetchSnapshot.empty)
+      val viewing = Viewing(FetchSnapshot.empty)
       val recorded = r.renderBodyTraced(at(v), viewing).own.values.head.values
       def values(s: String) = r.byteSlotValues(id, at(s), FetchSnapshot.empty)
       def bytes(s: String) = r.renderNodeById(id, at(s), viewing)
@@ -137,7 +137,7 @@ class ByteValuesPropertySuite extends HedgehogSuite {
     } yield {
       val r = Renderer.create(setDashboard(signal))
       val mid = NodeId.derived(r.members.memberIdOf(setId("c"), "alpha"))
-      val viewing = Viewing(Selections.none, FetchSnapshot.empty)
+      val viewing = Viewing(FetchSnapshot.empty)
       val recorded = r.renderBodyTraced(at(v), viewing).own.get(mid)
       def values(s: String) = r.byteSlotValues(mid, at(s), FetchSnapshot.empty)
       def bytes(s: String) = r.renderNodeById(mid, at(s), viewing)

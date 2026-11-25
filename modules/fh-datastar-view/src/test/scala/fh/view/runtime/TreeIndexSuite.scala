@@ -52,24 +52,18 @@ class TreeIndexSuite extends munit.FunSuite {
       val r =
         Renderer(d.validated().fold(errs => fail(errs.mkString), identity))
       val shared = RenderGoldenSuite.declaredViewer(r, states)
-      val v = Viewing(
-        Selections.none,
-        RenderGoldenSuite.answers(r, d, shared, Nil)
-      )
+      val v = Viewing(RenderGoldenSuite.answers(r, d, shared, Nil))
       val rendered: Set[NodeId] =
         r.renderBodyTraced(shared, v).own.keySet ++
-          d.surfaces.keys
-            .flatMap(r.renderSurfaceTraced(_, shared, v))
-            .flatMap(_.own.keySet) ++
           d.picks.toList
             .flatMap((gid, p) => p.cases.indices.map(gid -> _))
             .flatMap((gid, i) => r.renderCaseTraced(gid, i, shared, v))
             .flatMap(_._2.own.keySet)
       val byId: Map[NodeId, List[Ix]] = d.index.all.toList.groupBy(d.index.id)
       assertEquals(rendered -- byId.keySet, Set.empty[NodeId])
-      // A container is the page's root, a popup's root or a pick's case.
+      // A container is the page's root or a pick's case.
       val containers: Set[Ix] =
-        d.index.roots.toSet ++
+        Set(d.index.root) ++
           d.picks.values.flatMap(_.cases).flatMap(d.index.ixsOf)
       val wrong = byId.toList.flatMap { (id, ixs) =>
         ixs.filterNot(ix => containers(d.index.container(ix))).map(id -> _)

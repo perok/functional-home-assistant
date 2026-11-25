@@ -102,14 +102,17 @@ class CursorSuite extends munit.FunSuite {
     assertEquals(Server.resumeFrom(signals(whole), c), 7L)
   }
 
-  /** What every page load sends: the shell seeds `conn` and the popup, both in
-    * [[Server.SseInclude]], so the store is never `{}`. Read as a reconnect,
-    * each load warned and resumed from its own version (D1's finding).
+  /** What every page load sends: the shell seeds `conn` and the page's `popups`
+    * variable, both in [[Server.SseInclude]], so the store is never `{}`. Read
+    * as a reconnect, each load warned and resumed from its own version (D1's
+    * finding).
     */
-  test("a first connect's store carries conn and the popup, and no cursor") {
+  test(
+    "a first connect's store carries conn and the popups variable, and no cursor"
+  ) {
     val firstStore =
       s"""{"${Server.ConnSignal}":"c1",""" +
-        s""""${Server.UiSignalPrefix}${fh.view.model.Dashboard.PopupHostId}":""}"""
+        s""""$popupsSignal":""}"""
     val req =
       get(
         params + "&datastar=" + java.net.URLEncoder.encode(firstStore, "UTF-8")
@@ -127,6 +130,9 @@ class CursorSuite extends munit.FunSuite {
     assertEquals(Server.resumeFrom(again, Server.Cursor("h", "s", "L", 7L)), 7L)
   }
 
+  private val popupsSignal =
+    VarKey(fh.view.model.Dashboard.PageRootId, "popups").committedSignal
+
   test("the SSE include actually names everything a reconnect must carry") {
     // The include and the default exclude are ANDed, so this regex is all a
     // reconnect tells the server, and a wrong one degrades resume silently.
@@ -137,7 +143,7 @@ class CursorSuite extends munit.FunSuite {
       Server.cursorParam(Server.LogIdSignal),
       Server.cursorParam(Server.StoreVersionSignal),
       Server.ConnSignal,
-      Server.UiSignalPrefix + fh.view.model.Dashboard.PopupHostId
+      popupsSignal
     ).foreach(n =>
       assert(include.findFirstIn(n).isDefined, clue = (n, Server.SseInclude))
     )

@@ -77,7 +77,7 @@ class ChartSlotSuite extends munit.FunSuite {
   private def fragments(bytes: String = svg, version: Long = 100L) =
     FetchSnapshot.of(Map(read -> Staged(version, bytes)))
 
-  private def rootId(d: Dashboard) = LayoutNode.rootId("", d.card)
+  private def rootId(d: Dashboard) = LayoutNode.rootId(d.card)
 
   test("a series slot renders its chart into the page") {
     val d = dashboardWith("{{{chart}}}")
@@ -86,7 +86,7 @@ class ChartSlotSuite extends munit.FunSuite {
         .create(d)
         .renderBodyTraced(
           Shared.of(states),
-          Viewing(Selections.none, fragments())
+          Viewing(fragments())
         )
         .html
     assert(html.contains(svg), clue = html)
@@ -109,7 +109,7 @@ class ChartSlotSuite extends munit.FunSuite {
     def body(f: FetchSnapshot) =
       Renderer
         .create(d)
-        .renderBodyTraced(Shared.of(states), Viewing(Selections.none, f))
+        .renderBodyTraced(Shared.of(states), Viewing(f))
         .html
     val failed =
       body(FetchSnapshot.of(Map(read -> Staged.failed(stage))))
@@ -146,10 +146,7 @@ class ChartSlotSuite extends munit.FunSuite {
       )
       .renderBodyTraced(
         Shared.of(states),
-        Viewing(
-          Selections.none,
-          FetchSnapshot.of(Map(read -> Staged.failed(stage)))
-        )
+        Viewing(FetchSnapshot.of(Map(read -> Staged.failed(stage))))
       )
       .html
     assert(html.contains(expected), html)
@@ -164,7 +161,7 @@ class ChartSlotSuite extends munit.FunSuite {
         .create(d)
         .renderBodyTraced(
           Shared.of(states),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
     )
     assertEquals(e.status, 500)
@@ -177,7 +174,7 @@ class ChartSlotSuite extends munit.FunSuite {
         .create(d)
         .renderBodyTraced(
           Shared.of(states),
-          Viewing(Selections.none, fragments())
+          Viewing(fragments())
         )
         .html
     assert(html.contains(svg), clue = html)

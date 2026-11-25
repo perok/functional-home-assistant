@@ -53,9 +53,7 @@ class RenderGoldenSuite extends munit.FunSuite {
     val r = Renderer(
       d.validated().fold(errs => fail(errs.mkString("; ")), identity)
     )
-    val surfaceIds = d.surfaces.keys.toList.sorted
     val caseIds = d.picks.values.toList.flatMap(_.cases).distinct.sorted
-    val fresh = Selections.none
     val out = new StringBuilder
     val fixtured = scala.collection.mutable.Map.empty[String, String]
     def section(house: String, part: String, body: String): Unit =
@@ -71,31 +69,25 @@ class RenderGoldenSuite extends munit.FunSuite {
       val body =
         r.renderBodyTraced(
           shared,
-          Viewing(fresh, RenderGoldenSuite.answers(r, d, shared, Nil))
+          Viewing(RenderGoldenSuite.answers(r, d, shared, Nil))
         )
       val nodes =
-        (body.own.keys ++
-          (surfaceIds.flatMap(r.surfaces.popupSpelling) ++ caseIds)
-            .flatMap(r.surfaceNodeIds)).toList.distinct.sorted
+        (body.own.keys ++ caseIds.flatMap(
+          r.surfaceNodeIds
+        )).toList.distinct.sorted
       val f = RenderGoldenSuite.answers(r, d, shared, nodes)
       section(houseName, "body", body.html)
-      surfaceIds.foreach { sid =>
-        r.renderSurfaceTraced(sid, shared, Viewing(fresh, f))
-          .foreach(t => section(houseName, s"surface $sid", t.html))
-      }
       caseIds.foreach { id =>
         r.surfaces
           .pickShowing(id, shared)
-          .flatMap((gid, i) =>
-            r.renderCaseTraced(gid, i, shared, Viewing(fresh, f))
-          )
+          .flatMap((gid, i) => r.renderCaseTraced(gid, i, shared, Viewing(f)))
           .foreach((_, t) => section(houseName, s"case $id", t.html))
       }
       nodes.foreach { id =>
         r.renderNodeById(
           id,
           shared,
-          Viewing(fresh, f),
+          Viewing(f),
           SlotForm.Patch
         ).foreach(html => section(houseName, s"patch $id", html))
       }
@@ -138,12 +130,12 @@ class RenderGoldenSuite extends munit.FunSuite {
     )
   }
 
-  test("normaliseIds numbers every shape of node id by first appearance") {
+  test("normaliseIds numbers every derived node id by first appearance") {
     val page =
       """<div id="c_0" data-fh-node="c_0_light_kitchen"></div>""" +
         """<div id="c_0_light_kitchen" data-signals="{_c_0__x: 1, _var_c_0__tab: 'a'}">""" +
-        """<span data-text="$_s_c_1_self__c__busy $v.c_0.tab"></span>""" +
-        """<div id="s_c_1_self"></div>patch c_1 #c_1 fh-cell"""
+        """<span data-text="$_c_1_0__busy $v.c_0.tab"></span>""" +
+        """<div id="c_1_0_0"></div>patch c_1 #c_1 fh-cell"""
     assertEquals(
       RenderGoldenSuite.normaliseIds(page),
       """<div id="n#1" data-fh-node="n#2"></div>""" +
@@ -226,14 +218,11 @@ object RenderGoldenSuite {
       nodes: List[NodeId]
   ): FetchSnapshot = {
     val env = r.vars.env(Map.empty)
-    val sel = Selections.none
+    // Every case's nodes too: a golden renders each case, shown or not.
+    val cases = d.picks.values.flatMap(_.cases).flatMap(r.surfaceNodeIds)
     val reads: List[SlotRead] =
-      r.fetchesForPage(r.surfaces.selectedSurfaces(sel), shared, env) ++
-        (d.surfaces.keys.flatMap(r.surfaces.popupSpelling) ++
-          d.picks.values.flatMap(_.cases)).toList.flatMap(
-          r.fetchesForSurface(_, shared, sel, env)
-        ) ++
-        r.readsForPull(nodes, Nil, shared, sel, env)
+      r.fetchesForPage(Set.empty, shared, env) ++
+        r.readsForPull((nodes ++ cases).distinct, Nil, shared, env)
     FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap, env)
   }
 
@@ -255,12 +244,11 @@ object RenderGoldenSuite {
 
   val AgainstProp = "FH_GOLDENS_AGAINST"
 
-  /** A node id in any of its spellings: a path id (`c_0_light_kitchen`), or a
-    * surface's (`s_<id>` alone or `s_<id>__c_0`). Joined by single underscores,
-    * so a signal's `__name` ends it.
+  /** A derived node id (`c_0_light_kitchen`). Joined by single underscores, so
+    * a signal's `__name` ends it.
     */
   private val NodeIdToken =
-    """(?<![A-Za-z0-9])(?:s_[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*(?:__c(?:_[A-Za-z0-9]+)*)?|c(?:_[A-Za-z0-9]+)*)(?![A-Za-z0-9])""".r
+    """(?<![A-Za-z0-9])c(?:_[A-Za-z0-9]+)*(?![A-Za-z0-9])""".r
 
   /** Every node id becomes `n#<k>`, `k` counting distinct ids by first
     * appearance, so a change that only moves ids compares equal.

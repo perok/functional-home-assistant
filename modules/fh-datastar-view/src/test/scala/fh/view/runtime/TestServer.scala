@@ -390,10 +390,8 @@ final class TestServer(
   /** A stream from a browser this server holds no session for, so only `cursor`
     * can decide what it is owed; see [[TestServer.reconnect]].
     */
-  def reconnect(
-      cursor: Option[Server.Cursor],
-      popup: Option[String] = None
-  ): IO[String] = TestServer.reconnect(gatedApp, slug, cursor, popup)
+  def reconnect(cursor: Option[Server.Cursor]): IO[String] =
+    TestServer.reconnect(gatedApp, slug, cursor)
 }
 
 object TestServer {
@@ -473,14 +471,13 @@ object TestServer {
     def leave: IO[Unit] = ts.sessions.deregisterIf(document.conn, session)
   }
 
-  /** Carrying `cursor` and `popup` as a reconnect's signals do, read up to its
-    * cursor or its reload.
+  /** Carrying `cursor` as a reconnect's signals do, read up to its cursor or
+    * its reload.
     */
   def reconnect(
       app: HttpApp[IO],
       slug: String,
-      cursor: Option[Server.Cursor],
-      popup: Option[String]
+      cursor: Option[Server.Cursor]
   ): IO[String] = {
     val signals = cursor.toList.map(c =>
       s""""${Server.CursorSignal}":{""" +
@@ -488,8 +485,6 @@ object TestServer {
         s""""${Server.StyleHashSignal}":"${c.styleHash}",""" +
         s""""${Server.LogIdSignal}":"${c.logId}",""" +
         s""""${Server.StoreVersionSignal}":${c.version}}"""
-    ) ++ popup.map(p =>
-      s""""${Server.UiSignalPrefix}${Dashboard.PopupHostId}":"$p""""
     )
     val stream = Uri.unsafeFromString(s"/sse/dashboard/$slug/patch")
     val uri =

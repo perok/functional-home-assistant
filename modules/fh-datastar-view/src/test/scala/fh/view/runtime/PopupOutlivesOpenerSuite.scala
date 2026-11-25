@@ -5,7 +5,6 @@ import fh.view.model.Dashboard
 import fh.view.testkit.{FixtureEntity, HouseFixture}
 
 import scala.concurrent.duration.*
-import scala.util.chaining.*
 
 /** A popup outlives its opener: the opener leaving the page, a set member or a
   * tab panel, is a patch of its own host and leaves the popup open.
@@ -55,39 +54,29 @@ class PopupOutlivesOpenerSuite extends munit.CatsEffectSuite {
   private def served[A](entry: String)(f: TestServer => IO[A]): IO[A] =
     TestServer.fromWorkspace("outlives", entry, entities).use(f)
 
-  /** The popup a tap on the page opens whose id names `entity`, or the one
-    * popup there is.
-    */
-  private def popupFor(ts: TestServer, entity: FixtureEntity): IO[String] =
-    ts.page().map { html =>
-      val object_id = entity.entityId.split('.').last
-      "open/([A-Za-z0-9_]+)".r
-        .findAllMatchIn(html)
-        .map(_.group(1))
-        .toList
-        .distinct
-        .pipe(ids =>
-          ids
-            .find(_.contains(object_id))
-            .orElse(ids.headOption.filter(_ => ids.sizeIs == 1))
-        )
-        .getOrElse(sys.error(s"no popup for ${entity.entityId}"))
-    }
+  /** Its more-info popup's id (`components/popup.pkl`'s `idFor`). */
+  private def moreInfoOf(entity: FixtureEntity): String =
+    s"moreinfo_${entity.entityId.replace('.', '_')}"
 
-  private val closes = s"#${Dashboard.PopupHostId} > *"
+  private val popups = VarKey(Dashboard.PageRootId, "popups")
+
+  private val closes = "#popups > *"
 
   test("a set member's more-info stays open when the member leaves") {
     served(setEntry)(ts =>
       for {
-        sid <- popupFor(ts, kitchen)
-        v <- ts.viewer(s"?ui.${Dashboard.PopupHostId}=$sid")
+        v <- ts.viewer(s"?v.popups=${moreInfoOf(kitchen)}")
         left <- v.step(kitchen.copy(state = "off"))
         state <- v.session.state
       } yield {
         val sent = left.map(_.render).mkString("\n")
         assert(left.nonEmpty, clue = "the member's leave reached nobody")
         assert(!sent.contains(closes), clue = sent)
-        assertEquals(state.open.size, 1, clue = state.open)
+        assertEquals(
+          state.vars.get(popups),
+          Some(moreInfoOf(kitchen)),
+          clue = state.vars
+        )
       }
     )
   }
@@ -95,8 +84,7 @@ class PopupOutlivesOpenerSuite extends munit.CatsEffectSuite {
   test("a tab panel's more-info stays open when the tab switches away") {
     served(tabsEntry)(ts =>
       for {
-        sid <- popupFor(ts, kitchen)
-        v <- ts.viewer(s"?ui.${Dashboard.PopupHostId}=$sid")
+        v <- ts.viewer(s"?v.popups=${moreInfoOf(kitchen)}")
         r <- ts.server
           .liveSlug(ts.slug)
           .flatMap(_.renderer.get)
@@ -110,7 +98,11 @@ class PopupOutlivesOpenerSuite extends munit.CatsEffectSuite {
       } yield {
         assert(sent.contains("bee"), clue = (switched, sent))
         assert(!sent.contains(closes), clue = sent)
-        assertEquals(state.open.size, 1, clue = state.open)
+        assertEquals(
+          state.vars.get(popups),
+          Some(moreInfoOf(kitchen)),
+          clue = state.vars
+        )
       }
     )
   }

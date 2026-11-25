@@ -101,7 +101,6 @@ class ChosenFillSuite extends munit.FunSuite {
     "a chain's cases are nodes at their slot positions, the otherwise last"
   ) {
     val d = dash(stateHost)
-    assertEquals(d.surfaces, Map.empty)
     assertEquals(
       d.picks.values.map(_.cases).toList,
       List(List("c_branch_0", "c_branch_1", "c_branch_2", "c_branch_3"))

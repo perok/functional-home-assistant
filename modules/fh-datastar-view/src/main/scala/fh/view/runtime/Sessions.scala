@@ -205,11 +205,9 @@ final class Session private (
       )
     )
 
-  /** Deliver to `outlet` from now on, the backlog first; whether there was one.
-    * When there was, the request that opened `outlet` predates those frames.
-    */
-  def attach(outlet: Outlet): IO[Boolean] =
-    Deferred[IO, Boolean].flatMap(reply =>
+  /** Deliver to `outlet` from now on, the backlog first. */
+  def attach(outlet: Outlet): IO[Unit] =
+    Deferred[IO, Unit].flatMap(reply =>
       submit(Command.Attach(outlet, reply)) *> reply.get
     )
 
@@ -292,7 +290,7 @@ final class Session private (
           .foldMapM(_.takeAll)
           .map(_ ++ backlog)
           .flatTap(next.put)
-          .flatMap(unsent => reply.complete(unsent.nonEmpty))
+          .flatMap(_ => reply.complete(()))
           .as((current, Vector.empty, Some(next)))
       case Command.Detach(gone) if outlet.exists(_ eq gone) =>
         gone.takeAll.map(left => (current, left ++ backlog, None))
@@ -348,7 +346,7 @@ object Session {
         step: SessionState => IO[Step[A]],
         reply: Deferred[IO, Either[Throwable, A]]
     )
-    case Attach(outlet: Outlet, reply: Deferred[IO, Boolean])
+    case Attach(outlet: Outlet, reply: Deferred[IO, Unit])
     case Detach(outlet: Outlet)
     case TakeBacklog(reply: Deferred[IO, List[SseFrame]])
 
@@ -356,7 +354,7 @@ object Session {
     def refuse: IO[Unit] = this match {
       case run: Run[?]        => run.reply.complete(Left(ended)).void
       case TakeBacklog(reply) => reply.complete(Nil).void
-      case Attach(_, reply)   => reply.complete(false).void
+      case Attach(_, reply)   => reply.complete(()).void
       case Detach(_)          => IO.unit
     }
   }

@@ -17,9 +17,8 @@ local lamp: hass.LightEntity = new {
 }
 
 local function wheelIn(t: Any): wheelMod.ColourWheel? =
-  if (t is tapMod.OpenSurface)
-    let (popup = t.inlineSurfaces["self"].content)
-      popup.children.toList().first as wheelMod.ColourWheel
+  if (t is tapMod.SetVar && !t.carries.isEmpty)
+    t.carries.first.children.toList().first as wheelMod.ColourWheel
   else null
 
 facts {
@@ -42,7 +41,7 @@ facts {
     root.contains(tapMod.guardMechanism) && w.slotsByName["busy"].value == true
     w.declared["tap"].service == "light/turn_on"
     w.declared["tap"].data.keys == Set("hs_color")
-    root.contains("{retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {'hs': $_{{id}}__hs}, seen: {{{tap.seen}}} } }")
+    root.contains("{retryMaxCount: 0, payload: {conn: $conn, posted: {'hs': $_{{id}}__hs}, seen: {{{tap.seen}}} } }")
     // A light with no colour mode has no wheel.
     module.catch(() -> wheelMod.colourWheel(new hass.LightEntity { entity_id = "light.dim" }).slots)
       .contains("colour != null")

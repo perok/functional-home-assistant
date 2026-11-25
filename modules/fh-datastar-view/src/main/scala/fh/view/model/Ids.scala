@@ -12,8 +12,8 @@ opaque type NodeId <: String = String
 
 object NodeId {
 
-  /** The derivations are [[LayoutNode.pathId]], [[LayoutNode.surfacePrefix]]
-    * and [[fh.view.runtime.MemberGraph.memberIdOf]]; any other source is a bug.
+  /** The derivations are [[LayoutNode.pathId]] and
+    * [[fh.view.runtime.MemberGraph.memberIdOf]]; any other source is a bug.
     */
   private[view] def derived(s: String): NodeId = s
 }
@@ -46,8 +46,7 @@ object MemberId {
   private[view] def of(id: NodeId): MemberId = id
 }
 
-/** A patch target: a node's `.fh-cell`, a pick's host, the theme's `popups`.
-  * Never a log key.
+/** A patch target: a node's `.fh-cell` or a pick's host. Never a log key.
   */
 opaque type DomId <: String = String
 

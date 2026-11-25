@@ -84,8 +84,6 @@ object Scene {
           c.set.toList.flatMap((_, s) => s.candidates ++ s.nodes.flatMap(walk))
     }
 
-    (walk(d.card) ++ d.surfaces.values.toList.flatMap(s =>
-      walk(s.content)
-    )).distinct
+    walk(d.card).distinct
   }
 }

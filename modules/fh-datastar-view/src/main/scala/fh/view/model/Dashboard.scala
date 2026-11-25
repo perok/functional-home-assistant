@@ -719,13 +719,6 @@ object Op:
       .toRight(s"unknown op: $s")
   )
 
-/** How a popup becomes visible: by a tap, optionally from the first paint. The
-  * selection is per connection (ADR 0005). A choice's case is shown by its pick
-  * ([[Dashboard.picks]]), not by this; R5 moves popups onto one too.
-  */
-enum Activation derives ConfiguredDecoder:
-  case User(defaultOpen: Boolean = false)
-
 sealed trait LayoutNode extends LayoutNode.Identified
     derives ConfiguredDecoder {
 
@@ -845,9 +838,7 @@ object LayoutNode:
 
   /** The default region contributes only its index, keeping a tab URL's
     * `ui.<id>` short. `validate` rejects an all-digit region name, so the two
-    * shapes cannot be confused. Public because the build's inline-surface hoist
-    * must reach the same ids; a second spelling fails silently, with
-    * `@@NODE_ID@@` reaching the DOM.
+    * shapes cannot be confused.
     */
   def segment(s: Step): String =
     if s.region == DefaultRegion then s.index.toString
@@ -862,24 +853,13 @@ object LayoutNode:
   def pathId(path: List[Step]): NodeId =
     NodeId.derived(if path.isEmpty then "c" else s"c_${segments(path)}")
 
-  def rootId(prefix: String, node: Identified): NodeId =
-    NodeId.derived(prefix + node.authoredId.getOrElse("c"))
+  def rootId(node: Identified): NodeId =
+    NodeId.derived(node.authoredId.getOrElse("c"))
 
-  /** An authored id still carries `prefix`: the runtime attributes a node to
-    * its surface by prefix, and two surfaces could otherwise share a name.
-    */
-  def childId(
-      prefix: String,
-      parent: NodeId,
-      step: Step,
-      child: Identified
-  ): NodeId =
-    child.authoredId.fold(NodeId.derived(s"${parent}_${segment(step)}"))(a =>
-      NodeId.derived(prefix + a)
+  def childId(parent: NodeId, step: Step, child: Identified): NodeId =
+    child.authoredId.fold(NodeId.derived(s"${parent}_${segment(step)}"))(
+      NodeId.derived
     )
-
-  def nodeId(prefix: String, path: List[Step]): NodeId =
-    NodeId.derived(prefix + pathId(path))
 
   /** Name order, for a reproducible walk; each step names its own region. */
   def steps[N](children: Map[String, List[N]]): List[(Step, N)] =
@@ -922,9 +902,7 @@ object LayoutNode:
     (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
       (c >= '0' && c <= '9') || c == '_'
 
-  /** Also spelled by the build's inline-surface hoist, which sees JSON; no
-    * clause index, since one case of a member renders.
-    */
+  /** No clause index, since one case of a member renders. */
   def memberSegment(setId: String, key: String): String =
     s"${setId}_${sanitize(key)}"
 
@@ -945,7 +923,6 @@ object LayoutNode:
     * [[innerSetId]], everything else's [[childId]].
     */
   def childIdWithin(
-      prefix: String,
       parent: NodeId,
       step: Step,
       child: LayoutNode,
@@ -954,14 +931,8 @@ object LayoutNode:
     (child, within) match {
       case (c: Component, Some((member, clause, path))) if c.set.isDefined =>
         innerSetId(member, clause, path :+ step)
-      case _ => childId(prefix, parent, step, child)
+      case _ => childId(parent, step, child)
     }
-
-  def surfaceRootId(surfaceId: String): String = s"s_${sanitize(surfaceId)}"
-
-  /** `s_<id>__c_0`; the same scheme as the build-phase hoist. */
-  def surfacePrefix(surfaceId: String): String =
-    s"${surfaceRootId(surfaceId)}__"
 
 /** All presentation, so the server is tied to no CSS framework.
   *
@@ -990,35 +961,6 @@ case class Theme(
     classes: ThemeClasses = ThemeClasses.empty
 ) derives ConfiguredDecoder
 
-/** A popup, rendered only while open, into the page card's `popups` group
-  * ([[Dashboard.PopupHostId]]). Bare: the frame around it lives in the popup
-  * card. A choice's case is a node, not a surface ([[Dashboard.picks]]).
-  */
-case class Surface(
-    content: LayoutNode,
-    activation: Activation = Activation.User(false)
-) derives ConfiguredDecoder
-
-object Surface:
-
-  /** A pick's id: its host's, and inside a set member's clause
-    * `<host>_k<clause>`, since every clause of a member gives its nodes the
-    * same ids, so two clauses' sliders would pool their heads into one pick
-    * (#556). No derived node id has a lone `k<n>` segment, since a step is an
-    * index or `<region>_<index>` ([[LayoutNode.segment]]) and an entity id
-    * carries a `.`.
-    */
-  def groupId(host: NodeId, clause: Option[Int]): NodeId =
-    clause.fold(host)(k => NodeId.derived(s"${host}_k$k"))
-
-  /** What a variable-selected group's members are selected at, for a message:
-    * an index group as the range an author thinks of.
-    */
-  def membersText(values: List[String]): String =
-    if (values == values.indices.map(_.toString).toList)
-      s"a member index (0..${values.size - 1})"
-    else s"one of its members' values (${values.mkString(", ")})"
-
 /** The build phase's artifact.
   *
   *   - `card`: the tree's root, a built dashboard's page card (`core/page.pkl`,
@@ -1037,7 +979,6 @@ case class Dashboard(
     cards: Map[String, CardDef],
     card: LayoutNode,
     theme: Theme = Theme(),
-    surfaces: Map[String, Surface] = Map.empty,
     slug: String = "dashboard",
     title: Option[String] = None,
     css: String = "",
@@ -1046,8 +987,8 @@ case class Dashboard(
 ):
 
   /** Every registered card, not only those used: pruning would have to account
-    * for surfaces and set clauses (ADR 0020's open work). Distinct, since a
-    * card's variants (`button`, `buttonLink`) share one stylesheet.
+    * for unshown cases and set clauses (ADR 0020's open work). Distinct, since
+    * a card's variants (`button`, `buttonLink`) share one stylesheet.
     */
   lazy val cardCss: String =
     cards.toList
@@ -1084,7 +1025,7 @@ case class Dashboard(
           )
     }
 
-    (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
+    walk(card).toSet
   }
 
   /** Every call a node of this dashboard places, by id: the allowlist for the
@@ -1097,7 +1038,7 @@ case class Dashboard(
           c.set.toList.flatMap((_, s) => s.nodes.flatMap(walk))
     }
 
-    (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content)))
+    walk(card)
       .map(d => d.id -> d)
       .toMap
   }
@@ -1121,12 +1062,10 @@ case class Dashboard(
     // A call is evaluated at the press, and an entity only a call or a set
     // call's guard names would otherwise be missing from the store.
     referencedEntities ++ calls.values.flatMap(_.all.flatMap(_.entities)) ++
-      deciders(card) ++ surfaces.values.toList.flatMap(s =>
-        deciders(s.content)
-      ) ++ picks.values.flatMap(_.choice.by.entities)
+      deciders(card) ++ picks.values.flatMap(_.choice.by.entities)
   }
 
-  /** Every nodes slot's `Chosen` fill, by its id ([[Surface.groupId]]), with
+  /** Every nodes slot's `Chosen` fill, by its id ([[Dashboard.pickId]]), with
     * its cases' node ids: case `i` has the id a fixed node at index `i` of the
     * slot would, the otherwise after the cases
     * ([[LayoutNode.Component.slotNodes]]). The build's hoist walks the cases
@@ -1150,7 +1089,7 @@ case class Dashboard(
       .toMap
 
   /** Every node, the one walk minting ids ([[TreeIndex]]). */
-  lazy val index: TreeIndex = TreeIndex.of(card, surfaces)
+  lazy val index: TreeIndex = TreeIndex.of(card)
 
   /** Human-readable errors, empty when valid. `locateTransform` maps a
     * transform to a source location for the message.
@@ -1184,14 +1123,12 @@ case class Dashboard(
     )
 
   def allFetches: List[SlotRead] =
-    (fetchesIn(card) ++ surfaces.values.toList.flatMap(s =>
-      fetchesIn(s.content)
-    )).distinct
+    fetchesIn(card)
 
   /** Every expression a decision reads, beside where it is read: a set's
-    * clauses and order, a `valueWhile` and the inputs it reads, a state
-    * surface, a set a press acts on. Each asks its fetches every version, so
-    * none reads a window a variable chooses.
+    * clauses and order, a `valueWhile` and the inputs it reads, a choice over
+    * state, a set a press acts on. Each asks its fetches every version, so none
+    * reads a window a variable chooses.
     */
   lazy val decisionExprs: List[(String, ValueExpr)] = {
     def walk(n: LayoutNode): List[(String, ValueExpr)] = n match
@@ -1214,20 +1151,18 @@ case class Dashboard(
     walk(card) ++ picks.toList.sortBy(_._1).collect {
       case (gid, p) if p.choice.by.variables.isEmpty =>
         s"the choice at '$gid'" -> p.choice.by
-    } ++ surfaces.toList.sortBy(_._1).flatMap((_, s) => walk(s.content)) ++
-      calls.toList
-        .sortBy(_._1)
-        .flatMap((_, d) => d.all.map(d.named -> _))
+    } ++ calls.toList
+      .sortBy(_._1)
+      .flatMap((_, d) => d.all.map(d.named -> _))
   }
 
   /** Every fetch a decision reads ([[decisionExprs]]), beside where. */
   lazy val decisionFetches: List[(String, FetchTemplate)] =
     decisionExprs.flatMap((where, e) => e.fetches.map(where -> _)).distinct
 
-  /** Node variables in scope at every node, by name (issue #209). A popup is
-    * its own scope root, since one content may be opened from many places. A
-    * choice's case is a node below its host, so a chooser above a tab bar
-    * reaches the charts in its panels. A set member is walked under its own id
+  /** Node variables in scope at every node, by name (issue #209). A choice's
+    * case is a node below its host, so a chooser above a tab bar reaches the
+    * charts in its panels. A set member is walked under its own id
     * ([[LayoutNode.memberSegment]], static since the candidates are), starting
     * from the set's scope, so a clause's declaration is that member's own
     * (#556). Every clause of a candidate shares the id, so their scopes merge:
@@ -1263,9 +1198,8 @@ case class Dashboard(
     * decision's window is written down (`validate`), so a slot's are all.
     */
   lazy val choiceBys: List[ValueExpr] =
-    (scopedSlots(card, Map.empty) ++ surfaces.values.toList.flatMap(s =>
-      scopedSlots(s.content, Map.empty)
-    )).flatMap(_._1.fetches)
+    scopedSlots(card, Map.empty)
+      .flatMap(_._1.fetches)
       .collect { case SlotAsk(FetchTemplate(_, Choice.Chosen(by, _, _)), _) =>
         by
       }
@@ -1311,6 +1245,24 @@ case class Dashboard(
       case errs => Left(errs)
 
 object Dashboard:
+
+  /** A pick's id: its host's, and inside a set member's clause
+    * `<host>_k<clause>`, since every clause of a member gives its nodes the
+    * same ids, so two clauses' sliders would pool their heads into one pick
+    * (#556). No derived node id has a lone `k<n>` segment, since a step is an
+    * index or `<region>_<index>` ([[LayoutNode.segment]]) and an entity id
+    * carries a `.`.
+    */
+  def pickId(host: NodeId, clause: Option[Int]): NodeId =
+    clause.fold(host)(k => NodeId.derived(s"${host}_k$k"))
+
+  /** What a variable-selected group's members are selected at, for a message:
+    * an index group as the range an author thinks of.
+    */
+  def membersText(values: List[String]): String =
+    if (values == values.indices.map(_.toString).toList)
+      s"a member index (0..${values.size - 1})"
+    else s"one of its members' values (${values.mkString(", ")})"
 
   /** A node variable as seen from a node: who declared it, and how. */
   final case class InScope(declarer: NodeId, declaration: Declaration)
@@ -1407,12 +1359,6 @@ object Dashboard:
   /** What a failed read gives [[Dashboard.failedLabel]]. */
   val FailedLabelHoles: Set[String] = Set("text")
 
-  /** The page card's popup host (`core/page.pkl`). The dialog is a `popup` card
-    * composed into the surface's content, so the backend renders every surface
-    * bare.
-    */
-  val PopupHostId: DomId = DomId.derived("popups")
-
   /** The page card's node, the root of a built dashboard's tree. */
   val PageRootId: NodeId = NodeId.derived("root")
 
@@ -1433,7 +1379,7 @@ object Dashboard:
       cases: List[NodeId]
   ):
     def clause: Option[Int] = within.map(_._2)
-    def group: NodeId = Surface.groupId(host, clause)
+    def group: NodeId = Dashboard.pickId(host, clause)
 
   /** The vars the renderer gives every node, a pure function of its id. Here
     * rather than in `Renderer` so [[injectedStatic]] is derived from it.

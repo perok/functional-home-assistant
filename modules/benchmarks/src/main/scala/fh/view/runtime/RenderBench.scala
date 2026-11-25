@@ -22,14 +22,16 @@ import fh.view.model.{
   Step,
   Value,
   ValueExpr,
-  Surface,
+  Choice,
+  Fill,
+  Slot,
   TemplateSlot
 }
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.traverse.*
 import io.circe.Json
-import fh.view.testkit.{DashboardBuilders, Sets, Slots}
+import fh.view.testkit.{DashboardBuilders, Sets, Slots, TestPage}
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -355,7 +357,7 @@ class RenderBench {
   // a more-info per leaf, none open.
   private var popups: Renderer = null
   private var popupShared: Shared = null
-  private var popupSpellings: Vector[String] = null
+  private var popupCache: RenderCache = null
   private var heldPopupPage: Map[Ix, Held] = null
   private var heldPopupOpen: Map[Ix, Held] = null
   private var popupRot = 0
@@ -434,7 +436,7 @@ class RenderBench {
         signalled.renderNodeById(
           _,
           stShared,
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
       )
       .toList
@@ -546,27 +548,46 @@ class RenderBench {
     checkViewerShape()
     popups = Renderer.create(popupsDash(Leaves))
     popupShared = popups.shared(StoreState(st, 0L))
-    popupSpellings = Vector.tabulate(Leaves)(i =>
-      popups.surfaces
-        .popupSpelling(popupId(i))
-        .getOrElse(sys.error(s"no popup ${popupId(i)}"))
-    )
+    popupCache = RenderCache.create.unsafeRunSync()
     heldPopupPage = popups.renderPageTraced(st).painted.map { case (ix, p) =>
       ix -> p.held
     }
-    heldPopupOpen = popupFill(0)
-      .fold(sys.error("popupOpen fills nothing"))(
-        Patches.applied(popups.index, heldPopupPage, _)
-      )
+    heldPopupOpen = popupWrite(Some(popupId(0)), heldPopupPage)
+    if (heldPopupOpen.sizeIs <= heldPopupPage.size)
+      sys.error("popupOpen fills nothing")
+    if (popupWrite(None, heldPopupOpen).sizeIs >= heldPopupOpen.size)
+      sys.error("popupClose evicts nothing")
   }
 
-  private def popupFill(i: Int): Option[Addressed] =
-    Patches.popupFill(
+  /** What `Server.commitVars` does with a write of the page's `popups`: the
+    * pick it moves planned against `holds`, patched, and what the session then
+    * holds.
+    */
+  private def popupWrite(
+      value: Option[String],
+      holds: Map[Ix, Held]
+  ): Map[Ix, Held] = {
+    val env = popups.vars.env(value.fold(Map.empty)(v => Map(PopupsKey -> v)))
+    val at = popupShared.viewing(env)
+    val owing = Patches.written(
       popups,
-      Some(popupSpellings(i % Leaves)),
-      popupShared,
-      Viewing(Selections.none, FetchSnapshot.empty)
+      holds,
+      at,
+      Nil,
+      popups.vars.picksDecidedBy(PopupsKey)
     )
+    Patches
+      .patches(
+        popups,
+        popupCache,
+        holds,
+        at,
+        Viewing(FetchSnapshot.of(Map.empty, env)),
+        owing
+      )
+      .unsafeRunSync()
+      .foldLeft(holds)(Patches.applied(popups.index, _, _))
+  }
 
   /** One viewer opening a more-info over a page that holds [[Leaves]] of them:
     * the popup's render and what it leaves the session holding.
@@ -574,15 +595,13 @@ class RenderBench {
   @Benchmark
   def popupOpen(bh: Blackhole): Unit = {
     popupRot += 1
-    val patch = popupFill(popupRot)
-    bh.consume(patch.map(Patches.applied(popups.index, heldPopupPage, _)))
-    bh.consume(patch)
+    bh.consume(popupWrite(Some(popupId(popupRot % Leaves)), heldPopupPage))
   }
 
   /** Closing it: what the session stops holding. */
   @Benchmark
   def popupClose(bh: Blackhole): Unit =
-    bh.consume(heldPopupOpen -- popups.ixsOf(Patches.popupEvicts(popups)))
+    bh.consume(popupWrite(None, heldPopupOpen))
 
   /** [[publish]]'s frame against the page with a more-info per leaf, none open:
     * an unopened popup should cost the recorder nothing.
@@ -710,7 +729,6 @@ class RenderBench {
           s.env,
           version,
           s.open,
-          viewers.surfaces.selectionsIn(s.open),
           Patches.Coverage.Logged
         )
       }
@@ -739,7 +757,7 @@ class RenderBench {
       viewers.renderPageHolds(
         Sink.buffer(viewers.pageBytesHint),
         Shared.of(viewerPaint).viewing(s.env),
-        Viewing(s.selections, FetchSnapshot.of(Map.empty, s.env))
+        Viewing(FetchSnapshot.of(Map.empty, s.env))
       )
     )
   }
@@ -798,9 +816,8 @@ class RenderBench {
     */
   private def checkFillShape(): Unit = {
     val one = pullFlip(1).head
-    val filled = one.collect {
-      case Addressed(Patch.Fill(_, _, html, _), _, _) =>
-        html
+    val filled = one.collect { case Addressed(Patch.Fill(_, _, html, _), _) =>
+      html
     }
     if (filled.sizeIs != 1)
       sys.error(s"resumeFlip must emit exactly one host fill; got $one")
@@ -1204,7 +1221,7 @@ class RenderBench {
     val own = signalled.renderPageInto(
       Sink.streaming(w),
       stShared,
-      Viewing(Selections.none, FetchSnapshot.empty)
+      Viewing(FetchSnapshot.empty)
     )
     w.flush()
     bh.consume(own.size)
@@ -1231,7 +1248,7 @@ class RenderBench {
     val own = signalled.renderPageInto(
       Sink.streaming(w),
       stShared,
-      Viewing(Selections.none, FetchSnapshot.empty)
+      Viewing(FetchSnapshot.empty)
     )
     w.flush()
     bh.consume(own.size)
@@ -1263,7 +1280,7 @@ class RenderBench {
           val own = signalled.renderPageInto(
             Sink.streaming(w),
             stShared,
-            Viewing(Selections.none, FetchSnapshot.empty)
+            Viewing(FetchSnapshot.empty)
           )
           w.flush()
           own.size
@@ -1415,7 +1432,7 @@ class RenderBench {
     clauseSet.renderMemberTraced(
       clauseMember,
       Shared.of(states),
-      Viewing(Selections.none, FetchSnapshot.empty)
+      Viewing(FetchSnapshot.empty)
     )
 
   /** One flip, replayed from a cursor before it, for `clients` connections.
@@ -1839,7 +1856,6 @@ class RenderBench {
           Map.empty,
           at,
           Set.empty,
-          Selections.none,
           Patches.Coverage.Logged
         )
       }
@@ -1929,7 +1945,7 @@ class RenderBench {
   def tickRender(bh: Blackhole): Unit = {
     // One version for every node, as a pull reads it.
     val shared = Shared.of(signalTick(wireRot))
-    val viewing = Viewing(Selections.none, FetchSnapshot.empty)
+    val viewing = Viewing(FetchSnapshot.empty)
     tickNodeIds.foreach(id =>
       bh.consume(signalled.renderNodeById(id, shared, viewing))
     )
@@ -2044,7 +2060,7 @@ class RenderBench {
         signalled.renderNodeById(
           id,
           Shared.of(moved),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
       )
     }
@@ -2318,24 +2334,50 @@ object RenderBench {
 
   def popupId(i: Int): String = s"info_$i"
 
-  /** [[tree]] with a registered more-info per leaf: its entity's card and a
-    * second card of it, the shape `moreInfoBody` holds.
+  val PopupsKey: VarKey = VarKey(Dashboard.PageRootId, "popups")
+
+  /** [[tree]] in a page card whose `popups` holds a more-info per leaf, as
+    * `components/popup.pkl` collects them: a match over the page's `popups`,
+    * each case its entity's card and a second card of it, the shape
+    * `moreInfoBody` holds.
     */
-  def popupsDash(leaves: Int): Dashboard =
-    Dashboard(
-      cards,
-      tree(leaves, 4),
-      surfaces = List
-        .tabulate(leaves)(i =>
-          popupId(i) -> Surface(
-            LayoutNode.Component(
-              "col",
-              slots = Slots.kids(leaf(signals = true)(i), leaf(false)(i))
+  def popupsDash(leaves: Int): Dashboard = {
+    val page = TestPage.around(Dashboard(cards, tree(leaves, 4)))
+    val host = LayoutNode.Component(
+      "page_popups",
+      Map(
+        LayoutNode.DefaultRegion -> Slot.Nodes(
+          Fill.Nodes(
+            DashboardBuilders.chosenBy(
+              "popups",
+              List
+                .tabulate(leaves)(i =>
+                  popupId(i) -> List[LayoutNode](
+                    LayoutNode.Component(
+                      "col",
+                      slots =
+                        Slots.kids(leaf(signals = true)(i), leaf(false)(i)),
+                      id = Some(popupId(i))
+                    )
+                  )
+                )
+                .toMap
             )
           )
         )
-        .toMap
+      ),
+      id = Some("popups")
     )
+    page.copy(card = page.card match
+      case c: LayoutNode.Component =>
+        c.copy(
+          slots = c.slots.updated(
+            "popups",
+            Slot.Nodes(Fill.Nodes(Choice.Fixed(List(host))))
+          ),
+          vars = List(Dashboard.Declaration("popups", None, inHistory = true))
+        ))
+  }
 
   /** Leaves in EACH branch of the flip fixture. Smaller than [[Leaves]] on
     * purpose: a state group holds a section of a dashboard, not the whole page,
@@ -2529,7 +2571,6 @@ object RenderBench {
       tab: String,
       env: VarEnv,
       open: Set[String],
-      selections: Selections,
       holds: Map[Ix, Held]
   )
 
@@ -2539,16 +2580,14 @@ object RenderBench {
       tab: String
   ): ViewerSession = {
     val env = renderer.vars.env(Map(ViewerMode -> tab))
-    val selections = Selections.none
     ViewerSession(
       tab,
       env,
-      renderer.surfaces.selectedSurfaces(selections),
-      selections,
+      Set.empty,
       renderer.renderPageHolds(
         Sink.buffer(renderer.pageBytesHint),
         Shared.of(states).viewing(env),
-        Viewing(selections, FetchSnapshot.of(Map.empty, env))
+        Viewing(FetchSnapshot.of(Map.empty, env))
       )
     )
   }

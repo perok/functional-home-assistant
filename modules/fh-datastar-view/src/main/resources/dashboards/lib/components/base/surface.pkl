@@ -1,6 +1,6 @@
-/// The cards built on surfaces: a tab bar over one panel, and a conditional
+/// The cards built on a choice: a tab bar over one panel, and a conditional
 /// section whose branch live state chooses. Pure composition over
-/// `core/surface.pkl`; the backend never reads a card name (ADR 0002/0007).
+/// `core/choice.pkl`; the backend never reads a card name (ADR 0002/0007).
 module components.base.surface
 
 import "../../core/node.pkl" as nodeMod

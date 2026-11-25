@@ -71,7 +71,7 @@ class ChosenWindowSuite extends munit.FunSuite {
     val snapshot =
       FetchSnapshot.of(reads.map(q => q -> Staged(1L, s"<svg>$q</svg>")).toMap)
     reads -> r
-      .renderBodyTraced(shared, Viewing(Selections.none, snapshot))
+      .renderBodyTraced(shared, Viewing(snapshot))
       .html
 
   test("an entity's state picks the window, per version") {

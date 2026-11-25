@@ -11,7 +11,6 @@ import "choice.pkl" as choiceMod
 import "predicate.pkl" as predMod
 import "simple.pkl" as simpleMod
 import "slot.pkl" as slotMod
-import "surface.pkl" as surfaceMod
 import "tap.pkl" as tapMod
 import "text.pkl" as textMod
 import "variable.pkl" as varMod
@@ -264,8 +263,8 @@ abstract class Node extends LayoutNode {
   /// in [[slots]]; its other nodes slots are filled there.
   hidden children: Listing<LayoutNode> = new Listing {}
   /// The node variables this node declares ([[varMod]]). Its subtree is where
-  /// they apply, a tab panel or `If` branch included; a popup does not see the
-  /// page's.
+  /// they apply, a tab panel or `If` branch included; a popup is under the page
+  /// node, so it sees the page's.
   ///
   ///   local view = c.variable("view")
   ///   (c.column) {
@@ -287,10 +286,10 @@ abstract class Node extends LayoutNode {
   wireInputs: Map<String, Any>? =
     if (inputs.isEmpty) null
     else inputs.toMap().mapValues((_, v) -> slotMod.wireInput(v))
-  // Lifted into the top-level `surfaces` by the build's hoist, keyed
-  // `<node-id>_<localKey>`, with the node's id spliced into every [[NODE_ID]].
-  // The popups a tap opens; a choice is a nodes slot's fill, not a surface.
-  inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
+  /// Nodes a tap on this one brings onto the page from elsewhere, off the wire:
+  /// the card copies its tap's [[tapMod.TapAction.carries]], and the entry
+  /// collects them (`components/popup.pkl`).
+  hidden carries: List<Node> = List()
 
   /// [[inputs]] as a chain step:
   ///
@@ -511,13 +510,13 @@ const function cardsIn(roots: List<LayoutNode>): Mapping<String, WireCard> =
             else throw("card '\(name)': nodes slot \(unplaced.toList().map((n) -> "'\(n)'").join(", ")) is never placed — its template has no {{{\(unplaced.first)}}}"))
     .toMapping()
 
-// Every place a node can hold another; a new one belongs here, or its cards
-// are "unknown card" at validate.
-const local function nodesUnder(n: LayoutNode): List<Node> =
+/// `n` and every node under it, in every place a node can hold another; a new
+/// one belongs here, or its cards are "unknown card" at validate. What a node
+/// [[Node.carries]] is not under it.
+const function nodesUnder(n: LayoutNode): List<Node> =
   if (n is Node)
     List(n)
       + n.regions.toMap().values.flatMap((l) -> l.toList()).flatMap((k) -> nodesUnder(k))
-      + (n.inlineSurfaces?.toMap()?.values ?? List()).flatMap((s) -> nodesUnder(s.content))
       + n.nodesSlots.flatMap((s) -> s.set?.nodes ?? List()).flatMap((k) -> nodesUnder(k))
       + n.nodesSlots.flatMap((s) -> if (s.choice == null) List() else s.choice!!.nodes()).flatMap((k) -> nodesUnder(k))
   else throw("unknown node kind '\(n.kind)'")
@@ -534,6 +533,3 @@ const function iff(p: choiceMod.Condition): choiceMod.Iff = choiceMod.iff(p)
 const function match(on: slotMod.Reading, byValue: Mapping<varMod.Value, choiceMod.Branch>): choiceMod.Match =
   choiceMod.match(on, byValue)
 
-// A node's own backend-minted id, spliced in by the build's hoist. Must equal
-// `DashboardBuild.NodeIdToken`.
-const NODE_ID: String = "@@NODE_ID@@"

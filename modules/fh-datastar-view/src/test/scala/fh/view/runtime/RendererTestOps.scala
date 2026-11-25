@@ -38,8 +38,6 @@ val noDecisionFetches: Set[fh.view.model.SlotRead] => cats.effect.IO[
   */
 private[runtime] object RendererTestOps {
 
-  def popupOpen(sid: String): Selections = Selections(Some(sid))
-
   extension (t: Renderer#Traced) {
 
     /** What each own-rendering node painted, by the id a suite names it with.
@@ -57,19 +55,17 @@ private[runtime] object RendererTestOps {
       */
     def renderBody(
         states: Map[String, EntityState],
-        selections: Selections = Selections.none,
         vars: VarEnv = r.vars.env(Map.empty)
     ): String =
       r.renderBodyTraced(
         Shared.of(states).viewing(vars),
-        Viewing(selections, FetchSnapshot.of(Map.empty, vars))
+        Viewing(FetchSnapshot.of(Map.empty, vars))
       ).html
 
     def renderPage(
         states: Map[String, EntityState],
-        selections: Selections = Selections.none,
         vars: VarEnv = r.vars.env(Map.empty)
-    ): String = r.renderPageTraced(states, selections, vars).html
+    ): String = r.renderPageTraced(states, vars).html
 
     /** What a client holds for `id` once sent that node's patch alone: the
       * byte-slot values its bytes came from.
@@ -98,21 +94,20 @@ private[runtime] object RendererTestOps {
     /** The whole document into a buffer, bytes and trace both. */
     def renderPageTraced(
         states: Map[String, EntityState],
-        selections: Selections = Selections.none,
         vars: VarEnv = r.vars.env(Map.empty)
     ): r.Traced = {
       val out = Sink.buffer(r.pageBytesHint)
       val trace = r.pageInto(
         out,
         Shared.of(states).viewing(vars),
-        Viewing(selections, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
       // The whole page is never a patch target — a repaint morphs the root
       // wholesale — so it has no second form of its own. Its NODES do, and
       // those are in `own`.
       r.Traced(
         out.result,
-        r.index.roots.head,
+        r.index.root,
         trace.own.asScala.toMap,
         trace.seeded.asScala.toMap,
         trace.shown.asScala.toMap

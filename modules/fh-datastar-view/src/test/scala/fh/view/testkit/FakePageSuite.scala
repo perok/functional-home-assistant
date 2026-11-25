@@ -56,18 +56,18 @@ class FakePageSuite extends munit.CatsEffectSuite {
 
   test("the query is what the mirrors write, a declared value left out") {
     val p = page(
-      """<div id="m" data-signals="{_var_c__tab: '0', ui_popups: ''}"
+      """<div id="m" data-signals="{_var_c__tab: '0', _var_root__popups: ''}"
         | data-fh-url:tab="['v.c.tab', $_var_c__tab, '0']"
-        | data-fh-url__history="['ui.popups', $ui_popups]"></div>""".stripMargin
+        | data-fh-url:popups__history="['v.popups', $_var_root__popups, '']"></div>""".stripMargin
     )
     assertEquals(p.query, "")
     p(
       "datastar-patch-signals",
-      """signals {"_var_c__tab":"1","ui_popups":"detail"}"""
+      """signals {"_var_c__tab":"1","_var_root__popups":"detail"}"""
     )
     assertEquals(
       p.query.drop(1).split('&').toSet,
-      Set("v.c.tab=1", "ui.popups=detail")
+      Set("v.c.tab=1", "v.popups=detail")
     )
     p.close()
   }

@@ -4,7 +4,7 @@ A simpler HA web frontend (port of the TS prototype in `../ha-frontend`): a two-
 where authors write Pkl and the server keeps the rendered HTML live with Datastar.
 
 Its ADRs are in [`docs/adr/`](../../docs/adr/README.md) — they record the design decisions
-(entity card + value transforms [CEL, ADR 0027], surfaces/tabs, dynamic groups, the slot
+(entity card + value transforms [CEL, ADR 0027], popups/tabs, dynamic groups, the slot
 model) with their
 rationale. The repo-wide ADR routine is in the root `CLAUDE.md`.
 
@@ -72,7 +72,7 @@ same commit; ADRs that change the pipeline update it too.
    Regenerate them deliberately when the wire format is *meant* to change, with
    **`sbt dashboardSnapshotsUpdate`** — then read the JSON diff before committing it.
    What the test dashboards RENDER is the second net: `RenderGoldenSuite`'s goldens
-   (`src/test/resources/goldens/`, the same command) hold each body, surface and node patch, so a
+   (`src/test/resources/goldens/`, the same command) hold each body, case and node patch, so a
    change that moves the wire wholesale can still show it sends the same bytes.
    For a change meant to move only node ids, **`sbt 'dashboardGoldensVs <rev>'`** (default `HEAD`)
    renders every golden and compares it with that revision's once ids are numbered by first
@@ -112,8 +112,8 @@ same commit; ADRs that change the pipeline update it too.
    - **Playwright's Java client dispatches event callbacks only while the calling thread is
      inside one of its calls.** A `page.onRequestFailed` collector polled from a plain `IO`
      never fills, and the test hangs to its timeout rather than failing.
-   - **Every action POST is sent once** (`retryMaxCount: 0`, ADR 0024): a call, a surface open
-     or close, the popstate handler's. One that cannot be sent ends as `retries-failed`, not
+   - **Every action POST is sent once** (`retryMaxCount: 0`, ADR 0024): a call, a choice (a
+     popup's open included), the popstate handler's. One that cannot be sent ends as `retries-failed`, not
      `error`. Only the stream retries.
    - **Service workers are blocked in `SmokeSuite`'s contexts** and should stay blocked:
      `fhRegisterSw` runs on localhost, which is a secure context, so otherwise a worker claims
@@ -138,7 +138,7 @@ same commit; ADRs that change the pipeline update it too.
 | `fh/view/build/Minifier.scala` | Every dashboard's inline CSS and JS (`css`, each card's `css`/`script`, the theme's `styles`/`inlineScripts`) through csso and terser in a GraalJS isolate at DECODE, per dashboard, so a script that does not parse fails only the dashboards that use it, naming the card. Results live in a content-addressed store beside the eval cache, so an unchanged boot starts NO engine; a miss starts one for the batch and closes it, because an isolate costs hundreds of MB on a Pi (ADR 0032). No engine at all serves the pieces as written. `TestServer.servedWorkspace` minifies too, so the browser and visual suites see what production serves |
 | `fh/view/runtime/Renderer.scala` / `Server.scala` / `StateStore.scala` | Live re-render, SSE patch diffing, WS-fed state |
 | `src/js/` + `package.json` + `vite.config.ts` | The frontend, bundled by **vite 8** into MANAGED resources (`project/NpmPlugin.scala`, `frontendInstall`/`frontendBundle` — a `resourceGenerators` entry, so a plain compile builds it and **node + npm are a build requirement**). ONE build, five entries: `shell.ts` (inlined into every page by `Server.pageInto`), `datastar.ts` (the page's ONE Datastar: the vendored bundle in `src/js/vendor/datastar/` — Datastar's own advice is to host it yourself, and its v1 is not on npm — plus our attributes, e.g. `data-fh-url`; upgrading is in the `datastar` skill), `editor/app.js` (CodeMirror + lsp-client bundled IN — no CDN, no import map), `editor/overlay.js`, `sw.ts`. `build.target` is set below Vite's default for wall tablets stuck on iPadOS 15; it lowers syntax only. Outputs are **content-hashed under `web/` with a `build.manifest`**; nothing spells a filename out — `FrontendAssets` reads the manifest and everything asks by ENTRY NAME (`Server.ShellScript`, the `editAssets` overlay tag, the `__APP_JS__` placeholder in the editor `index.html`), and `Server` serves `/web/:file` `immutable` guarded by that same manifest. Deliberately **not `build.lib`**: lib mode refuses multi-entry for `iife`/`umd`, and `isEsLibBuild` hard-forces `minifyWhitespace: false` (to keep pure annotations for a downstream bundler we do not have), which shipped `app.js` at 654 kB where `rollupOptions.input` emits 421 kB. `shell.js` and `overlay.js` are classic scripts and work as `es` output ONLY because they import nothing; rollup never duplicates code, so one shared module splits a chunk and gives both a real `import`, breaking every page silently. The `fh-assert-self-contained` vite plugin FAILS THE BUILD on that, off rollup's own `chunk.imports`/`exports`, and the document's last line calls `fhScroll` only `if(window.fhScroll)` so anything the build cannot see still names itself in the console. Nothing built is committed; new code is TypeScript (`tsc --noEmit` runs as part of the build), the ported editor sources stay JS |
-| `resources/dashboards/lib/` (the `@fh-dashboard` package) | THREE tiers by audience: **`core/`** — `node`, `css`, `slot`, `text`, `icon`, `tap`, `surface`, `predicate`, `badge` (the glyph seat a tile, a switch and a slider head share), `shell` (the page shell's connection state as Datastar conditions: what the offline banners and a drag's dead-stream rollback read) — is what a COMPONENT author imports, beside **`providers.pkl` + `providers/`** (what a component reads beyond state, one namespace per provider: `p.history`); **`layout.pkl`** (Row/Column/Grid) and **`components.pkl` + `components/`** (`entity`, `control`, `slider`, `light`, `lock`, `moreinfo`, …, and `base/` — `button`, `onoff`, `tile` (which holds its features as nodes), `bar` (a progress bar, one such feature), `slider`, `text`, `surface`, `chart` (the SVG drawing stage) — for the cards that know nothing of HA, which an HA card is a thin subclass of: ADR 0015) are what a DASHBOARD author imports, `components.pkl` being a FACADE that declares no cards; **`recipes.pkl`** is whole opinionated sections. `internal/dump-base.pkl` is generator-facing, and `entry.pkl` stays at the root because it is what every entry amends. **Adding a module, or re-exporting through the facade — read ADR 0015 first**: it owns the tiering and the two rules a re-export cannot break, both of which exist to keep editor completion working THROUGH the module |
+| `resources/dashboards/lib/` (the `@fh-dashboard` package) | THREE tiers by audience: **`core/`** — `node`, `css`, `slot`, `text`, `icon`, `tap`, `page`, `choice`, `predicate`, `badge` (the glyph seat a tile, a switch and a slider head share), `shell` (the page shell's connection state as Datastar conditions: what the offline banners and a drag's dead-stream rollback read) — is what a COMPONENT author imports, beside **`providers.pkl` + `providers/`** (what a component reads beyond state, one namespace per provider: `p.history`); **`layout.pkl`** (Row/Column/Grid) and **`components.pkl` + `components/`** (`entity`, `control`, `slider`, `light`, `lock`, `moreinfo`, …, and `base/` — `button`, `onoff`, `tile` (which holds its features as nodes), `bar` (a progress bar, one such feature), `slider`, `text`, `surface` (tabs, If), `popup` (the dialog), `chart` (the SVG drawing stage) — for the cards that know nothing of HA, which an HA card is a thin subclass of: ADR 0015) are what a DASHBOARD author imports, `components.pkl` being a FACADE that declares no cards; **`recipes.pkl`** is whole opinionated sections. `internal/dump-base.pkl` is generator-facing, and `entry.pkl` stays at the root because it is what every entry amends. **Adding a module, or re-exporting through the facade — read ADR 0015 first**: it owns the tiering and the two rules a re-export cannot break, both of which exist to keep editor completion working THROUGH the module |
 | `resources/dashboards/lib/{hass.pkl,hass/light.pkl,tokens.pkl}` | Pkl domain schema (`hass.pkl` stays at the package ROOT — every generated dump emits `import "@fh-dashboard/hass.pkl"`, and that URI identity is load-bearing; the vendored per-domain constants live under `hass/`) + shared HA-named design tokens. Every SCOPE answers ONE name — `all` — on `Area` (derived from the generator-filled `allWithHidden`), `Floor` (its areas') and `Device` (its entities'); `all` leaves out entities hidden in HA, which stay reachable by name and through `allWithHidden`, so `q.from(...)` takes any scope; a DOMAIN comes out of one through a selector (`hass.lights(area.all)`, `hass.locks(…)`, …), which is also what derives the house namespaces' `all`. A new modelled domain adds one selector and removes itself from `generic` — not a list on four classes. The dump's NAMESPACES answer `all` as well: `dump.entities.all` (the house), `dump.lights.all`/`dump.scenes.all`/… per selector, `dump.floors.all` (level order), `dump.areas.all`, `dump.devices.all`, `dump.users.all` — a floor is `dump.floors.<slug>`, never a top-level property (ADR 0013) |
 | `resources/dashboards/lib/internal/dump-base.pkl` | The house-wide NAMESPACES as a CONTRACT (`open module`; an `open class` per namespace whose lists default to `List()`) that the generated `@fh-home/dump.pkl` **extends**, subclassing each one it has members for: `dump.entities`, and one per selector (`dump.lights`, …, `dump.scenes`, `dump.generic`), each answering `all` and naming its members by object id (`dump.scenes.kveld`). **ADR 0013** owns why they are declared here rather than emitted per home, and why `extends` and not `amends` |
 | `resources/dashboards/lib/query.pkl` | The candidate-set query surface (`q.from(...).where(...).render(...)`), imported as `@fh-dashboard/query.pkl`: `where`/`orderBy`/`limit`/`caseOf`/`render`, the aggregates (`count`/`any`/`none`/`all` — these are also what an `If` condition is built from), `first().eq(e)` (whether `e` leads the live ordering — a condition, so a fixed row of pills can light the scene activated last), nested sets, `q.entity(e)` for naming a DIFFERENT entity than the member, and `q.prop`/`q.attr`/`q.optional` for names. `q.from` takes entities, areas or floors, one kind per set; a set of areas has no state, so its terms name the entity they read, and a call sends it under `area_id`/`floor_id` (`IdKind`). The condition and set classes live in `core/predicate.pkl`, each condition writing a bool reading (ADR 0004) — query.pkl depends on the CORE, never on the shipped cards. **Plain Pkl stays the first answer**: a `for` over a typed dump list is still the right way to render a fixed set of lights, and this earns its place only when membership must react to live state. **ADR 0003** owns the build-time/live fold and how a property name resolves |
@@ -149,7 +149,7 @@ same commit; ADRs that change the pipeline update it too.
 | `resources/dashboards/lib/theme.pkl` | The theme CONTRACT (`open class Theme`, and `classes`: each `fh-` class a theme names, mapped to the classes the markup carries in its place — keep it in the content to add to it — which the SERVER applies to card and cell markup, ADR 0020) and the theme-author guide; implementations are the `theme-*.pkl` siblings. A theme is now the PAINT layer only — the layout contract is `core/css.pkl`'s and each card's structure and gesture JS are its own `cardDef.css`/`cardDef.script` |
 | `resources/dashboards/lib/theme-beer.pkl` | BeerCSS MD3 theme, the DEFAULT (via entry.pkl) and only shipped implementation — read ADR 0026 + the `beercss` skill first; its module doc explains the body-specificity color bridge + the amendable `md3Light`/`md3Dark` palettes. Also loads **MDI** (`@mdi/font`, pinned) because HA's own entity `icon` attribute is an MDI name — off the critical path, via `Theme.deferredStylesheets` (preload + `onload` swap + `<noscript>`), since nothing about the LAYOUT depends on it; its doc carries the ~394 KB cost and the build-time SVG-inlining plan that should replace it outright |
 | `resources/dashboards/lib/site.pkl` | The ENTRYPOINT base (ADR 0021) — the workspace's one `site.pkl` amends it and names every dashboard in `dashboards` (key = slug), plus site-wide settings (`default` today, auth next). Its mapping default is an `entry`, so a key amends into existence; a key may also be assigned an imported module (`import("x.pkl")` — the CALL form, the declaration form does not parse in a value position) |
-| `resources/dashboards/lib/entry.pkl` | ONE dashboard — a `dashboards` value `amends` it, setting only `card` (+ optional `title`/`surfaces`/`theme`) |
+| `resources/dashboards/lib/entry.pkl` | ONE dashboard — a `dashboards` value `amends` it, setting only `card` (+ optional `title`/`theme`); it builds the page card around it and collects every popup into it (`components/popup.pkl`) |
 | `resources/dashboards/lib/PklProject` | The `@fh-dashboard` package manifest — the shared lib, packaged into the cache by `LibPackage`. (The top-level consumer `PklProject` + `home/` are gone: workspaces are bootstrapped package-form; the repo `lib/` is bundled-lib SOURCE, not a path-form checkout.) |
 | `resources/dashboards/site_default.pkl` | The seeded starter SITE — what a fresh workspace's `site.pkl` is ([[AddonBootstrap.starterSite]], read off the jar's own resources) |
 | `resources/dashboards/components_default.pkl` | The seeded workspace `components.pkl` ([[AddonBootstrap.starterComponents]]): amends the facade and sets the user's `defaults` (`lib/components/defaults.pkl`). Every workspace file imports it as `c`. **Adding a default — read ADR 0015's "Your components" first**: a card carries the whole object and the facade and recipes hand it over, so a facade-only default would miss the library's own sections |
@@ -201,8 +201,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   Scala, and `Dashboard.calls` is the allowlist by id, so admission to one dashboard is not
   admission to the whole house. The server runs its OWN evaluation of the call at the press: HA
   expands an area or a floor, the server a set to the candidates present then. The body, which
-  `tapMod.post` spells, is `{conn, ui_popups, posted, seen}`: `conn` and the popup for a choice,
-  which runs in this viewer's session, `posted` the card's values (a drag), each read by a
+  `tapMod.post` spells, is `{conn, posted, seen}`: `conn` for a choice, which runs in this
+  viewer's session, `posted` the card's values (a drag), each read by a
   `Posted(key, type)` source and decoded as its type, and `seen` what the page last knew of the
   call's `service`/`data` fields that read live state (no fetch, no posted value), painted or
   not, each such field a `Handler` slot the build adds (`Ready.seenSlot`); a
@@ -213,11 +213,11 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   Mustache var) in a card's own template — two spellings because there are genuinely two phases,
   each named after the one that fills it. Every SERVICE tap takes the second: `tapMod.post`
   assembles the URL in the card's template, the only place that can name `{{id}}` (ADR 0017).
-  The CEL spelling is left to the surface and popup taps. The slug is applied in
+  The CEL spelling is left to a navigate's current-page check. The slug is applied in
   `DashboardBuild.decode` BEFORE validation, so a `Validated` is final and a `fh push --slug`
   rename cannot leave a compiled tap URL naming the old dashboard.
-  The surface taps carry it too — `POST /sse/surface/:slug/open/:id`, `POST /sse/popup/:slug/close`,
-  and Back/Forward's `POST /sse/history/:slug` + the page's query (ADR 0005) — so the gate checks them as every route. A tap under a `conn` this process has forgotten (an
+  Back/Forward's `POST /sse/history/:slug` + the page's query (ADR 0005) carries it too, so the
+  gate checks it as every route; a popup's close is `history.back()`, so it is that post. A tap under a `conn` this process has forgotten (an
   idle page outliving its session's linger, a restart) is REFUSED with a toast, never minted: a
   tap carries too little of the page to rebuild its session, and the reconnecting stream, which
   carries the viewer's choices and its cursor, rebuilds it (ADR 0024). Standing principle from the same ADR, aspirational and
@@ -227,7 +227,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   signal `_<group>__pending` — what it ASKED for; a choice's is `{{{tap.pending}}}`, which the
   renderer fills from the declaration at the pressing node — and the server commits what it actually did,
   which is what the URL mirror follows: `setVar` commits `_var_<declarer>__<name>` (a tab bar, a
-  window chooser; ADR 0033) and a popup swap `ui_popups`. A selection display reads
+  window chooser, the page's `popups`; ADR 0033). A selection display reads
   `$_<group>__pending || $<committed>`, so the press is still instant while the committed value can
   never claim a panel this DOM does not have. Pending clears by the commit catching up, by the
   server clearing it in a refusal, by a response the page cannot read, or by a connect, whose
@@ -237,8 +237,8 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   service call has no committed selection to catch up to; the two mechanisms coexist deliberately.
   **A refused action answers 200 carrying `datastar-patch-signals`, never 4xx** (ADR 0024): the
   request was served and the OPERATION failed, which is page state. One helper (`actionRefused`)
-  answers every refusal — HA rejecting a call, a call this dashboard does not declare, an unknown
-  surface, a `conn` on another slug — patching `_<node>__error` on the control that was pressed,
+  answers every refusal — HA rejecting a call, a call this dashboard does not declare, a
+  `conn` on another slug — patching `_<node>__error` on the control that was pressed,
   clearing a refused choice's pending ask (the server's own lookup of its declaration), and
   setting `_toast` to HA's own message. The node rides in the action's query string (`?node=`),
   read off `data-fh-node` at click time. The bundle parses
@@ -323,7 +323,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   "@fh-dashboard/site.pkl"` and names every dashboard in its `dashboards` mapping — the KEY is the
   slug (ADR 0021), and each value is an `entry` (amended inline, or `import("x.pkl")`ed from a
   module that `amends "@fh-dashboard/entry.pkl"` and sets only `card` + optional
-  `title`/`surfaces`/`theme`). Any other top-level `*.pkl` is an ordinary module. Membership is
+  `title`/`theme`). Any other top-level `*.pkl` is an ordinary module. Membership is
   live: adding or removing a key hot-reloads like any other edit. The `@fh-home` dump is a TYPED dump generated by `PklDump` from the live
   fetch and seeded as a cache package (no file on disk). Feature surface: containers (grid/row/column) + the layout-cell builders
   (`columns`/`fullWidth`/`hug`/`centered`/`cellClass`, ADR 0008), sectionTitle/entityCard/button/pill/slider,
@@ -403,15 +403,16 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   the open tab; ADR 0033), **live cell properties** (`.cellStyle("--x",
   reading)`, `cellClassWhen`'s value twin, any tier; it cannot drive the slider fill, which the
   track's `<span>` sets on itself) — ADR 0034,
-  tabs, popups/surfaces, more-info (`c.entityCard(e) |> c.informative`, or the `c.view.moreInfo(e)` tap:
-  an INLINE popup holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus
+  tabs, popups (`c.view.popup(id, body)`: a node with an id, opened by choosing it for the page's
+  `popups` variable, ADR 0002), more-info (`c.entityCard(e) |> c.informative`, or the `c.view.moreInfo(e)` tap:
+  the popup `moreinfo_<domain>_<object id>` holding the entity's card, its domain controls, and `c.entityInfo(e)` — the id plus
   every attribute it reports, as one live text block, since a template cannot loop over attributes.
   It is what a tap on a non-actionable entity does instead of nothing — `c.informative` is now
   only needed to FORCE more-info on a card whose domain does have an action),
-  candidate sets (`q.from(...).where(...).render(...)`), conditional sections (`` c.iff(cond).then(..).elif(..).then(..).`else`(..) ``, or `c.iff(v.valueIs(x))` for a per-viewer branch chosen by a node variable — state-activated
-  surfaces on the tabs machinery, ADR 0007; each is a choice (`core/choice.pkl`: `nodeMod.iff`, `nodeMod.match`) filling a nodes slot as a `Chosen` fill, which one pick decides (`Dashboard.picks`, `Ready.Pick`): its `by` read once, its case looked up — tabs, a select's variable-chosen label and cycle and a slider's main controls are `nodeMod.match`es over their variable; `cond` NAMES its entities, via `q.entity(e)` or a
+  candidate sets (`q.from(...).where(...).render(...)`), conditional sections (`` c.iff(cond).then(..).elif(..).then(..).`else`(..) ``, or `c.iff(v.valueIs(x))` for a per-viewer branch chosen by a node variable — choices over state
+  on the tabs machinery, ADR 0007; each is a choice (`core/choice.pkl`: `nodeMod.iff`, `nodeMod.match`) filling a nodes slot as a `Chosen` fill, which one pick decides (`Dashboard.picks`, `Ready.Pick`): its `by` read once, its case looked up — tabs, a select's variable-chosen label and cycle and a slider's main controls are `nodeMod.match`es over their variable; `cond` NAMES its entities, via `q.entity(e)` or a
   `q.from(...)` aggregate — a comparison that names none is a validate error), three-tier slider config — see ADR 0006 for the deliberate API shape
-  (`openPopup`/`openPopupInline` split, `cssClass`) and Pkl gotchas before extending. `PklBuild`
+  (`cssClass`) and Pkl gotchas before extending. `PklBuild`
   renders the evaluated module to JSON backend-side (no `output` blocks in entries) and watches the
   precise `Analyzer.importGraph` import set.
 
@@ -443,7 +444,7 @@ gotchas"):
   So there is no trailing-block call form (`row { a b }` is unreachable); comma-free
   children go through a Listing-typed property (`children { ... }`).
 - A Mapping `default` enables **amend-into-existence**: `["detail"] { ... }` on an absent
-  key instantiates the default and amends it (how `surfaces`/`tabs` avoid `new`); a
+  key instantiates the default and amends it (how `tabs` avoid `new`); a
   `Listing`-valued default lets that body add elements directly (no `children` key).
 - **Late binding is the core mechanism**: amending a `hidden` prop re-derives everything
   computed from it (that's how card `slots` recompute). Amending a function *parameter*

@@ -368,3 +368,25 @@ Each is a *variable*:
 - **A choice can start empty**, `vars { view.startingEmpty() }`: until a viewer
   chooses, `view.value` reads nothing and a `match` over it shows its otherwise,
   or nothing.
+
+## Popups
+
+A popup is a dialog over the page, opened by a tap:
+
+```pkl
+c.button("Help", c.view.popup("help", new c.Column { children {
+  c.title("How this board works")
+  c.button("Close", c.view.closePopup())
+} }))
+```
+
+- **The id is the popup's name.** Any number of buttons may open `"help"`
+  with the same body; two different bodies under one id are a build error
+  that names it. A button inside a popup can open another.
+- **An entity's details are one too:** `c.view.moreInfo(e)`, which is what a
+  sensor's card, among others, opens when tapped.
+- **It is a choice like a tab's** (above): the open popup is kept in the
+  address as `?v.popups=help`, so a link or a bookmark opens it, and each open
+  is a step for Back, so Back closes it. `c.view.closePopup()` does the same.
+- **`popups` is taken.** The page declares that variable, so a card of yours
+  cannot declare one by that name; the build says so.

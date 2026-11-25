@@ -5,7 +5,6 @@ import fh.view.testkit.Slots
 import fh.view.testkit.TestCard
 
 import fh.view.history.Windows
-import fh.view.build.DashboardBuild
 import fh.view.model.{
   SlotType,
   CardDef,
@@ -18,18 +17,17 @@ import fh.view.model.{
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture}
 import io.circe.parser.parse
 
 /** The reads a render is handed are decided BEFORE the walk, by code that is
-  * not the walk (`Renderer.fetchesForPage`, `fetchesForSurface`,
-  * `readsForPull`). If the two drift, a render misses an answer and raises.
-  * This renders each dashboard in every shape a viewer can put it in, against
-  * exactly what was decided, so a drift fails here instead.
+  * not the walk (`Renderer.fetchesForPage`, `readsForPull`). If the two drift,
+  * a render misses an answer and raises. This renders each dashboard in every
+  * shape a viewer can put it in, against exactly what was decided, so a drift
+  * fails here instead.
   */
 class FetchDriftSuite extends munit.FunSuite {
 
@@ -50,8 +48,8 @@ class FetchDriftSuite extends munit.FunSuite {
       os.pwd / "modules" / "fh-datastar-view" / "src" / "test" / "resources" /
         "snapshots" / s"$name.json"
     )
-    val d = DashboardBuild
-      .hoistInlineSurfaces(parse(wire).fold(e => fail(s"$name: $e"), identity))
+    val d = parse(wire)
+      .fold(e => fail(s"$name: $e"), identity)
       .as[Dashboard]
       .fold(e => fail(s"$name: $e"), identity)
     // The house as fixtured, and with every on/off flipped, so each state
@@ -70,7 +68,7 @@ class FetchDriftSuite extends munit.FunSuite {
 
   /** A distinct sensor in every place a chart can hide, so no read is answered
     * by accident because another position asks the same thing — which is what
-    * makes the fixtures above blind to a dropped surface.
+    * makes the fixtures above blind to a dropped case.
     */
   private val shapes: Case = {
     def chart(e: String) = LayoutNode.Component(
@@ -121,8 +119,7 @@ class FetchDriftSuite extends munit.FunSuite {
         "inner" -> chart("sensor.inner"),
         "off" -> chart("sensor.off"),
         "set" -> chart("sensor.set")
-      ),
-      surfaces = Map("pop" -> Surface(chart("sensor.pop")))
+      )
     )
     def light(s: String) = Map(
       "light.a" -> EntityState("light.a", s, Map.empty)
@@ -138,11 +135,12 @@ class FetchDriftSuite extends munit.FunSuite {
   private lazy val cases =
     List("cards", "readings", "charts").map(fixture) :+ shapes
 
-  /** What a viewer can have put the dashboard in: its popup and its values. */
-  private final case class Ui(selections: Selections, env: VarEnv)
+  /** What a viewer can have put the dashboard in: its values. */
+  private final case class Ui(env: VarEnv)
 
-  /** The declared values, each popup open, and each tab of each tab group (a
-    * value naming each case, and one the otherwise takes where there is one).
+  /** The declared values, and each case of each pick over a variable, a popup
+    * open among them (a value naming each case, and one the otherwise takes
+    * where there is one).
     */
   private def uiStates(c: Case): List[Ui] = {
     val r = c.renderer
@@ -157,7 +155,6 @@ class FetchDriftSuite extends munit.FunSuite {
           else values
         picking.map(v =>
           Ui(
-            Selections.none,
             declared.updated(
               gid,
               declared.getOrElse(gid, Map.empty) + (name -> v)
@@ -165,11 +162,7 @@ class FetchDriftSuite extends munit.FunSuite {
           )
         )
       }
-    val popups: List[Ui] =
-      c.dashboard.surfaces.keys.toList.sorted.map(sid =>
-        Ui(Selections(Some(sid)), declared)
-      )
-    Ui(Selections.none, declared) :: tabs ++ popups
+    Ui(declared) :: tabs
   }
 
   /** At the declared values, as `Server` hands every render its viewer's. */
@@ -184,42 +177,12 @@ class FetchDriftSuite extends munit.FunSuite {
       val states = house.viewing(ui.env)
       val snapshot = answered(
         ui.env,
-        r.fetchesForPage(
-          r.surfaces.selectedSurfaces(ui.selections),
-          states,
-          ui.env
-        )
+        r.fetchesForPage(Set.empty, states, ui.env)
       )
       val _ = r.renderPageInto(
         Sink.buffer(r.pageBytesHint),
         states,
-        Viewing(ui.selections, snapshot)
-      )
-    }
-  }
-
-  test("a surface fill reads only what the surface resolved") {
-    for (
-      c <- cases; house <- c.houses; ui <- uiStates(c);
-      sid <- c.dashboard.surfaces.keys.toList.sorted
-    ) {
-      val r = c.renderer
-      val states = house.viewing(ui.env)
-      val _ = r.renderSurfaceTraced(
-        sid,
-        states,
-        Viewing(
-          ui.selections,
-          answered(
-            ui.env,
-            r.fetchesForSurface(
-              r.surfaces.popupSpelling(sid).get,
-              states,
-              ui.selections,
-              ui.env
-            )
-          )
-        )
+        Viewing(snapshot)
       )
     }
   }
@@ -238,8 +201,8 @@ class FetchDriftSuite extends munit.FunSuite {
       val r = c.renderer
       val painted: List[NodeId] =
         (r.surfaces.statePicks.toList ++
-          c.dashboard.surfaces.keys.toList
-            .flatMap(r.surfaces.popupSpelling)
+          r.surfaces.varPicks.toList
+            .flatMap(r.surfaces.cases(_))
             .flatMap(r.surfaceNodeIds) ++
           c.houses.flatMap(house =>
             val states = house.viewing(defaults(r))
@@ -247,14 +210,9 @@ class FetchDriftSuite extends munit.FunSuite {
               Sink.buffer(r.pageBytesHint),
               states,
               Viewing(
-                Selections.none,
                 answered(
                   defaults(r),
-                  r.fetchesForPage(
-                    r.surfaces.selectedSurfaces(),
-                    states,
-                    defaults(r)
-                  )
+                  r.fetchesForPage(Set.empty, states, defaults(r))
                 )
               )
             ).keys
@@ -269,32 +227,34 @@ class FetchDriftSuite extends munit.FunSuite {
         def asked(targets: List[NodeId], hs: List[NodeId]) =
           answered(
             ui.env,
-            r.readsForPull(targets, hs, states, ui.selections, ui.env)
+            r.readsForPull(targets, hs, states, ui.env)
           )
         nodes.foreach { id =>
           val f = asked(List(id), Nil)
           val _ = (
             r.byteSlotValues(id, states, f),
-            r.renderNodeById(id, states, Viewing(ui.selections, f))
+            r.renderNodeById(id, states, Viewing(f))
           )
         }
         hosts.foreach(h =>
           r.renderHost(
             h,
             states,
-            Viewing(ui.selections, asked(Nil, List(h)))
+            Viewing(asked(Nil, List(h)))
           )
         )
       }
-      // Precise, not everything: a plain node asks nothing, a chart asks.
+      // Precise, not everything: a plain node asks nothing, a chart asks, in
+      // whichever case shows it.
       val (quiet, loud) = nodes.partition(id =>
-        r.readsForPull(
-          List(id),
-          Nil,
-          c.houses.head.viewing(defaults(r)),
-          Selections.none,
-          defaults(r)
-        ).isEmpty
+        uiStates(c).forall(ui =>
+          r.readsForPull(
+            List(id),
+            Nil,
+            c.houses.head.viewing(ui.env),
+            ui.env
+          ).isEmpty
+        )
       )
       assert(quiet.nonEmpty && loud.nonEmpty, clue = c.name)
     }

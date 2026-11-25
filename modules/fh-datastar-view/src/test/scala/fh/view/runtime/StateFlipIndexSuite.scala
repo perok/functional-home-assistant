@@ -1,6 +1,5 @@
 package fh.view.runtime
 
-import fh.view.build.DashboardBuild
 import fh.view.model.{Dashboard, Ix, NodeId, Ready}
 import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture}
 import io.circe.parser.parse
@@ -20,8 +19,8 @@ class StateFlipIndexSuite extends munit.FunSuite {
       os.pwd / "modules" / "fh-datastar-view" / "src" / "test" / "resources" /
         "snapshots" / s"$name.json"
     )
-    DashboardBuild
-      .hoistInlineSurfaces(parse(wire).fold(e => fail(s"$name: $e"), identity))
+    parse(wire)
+      .fold(e => fail(s"$name: $e"), identity)
       .as[Dashboard]
       .fold(e => fail(s"$name: $e"), identity)
   }
@@ -107,10 +106,7 @@ class StateFlipIndexSuite extends munit.FunSuite {
     val g = Renderer(validated).surfaces
     assert(g.statePicks.nonEmpty, s"$name has no state group to flip")
     val userSurfaces =
-      g.openOf(
-        d.surfaces.keySet.flatMap(g.popupSpelling) ++
-          g.varPicks.flatMap(g.cases(_)).toSet
-      )
+      g.openOf(g.varPicks.flatMap(g.cases(_)).toSet)
     val rnd = new Random(556)
     val ids = HouseFixture.all.map(_.entityId)
     val start = HouseFixture.all.map(e => e.entityId -> e.toEntityState).toMap

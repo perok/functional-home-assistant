@@ -75,8 +75,7 @@ class ValueWhileSuite extends munit.FunSuite {
   )
 
   private def idOf(d: Dashboard, i: Int) = LayoutNode.childId(
-    "",
-    LayoutNode.rootId("", d.card),
+    LayoutNode.rootId(d.card),
     LayoutNode.Step(LayoutNode.DefaultRegion, i),
     node(peak(None))
   )

@@ -220,7 +220,7 @@ class UiSmokeSuite extends SmokeSuite {
         forgotten <- ts.forgetConnections
         _ <- ts.awaitNoConnections
         _ <- IO.blocking(
-          page.waitForResponse("**/sse/surface/**", () => kitchenCard.click())
+          page.waitForResponse("**/sse/call/**", () => kitchenCard.click())
         )
         _ <- IO.blocking(assertThat(popup).hasCount(0))
         _ <- IO.blocking(
@@ -254,13 +254,13 @@ class UiSmokeSuite extends SmokeSuite {
       for {
         _ <- IO.blocking(kitchenCard.click())
         _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
-        // The mirror wrote ?ui.popups=<id>, so the reload restores it the way a
+        // The mirror wrote ?v.popups=<id>, so the reload restores it the way a
         // tab selection is restored.
         _ <- IO.blocking(page.reload())
         _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
-        // Baked into the page card's popup host, so there is no
+        // Rendered into the page card's popup host, so there is no
         // dialog-a-moment-later flash.
-        html <- ts.page("?ui.popups=detail")
+        html <- ts.page("?v.popups=detail")
       } yield assert(html.contains("Kitchen Detail"), clue = html)
     }
   }

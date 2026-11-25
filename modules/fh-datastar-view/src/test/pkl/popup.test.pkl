@@ -1,0 +1,58 @@
+/// Popups as the page's `popups` variable: what `entry.pkl` collects from the
+/// dashboard's card into the match over it.
+///
+/// Outside `lib/` deliberately — see `components.test.pkl`.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/components.pkl" as c
+import "../../main/resources/dashboards/lib/components/popup.pkl" as popupMod
+import "../../main/resources/dashboards/lib/core/choice.pkl" as choiceMod
+import "../../main/resources/dashboards/lib/core/node.pkl" as nodeMod
+import "../../main/resources/dashboards/lib/hass.pkl"
+
+local outside: hass.SensorEntity = new { entity_id = "sensor.outside" }
+
+local function column(nodes: Listing<nodeMod.LayoutNode>): nodeMod.Node = new c.Column { children = nodes }
+
+/// The popup ids `root` collects, in the match's order.
+local function ids(root: nodeMod.Node): List<String> =
+  let (f = popupMod.cases(root))
+    if (f is choiceMod.Match) f.caseMap.keys.toList() else List()
+
+facts {
+  ["a page with no opener has no popups, and an empty host"] {
+    ids(column(new { c.title("x") })) == List()
+    popupMod.cases(column(new { c.title("x") })) is Listing
+  }
+  ["two openers of one id with one body are one popup"] {
+    ids(column(new {
+      c.button("A", c.view.popup("help", c.title("h")))
+      c.button("B", c.view.popup("help", c.title("h")))
+    })) == List("help")
+    // Two cards for one entity share its more-info.
+    ids(column(new { c.entityCard(outside); c.entityCard(outside) })) == List("moreinfo_sensor_outside")
+  }
+  ["two bodies under one id are a build error naming it"] {
+    module.catch(() -> ids(column(new {
+      c.button("A", c.view.popup("help", c.title("one")))
+      c.button("B", c.view.popup("help", c.title("two")))
+    }))).contains("two popups have the id 'help'")
+  }
+  ["a popup opened from inside a popup is collected too"] {
+    ids(column(new {
+      c.button("First", c.view.popup("first", c.button("Second", c.view.popup("second", c.title("2")))))
+    })) == List("first", "second")
+  }
+  ["a more-info holding its own opener is collected once"] {
+    // Its body's card opens the more-info it is in: a reference, so the walk
+    // stops at an id it has.
+    ids(column(new { c.entityCard(outside) })) == List("moreinfo_sensor_outside")
+  }
+  ["an open chooses the page's popups; a close is going back"] {
+    local opener = c.view.popup("help", c.title("h"))
+    opener.variable == "popups"
+    opener.value == "help"
+    opener.carries.first.id == "help"
+    c.view.closePopup().onclick == "$_var_root__popups && history.back()"
+  }
+}

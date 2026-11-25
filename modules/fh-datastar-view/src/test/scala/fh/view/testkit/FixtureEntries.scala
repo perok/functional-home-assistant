@@ -62,19 +62,17 @@ object FixtureEntries {
     List(SmokeDashboard.switchLight, SmokeDashboard.longNameLight)
   )
 
-  /** What a tap does: a call, on an entity and on a set, more-info, a popup and
-    * an inline popup, a navigation, and a lock's own buttons.
+  /** What a tap does: a call, on an entity and on a set, more-info, two popups,
+    * a navigation, and a lock's own buttons.
     */
   val taps: Entry = Entry(
     "taps",
     header +
       """
-        |surfaces {
-        |  ["detail"] {
-        |    body {
-        |      c.title("Detail")
-        |      c.button("Close", c.view.closePopup())
-        |    }
+        |local detail = new c.Column {
+        |  children {
+        |    c.title("Detail")
+        |    c.button("Close", c.view.closePopup())
         |  }
         |}
         |
@@ -83,9 +81,9 @@ object FixtureEntries {
         |    c.entityCard(kitchen).tapAction(c.tap.call("homeassistant/toggle", kitchen))
         |    c.entityCard(kitchen) |> c.informative
         |    c.entityCard(kitchen).tapAction(c.view.moreInfo(kitchen))
-        |    c.entityCard(kitchen).tapAction(c.view.openPopup("detail"))
+        |    c.entityCard(kitchen).tapAction(c.view.popup("detail", detail))
         |    c.button("Lights off", c.tap.call("light/turn_off", q.from(dump.lights.all).where(q.eq(q.stateProp, "on"))))
-        |    c.button("Inline…", c.view.openPopupInline(new c.Column {
+        |    c.button("Inline…", c.view.popup("inline", new c.Column {
         |      children {
         |        c.title("Inline")
         |        c.button("Close", c.view.closePopup())

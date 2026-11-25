@@ -258,13 +258,13 @@ class ByteSlotKeySuite extends munit.FunSuite {
         .renderNodeById(
           id,
           Shared.of(a),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         ),
       renderer
         .renderNodeById(
           id,
           Shared.of(b),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         ),
       clue =
         s"$id keyed identically at steps $i and $j but rendered differently"
@@ -312,12 +312,12 @@ class ByteSlotKeySuite extends munit.FunSuite {
       ra.renderNodeById(
         id,
         Shared.of(a),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       rb.renderNodeById(
         id,
         Shared.of(b),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       clue =
         s"$entity keyed identically at steps $i and $j but rendered differently"
@@ -433,7 +433,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
       tabs.renderNodeById(
         "c",
         Shared.of(line.head),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       None
     )
@@ -453,7 +453,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
         .renderNodeById(
           "c_3",
           Shared.of(line.head),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         ),
       None
     )
@@ -520,7 +520,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
       r.renderNodeById(
         id,
         at(state),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
     assertNotEquals(bytes("on"), bytes("off"))
     assertNotEquals(
@@ -549,7 +549,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
       )
     )
     val id = NodeId.derived("c")
-    val viewing = Viewing(Selections.none, FetchSnapshot.empty)
+    val viewing = Viewing(FetchSnapshot.empty)
     def state(s: String) =
       Shared.of(Map("sensor.a" -> EntityState("sensor.a", s, Map.empty)))
     val cache = RenderCache.create.unsafeRunSync()

@@ -124,10 +124,6 @@ final class FakeBrowser private (
   def choose(key: VarKey, value: Option[String]): IO[Unit] =
     ts.choice(key, value).flatMap(post)
 
-  def openPopup(id: String): IO[Unit] = post(s"sse/surface/${ts.slug}/open/$id")
-
-  def closePopup: IO[Unit] = post(s"sse/popup/${ts.slug}/close")
-
   /** The page a refresh would show now, through a viewer that leaves at once so
     * it holds no floor for later steps.
     */

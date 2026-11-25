@@ -20,25 +20,24 @@ class PopupHistorySmokeSuite extends SmokeSuite {
       |
       |access = c.access.public
       |
-      |surfaces {
-      |  ["first"] {
-      |    body {
-      |      c.title("First popup")
-      |      c.button("Open second", c.view.openPopup("second"))
-      |    }
+      |local second = new c.Column {
+      |  children {
+      |    c.title("Second popup")
+      |    c.button("Close", c.view.closePopup())
       |  }
-      |  ["second"] {
-      |    body {
-      |      c.title("Second popup")
-      |      c.button("Close", c.view.closePopup())
-      |    }
+      |}
+      |
+      |local first = new c.Column {
+      |  children {
+      |    c.title("First popup")
+      |    c.button("Open second", c.view.popup("second", second))
       |  }
       |}
       |
       |card = (c.column) {
       |  children {
       |    c.title("Popup history")
-      |    c.button("Open first", c.view.openPopup("first"))
+      |    c.button("Open first", c.view.popup("first", first))
       |  }
       |}
       |""".stripMargin
@@ -66,7 +65,7 @@ class PopupHistorySmokeSuite extends SmokeSuite {
   private def href(page: Page): IO[String] =
     IO.blocking(page.evaluate("() => location.href").toString)
 
-  private val popupParam = """.*[?&]ui\.popups=.*"""
+  private val popupParam = """.*[?&]v\.popups=.*"""
 
   /** Whether a tap at a point would land in the dashboard behind the popup. */
   private def reachesDashboard(page: Page, x: Double, y: Double): IO[Boolean] =
@@ -154,7 +153,7 @@ class PopupHistorySmokeSuite extends SmokeSuite {
       for {
         start <- href(page)
         sep = if (start.contains("?")) "&" else "?"
-        _ <- IO.blocking(page.navigate(s"$start${sep}ui.popups=first"))
+        _ <- IO.blocking(page.navigate(s"$start${sep}v.popups=first"))
         _ <- showing(page, "First popup")
         _ <- IO.blocking(page.locator(".fh-popup-close").click())
         _ <- closed(page)

@@ -12,8 +12,7 @@ import fh.view.model.{
   NodeId,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.testkit.{FixtureEntity, PklFixture}
 import fh.view.testkit.TestIds.given
@@ -117,7 +116,7 @@ class LiveStreamSuite extends ServerHarness {
     * failure it caused: a client on tab 1 reconnected and was morphed onto tab 0.
     */
 
-  private def barePopupTabsDash = {
+  private def bareTabsDash = {
     val bar = PklFixture.shape(
       """card = (c.tabs) { tabs { ["A"] { t.state("sensor.a") } ["B"] { t.state("sensor.b") } } }"""
     )
@@ -126,66 +125,8 @@ class LiveStreamSuite extends ServerHarness {
         template = "<div>{{{children}}}</div>",
         regions = Set("children")
       )),
-      card = LayoutNode.Component("col"),
-      surfaces = Map(
-        "det" -> Surface(
-          LayoutNode.Component("col", slots = Slots.kids(bar.fill()))
-        )
-      )
+      card = LayoutNode.Component("col", slots = Slots.kids(bar.fill()))
     )
-  }
-
-  test("a fill records what it put there, so the next tick suppresses") {
-    // Opening a surface teaches the session each node's bytes from the same
-    // render, so a tick to the same value is "unchanged", not "never told",
-    // and sends nothing.
-    val dash = Dashboard(
-      cards = Map(
-        "col" -> TestCard(
-          template = "<div>{{{children}}}</div>",
-          regions = Set("children")
-        ),
-        "card" -> TestCard("<span>{{state}}</span>")
-      ),
-      card = LayoutNode.Component("col"),
-      surfaces = Map(
-        "det" -> Surface(
-          LayoutNode.Component(
-            "col",
-            slots = Slots.kids(branchCard("sensor.a"))
-          )
-        )
-      )
-    )
-    val painted = Renderer
-      .create(dash)
-      .heldFor("s_det__c_0", Map("sensor.a" -> es("sensor.a", "cold")))
-      .get
-    val node = Renderer.create(dash).ixOf(NodeId.derived("s_det__c_0"))
-    live(dash, Map("sensor.a" -> es("sensor.a", "cold"))) { ts =>
-      for {
-        v <- ts.viewer()
-        beforeFill <- v.session.state
-          .map(_.holds)
-          .map(_.get(node).contains(painted))
-        _ <- ts.post(
-          s"sse/surface/${ts.slug}/open/det",
-          body = s"""{"${Server.ConnSignal}":"${v.document.conn}"}"""
-        )
-        afterFill <- v.session.state
-          .map(_.holds)
-          .map(_.get(node).contains(painted))
-        // A frame the card renders identically: an attribute it does not read.
-        same <- v.step(
-          FixtureEntity("sensor.a", "cold", Map("noise" -> Json.fromInt(1)))
-        )
-      } yield {
-        // Not vacuous: the claim did not exist until the fill made it.
-        assert(!beforeFill, clue = "nothing claimed before the surface opened")
-        assert(afterFill, clue = "the fill must claim the node it painted")
-        assertEquals(same, Nil, clue = same.map(_.render))
-      }
-    }
   }
 
   private val armedAB = Map(
@@ -257,7 +198,7 @@ class LiveStreamSuite extends ServerHarness {
         cache,
         Map.empty,
         Shared.of(armed),
-        Viewing(Selections.none, FetchSnapshot.empty),
+        Viewing(FetchSnapshot.empty),
         Patches.written(
           r,
           Map.empty,
@@ -266,7 +207,7 @@ class LiveStreamSuite extends ServerHarness {
           List(NodeId.derived("c_0"))
         )
       )
-    } yield patches.collectFirst { case a @ Addressed(_: Patch.Fill, _, _) =>
+    } yield patches.collectFirst { case a @ Addressed(_: Patch.Fill, _) =>
       a
     }.get).unsafeRunSync()
 
@@ -279,7 +220,7 @@ class LiveStreamSuite extends ServerHarness {
       r.renderNodeById(
         root,
         Shared.of(armed),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       None
     )
@@ -317,7 +258,6 @@ class LiveStreamSuite extends ServerHarness {
       states,
       1L,
       Set.empty,
-      Selections.none,
       mine
     )
 
@@ -341,20 +281,19 @@ class LiveStreamSuite extends ServerHarness {
   }
 
   test("a resume cannot move a viewer onto a tab it did not choose") {
-    val r = Renderer.create(barePopupTabsDash)
+    val r = Renderer.create(bareTabsDash)
     val before =
       Map(
         "sensor.a" -> es("sensor.a", "A0"),
         "sensor.b" -> es("sensor.b", "B0")
       )
-    val det = r.surfaces.popupSpelling("det").get
-    val open = Set(det)
+    val open = Set.empty[String]
     val mine =
-      r.vars.env(Map(VarKey(NodeId.derived("s_det__c_0"), "tab") -> "1"))
+      r.vars.env(Map(VarKey(NodeId.derived("c_0"), "tab") -> "1"))
     // Exactly as `pageResponse` records it.
     val ids =
-      (r.surfaceNodeIds(det) ++ r.surfaceNodeIds(
-        "s_det__c_0_panel_0_1"
+      (r.containerNodeIds(r.surfaces.pageRoot) ++ r.surfaceNodeIds(
+        "c_0_panel_0_1"
       )).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
@@ -370,12 +309,11 @@ class LiveStreamSuite extends ServerHarness {
       tab0Moved,
       2L,
       open,
-      Selections.none,
       mine
     )
     assert(
       !owed.exists(
-        _.patch.toSse.render.contains("s_det__c_0_panel_0_0")
+        _.patch.toSse.render.contains("c_0_panel_0_0")
       ),
       clue = owed.map(_.patch.toSse.render)
     )
@@ -390,7 +328,6 @@ class LiveStreamSuite extends ServerHarness {
       tab1Moved,
       2L,
       open,
-      Selections.none,
       mine
     )
     assert(
@@ -400,20 +337,20 @@ class LiveStreamSuite extends ServerHarness {
   }
 
   test("a live pull is owed what the log names, and nothing it does not") {
-    val r = Renderer.create(barePopupTabsDash)
+    val r = Renderer.create(bareTabsDash)
     val before =
       Map(
         "sensor.a" -> es("sensor.a", "A0"),
         "sensor.b" -> es("sensor.b", "B0")
       )
-    val det = r.surfaces.popupSpelling("det").get
-    val open = Set(det)
+    val open = Set.empty[String]
     val mine =
-      r.vars.env(Map(VarKey(NodeId.derived("s_det__c_0"), "tab") -> "1"))
-    val panel = r.surfaceNodeIds("s_det__c_0_panel_0_1").toList
-    val held = (r.surfaceNodeIds(det) ++ panel).toList.flatMap { id =>
-      r.byteSlotValues(id, Shared.of(before), FetchSnapshot.empty)
-        .map(v => r.ixOf(id) -> Held(Some(v)))
+      r.vars.env(Map(VarKey(NodeId.derived("c_0"), "tab") -> "1"))
+    val panel = r.surfaceNodeIds("c_0_panel_0_1").toList
+    val held = (r.containerNodeIds(r.surfaces.pageRoot) ++ panel).flatMap {
+      id =>
+        r.byteSlotValues(id, Shared.of(before), FetchSnapshot.empty)
+          .map(v => r.ixOf(id) -> Held(Some(v)))
     }.toMap
     val moved = before.updated("sensor.b", es("sensor.b", "B1"))
     def pull(log: FragmentLog) =
@@ -424,7 +361,6 @@ class LiveStreamSuite extends ServerHarness {
         moved,
         2L,
         open,
-        Selections.none,
         mine,
         Patches.Coverage.Logged
       ).map(_.patch.toSse.render)
@@ -499,7 +435,6 @@ class LiveStreamSuite extends ServerHarness {
         states,
         1L,
         Set.empty,
-        Selections.none,
         r.vars.env(Map(VarKey(NodeId.derived("c_1_branch_0_0"), "tab") -> tab))
       ).map(_.patch.toSse.render)
     assert(

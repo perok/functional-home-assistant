@@ -137,7 +137,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
       states: Map[String, EntityState],
       v: Long,
       open: Set[String],
-      selections: Selections,
       env: VarEnv = Map.empty,
       coverage: Patches.Coverage = Patches.Coverage.Swept
   ): List[Addressed] =
@@ -154,7 +153,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
           env,
           v,
           open,
-          selections,
           coverage
         )
       )
@@ -370,8 +368,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def events(out: List[Addressed]): List[SseFrame] =
     out.map(_.patch.toSse)
-
-  val PopupSig = Server.UiSignalPrefix + Dashboard.PopupHostId
 
   val Elements = "datastar-patch-elements"
 

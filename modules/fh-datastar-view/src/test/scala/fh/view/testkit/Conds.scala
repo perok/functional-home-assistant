@@ -29,8 +29,8 @@ object Conds {
 
   /** `n` compiled as the root of a page, or of the popup `sid`. */
   def compiledAlone(n: LayoutNode): Ready.Component = {
-    val i = TreeIndex.of(n, Map.empty)
-    compiled(Ready.Compile(Evaluator.Scope("")).node(i, i.roots.head))
+    val i = TreeIndex.of(n)
+    compiled(Ready.Compile(Evaluator.Scope("")).node(i, i.root))
   }
 
   /** What compiled, as the walk would have it. */

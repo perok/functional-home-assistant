@@ -38,9 +38,6 @@ class TabVariableSuite extends ServerHarness {
       .use(f)
       .timeout(30.seconds)
 
-  private def post(ts: TestServer, conn: String, path: String) =
-    ts.postResult(path, body = s"""{"${Server.ConnSignal}":"$conn"}""")
-
   private def press(ts: TestServer, conn: String, tab: String) =
     ts.choose(conn, VarKey(NodeId.derived("bar"), "tab"), Some(tab))
 
@@ -132,20 +129,6 @@ class TabVariableSuite extends ServerHarness {
         assert(result._2.contains("0..1"), clue = result._2)
         assertEquals(chose, Some(Map.empty))
         assertEquals(sent, "")
-      }
-    }
-  }
-
-  test("a variable-selected panel is chosen, never opened") {
-    // An open would move the panel without the variable, and the next page
-    // load would show another tab than the one on screen.
-    served { ts =>
-      for {
-        conn <- ts.load().map(_.conn)
-        result <- post(ts, conn, s"sse/surface/${ts.slug}/open/bar_panel_0_1")
-      } yield {
-        assertEquals(result._1, Status.Ok)
-        assert(result._2.contains("node variable"), clue = result._2)
       }
     }
   }

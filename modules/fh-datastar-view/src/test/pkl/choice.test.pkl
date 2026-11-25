@@ -58,8 +58,6 @@ facts {
     w.otherwise!!.length == 1
     // Its card places the host and declares the slot.
     h.nodesDeclared == Set("branch")
-    // A choice is a fill, not a surface.
-    h.inlineSurfaces == null
   }
   ["a lone condition is the key itself, and no else is no otherwise"] {
     local w = chosen(new Host { choice = nodeMod.iff(isOn(lamp)).then(c.title("a")) })

@@ -23,7 +23,7 @@ per-variant log entries — to describe what one sentence describes instead.
 **The publisher records what moved; each session renders what it is owed.** A state
 change is planned and written to a per-slug changelog once, with nothing rendered and
 nothing pushed. Each connection wakes on a doorbell and runs `Patches.resume` from its
-own position, against its own `holds` and its own open surfaces. A live tick and a
+own position, against its own `holds` and its own values. A live tick and a
 reconnect are the same operation with a different cursor (ADR 0011).
 
 So there is no audience tag on a patch and no per-client filter at the wire edge: a
@@ -84,16 +84,15 @@ construction. So one value answers both questions:
   many values are posted.
 
 **`holds` never outlives its renderer.** A session's `holds` is stamped with what painted it
-(`SessionState.painter`: the renderer's generation, which carries its head and style hashes and
-its popup spellings), and every step compares the stamp first (`Server.swapAnswer`): a pull, a
+(`SessionState.painter`: the renderer's generation, which carries its head and style
+hashes), and every step compares the stamp first (`Server.swapAnswer`): a pull, a
 press, the opening. Under another renderer the step answers as a swap — a reload when the head's
 unpatchable part moved or the page goes to or from the error page, else a repaint that replaces
 `holds` — and never diffs, so values held under one template are never taken for another's
 bytes (`ResumeSuite`: an edit that moves only markup reaches the client; a pull or a press between
 the swap and the repaint gets the repaint, and the press is refused rather than run, ADR 0024). The stamp is the swap's one mechanism: `install` rings
 the doorbell at the same version so an idle session steps, and no separate watcher repaints. It
-keeps what the swap reads of the renderer it replaces, since the new one cannot read a popup it
-lacks, and nothing that would pin that dashboard. A session told to reload sends nothing more
+keeps nothing of the renderer it replaces, so it pins no old dashboard. A session told to reload sends nothing more
 until the next swap.
 
 Compared as `SlotValue`s, not their text, since a section reads `false` and `"false"`
@@ -136,7 +135,7 @@ straggler installing its own values costs the next session on the newer values a
 wrong bytes (`RenderCacheContentionSuite`).
 
 **Variance stopped being a concept.** A node showing a viewer's choice is now just a node: the
-session renders it with its own `Selections`, and the key needs no selection in it — the choice
+session renders it with its own values, and the key needs no selection in it — the choice
 fills a nodes slot, which makes the node structure, and structure is never cached; its own
 markup shows the choice only through a cell class (below), written for the viewer in the
 document form. No deferral, no memo, no per-variant log entry, no classification. This is the
@@ -154,11 +153,11 @@ above: a signal is seeded on the node's root (its `.fh-cell`) and updated by a f
 addressed by name, so it never becomes bytes in the element and never needs the node
 patched (ADR 0017).
 
-**Visibility is a chain, not a membership test.** A client can see a node when every user
-surface above it is selected AND every state surface above it is active. `open` alone is
-not that: a selection is reported for every pick over a variable whether or not it is on screen.
+**Visibility is a chain, not a membership test.** A client can see a node when every pick
+above it holds the case it sits in, whether a viewer's value or state decides that pick. The
+case a value picks alone is not that: a tab panel inside a hidden `If` is picked and not shown.
 The chain gates what is recorded at all, and prunes what a resume owes — including
-the hosts it plans, since a leave or a place inside a surface a client does not have open would
+the hosts it plans, since a leave or a place inside a case a client is not shown would
 patch an id its DOM lacks.
 
 **A host is planned the same way, whoever chose the case.** A tab switch and an `If` flip
@@ -168,8 +167,7 @@ entity state, ADR 0007) and what reaches the planner: a flip logs its host and a
 case, because it is server truth every client must be planned against, and the pull finds
 them; a variable write plans the hosts its variable selects directly
 (`Patches.written`) and logs nothing, because one client switching a tab says nothing
-about anyone else's DOM. The popup host is still the exception until R5: `#popups` holds
-no list, so an open fills it whole and evicts every popup's claims (`Patches.popupFill`).
+about anyone else's DOM. A popup is such a write, of the page's `popups` variable (ADR 0002).
 
 ## Consequences
 
@@ -182,8 +180,8 @@ no list, so an open fills it whole and evicts every popup's claims (`Patches.pop
 - **Patch shape may legitimately differ between clients**, and that is the point: what a
   client is owed is computed against what it has. The wire is unchanged for any single
   client, which is how the flip was verified (ADR 0009's suites over emitted SSE).
-- **The popup is not a special channel**: it is `ui_<hostId>`, committed by its own
-  swaps as a tab's variable is by its write (ADR 0005).
+- **The popup is not a special channel**: it is the page's `popups` variable,
+  committed by its write as a tab's is (ADR 0005).
 - **A slug nobody is watching records nothing.** The gate is the session lookup the
   recorder already does for visibility; a client returning across such a stretch is
   repainted (`FragmentLog.reaches`).
@@ -195,7 +193,7 @@ a node variable (`cellClassWhen(cls, v.valueIs(x))`, ADR 0033), which is how a t
 buttons light the open tab in the first HTML — a tab click is then an
 `<a href="?v.<host>.tab=N">` and the answer is a fresh document. Supporting it used to cost four
 concepts and a branch in the diff path. It now costs nothing: the renderer already takes the
-viewer's `Selections`, a node whose markup reads the selection is structure, which is never
+viewer's values, a node whose markup reads the selection is structure, which is never
 cached, and such a class is written for the viewer in the document form only, its binding
 reading the variable's own signals, so a leaf's patch is the same for every viewer and no key
 has to carry one. There is no longer a pipeline to simplify by dropping the no-JS goal.
@@ -233,16 +231,15 @@ The per-session cost is one pull each per frame. Nothing here is worth building 
 house — but the design should not paint itself out of it.
 
 **The framing that makes it a choice rather than a tradeoff:** the unit of sharing is the
-EQUIVALENCE CLASS of sessions that would receive the same bytes — same position, same visible
-surfaces, same selections. The design this ADR replaced assumed exactly one class (everybody gets
+EQUIVALENCE CLASS of sessions that would receive the same bytes — same position, same
+values. The design this ADR replaced assumed exactly one class (everybody gets
 one shared render); this one assumes N (one per session). Neither is right in general — a
 household's tabs mostly fall into one or two classes — so **the class is the tunable**, and the two
 designs are endpoints of one axis rather than rivals.
 
 Cheapest first:
 
-1. **Memoise the pull by class.** Key a per-frame memo on `(fromVersion, visibleSurfaces,
-   selections)` and let sessions in the same class share one computed changeset. Four tabs on one
+1. **Memoise the pull by class.** Key a per-frame memo on `(fromVersion, values)` and let sessions in the same class share one computed changeset. Four tabs on one
    dashboard with the same tab selected collapse to one pass. Costs nothing until used.
 2. **Hoist the shared part of the pull.** The recorder already knows the changelog moved; it could
    compute what does not depend on a session — the slice since the OLDEST live position, the

@@ -38,8 +38,8 @@ not be enumerated there. A declared reference can.
 3. A node that declares nothing is transparent.
 4. A nested declaration of the same name shadows the outer one, for its own subtree only.
 5. A node sees its own declarations.
-6. The page and each popup start with an empty scope. A tab panel or an `If` branch starts with
-   the scope of the one node whose choice it is a case of.
+6. The page starts with an empty scope. A case of a choice — a tab panel, an `If` branch, a popup
+   — starts with the scope of the one node whose choice it is a case of; a popup's is the page's.
 7. A candidate set's members read the scope at the set. A node inside a clause declares for its
    member alone: each member's copy is its own declarer.
 8. A read with no declarer is a build error naming the node and the variable.
@@ -49,8 +49,9 @@ not be enumerated there. A declared reference can.
     reconnect carries — and every reader must accept it, or the write is refused.
 
 Rules 2–6 are lexical scoping, as in Scheme, ML or Pkl itself: where a node stands in the tree
-decides, never where it is shown. Rule 6 is what keeps that true for surfaces — a popup can be
-opened from many places, so inheriting from its opener would be dynamic scoping.
+decides, never where it is shown. Rule 6 is what keeps that true for popups: one can be opened from
+many places, so it inherits from the page whose case it is, never from its opener, which would be
+dynamic scoping.
 
 **Declaration.** `LayoutNode.Component.vars: List[Declaration]`, one per name:
 `Declaration(name, default, inUrl, initialTransform, inHistory)` — the value it holds before anyone chooses,
@@ -122,11 +123,11 @@ declaring ancestor; a container that declares nothing is transparent; a nested d
 same name shadows. No declarer is a **build error** naming the node and the variable. The walk
 yields the declared edge and its inverse, `VarGraph.readersOf` — the exact set a write re-renders.
 
-- **A popup is its own scope root; an owned surface inherits.** A popup can be opened from many
-  places, and inheriting from one would let its content resolve differently per opener. A tab
-  panel or an `If` branch is a case of exactly one node's choice, a node below it, so it starts
-  with that node's scope (`Dashboard.varScopes`, which the renderer and validation read; the hoist applies
-  the same rule to tokens). A chooser above a tab bar reaches the charts in its panels, and a
+- **A case starts with its choice's scope.** A tab panel or an `If` branch is a case of exactly
+  one node's choice, a node below it, so it starts with that node's scope (`Dashboard.varScopes`,
+  which the renderer and validation read). A popup is a case of the page node's `popups`, so it
+  sees the page's variables and not its opener's, which would let one content resolve differently
+  per opener. A chooser above a tab bar reaches the charts in its panels, and a
   nested bar's own declaration shadows the outer one. A write still re-renders only the readers
   this viewer is shown, so a hidden panel's chart is fetched at the new value when it opens.
 - **A candidate set's members read the scope at the set.** The candidates, each member's id
@@ -185,8 +186,8 @@ signals; a refused URL value or carry is dropped with a warning, each on its own
 (`Renderer.adopt`), leaving the declared values. A link is not refused whole: it outlives the
 layout it was copied from, and a card inserted above can move an id onto a node that cannot take
 the value. A choice naming no declaration is
-inert, not an error — a stale link after a rename, treated as `SurfaceGraph.openPopup` treats a
-gone surface, and an old `ui.<id>` tab link is not read at all. `ui.` is now only the popup's.
+inert, not an error — a stale link after a rename — and an old `ui.<id>` link, a tab's or the
+popup's, is not read at all.
 
 **A write re-renders the readers this viewer is shown, then commits** (ADR 0025): the press writes
 `_var_<declarer>__<name>__pending`, the server commits `_var_<declarer>__<name>` after the repaints,
@@ -223,15 +224,14 @@ this viewer is shown and commits after it, and a value no case of every panel it
 refused like an unparseable window. A `c.select` over a variable keys its cases by its options'
 values, so its cycle and its dropdown's label are right in the first HTML for a value like `7d`;
 an If over a variable (`c.iff(v.valueIs("30d"))`, ADR 0007) is one case at its value and the
-otherwise at every other, so it takes any value. A tab panel cannot be opened directly; the open
-route refuses it, since the panel would move without the variable. `validate` requires the
+otherwise at every other, so it takes any value. `validate` requires the
 variable in scope at the bar and its declared value to be a case's (or the choice to have an
 otherwise), and distinct keys per choice: a host is filled by a choice the server knows, a
-variable or a condition (ADR 0007), and `User` activation is a popup's. Several bars, and a bar
+variable or a condition (ADR 0007). Several bars, and a bar
 nested in another's panel, are kept apart by being different declarers. Every path that renders
 a panel takes the bar's case from the viewer's values, which the render's `Shared` carries
 (`Shared.viewing`, read by `SurfaceGraph.decideByVariable`): a lookup, kept nowhere, and a tab
-never joins `SessionState.open`, which holds popups. A stale `ui.<id>` param cannot pick a tab.
+never joins `SessionState.open`. A stale `ui.<id>` param cannot pick a tab.
 
 **A highlight is `v.valueIs(x)` in a bool signal slot**, the one variable read a signal may
 hold: `cellClassWhen("fh-chosen", v.valueIs(choice))` on the tab and select buttons. The
@@ -332,8 +332,12 @@ space or a `'`, and the value travels in a route segment and a JS string.
 **Translating old `ui.<id>` tab links.** Cheap, but a second spelling to keep for as long as any
 link exists. An old link lands on the declared tab, which is what a stale `v.` link does.
 
-**Resolving by node id.** Authors do not know ids — they are position-derived (ADR 0022), which is
-why `@@NODE_ID@@` exists at all.
+**Resolving by node id.** Authors do not know ids — they are position-derived (ADR 0022).
+
+**A popup whose entity a variable chooses** (one more-info node, `popups` holding an entity id).
+It would be one node for every entity, but the typed bodies, the written-down reads, the signals,
+the calls and the fetches all rely on the entity being known at build time, and a popup per entity
+under its own id costs nothing while closed.
 
 **Letting CEL read variables by name.** A transform is opaque to static analysis, so a reference
 inside one could not be enumerated before the walk — the property this exists to keep. A CEL reads
@@ -379,20 +383,10 @@ instead.
   (`ValueExpr.scala`), not string enums, with one answer for where it is checked and one for how a
   control is derived.
   Until then the closed set lives in the Pkl that emits the declaration and its control.
-- **A child that spells a parent's id OUTSIDE a variable.** `@@NODE_ID@@` means "the id of the
-  node whose class wrote this token", and `DashboardBuild.hoistInlineSurfaces` splices it only for a
-  node carrying `inlineSurfaces`. It cannot become unconditional — a `TabButton` inside `Tabs`
-  writes it meaning the tabs' id. A child naming its DECLARER needs no token, since the renderer
-  resolves the declarer itself (`VarGraph.keyAt`); an explicit "I own the tokens in my subtree"
-  marker is wanted only by a parent that declares nothing.
-- **Declaring on the tree ROOT, so a control need not contain its readers.** Today a bar in a
-  header cannot steer charts in a sibling column. A root declaration would, addressed through a
-  reserved segment the server resolves to "this tree's root" (the root is `c` only until an author
-  names it, and `s_<sid>__c` in a surface). Not built: composition covers the case that exists. It
-  is also the last step for selections: the popup host is the page card's `popups` node
-  (ADR 0002), so a declaration on the page's root `root` lets it become a variable and retire
-  `ui_popups`, `Server.popupOf` and `Selections.popup`, the one selection a request still
-  carries (ADR 0005).
+- **An author declaring on the page, so a control need not contain its readers.** Today a bar in a
+  header cannot steer charts in a sibling column. The page node `root` declares the library's
+  `popups` (ADR 0002), and a variable there spells its parameter `v.<name>`, but an author has no
+  way to add one. Not built: composition covers the case that exists.
 - **A global namespace**, if the root declaration ever reads badly, is Pkl sugar over it — never a
   second resolution rule.
 - **Naming the root's declaration from below a nearer one** (`root.popups`). Resolution is

@@ -26,20 +26,11 @@ import fh.view.model.{
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import fh.view.history.{ChartStyle, History, SeriesSource, Window, Windows}
-import fh.view.runtime.{
-  EntityState,
-  Evaluator,
-  Renderer,
-  Selections,
-  choosing,
-  sharedOf,
-  viewedOf
-}
+import fh.view.runtime.{EntityState, Evaluator, Renderer, choosing, viewedOf}
 import io.github.iltotore.iron.*
 import fh.view.FHError
 import fh.view.testkit.{FixtureEntity, PklFixture}
@@ -54,8 +45,8 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
   private object compile:
     private val walk = Ready.Compile(Evaluator.Scope(""))
     def component(c: LayoutNode.Component): Ready.Component = {
-      val i = TreeIndex.of(c, Map.empty)
-      Conds.compiled(walk.node(i, i.roots.head))
+      val i = TreeIndex.of(c)
+      Conds.compiled(walk.node(i, i.root))
     }
 
   /** A window written down resolves to itself in any environment, so the
@@ -326,68 +317,6 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
         Staged.FailedVersion
       )
     }
-  }
-
-  test("a surface's fetches are found before it is rendered") {
-    // More-info is a triggered surface, so what it reads must be answerable
-    // from the static tree: a render is a synchronous string build, a provider
-    // `IO`.
-    val d = Dashboard(
-      cards = Map(
-        "chart" -> TestCard("""<div>{{{chart}}}</div>"""),
-        "col" -> TestCard(
-          """<div>{{{children}}}</div>""",
-          regions = Set("children")
-        )
-      ),
-      card = LayoutNode.Component(card = "col"),
-      surfaces = Map(
-        "popup" -> Surface(
-          content = LayoutNode.Component(
-            card = "col",
-            slots = Slots.nodes(
-              Map(
-                "children" -> List(
-                  LayoutNode.Component(
-                    card = "chart",
-                    slots = Slots.values(
-                      Map(
-                        "chart" -> TemplateSlot(
-                          ValueExpr(
-                            Value.Fetch(chart()),
-                            List(drawnStep())
-                          ),
-                          `type` = SlotType.TextRaw
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-    val r = Renderer.create(d)
-    assertEquals(
-      r.fetchesForSurface(
-        r.surface("popup").get.content.id,
-        sharedOf(Map.empty),
-        Selections.none,
-        Map.empty
-      ),
-      List(read())
-    )
-    assertEquals(
-      r.fetchesForSurface(
-        "nope",
-        sharedOf(Map.empty),
-        Selections.none,
-        Map.empty
-      ),
-      Nil
-    )
   }
 
   test("a page resolves the tab it shows and the branch state picks, only") {

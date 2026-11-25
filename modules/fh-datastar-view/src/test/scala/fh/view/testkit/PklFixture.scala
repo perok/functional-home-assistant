@@ -1,16 +1,16 @@
 package fh.view.testkit
 
-import fh.view.build.{DashboardBuild, PklBuild, PklDump, Site, SourceEval}
+import fh.view.build.{PklBuild, PklDump, Site, SourceEval}
 import fh.view.model.{CardDef, Choice, Dashboard, Fill, LayoutNode, Slot}
 import io.circe.{Json, parser}
 import org.pkl.core.{Evaluator, EvaluatorBuilder, ModuleSource, OutputFormat}
 import org.pkl.core.project.Project
 
 /** A real [[Dashboard]] from an inline Pkl entry through the Tier-A path (ADR
-  * 0009): `.pkl` -> `SourceEval.eval` -> `DashboardBuild.hoistInlineSurfaces`
-  * -> decode, over a staged package-form workspace with the caller's dump
-  * (typically [[HouseFixture.transformedDump]]) seeded as `@fh-home`. Entries
-  * usually set [[dummyTheme]], leaving CSS to the browser suites.
+  * 0009): `.pkl` -> `SourceEval.eval` -> decode, over a staged package-form
+  * workspace with the caller's dump (typically
+  * [[HouseFixture.transformedDump]]) seeded as `@fh-home`. Entries usually set
+  * [[dummyTheme]], leaving CSS to the browser suites.
   */
 object PklFixture {
 
@@ -248,8 +248,7 @@ object PklFixture {
   }
 
   private def decodeDashboard(slug: String, value: Json): Dashboard =
-    DashboardBuild
-      .hoistInlineSurfaces(value)
+    value
       .as[Dashboard]
       .fold(
         err => sys.error(s"decoding $slug as Dashboard failed: $err"),

@@ -33,7 +33,7 @@ finished, and are deleted (issue #23).
 1. **`SourceEval` seam** (`fh.view.build.SourceEval`): owns
    `Result(value: Json, imports: Set[os.Path])` and evaluates `.pkl` entries via
    `PklBuild` (a non-`.pkl` entry is an error). The seam is kept as a thin named
-   boundary; everything downstream (`hoistInlineSurfaces`, decode, validate,
+   boundary; everything downstream (decode, validate,
    Renderer, Server) is source-agnostic and unchanged. `literalLocator` lives
    here and greps the Pkl sources.
 2. **JSON rendering is backend-side.** `PklBuild` evaluates the entry's
@@ -67,7 +67,7 @@ finished, and are deleted (issue #23).
    docs, not machine-readably); it types only what the dump extracts.
 5. **The output contract is the existing one**: Pkl components emit
    `{kind: "Component", card, slots}` nodes and a
-   `{cards, theme, card, surfaces?}` top level. Every discriminator (`kind`, `op`, `stage`) is the
+   `{cards, theme, root}` top level (`root` is the page card around the entry's `card`). Every discriminator (`kind`, `op`, `stage`) is the
    Scala case name, verbatim, so no decoder renames one. Pkl declares each as a string-literal type, so Pkl refuses a
    misspelling, and `WireShapeSuite` checks each literal against the case names. `Access` alone
    assigns a plain String: a site rule Pkl cannot read must reach the decoder, which falls back
@@ -103,7 +103,7 @@ finished, and are deleted (issue #23).
    `function entityCard(e)` AND a pure delegate
    `hidden entityCard: (hass.Entity) -> EntityCard = (e) -> entityCard(e)` — call
    syntax picks the method, a bare `c.entityCard` the value, no logic duplicated.
-   Containers (`Row`/`Column`/`Tabs`/`Popup`) keep the `new` + `children {}`
+   Containers (`Row`/`Column`/`Tabs`) keep the `new` + `children {}`
    style.
 7. **A card class also owns its template**: each concrete `Node` subclass
    carries a `hidden cardDef: CardDef` (its Mustache template), co-located with
@@ -156,7 +156,7 @@ finished, and are deleted (issue #23).
    (ADR 0017).
 
    **A dashboard's `cards` is the cards its tree uses**, read off the nodes
-   (`core/node.pkl`'s `cardsIn`, over `card` and `surfaces`): every node
+   (`core/node.pkl`'s `cardsIn`, over the page card, which holds the popups): every node
    carries its own `cardDef`, so walking the tree finds each card with no
    registration at all. A card class of the component developer's own (ADR
    0010, persona 4) is registered by being used, from any module — the entry
@@ -218,8 +218,8 @@ finished, and are deleted (issue #23).
    every entry amends: it carries the card registry
    (`cards = nodeMod.cardsIn(…)`, decision 7) and the shared `theme`, and
    declares the fields an entry fills — a required
-   `card: c.Node` (the layout-tree root), and optional `title`/`surfaces`
-   and a `theme` override. So an entry opens with `amends "lib/entry.pkl"` and sets
+   `card: c.Node` (the layout-tree root), and an optional `title`
+   and `theme` override. So an entry opens with `amends "lib/entry.pkl"` and sets
    only `card`. Because `card` has no default, an entry that forgets it fails
    with "Tried to read property `card` but its value is undefined" whose caret
    points at `lib/entry.pkl` (Pkl reports a missing required property at the
@@ -243,13 +243,10 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
 - the `c.tap` namespace — `toggle`/`call`/`moreInfo`/`default`/`navigate`,
   named without a `Tap` suffix because the namespace carries the noun (what a card
   clicks by default, and the vendored domain table behind it, is ADR 0016);
-  popups/surfaces — `SurfaceDef`,
-  `inlineSurfaces` on `Node`+`TapAction`, the `@@NODE_ID@@` hoist token, `popup`
-  card + `Popup` class, `closePopup`/`openPopup(surfaceId)`/
-  `openPopupInline(body)`, popup CSS in the theme modules (0002). A registered
-  popup surface amends into existence via `entry.pkl`'s `surfaces` mapping
-  default (`PopupSurface`: hidden `body` Listing, auto-`Popup`-wrapped
-  content) — no `new`, and the wrap rule is enforced by construction.
+  popups — `c.view.popup(id, body)` and `c.view.closePopup()`: an open is a
+  choice of the page's `popups` variable that carries its `Popup` in a hidden
+  `carries`, and `entry.pkl` collects every carried popup into the match over
+  it (`components/popup.pkl`, ADR 0002).
 - Tabs: the `Tabs` class, keyed `tabs: Mapping<String, Listing<LayoutNode>>`
   (label → that tab's cards, Row-wrapped into the cases of a match over the
   bar's `tab` variable, ADR 0033; the Listing-valued mapping
@@ -258,7 +255,7 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
   (`.fh-tabs > a` anchors, `data-class:fh-chosen` + a variable-writing onclick) — internal to `Tabs`, not an
   authoring surface (0002/0005).
 - Comma-free container authoring: hidden amendable base instances `(c.row)`,
-  `(c.column)`, `(c.popup)`, `(c.tabs)` — parens mandatory (Pkl requires them
+  `(c.column)`, `(c.tabs)` — parens mandatory (Pkl requires them
   around any amend parent that isn't a `new` expression).
 - Candidate sets: typed condition classes (`Cmp`/`PAnd`/`POr`/`PNot`/`Count`/
   `First`, each writing a bool reading, ADR 0004; the `PredicateOp` union type
@@ -270,8 +267,7 @@ Implemented on the Pkl authoring surface (owning ADRs in parentheses):
   single source; a candidate is a known entity, so nothing resolves at runtime.
 
 **Deliberate API shape** (Pkl has no untyped union-dispatch):
-`openPopup(id: String)` and `openPopupInline(body: Node)` are two named
-functions rather than one that dispatches on string-vs-node; the row/col class
+the row/col class
 slot is authored `cssClass` (`class` is a Pkl reserved word) though the emitted
 slot key remains `"class"`.
 
@@ -360,11 +356,10 @@ slot key remains `"class"`.
   is unreachable) — comma-free children always go through a Listing-typed
   property (`children { … }`).
 - A **Mapping `default` enables amend-into-existence**: with
-  `default = (_) -> new PopupSurface {}`, `surfaces { ["detail"] { … } }`
-  instantiates the default and amends it, across an `amends` boundary and with
-  no `new`. A `Listing`-valued default goes one further — the amended-into-
-  existence value is a Listing, so the body adds elements directly (how a tab
-  lists its cards with no `children` key). `Mapping.keys.toList()` preserves
+  `default = (_) -> new Listing {}`, `tabs { ["Lights"] { … } }` instantiates
+  the default and amends it, across an `amends` boundary and with no `new`;
+  the value is a Listing, so the body adds elements directly (how a tab lists
+  its cards with no `children` key). `Mapping.keys.toList()` preserves
   insertion order, which is what makes a Mapping-keyed class able to derive an
   index (`Tabs`' per-tab case keys).
 - **Methods aren't first-class values.** To pass a factory *as a value* (a
@@ -398,7 +393,7 @@ slot key remains `"class"`.
 ## Verification
 
 `fh-datastar-view/testFull` green (PklBuildSuite carries the full-pipeline
-decode/hoist/validate coverage plus wire-format snapshots of the demo entries —
+decode/validate coverage plus wire-format snapshots of the demo entries —
 byte-identity checked, regenerated with `FH_UPDATE_SNAPSHOTS=1`). Live
 verification against the running HA instance completed 2026-07-04 (headless,
 over the SSE protocol): `/d/pkl-demo` renders real live values (state +

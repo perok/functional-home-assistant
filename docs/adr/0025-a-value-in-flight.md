@@ -2,9 +2,8 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-22
-- **Scope:** `runtime/SurfaceGraph.scala` (`committedSelection`,
-  `committedSelections`), `runtime/Server.scala` (`swapPopup`, `setVar`,
-  `openingSignals`), `runtime/Datastar.scala` (the no-null rule),
+- **Scope:** `runtime/VarGraph.scala` (`committed`), `runtime/Server.scala`
+  (`setVar`, `fromHistory`, `openingSignals`), `runtime/Datastar.scala` (the no-null rule),
   `lib/core/tap.pkl`, `lib/components/base/surface.pkl`,
   `lib/components/slider.pkl`
 - **Closes:** ADR 0024's open question. **Uses:** ADR 0005's selection signals
@@ -39,10 +38,9 @@ could say B while the panel showed A, with every request succeeding.
 | committed | the SERVER only | what this client's DOM *is* showing |
 | `_<group>__pending` | the client, on tap | what it has *asked* to show |
 
-A group is a node variable or the popup host. A variable's committed signal is
-`_var_<declarer>__<name>` and its group `var_<declarer>__<name>`: a tab bar's
-`tab`, a chooser's `window` (ADR 0033). The popup's is `ui_popups`, with no
-pending twin (ADR 0005).
+A group is a node variable. Its committed signal is `_var_<declarer>__<name>`
+and its group `var_<declarer>__<name>`: a tab bar's `tab`, a chooser's
+`window` (ADR 0033), the page's `popups` (`_var_root__popups`, ADR 0002).
 
 Anything that displays a selection reads `$_<group>__pending \|\| $<committed>`,
 so the tap still feels instant — the pending value drives the highlight from the
@@ -52,10 +50,9 @@ ever rolled back, because nothing wrong was ever committed.**
 
 What a write makes true is committed by the one route that made it:
 `Server.setVar` sends the variable's value after its readers and any panel it
-plans, and `SurfaceGraph.committedSelection` says what a popup swap put in the
-host, a surface id (or `""`), in the shape `openPopup` reads back out. It
-answers `None` for a choice's host: one over a variable commits through its
-variable, and one over state is server truth every viewer shares.
+plans, and `Server.fromHistory` does the same for the values Back or Forward
+brings into the URL. A choice over state commits nothing: it is server truth
+every viewer shares.
 
 **Two signals, not three.** An earlier draft added a `_<group>__busy` from
 `data-indicator`. "A request is in flight" is just `pending != ''` — once you
@@ -124,9 +121,8 @@ A request either gets an answer (refused, or the commit arrives, on this stream
 or the next one), or gets a response nothing can read. A deadline, which is what
 an earlier draft used, would only have been a worse-informed guess at which.
 
-**So a connect restates the selections.** `SurfaceGraph.committedSelections`
-gives the popup's from a session's open set and `VarGraph.committed` every
-declared variable's, and `openingSignals` carries both with the cursor on every
+**So a connect restates the selections.** `VarGraph.committed` gives every
+declared variable's, the popup's among them, and `openingSignals` carries them with the cursor on every
 connect, beside the emptied asks. A swap is two writes (the patch, then the signal), so a stream dying between
 them would otherwise leave a DOM holding one panel and a signal naming another. It rides *inside*
 the cursor's frame rather than beside it: `SessionLifecycleSuite` states the
@@ -182,7 +178,7 @@ and `control.pkl` has said so all along. `ui_*` selections were the ONE family
 where the server never wrote back, which is exactly why they were the family with
 the bug. The work was not "invent a mechanism" but "let selections join the one
 the rest of the app already follows", plus a pending VALUE for the case a
-two-way binding cannot express: a tab index or a surface id has no input element
+two-way binding cannot express: a tab index or a popup id has no input element
 to bind to.
 
 ## Why pending and `busy` never share a name
@@ -377,7 +373,7 @@ be told.
 
 **A stale document's tap could self-heal instead of toasting.** ADR 0024's
 refusals are now 200 carrying signals, so the toast at least names what went
-wrong. The STALE DOCUMENT case could do better still — a tap naming a surface id
+wrong. The STALE DOCUMENT case could do better still — a tap naming a popup id
 this build renamed gets a message the user cannot act on. Answered as 200 plus a
 `_reload` frame
 (ADR 0018's mechanism, and `Server.reloadPatch` already exists) the tap would
@@ -389,7 +385,7 @@ themselves:
 
 | case | what it is | how often |
 |---|---|---|
-| unknown surface id | the document predates a rebuild that renamed ids | rare and transient: a live page is REPAINTED with the new ids on the swap (verified — a pushed dashboard updated a pill's `onclick` before it could be clicked), and a page that missed the repaint reloads on reconnect via the head hash. The window is the milliseconds between rebuild and repaint |
+| unknown popup id | the document predates a rebuild that renamed ids | rare and transient: a live page is REPAINTED with the new ids on the swap (verified — a pushed dashboard updated a pill's `onclick` before it could be clicked), and a page that missed the repaint reloads on reconnect via the head hash. The window is the milliseconds between rebuild and repaint |
 | slug nobody serves | the dashboard was deleted, or failed to build, while a page was open | rare, and already owned by ADR 0018: a failed slug gets the error page and a reload repaint |
 | `conn` on another dashboard | no honest client produces it | effectively never |
 
@@ -402,24 +398,17 @@ the whole page on a transient condition is a worse failure than one that says
 - The wire format changed: a tab's `onclick` assigns pending before its POST,
   its highlight reads both signals (`cellClassWhen(cls, v.valueIs(x))`, which the
   renderer binds to them, ADR 0033), the tabs bar carries the seed +
-  the two clears, and the popup taps carry no client assignment at all. The
+  the two clears, and a popup's open is the same write as a tab's. The
   `PklBuildSuite` snapshots record it.
-- `SurfaceGraphSuite` owns the pure half as a ROUND TRIP — whatever
-  `committedSelection` says must read back through `openPopup` as the popup
-  it named — because the two ends were written apart and a value
-  shape only one understood would restore the original bug.
-- `SurfaceTapSuite` owns the server half: a swap emits the commit, on open AND
-  on close, with the request body carrying no ui-state at all, so the selection
-  can only have come from the swap.
+- `PopupVariableSuite` owns the popup's server half: an open commits `popups`
+  and Back clears it, with the request body carrying no ui-state at all, so the
+  value can only have come from the write.
 - `UiSmokeSuite` owns the property in a browser, once per way an ask can end: a
   tap the server REFUSES (a real 404, the status ADR 0024 created) leaves the
   URL where it was and does not leave the bar highlighting a panel that never
   arrived — with the same tap unblocked doing everything, so it cannot pass
   vacuously; and a tap whose transport dies highlights while the question is
   open and stops when the banner says the connection is gone.
-- The popup host gained a committed signal it did not have. Before, the client
-  set `ui_popups` and a close cleared it; now the swap does both, which is why
-  the close path commits `""` rather than simply sending no frame.
 - A slower link now shows the pending highlight for longer rather than showing a
   committed one that might be wrong. If that reads worse than the old immediate
   assignment, the DISPLAY rule is what to revisit — the state model would still

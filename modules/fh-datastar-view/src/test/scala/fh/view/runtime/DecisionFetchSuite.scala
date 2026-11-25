@@ -131,7 +131,7 @@ class DecisionFetchSuite extends munit.FunSuite {
     }.map(
       r.renderBodyTraced(
         _,
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).html
     ).unsafeRunSync()
 
@@ -142,7 +142,7 @@ class DecisionFetchSuite extends munit.FunSuite {
     val outside = intercept[FHError](
       r.renderBodyTraced(
         Shared.of(states()),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
     )
     assert(outside.getMessage.contains("outside a run"))
@@ -213,7 +213,6 @@ class DecisionFetchSuite extends munit.FunSuite {
     val ready = Conds.compiled(Ready.Compile(Evaluator.Scope("")).dashboard(d))
     val g = new SurfaceGraph(
       ready.index,
-      ready.surfaces,
       ready.picks,
       new MemberGraph(Map.empty, ready.index)
     )

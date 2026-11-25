@@ -24,11 +24,10 @@ import fh.view.model.{
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.{asComponent, st}
-import fh.view.testkit.FixtureEntity
+import fh.view.testkit.{FixtureEntity, PklFixture}
 import fh.view.testkit.TestIds.given
 
 /** Signal slots (ADR 0017). The contract is negative, so every test asserts
@@ -133,7 +132,7 @@ class SignalSlotSuite extends ServerHarness {
         .renderNodeById(
           leaf,
           Shared.of(at("21.4")),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
         .get
     assertEquals(patch.contains("21.4"), false, clue = patch)
@@ -162,7 +161,7 @@ class SignalSlotSuite extends ServerHarness {
       r.renderNodeById(
         leaf,
         Shared.of(at("21.4")),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get
     assert(patch.contains(assigned), clue = patch)
     val plain =
@@ -177,7 +176,7 @@ class SignalSlotSuite extends ServerHarness {
     val signalled =
       renderer.renderBodyTraced(
         Shared.of(at("21.4")),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
     val signalledId = signalled.own.keys.head
     assertEquals(
@@ -196,7 +195,7 @@ class SignalSlotSuite extends ServerHarness {
       .renderNodeById(
         signalledId,
         Shared.of(at("21.4")),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
       .get
     assert(signalled.html.contains("21.4"), clue = signalled.html)
@@ -224,8 +223,7 @@ class SignalSlotSuite extends ServerHarness {
       documentHolds(r, was),
       now,
       1L,
-      Set.empty,
-      Selections.none
+      Set.empty
     )
   }
 
@@ -619,7 +617,7 @@ class SignalSlotSuite extends ServerHarness {
     val holds = r.renderPageHolds(
       Sink.buffer(r.pageBytesHint),
       Shared.of(lit(40)),
-      Viewing(Selections.none, FetchSnapshot.empty)
+      Viewing(FetchSnapshot.empty)
     )
     val out = resumeNow(
       r,
@@ -627,8 +625,7 @@ class SignalSlotSuite extends ServerHarness {
       holds,
       lit(41),
       1L,
-      Set.empty,
-      Selections.none
+      Set.empty
     )
     assertEquals(
       out.map(_.patch),
@@ -647,8 +644,7 @@ class SignalSlotSuite extends ServerHarness {
       },
       lit(41),
       1L,
-      Set.empty,
-      Selections.none
+      Set.empty
     )
     assertEquals(
       out.map(_.patch),
@@ -755,8 +751,7 @@ class SignalSlotSuite extends ServerHarness {
       },
       lock("unlocked"),
       1L,
-      Set.empty,
-      Selections.none
+      Set.empty
     )
     assertEquals(
       out.map(_.patch),
@@ -812,8 +807,7 @@ class SignalSlotSuite extends ServerHarness {
       documentHolds(r, at("21.4")),
       at("21.5"),
       1L,
-      Set.empty,
-      Selections.none
+      Set.empty
     )
     assertEquals(
       out.map(_.patch),
@@ -899,8 +893,7 @@ class SignalSlotSuite extends ServerHarness {
       documentHolds(r, lightAt(40, "on", "warm")),
       lightAt(41, "dim", "cool"),
       1L,
-      Set.empty,
-      Selections.none
+      Set.empty
     )
     val entries = out.map(_.patch).collect { case s: Patch.Signals => s.values }
     assertEquals(entries.map(_.size), List(3), clue = entries)
@@ -908,14 +901,16 @@ class SignalSlotSuite extends ServerHarness {
   }
 
   test("a fill seeds an entity the page has never shown") {
-    // Why the seed cannot move to one document-level `data-signals`: a surface
+    // Why the seed cannot move to one document-level `data-signals`: a case
     // can introduce an entity nothing on the page reads, so no frame is coming
     // and the fill's own bytes are the only way to make it correct (ADR 0017).
+    val tabs = PklFixture.shape(
+      """card = (c.tabs) { tabs { ["A"] { t.hole("a") } ["B"] { t.hole("b") } } }"""
+    )
     val r = Renderer.create(
       Dashboard(
-        cards,
-        gauge("sensor.a"),
-        surfaces = Map("panel" -> Surface(gauge("sensor.unseen")))
+        cards ++ tabs.cards,
+        tabs.fill("a" -> gauge("sensor.a"), "b" -> gauge("sensor.unseen"))
       )
     )
     val states = at("21.4") ++
@@ -929,12 +924,13 @@ class SignalSlotSuite extends ServerHarness {
     val page = r.renderPage(states)
     assertEquals(page.contains("sensor.unseen"), false, clue = page)
     val fill = r
-      .renderSurfaceTraced(
-        "panel",
+      .renderCaseTraced(
+        "c_panel_0",
+        1,
         Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
-      .map(_.html)
+      .map(_._2.html)
       .get
     assert(fill.contains("data-text=\"$_e.sensor.unseen.state\""), clue = fill)
     assert(
@@ -960,7 +956,7 @@ class SignalSlotSuite extends ServerHarness {
       ix -> p.held
     }
     val out =
-      resumeNow(r, log, held, both("9", "8"), 1L, Set.empty, Selections.none)
+      resumeNow(r, log, held, both("9", "8"), 1L, Set.empty)
     assertEquals(
       out.map(_.patch),
       List(
@@ -987,8 +983,7 @@ class SignalSlotSuite extends ServerHarness {
       documentHolds(r, at("21.4")),
       at("21.6"), // where it ended up, two moves later
       1L,
-      Set.empty,
-      Selections.none
+      Set.empty
     )
     assertEquals(
       out.map(_.patch),
@@ -1127,7 +1122,7 @@ class SignalSlotSuite extends ServerHarness {
         next = next
       )
     )
-    val out = resumeNow(r, log, held, gone, 1L, Set.empty, Selections.none)
+    val out = resumeNow(r, log, held, gone, 1L, Set.empty)
     assertEquals(
       out.map(_.patch.toSse),
       List(Datastar.remove(r.elementId("c_light_a").selector)),
@@ -1389,7 +1384,7 @@ class SignalSlotSuite extends ServerHarness {
     val holds = documentHolds(r, tinted("red"))
     val log = FragmentLog("test").touched(r.ixOf("c"), 1L)
     val out =
-      resumeNow(r, log, holds, tinted("blue"), 1L, Set.empty, Selections.none)
+      resumeNow(r, log, holds, tinted("blue"), 1L, Set.empty)
     assertEquals(
       out.map(_.patch),
       List(frame(sig("sensor.a", tintRead) -> "blue")),

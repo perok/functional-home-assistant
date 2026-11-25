@@ -7,12 +7,10 @@ import fh.view.testkit.Slots
 import fh.view.testkit.Conds
 
 import fh.view.model.{
-  Activation,
   CardDef,
   Case,
   Choice,
   Dashboard,
-  DomId,
   Fill,
   Ix,
   LayoutNode,
@@ -22,7 +20,6 @@ import fh.view.model.{
   SetId,
   Slot,
   Step,
-  Surface,
   Value,
   ValueExpr,
   ValueType
@@ -103,16 +100,11 @@ class SurfaceGraphSuite extends munit.FunSuite {
       )
     )
 
-  private def rendererOf(
-      card: LayoutNode = col(),
-      popups: Map[String, Surface]
-  ): Renderer =
-    Renderer.create(Dashboard(cards = cards, card = card, surfaces = popups))
+  private def rendererOf(card: LayoutNode): Renderer =
+    Renderer.create(Dashboard(cards = cards, card = card))
 
-  private def graphOf(
-      card: LayoutNode = col(),
-      popups: Map[String, Surface] = Map.empty
-  ): SurfaceGraph = rendererOf(card, popups).surfaces
+  private def graphOf(card: LayoutNode = col()): SurfaceGraph =
+    rendererOf(card).surfaces
 
   extension (g: SurfaceGraph)
     /** The one pick a graph built around a single host has. */
@@ -320,14 +312,6 @@ class SurfaceGraphSuite extends munit.FunSuite {
     assert(g.visibleNode("who_knows", BitSet.empty, Shared.of(Map.empty)))
   }
 
-  test("selectedSurfaces and selectionsIn are inverses over a popup") {
-    val none = tabs.selectedSurfaces(Selections.none)
-    assertEquals(none, Set.empty[String])
-    assertEquals(tabs.selectionsIn(none), Selections.none)
-    val det = Selections(Some("detail"))
-    assertEquals(popups.selectionsIn(popups.selectedSurfaces(det)), det)
-  }
-
   test("a state pick's cases never enter a viewer's screen, a tab's do") {
     // `Patches.Addressed` relies on this: tagging a patch with a state surface
     // would hide it from everybody.
@@ -335,61 +319,15 @@ class SurfaceGraphSuite extends munit.FunSuite {
     val tabsGid = g.varPicks.head
     val viewed =
       Shared.of(Map.empty).viewing(Map(tabsGid -> Map("tab" -> "0")))
-    assertEquals(g.selectedSurfaces(), Set.empty[String])
     assertEquals(g.chosen(viewed), g.openOf(Set(g.cases(tabsGid)(0))))
     assertEquals(g.screen(Set.empty, viewed), g.chosen(viewed))
   }
 
-  test("an unbaked surface joins the open set only when defaultOpen") {
-    val g = graphOf(popups =
-      Map(
-        "shown" -> Surface(col(), activation = Activation.User(true)),
-        "hidden" -> Surface(col(), activation = Activation.User(false))
-      )
-    )
-    assertEquals(
-      g.selectedSurfaces(Selections.none),
-      Set(g.popupSpelling("shown").get)
-    )
-  }
-
-  private def popups = graphOf(popups =
-    Map(
-      "detail" -> Surface(col()),
-      "other" -> Surface(col())
-    )
-  )
-
-  test("a popup claim is honoured only for a surface this dashboard has") {
-    // A stale URL or another dashboard's dialog would put the session in a
-    // state its renderer cannot serve.
-    assertEquals(popups.openPopup(Some("detail")), Some("detail"))
-    assertEquals(popups.openPopup(Some("ghost")), None)
-    assertEquals(popups.openPopup(Some("")), None)
-    assertEquals(popups.openPopup(None), None)
-    assertEquals(Selections(popups.openPopup(Some("ghost"))), Selections.none)
-  }
-
-  test("an open popup is part of the selection") {
-    assertEquals(
-      popups.selectedSurfaces(Selections(popups.openPopup(Some("detail")))),
-      Set(popups.popupSpelling("detail").get)
-    )
-  }
-
-  test("surfacesAt names every surface sharing a host — the eviction group") {
-    assertEquals(
-      popups.surfacesAt(Dashboard.PopupHostId),
-      Set("detail", "other").map(popups.popupSpelling(_).get)
-    )
-    assertEquals(popups.surfacesAt(DomId.derived("elsewhere")), Set.empty)
-  }
-
   test(
-    "a member and a nested set in a popup are visible only while it is open"
+    "a member and a nested set in a case are visible only while it is shown"
   ) {
     // A materialised member and a nested set container, which the static index
-    // cannot place, both leaked a surface's patches to every client before.
+    // cannot place, both leaked a case's patches to every client before.
     val setNode = Sets.node(
       candidates = List("light.a"),
       members = Map(
@@ -403,9 +341,9 @@ class SurfaceGraphSuite extends munit.FunSuite {
         )
       )
     )
-    val r = rendererOf(popups = Map("det" -> Surface(setNode)))
+    val r = rendererOf(tabsAt(2, Map(1 -> setNode)))
     val (g, members) = (r.surfaces, r.members)
-    val spelled = g.popupSpelling("det").get
+    val spelled = g.cases(g.gid)(1)
     val outer = NodeId.derived(spelled)
     val setId = members.setContainer(outer).get
     val shared = Shared.of(snapshot(st("light.a", "on")))
@@ -421,7 +359,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
 
     val open = g.openOf(Set(spelled))
     List(
-      "the popup's set" -> outer,
+      "the case's set" -> outer,
       "materialised member" -> member.id,
       "nested set container" -> innerId
     ).foreach { (what, id) =>
@@ -431,7 +369,7 @@ class SurfaceGraphSuite extends munit.FunSuite {
     assert(g.visibleNode("nothing_here", BitSet.empty, shared))
   }
 
-  test("a member that is not present is placed with its popup") {
+  test("a member that is not present is placed with its case") {
     // A departing member's patch names it after the frame that removed it.
     val setNode = Sets.node(
       candidates = List("light.a"),
@@ -446,9 +384,9 @@ class SurfaceGraphSuite extends munit.FunSuite {
         )
       )
     )
-    val r = rendererOf(popups = Map("det" -> Surface(setNode)))
+    val r = rendererOf(tabsAt(2, Map(1 -> setNode)))
     val (g, members) = (r.surfaces, r.members)
-    val spelled = g.popupSpelling("det").get
+    val spelled = g.cases(g.gid)(1)
     val setId = members.setContainer(NodeId.derived(spelled)).get
     val off = Shared.of(snapshot(st("light.a", "off")))
 
@@ -467,46 +405,4 @@ class SurfaceGraphSuite extends munit.FunSuite {
     )
   )
 
-  test("a committed selection round-trips through the state that reads it") {
-    // Whatever `committedSelection` says after a swap must be what `openPopup`
-    // reads back. They were written apart, and a shape only one understands
-    // would re-open the URL/DOM disagreement pending signals exist to remove.
-    val g = graphOf(tabsAt(2), popups = Map("det" -> Surface(col())))
-    val t1 = g.cases(g.gid)(1)
-    val det = g.popupSpelling("det").get
-    // A tab's commit is its variable's, sent by the write (`Server.setVar`).
-    assertEquals(
-      g.committedSelection(DomId.derived("c_p"), Some(t1)),
-      None
-    )
-    assertEquals(
-      g.committedSelections(Set[String](t1)).keySet,
-      Set[String](Dashboard.PopupHostId)
-    )
-
-    val popup = g.committedSelection(Dashboard.PopupHostId, Some(det))
-    assertEquals(popup, Some(Dashboard.PopupHostId -> "det"))
-    assertEquals(g.openPopup(popup.map(_._2)), Some("det"))
-
-    val closed = g.committedSelection(Dashboard.PopupHostId, None)
-    assertEquals(closed, Some(Dashboard.PopupHostId -> ""))
-    assertEquals(
-      g.openPopup(closed.map(_._2)),
-      None,
-      "a close must commit a value that reads back as no popup"
-    )
-  }
-
-  test("nothing is committed where the client has no say") {
-    // A state branch is shared server truth, so asserting a selection would put
-    // a `ui_*` on the wire nothing reads.
-    val g = graphOf(chain(true, isOn("light.a")))
-    val host = DomId.derived("c_p")
-    assertEquals(g.committedSelection(host, Some("c_else")), None)
-    assertEquals(g.committedSelection(host, Some("stranger")), None)
-    assertEquals(
-      g.committedSelection(DomId.derived("nobody"), Some("t0")),
-      None
-    )
-  }
 }

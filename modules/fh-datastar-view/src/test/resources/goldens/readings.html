@@ -1,10 +1,11 @@
 <!-- ==== as fixtured · body ==== -->
-<div class="" id="root"><main>
+<div class="" id="root"
+  data-fh-url:popups__history="['v.popups', $_var_root__popups, '']"><main>
 <div class="fh-cell fh-col" id="c"><button class="fh-cell fh-press fh-size-large fh-badged warm" style="--fh-x:180" id="c_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: '180', t#3: false}}}}"
   data-class:warm="$_e.light.kitchen.t#1"
   data-style:--fh-x="$_e.light.kitchen.t#2"
-  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0__error = ''))"
@@ -19,7 +20,7 @@
   data-attr:aria-busy="$_c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></button><button class="fh-cell fh-chip fh-circle fh-hug fh-active" id="c_1"
   data-signals="{_e: {light: {kitchen: {t#3: false, t#4: true}}}}"
   data-class:fh-active="$_e.light.kitchen.t#4"
-  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-indicator="_c_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_1__error = ''))"
@@ -33,7 +34,7 @@
   data-class:fh-busy-spin="$_c_1__busy_slow"
   data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-power"></i></button><button class="fh-cell fh-press fh-size-large " id="c_2"
   data-signals="{_e: {_x: {t#5: false, t#6: '1 on'}}}"
-  data-on:click="$_c_2__busy ? '' : $_e._x.t#5 ? '' : @post('sse/call/readings/call_2?node=c_2', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_2__busy ? '' : $_e._x.t#5 ? '' : @post('sse/call/readings/call_2?node=c_2', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e._x.t#5"
   data-indicator="_c_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_2__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_2__error = ''))"
@@ -43,7 +44,7 @@
   data-class:fh-error="$_c_2__error"><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Lights off</span></span><span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e._x.t#6">1 on</span></span></span></button>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_3"
-  data-signals="{_e: {sensor: {outside_temp: {t#7: '12.4 °C', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self', {retryMaxCount: 0})"
+  data-signals="{_e: {sensor: {outside_temp: {t#7: '12.4 °C', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : $_var_root__popups__pending = 'moreinfo_sensor_outside_temp'; @post('sse/call/readings/call_3?node=c_3', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_3__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_3__error = ''))"
   data-fh-node="c_3"
@@ -60,7 +61,7 @@
   data-text="$_e.sensor.outside_temp.t#8">temperature</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="c_4"
   data-signals="{_e: {light: {kitchen: {t#3: false, t#9: true, t#11: 'on'}, living_room: {t#10: 'off'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#9">  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_4', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.light.kitchen.t#9">  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_4', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_4__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_4__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_4__error = ''))"
   data-fh-node="c_4"
@@ -76,75 +77,86 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#11">on</span></span></span></div></article></div></main>
 <div class="" id="popups"></div></div>
-<!-- ==== as fixtured · surface c_3_self ==== -->
-<div class="fh-cell fh-popup-backdrop" id="s_c_3_self__c"
-  data-on:click="evt.target === el && $ui_popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$ui_popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell fh-col" id="s_c_3_self__c_0">
-<article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_3_self__c_0_0"
-  data-signals="{_e: {sensor: {outside_temp: {t#12: '12.4 °C'}}}}">  <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
+<!-- ==== as fixtured · case moreinfo_sensor_outside_temp ==== -->
+<div class="fh-cell fh-popup-backdrop" id="moreinfo_sensor_outside_temp"
+  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="$_var_root__popups && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+<div class="fh-cell fh-col" id="moreinfo_sensor_outside_temp_0">
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="moreinfo_sensor_outside_temp_0_0"
+  data-signals="{_e: {sensor: {outside_temp: {t#12: '12.4 °C'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_moreinfo_sensor_outside_temp_0_0__busy ? '' : $_var_root__popups__pending = 'moreinfo_sensor_outside_temp'; @post('sse/call/readings/call_3?node=moreinfo_sensor_outside_temp_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_0__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_0"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_0__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_0__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_0__error"><span class="fh-badge fh-icon-shape  "
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_0__busy_slow = $_moreinfo_sensor_outside_temp_0_0__busy"
+  data-class:fh-busy-spin="$_moreinfo_sensor_outside_temp_0_0__busy_slow"
+  data-attr:aria-busy="$_moreinfo_sensor_outside_temp_0_0__busy_slow"><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.sensor.outside_temp.t#12">12.4 °C</span></span></span></div></article>
-<div class="fh-cell fh-col fh-cols-full" id="s_c_3_self__c_0_1"
-  data-fh-url:window="['v.s_c_3_self__c_0_1.window', $_var_s_c_3_self__c_0_1__window, '24h']">
-<div class="fh-cell fh-tabs fh-select" id="s_c_3_self__c_0_1_bar_0"><a class="" id="s_c_3_self__c_0_1_bar_0_0"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '1h'"
-  data-on:click="$_s_c_3_self__c_0_1_bar_0_0__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '1h'; @post('sse/call/readings/call_3?node=s_c_3_self__c_0_1_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
-  data-indicator="_s_c_3_self__c_0_1_bar_0_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_3_self__c_0_1_bar_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_0__error = ''))"
-  data-fh-node="s_c_3_self__c_0_1_bar_0_0"
-  data-class:fh-disabled="$_s_c_3_self__c_0_1_bar_0_0__busy"
-  data-class:fh-loading="$_s_c_3_self__c_0_1_bar_0_0__busy"
-  data-class:fh-error="$_s_c_3_self__c_0_1_bar_0_0__error"
-  data-signals__ifmissing="{_s_c_3_self__c_0_1_bar_0_0__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_0__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_0__busy_slow = $_s_c_3_self__c_0_1_bar_0_0__busy"
-  data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_0__busy_slow">1h</a><a class=" fh-chosen" id="s_c_3_self__c_0_1_bar_0_1"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '24h'"
-  data-on:click="$_s_c_3_self__c_0_1_bar_0_1__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '24h'; @post('sse/call/readings/call_4?node=s_c_3_self__c_0_1_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
-  data-indicator="_s_c_3_self__c_0_1_bar_0_1__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_3_self__c_0_1_bar_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_1__error = ''))"
-  data-fh-node="s_c_3_self__c_0_1_bar_0_1"
-  data-class:fh-disabled="$_s_c_3_self__c_0_1_bar_0_1__busy"
-  data-class:fh-loading="$_s_c_3_self__c_0_1_bar_0_1__busy"
-  data-class:fh-error="$_s_c_3_self__c_0_1_bar_0_1__error"
-  data-signals__ifmissing="{_s_c_3_self__c_0_1_bar_0_1__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_1__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_1__busy_slow = $_s_c_3_self__c_0_1_bar_0_1__busy"
-  data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_1__busy_slow">24h</a><a class="" id="s_c_3_self__c_0_1_bar_0_2"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '7d'"
-  data-on:click="$_s_c_3_self__c_0_1_bar_0_2__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '7d'; @post('sse/call/readings/call_5?node=s_c_3_self__c_0_1_bar_0_2', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
-  data-indicator="_s_c_3_self__c_0_1_bar_0_2__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_3_self__c_0_1_bar_0_2__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_2__error = ''))"
-  data-fh-node="s_c_3_self__c_0_1_bar_0_2"
-  data-class:fh-disabled="$_s_c_3_self__c_0_1_bar_0_2__busy"
-  data-class:fh-loading="$_s_c_3_self__c_0_1_bar_0_2__busy"
-  data-class:fh-error="$_s_c_3_self__c_0_1_bar_0_2__error"
-  data-signals__ifmissing="{_s_c_3_self__c_0_1_bar_0_2__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_2__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_2__busy_slow = $_s_c_3_self__c_0_1_bar_0_2__busy"
-  data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_2__busy_slow">7d</a><a class="" id="s_c_3_self__c_0_1_bar_0_3"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '30d'"
-  data-on:click="$_s_c_3_self__c_0_1_bar_0_3__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '30d'; @post('sse/call/readings/call_6?node=s_c_3_self__c_0_1_bar_0_3', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
-  data-indicator="_s_c_3_self__c_0_1_bar_0_3__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_3_self__c_0_1_bar_0_3__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_3__error = ''))"
-  data-fh-node="s_c_3_self__c_0_1_bar_0_3"
-  data-class:fh-disabled="$_s_c_3_self__c_0_1_bar_0_3__busy"
-  data-class:fh-loading="$_s_c_3_self__c_0_1_bar_0_3__busy"
-  data-class:fh-error="$_s_c_3_self__c_0_1_bar_0_3__error"
-  data-signals__ifmissing="{_s_c_3_self__c_0_1_bar_0_3__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_3__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_3__busy_slow = $_s_c_3_self__c_0_1_bar_0_3__busy"
-  data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_3__busy_slow">30d</a></div>
-<div class="fh-cell fh-card fh-chart" id="s_c_3_self__c_0_1_0"><svg/></div></div>
-<div class="fh-cell fh-card fh-entity-info" id="s_c_3_self__c_0_2">  <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">device_class: temperature&#10;friendly_name: Outside Temperature&#10;unit_of_measurement: °C</pre></div><button class="fh-cell fh-press fh-size-large " id="s_c_3_self__c_0_3"
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
+<div class="fh-cell fh-col fh-cols-full" id="moreinfo_sensor_outside_temp_0_1"
+  data-fh-url:window="['v.moreinfo_sensor_outside_temp_0_1.window', $_var_moreinfo_sensor_outside_temp_0_1__window, '24h']">
+<div class="fh-cell fh-tabs fh-select" id="moreinfo_sensor_outside_temp_0_1_bar_0"><a class="" id="moreinfo_sensor_outside_temp_0_1_bar_0_0"
+  data-class:fh-chosen="String(($_var_moreinfo_sensor_outside_temp_0_1__window__pending || $_var_moreinfo_sensor_outside_temp_0_1__window)) === '1h'"
+  data-on:click="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy ? '' : $_var_moreinfo_sensor_outside_temp_0_1__window__pending = '1h'; @post('sse/call/readings/call_4?node=moreinfo_sensor_outside_temp_0_1_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_1_bar_0_0__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_1_bar_0_0"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__error"
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy_slow = $_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy"
+  data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy_slow">1h</a><a class=" fh-chosen" id="moreinfo_sensor_outside_temp_0_1_bar_0_1"
+  data-class:fh-chosen="String(($_var_moreinfo_sensor_outside_temp_0_1__window__pending || $_var_moreinfo_sensor_outside_temp_0_1__window)) === '24h'"
+  data-on:click="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy ? '' : $_var_moreinfo_sensor_outside_temp_0_1__window__pending = '24h'; @post('sse/call/readings/call_5?node=moreinfo_sensor_outside_temp_0_1_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_1_bar_0_1__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_1_bar_0_1"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__error"
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy_slow = $_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy"
+  data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy_slow">24h</a><a class="" id="moreinfo_sensor_outside_temp_0_1_bar_0_2"
+  data-class:fh-chosen="String(($_var_moreinfo_sensor_outside_temp_0_1__window__pending || $_var_moreinfo_sensor_outside_temp_0_1__window)) === '7d'"
+  data-on:click="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy ? '' : $_var_moreinfo_sensor_outside_temp_0_1__window__pending = '7d'; @post('sse/call/readings/call_6?node=moreinfo_sensor_outside_temp_0_1_bar_0_2', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_2__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_1_bar_0_2__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_1_bar_0_2"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__error"
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy_slow = $_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy"
+  data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy_slow">7d</a><a class="" id="moreinfo_sensor_outside_temp_0_1_bar_0_3"
+  data-class:fh-chosen="String(($_var_moreinfo_sensor_outside_temp_0_1__window__pending || $_var_moreinfo_sensor_outside_temp_0_1__window)) === '30d'"
+  data-on:click="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy ? '' : $_var_moreinfo_sensor_outside_temp_0_1__window__pending = '30d'; @post('sse/call/readings/call_7?node=moreinfo_sensor_outside_temp_0_1_bar_0_3', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_3__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_1_bar_0_3__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_1_bar_0_3"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__error"
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy_slow = $_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy"
+  data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy_slow">30d</a></div>
+<div class="fh-cell fh-card fh-chart" id="moreinfo_sensor_outside_temp_0_1_0"><svg/></div></div>
+<div class="fh-cell fh-card fh-entity-info" id="moreinfo_sensor_outside_temp_0_2">  <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">device_class: temperature&#10;friendly_name: Outside Temperature&#10;unit_of_measurement: °C</pre></div><button class="fh-cell fh-press fh-size-large " id="moreinfo_sensor_outside_temp_0_3"
+  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== as fixtured · patch c_0 ==== -->
 <button class="fh-cell fh-press fh-size-large fh-badged" id="c_0"
   data-class:warm="$_e.light.kitchen.t#1"
   data-style:--fh-x="$_e.light.kitchen.t#2"
-  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0__error = ''))"
@@ -160,7 +172,7 @@
 <!-- ==== as fixtured · patch c_1 ==== -->
 <button class="fh-cell fh-chip fh-circle fh-hug" id="c_1"
   data-class:fh-active="$_e.light.kitchen.t#4"
-  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-indicator="_c_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_1__error = ''))"
@@ -175,7 +187,7 @@
   data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-power"></i></button>
 <!-- ==== as fixtured · patch c_2 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="c_2"
-  data-on:click="$_c_2__busy ? '' : $_e._x.t#5 ? '' : @post('sse/call/readings/call_2?node=c_2', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_2__busy ? '' : $_e._x.t#5 ? '' : @post('sse/call/readings/call_2?node=c_2', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e._x.t#5"
   data-indicator="_c_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_2__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_2__error = ''))"
@@ -184,76 +196,77 @@
   data-class:fh-loading="$_c_2__busy"
   data-class:fh-error="$_c_2__error"><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Lights off</span></span><span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e._x.t#6"></span></span></span></button>
-<!-- ==== as fixtured · patch s_c_3_self__c_0_1_0 ==== -->
-<div class="fh-cell fh-card fh-chart" id="s_c_3_self__c_0_1_0"><svg/></div>
-<!-- ==== as fixtured · patch s_c_3_self__c_0_1_bar_0_0 ==== -->
-<a class="" id="s_c_3_self__c_0_1_bar_0_0"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '1h'"
-  data-on:click="$_s_c_3_self__c_0_1_bar_0_0__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '1h'; @post('sse/call/readings/call_3?node=s_c_3_self__c_0_1_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
-  data-indicator="_s_c_3_self__c_0_1_bar_0_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_3_self__c_0_1_bar_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_0__error = ''))"
-  data-fh-node="s_c_3_self__c_0_1_bar_0_0"
-  data-class:fh-disabled="$_s_c_3_self__c_0_1_bar_0_0__busy"
-  data-class:fh-loading="$_s_c_3_self__c_0_1_bar_0_0__busy"
-  data-class:fh-error="$_s_c_3_self__c_0_1_bar_0_0__error"
-  data-signals__ifmissing="{_s_c_3_self__c_0_1_bar_0_0__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_0__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_0__busy_slow = $_s_c_3_self__c_0_1_bar_0_0__busy"
-  data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_0__busy_slow">1h</a>
-<!-- ==== as fixtured · patch s_c_3_self__c_0_1_bar_0_1 ==== -->
-<a class="" id="s_c_3_self__c_0_1_bar_0_1"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '24h'"
-  data-on:click="$_s_c_3_self__c_0_1_bar_0_1__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '24h'; @post('sse/call/readings/call_4?node=s_c_3_self__c_0_1_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
-  data-indicator="_s_c_3_self__c_0_1_bar_0_1__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_3_self__c_0_1_bar_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_1__error = ''))"
-  data-fh-node="s_c_3_self__c_0_1_bar_0_1"
-  data-class:fh-disabled="$_s_c_3_self__c_0_1_bar_0_1__busy"
-  data-class:fh-loading="$_s_c_3_self__c_0_1_bar_0_1__busy"
-  data-class:fh-error="$_s_c_3_self__c_0_1_bar_0_1__error"
-  data-signals__ifmissing="{_s_c_3_self__c_0_1_bar_0_1__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_1__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_1__busy_slow = $_s_c_3_self__c_0_1_bar_0_1__busy"
-  data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_1__busy_slow">24h</a>
-<!-- ==== as fixtured · patch s_c_3_self__c_0_1_bar_0_2 ==== -->
-<a class="" id="s_c_3_self__c_0_1_bar_0_2"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '7d'"
-  data-on:click="$_s_c_3_self__c_0_1_bar_0_2__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '7d'; @post('sse/call/readings/call_5?node=s_c_3_self__c_0_1_bar_0_2', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
-  data-indicator="_s_c_3_self__c_0_1_bar_0_2__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_3_self__c_0_1_bar_0_2__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_2__error = ''))"
-  data-fh-node="s_c_3_self__c_0_1_bar_0_2"
-  data-class:fh-disabled="$_s_c_3_self__c_0_1_bar_0_2__busy"
-  data-class:fh-loading="$_s_c_3_self__c_0_1_bar_0_2__busy"
-  data-class:fh-error="$_s_c_3_self__c_0_1_bar_0_2__error"
-  data-signals__ifmissing="{_s_c_3_self__c_0_1_bar_0_2__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_2__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_2__busy_slow = $_s_c_3_self__c_0_1_bar_0_2__busy"
-  data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_2__busy_slow">7d</a>
-<!-- ==== as fixtured · patch s_c_3_self__c_0_1_bar_0_3 ==== -->
-<a class="" id="s_c_3_self__c_0_1_bar_0_3"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '30d'"
-  data-on:click="$_s_c_3_self__c_0_1_bar_0_3__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '30d'; @post('sse/call/readings/call_6?node=s_c_3_self__c_0_1_bar_0_3', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
-  data-indicator="_s_c_3_self__c_0_1_bar_0_3__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_3_self__c_0_1_bar_0_3__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_3__error = ''))"
-  data-fh-node="s_c_3_self__c_0_1_bar_0_3"
-  data-class:fh-disabled="$_s_c_3_self__c_0_1_bar_0_3__busy"
-  data-class:fh-loading="$_s_c_3_self__c_0_1_bar_0_3__busy"
-  data-class:fh-error="$_s_c_3_self__c_0_1_bar_0_3__error"
-  data-signals__ifmissing="{_s_c_3_self__c_0_1_bar_0_3__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_3__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_3__busy_slow = $_s_c_3_self__c_0_1_bar_0_3__busy"
-  data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_3__busy_slow">30d</a>
-<!-- ==== as fixtured · patch s_c_3_self__c_0_2 ==== -->
-<div class="fh-cell fh-card fh-entity-info" id="s_c_3_self__c_0_2">  <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">device_class: temperature&#10;friendly_name: Outside Temperature&#10;unit_of_measurement: °C</pre></div>
-<!-- ==== as fixtured · patch s_c_3_self__c_0_3 ==== -->
-<button class="fh-cell fh-press fh-size-large " id="s_c_3_self__c_0_3"
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
+<!-- ==== as fixtured · patch moreinfo_sensor_outside_temp_0_1_0 ==== -->
+<div class="fh-cell fh-card fh-chart" id="moreinfo_sensor_outside_temp_0_1_0"><svg/></div>
+<!-- ==== as fixtured · patch moreinfo_sensor_outside_temp_0_1_bar_0_0 ==== -->
+<a class="" id="moreinfo_sensor_outside_temp_0_1_bar_0_0"
+  data-class:fh-chosen="String(($_var_moreinfo_sensor_outside_temp_0_1__window__pending || $_var_moreinfo_sensor_outside_temp_0_1__window)) === '1h'"
+  data-on:click="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy ? '' : $_var_moreinfo_sensor_outside_temp_0_1__window__pending = '1h'; @post('sse/call/readings/call_4?node=moreinfo_sensor_outside_temp_0_1_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_1_bar_0_0__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_1_bar_0_0"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__error"
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy_slow = $_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy"
+  data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy_slow">1h</a>
+<!-- ==== as fixtured · patch moreinfo_sensor_outside_temp_0_1_bar_0_1 ==== -->
+<a class="" id="moreinfo_sensor_outside_temp_0_1_bar_0_1"
+  data-class:fh-chosen="String(($_var_moreinfo_sensor_outside_temp_0_1__window__pending || $_var_moreinfo_sensor_outside_temp_0_1__window)) === '24h'"
+  data-on:click="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy ? '' : $_var_moreinfo_sensor_outside_temp_0_1__window__pending = '24h'; @post('sse/call/readings/call_5?node=moreinfo_sensor_outside_temp_0_1_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_1_bar_0_1__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_1_bar_0_1"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__error"
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy_slow = $_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy"
+  data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy_slow">24h</a>
+<!-- ==== as fixtured · patch moreinfo_sensor_outside_temp_0_1_bar_0_2 ==== -->
+<a class="" id="moreinfo_sensor_outside_temp_0_1_bar_0_2"
+  data-class:fh-chosen="String(($_var_moreinfo_sensor_outside_temp_0_1__window__pending || $_var_moreinfo_sensor_outside_temp_0_1__window)) === '7d'"
+  data-on:click="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy ? '' : $_var_moreinfo_sensor_outside_temp_0_1__window__pending = '7d'; @post('sse/call/readings/call_6?node=moreinfo_sensor_outside_temp_0_1_bar_0_2', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_2__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_1_bar_0_2__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_1_bar_0_2"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__error"
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy_slow = $_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy"
+  data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy_slow">7d</a>
+<!-- ==== as fixtured · patch moreinfo_sensor_outside_temp_0_1_bar_0_3 ==== -->
+<a class="" id="moreinfo_sensor_outside_temp_0_1_bar_0_3"
+  data-class:fh-chosen="String(($_var_moreinfo_sensor_outside_temp_0_1__window__pending || $_var_moreinfo_sensor_outside_temp_0_1__window)) === '30d'"
+  data-on:click="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy ? '' : $_var_moreinfo_sensor_outside_temp_0_1__window__pending = '30d'; @post('sse/call/readings/call_7?node=moreinfo_sensor_outside_temp_0_1_bar_0_3', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_3__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_1_bar_0_3__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_1_bar_0_3"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__error"
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy_slow = $_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy"
+  data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy_slow">30d</a>
+<!-- ==== as fixtured · patch moreinfo_sensor_outside_temp_0_2 ==== -->
+<div class="fh-cell fh-card fh-entity-info" id="moreinfo_sensor_outside_temp_0_2">  <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">device_class: temperature&#10;friendly_name: Outside Temperature&#10;unit_of_measurement: °C</pre></div>
+<!-- ==== as fixtured · patch moreinfo_sensor_outside_temp_0_3 ==== -->
+<button class="fh-cell fh-press fh-size-large " id="moreinfo_sensor_outside_temp_0_3"
+  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
 <!-- ==== flipped · body ==== -->
-<div class="" id="root"><main>
+<div class="" id="root"
+  data-fh-url:popups__history="['v.popups', $_var_root__popups, '']"><main>
 <div class="fh-cell fh-col" id="c"><button class="fh-cell fh-press fh-size-large fh-badged" style="--fh-x:180" id="c_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: '180', t#3: false}}}}"
   data-class:warm="$_e.light.kitchen.t#1"
   data-style:--fh-x="$_e.light.kitchen.t#2"
-  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0__error = ''))"
@@ -268,7 +281,7 @@
   data-attr:aria-busy="$_c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></button><button class="fh-cell fh-chip fh-circle fh-hug" id="c_1"
   data-signals="{_e: {light: {kitchen: {t#3: false, t#4: false}}}}"
   data-class:fh-active="$_e.light.kitchen.t#4"
-  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#3"
   data-indicator="_c_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_1__error = ''))"
@@ -282,7 +295,7 @@
   data-class:fh-busy-spin="$_c_1__busy_slow"
   data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-power"></i></button><button class="fh-cell fh-press fh-size-large " id="c_2"
   data-signals="{_e: {_x: {t#5: false, t#6: '1 on'}}}"
-  data-on:click="$_c_2__busy ? '' : $_e._x.t#5 ? '' : @post('sse/call/readings/call_2?node=c_2', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_2__busy ? '' : $_e._x.t#5 ? '' : @post('sse/call/readings/call_2?node=c_2', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e._x.t#5"
   data-indicator="_c_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_2__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_2__error = ''))"
@@ -292,7 +305,7 @@
   data-class:fh-error="$_c_2__error"><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Lights off</span></span><span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e._x.t#6">1 on</span></span></span></button>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_3"
-  data-signals="{_e: {sensor: {outside_temp: {t#7: '12.4 °C', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self', {retryMaxCount: 0})"
+  data-signals="{_e: {sensor: {outside_temp: {t#7: '12.4 °C', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : $_var_root__popups__pending = 'moreinfo_sensor_outside_temp'; @post('sse/call/readings/call_3?node=c_3', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_3__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_3__error = ''))"
   data-fh-node="c_3"
@@ -309,7 +322,7 @@
   data-text="$_e.sensor.outside_temp.t#8">temperature</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_4"
   data-signals="{_e: {light: {kitchen: {t#3: false, t#9: false, t#11: 'off'}, living_room: {t#10: 'on'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#9">  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_4', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.light.kitchen.t#9">  <div class="fh-tile fh-tappable "  data-on:click="$_c_4__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_4', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_4__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_4__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_4__error = ''))"
   data-fh-node="c_4"
@@ -325,24 +338,25 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#11">off</span></span></span></div></article></div></main>
 <div class="" id="popups"></div></div>
-<!-- ==== flipped · surface c_3_self: as fixtured ==== -->
+<!-- ==== flipped · case moreinfo_sensor_outside_temp: as fixtured ==== -->
 <!-- ==== flipped · patch c_0: as fixtured ==== -->
 <!-- ==== flipped · patch c_1: as fixtured ==== -->
 <!-- ==== flipped · patch c_2: as fixtured ==== -->
-<!-- ==== flipped · patch s_c_3_self__c_0_1_0: as fixtured ==== -->
-<!-- ==== flipped · patch s_c_3_self__c_0_1_bar_0_0: as fixtured ==== -->
-<!-- ==== flipped · patch s_c_3_self__c_0_1_bar_0_1: as fixtured ==== -->
-<!-- ==== flipped · patch s_c_3_self__c_0_1_bar_0_2: as fixtured ==== -->
-<!-- ==== flipped · patch s_c_3_self__c_0_1_bar_0_3: as fixtured ==== -->
-<!-- ==== flipped · patch s_c_3_self__c_0_2: as fixtured ==== -->
-<!-- ==== flipped · patch s_c_3_self__c_0_3: as fixtured ==== -->
+<!-- ==== flipped · patch moreinfo_sensor_outside_temp_0_1_0: as fixtured ==== -->
+<!-- ==== flipped · patch moreinfo_sensor_outside_temp_0_1_bar_0_0: as fixtured ==== -->
+<!-- ==== flipped · patch moreinfo_sensor_outside_temp_0_1_bar_0_1: as fixtured ==== -->
+<!-- ==== flipped · patch moreinfo_sensor_outside_temp_0_1_bar_0_2: as fixtured ==== -->
+<!-- ==== flipped · patch moreinfo_sensor_outside_temp_0_1_bar_0_3: as fixtured ==== -->
+<!-- ==== flipped · patch moreinfo_sensor_outside_temp_0_2: as fixtured ==== -->
+<!-- ==== flipped · patch moreinfo_sensor_outside_temp_0_3: as fixtured ==== -->
 <!-- ==== unavailable · body ==== -->
-<div class="" id="root"><main>
+<div class="" id="root"
+  data-fh-url:popups__history="['v.popups', $_var_root__popups, '']"><main>
 <div class="fh-cell fh-col" id="c"><button class="fh-cell fh-press fh-size-large fh-badged" style="--fh-x:" id="c_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: '', t#3: true}}}}"
   data-class:warm="$_e.light.kitchen.t#1"
   data-style:--fh-x="$_e.light.kitchen.t#2"
-  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
+  data-on:click="$_c_0__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
   data-indicator="_c_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0__error = ''))"
   data-fh-node="c_0"
@@ -356,7 +370,7 @@
   data-attr:aria-busy="$_c_0__busy_slow"><i class="mdi mdi-lightbulb" ></i></span><span class="fh-text"><span class="fh-text-run">Kitchen</span></span></button><button class="fh-cell fh-chip fh-circle fh-hug" id="c_1"
   data-signals="{_e: {light: {kitchen: {t#3: true, t#4: false}}}}"
   data-class:fh-active="$_e.light.kitchen.t#4"
-  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
+  data-on:click="$_c_1__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#3"
   data-indicator="_c_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_1__error = ''))"
   data-fh-node="c_1"
@@ -369,7 +383,7 @@
   data-class:fh-busy-spin="$_c_1__busy_slow"
   data-attr:aria-busy="$_c_1__busy_slow"><i class="mdi mdi-power"></i></button><button class="fh-cell fh-press fh-size-large " id="c_2"
   data-signals="{_e: {_x: {t#5: true, t#6: '0 on'}}}"
-  data-on:click="$_c_2__busy ? '' : $_e._x.t#5 ? '' : @post('sse/call/readings/call_2?node=c_2', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e._x.t#5"
+  data-on:click="$_c_2__busy ? '' : $_e._x.t#5 ? '' : @post('sse/call/readings/call_2?node=c_2', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e._x.t#5"
   data-indicator="_c_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_2__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_2__error = ''))"
   data-fh-node="c_2"
@@ -378,7 +392,7 @@
   data-class:fh-error="$_c_2__error"><span class="fh-lines"><span class="fh-text"><span class="fh-text-run">Lights off</span></span><span class="fh-sub fh-text"><span class="fh-text-run"
   data-text="$_e._x.t#6">0 on</span></span></span></button>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_3"
-  data-signals="{_e: {sensor: {outside_temp: {t#7: 'unavailable', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : @post('sse/surface/readings/open/c_3_self', {retryMaxCount: 0})"
+  data-signals="{_e: {sensor: {outside_temp: {t#7: 'unavailable', t#8: 'temperature'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_c_3__busy ? '' : $_var_root__popups__pending = 'moreinfo_sensor_outside_temp'; @post('sse/call/readings/call_3?node=c_3', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_3__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_3__error = ''))"
   data-fh-node="c_3"
@@ -395,7 +409,7 @@
   data-text="$_e.sensor.outside_temp.t#8">temperature</span></span></span></div></article>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="c_4"
   data-signals="{_e: {light: {kitchen: {t#3: true, t#9: false, t#11: 'unavailable'}, living_room: {t#10: 'unavailable'}}}}"
-  data-class:fh-active="$_e.light.kitchen.t#9">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_4__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_4', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-class:fh-active="$_e.light.kitchen.t#9">  <div class="fh-tile fh-tappable fh-disabled"  data-on:click="$_c_4__busy ? '' : $_e.light.kitchen.t#3 ? '' : @post('sse/call/readings/call_1?node=c_4', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-indicator="_c_4__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_4__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_4__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_4__error = ''))"
   data-fh-node="c_4"
@@ -411,77 +425,88 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#11">unavailable</span></span></span></div></article></div></main>
 <div class="" id="popups"></div></div>
-<!-- ==== unavailable · surface c_3_self ==== -->
-<div class="fh-cell fh-popup-backdrop" id="s_c_3_self__c"
-  data-on:click="evt.target === el && $ui_popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$ui_popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $ui_popups && history.back()">✕</button>
-<div class="fh-cell fh-col" id="s_c_3_self__c_0">
-<article class="fh-cell fh-card fh-entity fh-tile-card" id="s_c_3_self__c_0_0"
-  data-signals="{_e: {sensor: {outside_temp: {t#12: 'unavailable'}}}}">  <div class="fh-tile  "><span class="fh-badge fh-icon-shape  "><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
+<!-- ==== unavailable · case moreinfo_sensor_outside_temp ==== -->
+<div class="fh-cell fh-popup-backdrop" id="moreinfo_sensor_outside_temp"
+  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="$_var_root__popups && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+<div class="fh-cell fh-col" id="moreinfo_sensor_outside_temp_0">
+<article class="fh-cell fh-card fh-entity fh-tile-card" id="moreinfo_sensor_outside_temp_0_0"
+  data-signals="{_e: {sensor: {outside_temp: {t#12: 'unavailable'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_moreinfo_sensor_outside_temp_0_0__busy ? '' : $_var_root__popups__pending = 'moreinfo_sensor_outside_temp'; @post('sse/call/readings/call_3?node=moreinfo_sensor_outside_temp_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_0__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_0"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_0__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_0__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_0__error"><span class="fh-badge fh-icon-shape  "
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_0__busy_slow = $_moreinfo_sensor_outside_temp_0_0__busy"
+  data-class:fh-busy-spin="$_moreinfo_sensor_outside_temp_0_0__busy_slow"
+  data-attr:aria-busy="$_moreinfo_sensor_outside_temp_0_0__busy_slow"><i class="mdi mdi-thermometer" ></i></span><span class="fh-lines"><span class="fh-text"><span class="fh-text-run" >Outside Temperature</span></span>
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.sensor.outside_temp.t#12">unavailable</span></span></span></div></article>
-<div class="fh-cell fh-col fh-cols-full" id="s_c_3_self__c_0_1"
-  data-fh-url:window="['v.s_c_3_self__c_0_1.window', $_var_s_c_3_self__c_0_1__window, '24h']">
-<div class="fh-cell fh-tabs fh-select" id="s_c_3_self__c_0_1_bar_0"><a class="" id="s_c_3_self__c_0_1_bar_0_0"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '1h'"
-  data-on:click="$_s_c_3_self__c_0_1_bar_0_0__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '1h'; @post('sse/call/readings/call_3?node=s_c_3_self__c_0_1_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
-  data-indicator="_s_c_3_self__c_0_1_bar_0_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_3_self__c_0_1_bar_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_0__error = ''))"
-  data-fh-node="s_c_3_self__c_0_1_bar_0_0"
-  data-class:fh-disabled="$_s_c_3_self__c_0_1_bar_0_0__busy"
-  data-class:fh-loading="$_s_c_3_self__c_0_1_bar_0_0__busy"
-  data-class:fh-error="$_s_c_3_self__c_0_1_bar_0_0__error"
-  data-signals__ifmissing="{_s_c_3_self__c_0_1_bar_0_0__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_0__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_0__busy_slow = $_s_c_3_self__c_0_1_bar_0_0__busy"
-  data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_0__busy_slow">1h</a><a class=" fh-chosen" id="s_c_3_self__c_0_1_bar_0_1"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '24h'"
-  data-on:click="$_s_c_3_self__c_0_1_bar_0_1__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '24h'; @post('sse/call/readings/call_4?node=s_c_3_self__c_0_1_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
-  data-indicator="_s_c_3_self__c_0_1_bar_0_1__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_3_self__c_0_1_bar_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_1__error = ''))"
-  data-fh-node="s_c_3_self__c_0_1_bar_0_1"
-  data-class:fh-disabled="$_s_c_3_self__c_0_1_bar_0_1__busy"
-  data-class:fh-loading="$_s_c_3_self__c_0_1_bar_0_1__busy"
-  data-class:fh-error="$_s_c_3_self__c_0_1_bar_0_1__error"
-  data-signals__ifmissing="{_s_c_3_self__c_0_1_bar_0_1__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_1__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_1__busy_slow = $_s_c_3_self__c_0_1_bar_0_1__busy"
-  data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_1__busy_slow">24h</a><a class="" id="s_c_3_self__c_0_1_bar_0_2"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '7d'"
-  data-on:click="$_s_c_3_self__c_0_1_bar_0_2__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '7d'; @post('sse/call/readings/call_5?node=s_c_3_self__c_0_1_bar_0_2', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
-  data-indicator="_s_c_3_self__c_0_1_bar_0_2__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_3_self__c_0_1_bar_0_2__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_2__error = ''))"
-  data-fh-node="s_c_3_self__c_0_1_bar_0_2"
-  data-class:fh-disabled="$_s_c_3_self__c_0_1_bar_0_2__busy"
-  data-class:fh-loading="$_s_c_3_self__c_0_1_bar_0_2__busy"
-  data-class:fh-error="$_s_c_3_self__c_0_1_bar_0_2__error"
-  data-signals__ifmissing="{_s_c_3_self__c_0_1_bar_0_2__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_2__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_2__busy_slow = $_s_c_3_self__c_0_1_bar_0_2__busy"
-  data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_2__busy_slow">7d</a><a class="" id="s_c_3_self__c_0_1_bar_0_3"
-  data-class:fh-chosen="String(($_var_s_c_3_self__c_0_1__window__pending || $_var_s_c_3_self__c_0_1__window)) === '30d'"
-  data-on:click="$_s_c_3_self__c_0_1_bar_0_3__busy ? '' : $_var_s_c_3_self__c_0_1__window__pending = '30d'; @post('sse/call/readings/call_6?node=s_c_3_self__c_0_1_bar_0_3', {retryMaxCount: 0, payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
-  data-indicator="_s_c_3_self__c_0_1_bar_0_3__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_s_c_3_self__c_0_1_bar_0_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_s_c_3_self__c_0_1_bar_0_3__error = 'Could not be sent') : evt.detail.type === 'started' && ($_s_c_3_self__c_0_1_bar_0_3__error = ''))"
-  data-fh-node="s_c_3_self__c_0_1_bar_0_3"
-  data-class:fh-disabled="$_s_c_3_self__c_0_1_bar_0_3__busy"
-  data-class:fh-loading="$_s_c_3_self__c_0_1_bar_0_3__busy"
-  data-class:fh-error="$_s_c_3_self__c_0_1_bar_0_3__error"
-  data-signals__ifmissing="{_s_c_3_self__c_0_1_bar_0_3__busy_slow:false}"
-  data-on-signal-patch-filter="{include:/^_s_c_3_self__c_0_1_bar_0_3__busy$/}"
-  data-on-signal-patch__delay.300ms="$_s_c_3_self__c_0_1_bar_0_3__busy_slow = $_s_c_3_self__c_0_1_bar_0_3__busy"
-  data-class:fh-busy-after="$_s_c_3_self__c_0_1_bar_0_3__busy_slow">30d</a></div>
-<div class="fh-cell fh-card fh-chart" id="s_c_3_self__c_0_1_0"><svg/></div></div>
-<div class="fh-cell fh-card fh-entity-info" id="s_c_3_self__c_0_2">  <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">device_class: temperature&#10;friendly_name: Outside Temperature&#10;unit_of_measurement: °C</pre></div><button class="fh-cell fh-press fh-size-large " id="s_c_3_self__c_0_3"
-  data-on:click="$ui_popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
+<div class="fh-cell fh-col fh-cols-full" id="moreinfo_sensor_outside_temp_0_1"
+  data-fh-url:window="['v.moreinfo_sensor_outside_temp_0_1.window', $_var_moreinfo_sensor_outside_temp_0_1__window, '24h']">
+<div class="fh-cell fh-tabs fh-select" id="moreinfo_sensor_outside_temp_0_1_bar_0"><a class="" id="moreinfo_sensor_outside_temp_0_1_bar_0_0"
+  data-class:fh-chosen="String(($_var_moreinfo_sensor_outside_temp_0_1__window__pending || $_var_moreinfo_sensor_outside_temp_0_1__window)) === '1h'"
+  data-on:click="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy ? '' : $_var_moreinfo_sensor_outside_temp_0_1__window__pending = '1h'; @post('sse/call/readings/call_4?node=moreinfo_sensor_outside_temp_0_1_bar_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_1_bar_0_0__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_1_bar_0_0"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__error"
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy_slow = $_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy"
+  data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_0__busy_slow">1h</a><a class=" fh-chosen" id="moreinfo_sensor_outside_temp_0_1_bar_0_1"
+  data-class:fh-chosen="String(($_var_moreinfo_sensor_outside_temp_0_1__window__pending || $_var_moreinfo_sensor_outside_temp_0_1__window)) === '24h'"
+  data-on:click="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy ? '' : $_var_moreinfo_sensor_outside_temp_0_1__window__pending = '24h'; @post('sse/call/readings/call_5?node=moreinfo_sensor_outside_temp_0_1_bar_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_1_bar_0_1__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_1_bar_0_1"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__error"
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy_slow = $_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy"
+  data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_1__busy_slow">24h</a><a class="" id="moreinfo_sensor_outside_temp_0_1_bar_0_2"
+  data-class:fh-chosen="String(($_var_moreinfo_sensor_outside_temp_0_1__window__pending || $_var_moreinfo_sensor_outside_temp_0_1__window)) === '7d'"
+  data-on:click="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy ? '' : $_var_moreinfo_sensor_outside_temp_0_1__window__pending = '7d'; @post('sse/call/readings/call_6?node=moreinfo_sensor_outside_temp_0_1_bar_0_2', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_2__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_1_bar_0_2__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_1_bar_0_2"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__error"
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy_slow = $_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy"
+  data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_2__busy_slow">7d</a><a class="" id="moreinfo_sensor_outside_temp_0_1_bar_0_3"
+  data-class:fh-chosen="String(($_var_moreinfo_sensor_outside_temp_0_1__window__pending || $_var_moreinfo_sensor_outside_temp_0_1__window)) === '30d'"
+  data-on:click="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy ? '' : $_var_moreinfo_sensor_outside_temp_0_1__window__pending = '30d'; @post('sse/call/readings/call_7?node=moreinfo_sensor_outside_temp_0_1_bar_0_3', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
+  data-indicator="_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_moreinfo_sensor_outside_temp_0_1_bar_0_3__error = 'Could not be sent') : evt.detail.type === 'started' && ($_moreinfo_sensor_outside_temp_0_1_bar_0_3__error = ''))"
+  data-fh-node="moreinfo_sensor_outside_temp_0_1_bar_0_3"
+  data-class:fh-disabled="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy"
+  data-class:fh-loading="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy"
+  data-class:fh-error="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__error"
+  data-signals__ifmissing="{_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy_slow:false}"
+  data-on-signal-patch-filter="{include:/^_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy$/}"
+  data-on-signal-patch__delay.300ms="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy_slow = $_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy"
+  data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy_slow">30d</a></div>
+<div class="fh-cell fh-card fh-chart" id="moreinfo_sensor_outside_temp_0_1_0"><svg/></div></div>
+<div class="fh-cell fh-card fh-entity-info" id="moreinfo_sensor_outside_temp_0_2">  <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">device_class: temperature&#10;friendly_name: Outside Temperature&#10;unit_of_measurement: °C</pre></div><button class="fh-cell fh-press fh-size-large " id="moreinfo_sensor_outside_temp_0_3"
+  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== unavailable · patch c_0: as fixtured ==== -->
 <!-- ==== unavailable · patch c_1: as fixtured ==== -->
 <!-- ==== unavailable · patch c_2: as fixtured ==== -->
-<!-- ==== unavailable · patch s_c_3_self__c_0_1_0: as fixtured ==== -->
-<!-- ==== unavailable · patch s_c_3_self__c_0_1_bar_0_0: as fixtured ==== -->
-<!-- ==== unavailable · patch s_c_3_self__c_0_1_bar_0_1: as fixtured ==== -->
-<!-- ==== unavailable · patch s_c_3_self__c_0_1_bar_0_2: as fixtured ==== -->
-<!-- ==== unavailable · patch s_c_3_self__c_0_1_bar_0_3: as fixtured ==== -->
-<!-- ==== unavailable · patch s_c_3_self__c_0_2: as fixtured ==== -->
-<!-- ==== unavailable · patch s_c_3_self__c_0_3: as fixtured ==== -->
+<!-- ==== unavailable · patch moreinfo_sensor_outside_temp_0_1_0: as fixtured ==== -->
+<!-- ==== unavailable · patch moreinfo_sensor_outside_temp_0_1_bar_0_0: as fixtured ==== -->
+<!-- ==== unavailable · patch moreinfo_sensor_outside_temp_0_1_bar_0_1: as fixtured ==== -->
+<!-- ==== unavailable · patch moreinfo_sensor_outside_temp_0_1_bar_0_2: as fixtured ==== -->
+<!-- ==== unavailable · patch moreinfo_sensor_outside_temp_0_1_bar_0_3: as fixtured ==== -->
+<!-- ==== unavailable · patch moreinfo_sensor_outside_temp_0_2: as fixtured ==== -->
+<!-- ==== unavailable · patch moreinfo_sensor_outside_temp_0_3: as fixtured ==== -->

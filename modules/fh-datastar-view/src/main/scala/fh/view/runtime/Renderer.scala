@@ -34,7 +34,6 @@ import fh.view.model.{
   SignalBind,
   SignalId,
   SlotValue,
-  Surface,
   TreeIndex,
   CallDecl,
   CallField,
@@ -129,9 +128,8 @@ private[runtime] enum SlotForm derives CanEqual {
   */
 type VarEnv = Map[NodeId, Map[String, String]]
 
-/** Container kinds are templates splicing `children`, not cases here. A popup
-  * is a separate tree whose ids are namespaced (`s_<id>__…`); a choice's case
-  * is a node of the tree holding it.
+/** Container kinds are templates splicing `children`, not cases here; a
+  * choice's case, a popup among them, is a node of the tree holding it.
   */
 class Renderer(validated: Dashboard.Validated) {
 
@@ -149,9 +147,9 @@ class Renderer(validated: Dashboard.Validated) {
   private val expandCell: java.util.function.Function[String, String] =
     cls => themeClasses.expand(cls).map(" " + _).mkString
 
-  /** One tree's static nodes, the body's or a popup's, under their ids, a
-    * choice's every case included; a set's members are its own. Each is in its
-    * container ([[TreeIndex.container]]).
+  /** The tree's static nodes, under their ids, a choice's every case included;
+    * a set's members are its own. Each is in its container
+    * ([[TreeIndex.container]]).
     */
   private class Index(root: Ready.Node) {
 
@@ -267,8 +265,7 @@ class Renderer(validated: Dashboard.Validated) {
             s.members.values.iterator.flatMap(_.nodes)
           case _ => c.allChildren.iterator
         ).flatMap(components)
-    (components(dashboard.card) ++
-      dashboard.surfaces.values.iterator.flatMap(s => components(s.content)))
+    components(dashboard.card)
       .flatMap(_.slots.values.flatMap(_.gate))
       .flatMap(g =>
         (g.entity.toList ++ g.valueWhile.bound.valueEntities).map(_ -> g.key)
@@ -282,14 +279,13 @@ class Renderer(validated: Dashboard.Validated) {
 
   private lazy val markedGates: Set[String] = gatesReading.values.flatten.toSet
 
-  private val indexes: List[Index] =
-    mainIndex :: dashboard.surfaces.values.toList.map(s => new Index(s.content))
+  private val indexes: List[Index] = List(mainIndex)
 
   private val allIndexed: Map[NodeId, Ready.Node] =
     indexes.flatMap(_.indexed).toMap
 
-  /** Each container's static nodes, in id order: a popup's or a case's own, not
-    * those of the containers inside it.
+  /** Each container's static nodes, in id order: the root's or a case's own,
+    * not those of the containers inside it.
     */
   private val containerNodes: Map[Ix, List[NodeId]] =
     indexes.flatMap(_.inContainer).toMap
@@ -358,7 +354,7 @@ class Renderer(validated: Dashboard.Validated) {
         ) ++
         vars.panelsSelectedBy(key).flatMap { gid =>
           Option.unless(surfaces.memberAt(gid, value).isDefined)(
-            s"$gid takes ${Surface.membersText(surfaces.memberValues(gid))}"
+            s"$gid takes ${Dashboard.membersText(surfaces.memberValues(gid))}"
           )
         }).distinct
       Option.when(why.nonEmpty)(
@@ -517,7 +513,6 @@ class Renderer(validated: Dashboard.Validated) {
       targets: List[NodeId],
       hosts: List[NodeId],
       shared: Shared,
-      selections: Selections,
       env: VarEnv
   ): List[SlotRead] =
     ask(
@@ -529,7 +524,7 @@ class Renderer(validated: Dashboard.Validated) {
               pickedCase(gid, shared)
                 .flatMap(surfaces.cases(gid).lift)
                 .toList
-                .flatMap(surfaceAsks(_, shared, selections))
+                .flatMap(surfaceAsks(_, shared))
           }
         },
       shared,
@@ -700,7 +695,6 @@ class Renderer(validated: Dashboard.Validated) {
   private[runtime] val surfaces: SurfaceGraph =
     new SurfaceGraph(
       dashboard.index,
-      dashboard.surfaces,
       dashboard.picks,
       members
     )
@@ -710,10 +704,10 @@ class Renderer(validated: Dashboard.Validated) {
     * replaced dashboard.
     */
   private[runtime] val generation: Renderer.Stamp =
-    Renderer.Stamp(headHash, styleHash, surfaces.popupBySpelling)
+    Renderer.Stamp(headHash, styleHash)
 
-  /** The page's own static nodes, in no popup or case: which members bind an
-    * entity depends on a version's membership ([[MemberGraph.binding]]).
+  /** The page's own static nodes, in no case: which members bind an entity
+    * depends on a version's membership ([[MemberGraph.binding]]).
     */
   def componentsFor(entityId: String): Set[NodeId] =
     surfaceComponentsFor(surfaces.pageRoot, entityId)
@@ -775,9 +769,8 @@ class Renderer(validated: Dashboard.Validated) {
   /** Wider than [[references]] — see [[Dashboard.watchedEntities]]. */
   def watchedEntities: Set[String] = dashboard.watchedEntities
 
-  /** The containers, popups and cases, whose static nodes bind `entityId`: the
-    * candidates a tick asks [[SurfaceGraph.visibleContainer]] of, rather than
-    * every shown one.
+  /** The cases whose static nodes bind `entityId`: the candidates a tick asks
+    * [[SurfaceGraph.visibleContainer]] of, rather than every shown one.
     */
   def surfacesBinding(entityId: String): List[Ix] =
     surfacesByEntity.getOrElse(entityId, Nil)
@@ -796,9 +789,6 @@ class Renderer(validated: Dashboard.Validated) {
     containerEntities
       .get(container)
       .fold(Set.empty)(_.getOrElse(entityId, Set.empty))
-
-  def surface(surfaceId: String): Option[Ready.Surface] =
-    dashboard.surfaces.get(surfaceId)
 
   def stylesheets: List[String] = dashboard.theme.stylesheets
 
@@ -850,15 +840,6 @@ class Renderer(validated: Dashboard.Validated) {
     )
   }
 
-  /** The page card's `popups` group, where the open popup is baked into a page
-    * load and a repaint; -1 on a tree with no page card.
-    */
-  private val popupsHost: Int =
-    dashboard.index
-      .ixsOf(NodeId.derived(Dashboard.PopupHostId.toString))
-      .find(ix => dashboard.index.parent(ix).contains(Ix(0)))
-      .fold(-1)(_.toInt)
-
   /** The tree's root, `root` on a built dashboard: what a repaint morphs. */
   private[runtime] val rootId: NodeId = dashboard.index.id(Ix(0))
 
@@ -876,8 +857,8 @@ class Renderer(validated: Dashboard.Validated) {
       4096
 
   /** The document path: the page walked straight into `out`, returning the
-    * per-node trace. A restored popup is baked into `popups`, so a refresh does
-    * not paint the dialog late.
+    * per-node trace. A restored popup is the page's case like any other, so a
+    * refresh does not paint the dialog late.
     */
   private[runtime] def renderPageInto(
       out: Sink,
@@ -908,18 +889,6 @@ class Renderer(validated: Dashboard.Validated) {
     tracedInto(out, dashboard.card, shared, viewing, own)
     own
   }
-
-  /** Bare content: the host is the page card's `popups` group, and any frame
-    * the popup card's.
-    */
-  private[runtime] def renderSurfaceTraced(
-      surfaceId: String,
-      shared: Shared,
-      viewing: Viewing
-  ): Option[Traced] =
-    dashboard.surfaces
-      .get(surfaceId)
-      .map(s => traced(s.content, shared, viewing))
 
   /** Every log key must resolve here: a resume re-renders. `None` means the key
     * names nothing that exists now, and is dropped rather than failing the
@@ -977,27 +946,18 @@ class Renderer(validated: Dashboard.Validated) {
       members.setContainer(_).toList.flatMap(setAsks(_, shared))
     )
 
-  /** The surfaces shown inside it included. */
-  def fetchesForSurface(
-      surfaceId: String,
-      shared: Shared,
-      selections: Selections,
-      env: VarEnv
-  ): List[SlotRead] =
-    ask(surfaceAsks(surfaceId, shared, selections), shared, env)
-
+  /** A case's asks, the cases shown inside it included. */
   private def surfaceAsks(
-      surfaceId: String,
-      shared: Shared,
-      selections: Selections
+      caseId: String,
+      shared: Shared
   ): List[(NodeId, Fetching)] =
     surfaces
-      .shownWithin(surfaceId, shared, selections)
+      .shownWithin(caseId, shared)
       .toList
       .flatMap(i => asksOfSurface(Ix(i), shared))
 
-  /** The body, this viewer's open surfaces and each state group's branch. An
-    * unselected tab is fetched when switched to.
+  /** The body and every case shown in it. An unselected tab is fetched when
+    * switched to.
     */
   def fetchesForPage(
       open: Set[String],
@@ -1014,8 +974,8 @@ class Renderer(validated: Dashboard.Validated) {
       env
     )
 
-  /** The resume's second candidate set: nothing may have recorded an open
-    * surface while nobody viewed it, so only re-rendering can tell.
+  /** The resume's second candidate set: nothing may have recorded a shown case
+    * while nobody viewed it, so only re-rendering can tell.
     */
   def containerNodeIds(container: Ix): List[NodeId] =
     containerNodes.getOrElse(container, Nil)
@@ -1346,14 +1306,6 @@ class Renderer(validated: Dashboard.Validated) {
           def hole(slot: String)(fill: => Unit) =
             Map(slot -> { (_: java.io.Writer) => fill })
           val holes: Map[String, java.io.Writer => Unit] = c.content match
-            // Until popups are a variable (R5.3), the only fill not on the
-            // node: what this viewer has open.
-            case Ready.Content.Fixed(_) if c.ix.toInt == popupsHost =>
-              hole(LayoutNode.DefaultRegion) {
-                viewing.selections.popup
-                  .flatMap(dashboard.surfaces.get)
-                  .foreach(s => child(s.content))
-              }
             case Ready.Content.Fixed(r) =>
               r.map((region, nodes) =>
                 region -> { (_: java.io.Writer) => nodes.foreach(child) }
@@ -1445,7 +1397,7 @@ class Renderer(validated: Dashboard.Validated) {
     members
       .membersOf(setId, shared)
       .find(_.entity == entityId)
-      .map(memberTraced(_, shared, Viewing(Selections.none, fragments)).html)
+      .map(memberTraced(_, shared, Viewing(fragments)).html)
 
   private def templateOf(cardName: String): Mustache =
     templates.components.getOrElse(
@@ -2058,17 +2010,12 @@ object Renderer {
 
   /** What painted a session's `holds`, compared by reference: they are read
     * only under it ([[Painter]]). It keeps what a swap's answer reads of the
-    * renderer it replaces: whether the head moved, and which popup `open`
-    * named, since the new renderer cannot read a popup it lacks.
+    * renderer it replaces: whether the head moved.
     */
   private[runtime] final class Stamp(
       val headHash: String,
-      val styleHash: String,
-      popups: Map[String, String]
-  ) {
-    def popupIn(open: Set[String]): Option[String] =
-      SurfaceGraph.popupIn(popups, open)
-  }
+      val styleHash: String
+  )
 
   /** A declared call as the press found it ([[Renderer.press]]). */
   final case class Pressed(

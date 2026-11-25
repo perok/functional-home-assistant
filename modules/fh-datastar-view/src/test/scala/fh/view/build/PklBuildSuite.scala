@@ -32,6 +32,7 @@ import fh.view.testkit.{
   PklFixture,
   PklWorkspace,
   SmokeDashboard,
+  TestPage,
   TextSnapshot
 }
 import io.circe.Json
@@ -1034,14 +1035,14 @@ class PklBuildSuite extends munit.FunSuite {
         |theme = new th.Theme {}
         |card = (c.column) {
         |  children {
-        |    c.button("Open", c.view.openPopupInline(c.title("x")))
+        |    c.button("Open", c.view.popup("x", c.title("x")))
         |    c.entitySlider(dump.lights.all.first)
         |  }
         |}
         |""".stripMargin
     )
     assertEquals(dashboard.validate(), Nil)
-    assert(dashboard.surfaces.nonEmpty, clue = dashboard.surfaces)
+    assert(TestPage.popups(dashboard).nonEmpty, clue = dashboard.card)
     assertEquals(dashboard.theme.tokens.get("primary-color"), Some("#03a9f4"))
     assert(dashboard.theme.tokensDark.nonEmpty)
     // The slider card's CSS makes its range input inert on touch and relies on
@@ -1254,13 +1255,10 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   /** The shipped starter, against a house that populates its "Low battery"
-    * section, which `HouseFixture` does not.
-    *
-    * The hoist never walked a set's clauses, so a sensor card's default inline
-    * more-info popup kept its `@@NODE_ID@@`, and the server refused the starter
-    * with "the build left placeholder tokens unresolved".
+    * section, which `HouseFixture` does not: a set member's popup is collected
+    * as any other.
     */
-  test("the starter's low-battery cards hoist their more-info popups") {
+  test("the starter's low-battery cards' more-info popups are on the page") {
     val dump = HouseFixture.dumpWith(
       FixtureEntity(
         "sensor.remote_battery",
@@ -1272,26 +1270,16 @@ class PklBuildSuite extends munit.FunSuite {
         )
       )
     )
-    // The starter is a site. Hoisting the site JSON finds no `card` and passes
-    // vacuously.
     val built = PklFixture.eval("site", AddonBootstrap.starterSite, dump)
     val home = built.value.hcursor
       .downField("dashboards")
       .downField("home")
       .focus
       .getOrElse(fail("the starter names no dashboard 'home'"))
-    val hoisted = DashboardBuild.hoistInlineSurfaces(home)
-    assertEquals(
-      DashboardBuild.unresolvedTokens(hoisted),
-      Nil,
-      clue = "a set clause's inline surface was not hoisted"
-    )
-    // Otherwise the assertion above is vacuous, which is how this went
-    // unnoticed.
+    val d = home.as[Dashboard].fold(err => fail(s"decode: $err"), identity)
     assert(
-      hoisted.noSpaces.contains("sensor.remote_battery"),
-      clue =
-        "the low-battery set selected no candidate; the test proves nothing"
+      TestPage.popups(d).contains("moreinfo_sensor_remote_battery"),
+      clue = TestPage.popups(d).keySet
     )
   }
 
@@ -1335,17 +1323,11 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(sets(2).candidates, Nil)
   }
 
-  /** A test dashboard through the build's own steps: hoisted, decoded and
-    * validated.
-    */
+  /** A test dashboard through the build's own steps: decoded and validated. */
   private def pipeline(e: FixtureEntries.Entry): Dashboard = {
     val built = PklFixture.eval(e.slug, e.source, e.dump)
-    val hoisted = DashboardBuild.hoistInlineSurfaces(built.value)
-    assert(
-      !hoisted.noSpaces.contains(DashboardBuild.NodeIdToken),
-      clue = s"${e.slug}: unspliced NODE_ID token remained in the hoisted JSON"
-    )
-    val d = hoisted.as[Dashboard].fold(err => fail(s"decode: $err"), identity)
+    val d =
+      built.value.as[Dashboard].fold(err => fail(s"decode: $err"), identity)
     assertEquals(
       d.validate(SourceEval.literalLocator(built.imports)),
       Nil,
@@ -1358,31 +1340,29 @@ class PklBuildSuite extends munit.FunSuite {
     FixtureEntries.all.foreach(pipeline)
   }
 
-  test("the taps dashboard hoists its popups") {
+  test("the taps dashboard collects its popups") {
     val d = pipeline(FixtureEntries.taps)
     assert(
       Set("fhcol", "sectionTitle", "tile", "entityInfo", "button", "popup")
         .subsetOf(d.cards.keySet),
       clue = d.cards.keySet
     )
-    // The registered popup plus hoisted inline surfaces (`<node-id>_self`):
-    // the `openPopupInline` button, the `|> c.informative` light, the
-    // `c.view.moreInfo` tap, and three from `c.lock.controls`: its tile's
-    // more-info (a lock acts through its buttons, ADR 0016) and its "Open"
-    // button's popup, on the page and again inside that more-info.
-    assert(d.surfaces.contains("detail"), clue = d.surfaces.keySet)
+    // One per id: the light's two openers share its more-info, and the lock's
+    // "Open" is on the page and again inside the lock's more-info.
     assertEquals(
-      d.surfaces.keys.count(_.endsWith("_self")),
-      6,
-      clue = d.surfaces.keySet
+      TestPage.popups(d).keySet,
+      Set(
+        "detail",
+        "inline",
+        "moreinfo_light_kitchen",
+        "moreinfo_lock_front_door",
+        "confirm_open_lock_front_door"
+      )
     )
-    // The fixture light reports no colour modes, so its controls are a tappable
-    // card, not a slider. Picked by its two tiles: the inline popup holds none.
-    val moreInfo = d.surfaces.values
-      .find(s => cardNames(s.content).count(_ == "tile") == 2)
-      .getOrElse(fail("no more-info surface was hoisted"))
+    // The fixture light reports no colour modes, so its controls are a
+    // tappable card, not a slider.
     assertEquals(
-      cardNames(moreInfo.content),
+      cardNames(TestPage.popups(d)("moreinfo_light_kitchen")),
       List(
         "popup",
         "fhcol",
@@ -1400,7 +1380,7 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(sets(d.card).size, 2, clue = d.card)
   }
 
-  test("the branches dashboard builds tabs + If into hoisted surfaces") {
+  test("the branches dashboard builds tabs + If into picks") {
     val d = pipeline(FixtureEntries.branches)
     assert(
       d.cards.contains("tabs") && d.cards.contains("ifhost"),
@@ -1795,7 +1775,7 @@ class PklBuildSuite extends munit.FunSuite {
   }
 
   test("If builder and amend forms produce identical wire output") {
-    // `inlineSurfaces` re-derives across chained calls (late binding).
+    // The chain re-derives the choice across calls (late binding).
     val tmp = os.temp.dir()
     copyLib(tmp)
     os.write(
@@ -2360,8 +2340,8 @@ class PklBuildSuite extends munit.FunSuite {
     assertEquals(rowOf(inner(1)).valueSlots("max").literal, Some("255"))
   }
 
-  // Wire snapshots: the fixture entries' evaluated `{cards, card, surfaces}`
-  // JSON, before normalize/hoist/decode, minus `theme`, with sorted keys.
+  // Wire snapshots: the fixture entries' evaluated `{cards, root}` JSON,
+  // before decode, minus `theme`, with sorted keys.
   // Regenerate with `sbt dashboardSnapshotsUpdate` and review the diff.
 
   private def checkSnapshot(name: String, actual: String): Unit =

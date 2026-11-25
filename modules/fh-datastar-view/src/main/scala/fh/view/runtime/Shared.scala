@@ -429,8 +429,8 @@ private[runtime] final class Decided(
   }
 }
 
-/** One viewer's, for one send, beside the [[Shared]] it was read against: its
-  * selections, and the answers to the slot fetches the send reads (which carry
-  * the viewer's node variables).
+/** One viewer's, for one send, beside the [[Shared]] it was read against: the
+  * answers to the slot fetches the send reads (which carry the viewer's node
+  * variables).
   */
-final case class Viewing(selections: Selections, fragments: FetchSnapshot)
+final case class Viewing(fragments: FetchSnapshot)

@@ -68,18 +68,14 @@ class NodeVariablesSuite extends munit.FunSuite {
   ): LayoutNode.Component =
     box(vars, kids*).copy(id = Some(id))
 
-  private def dash(
-      root: LayoutNode,
-      surfaces: Map[String, Surface] = Map.empty
-  ) =
+  private def dash(root: LayoutNode) =
     Dashboard(
       cards = Sets.cards ++ Map(
         "chart" -> chartCard,
         "plain" -> plainCard,
         "box" -> boxCard
       ),
-      card = root,
-      surfaces = surfaces
+      card = root
     )
 
   /** Each read's preset key, so a test reads as the values a viewer picks. */
@@ -235,25 +231,33 @@ class NodeVariablesSuite extends munit.FunSuite {
     assert(r.vars.readersOf(window).nonEmpty, clue = r.vars.readersOf(window))
   }
 
-  test("a SURFACE is its own scope root") {
-    // A popup can be opened from different places, so inheriting would
-    // resolve one content differently per host; it declares what it needs.
-    val errs = dash(
-      box(Map("window" -> "24h"), LayoutNode.Component("plain")),
-      surfaces = Map("popup" -> Surface(chartNode()))
-    ).validate()
-    assert(
-      errs.exists(e =>
-        e.startsWith("surface 'popup'") && e.contains("no ancestor declares")
-      ),
-      clue = errs
+  test("a popup starts with the root's scope") {
+    // A case of the page's `popups`, so the page's variables reach it and its
+    // opener's do not: one popup may be opened from many places.
+    def dashboard(inPopup: String) = PklFixture.snippet(
+      s"""local window = c.variable("window")
+         |card = (c.column) {
+         |  vars { window.defaultingTo("24h") }
+         |  children { c.button("Open", c.view.popup("help", $inPopup)) }
+         |}
+         |""".stripMargin
     )
+    val d = dashboard("""c.button("Close", c.view.closePopup())""")
+    assertEquals(d.validate(), Nil)
+    assertEquals(
+      d.varScopes
+        .get(NodeId.derived("help"))
+        .flatMap(_.get("popups"))
+        .map(_.declarer),
+      Some(Dashboard.PageRootId)
+    )
+    val errs = dashboard("""c.button("Week", window.choose("7d"))""").validate()
+    assert(errs.exists(_.contains("'window'")), clue = errs)
   }
 
   test("a choice's case starts with the scope of the node it fills") {
-    // A tab panel or an `If` branch has exactly one host, so the reason a popup
-    // is a scope root does not apply: a chooser above a tab bar reaches the
-    // charts in its panels.
+    // A tab panel or an `If` branch has exactly one host, so a chooser above a
+    // tab bar reaches the charts in its panels.
     val library = PklFixture.shape(
       """local window = c.variable("window")
         |card = (c.column) {
@@ -298,7 +302,6 @@ class NodeVariablesSuite extends munit.FunSuite {
     r.renderBodyTraced(
       Shared.of(states),
       Viewing(
-        Selections.none,
         FetchSnapshot.of(
           drawn.map((w, svg) => readAt(w) -> Staged(100L, svg)).toMap,
           env
@@ -348,8 +351,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     // another's span. Asked of the chart: the panel is structure and has no
     // key.
     val chartId = LayoutNode.childId(
-      "",
-      LayoutNode.rootId("", d.card),
+      LayoutNode.rootId(d.card),
       LayoutNode.Step(LayoutNode.DefaultRegion, 0),
       chartNode()
     )
@@ -411,8 +413,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a choice naming a variable nothing declares is inert, not an error") {
-    // A stale URL naming a lost node matches no scope and is never read, as
-    // `SurfaceGraph.openPopup` treats a lost surface id.
+    // A stale URL naming a lost node matches no scope and is never read.
     val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
     val r = Renderer.create(d)
     val env = r.vars.env(

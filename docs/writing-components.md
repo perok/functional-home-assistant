@@ -378,6 +378,8 @@ Set a tap on your node, fold its slots in, and place the click in the template:
 import "@fh-dashboard/core/tap.pkl" as tapMod
 
 hidden tapAction: tapMod.TapAction
+// A tap that opens a popup brings it along; this puts it on the page.
+carries = tapAction.carries
 
 slots {
   ...tapMod.tapSlots(tapAction)
@@ -390,7 +392,9 @@ slots {
 </button>
 ```
 
-That is the whole thing. You do not write any signal names, and you do not need
+That is the whole thing. Leave out `carries` and a `c.view.popup(…)` tap on
+your card opens nothing, since the page only holds the popups its cards
+carry. You do not write any signal names, and you do not need
 a `tapMod.busy.ifSet(…)` section around anything — the pieces bring their own, so you
 place them whether or not this particular card guards its tap.
 

@@ -5,7 +5,6 @@ import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
-  Dashboard,
   DomId,
   Ix,
   NodeId,
@@ -26,11 +25,10 @@ import scala.collection.immutable.{BitSet, HashMap}
   *
   * A set's or a pick's host is changed by `Fill`, `Place` and `Leave`, which
   * name the host's [[Ix]] and what it then shows ([[Patches.applied]] reads
-  * them); `Insert` is left for `#popups`, which no node owns.
+  * them).
   */
 private[runtime] enum Patch:
   case Morph(html: String)
-  case Insert(html: String, mode: PatchMode, target: DomId)
   case Signals(values: Map[SignalId, Json])
 
   /** Everything inside `host`, whose element is `target`; `shows` is the root
@@ -60,9 +58,7 @@ private[runtime] enum Patch:
   case Leave(host: Ix, key: NodeId)
 
   def toSse: SseFrame = this match
-    case Patch.Morph(html)                => Datastar.patchElements(html)
-    case Patch.Insert(html, mode, target) =>
-      Datastar.patch(html, mode, Some(target.selector))
+    case Patch.Morph(html)     => Datastar.patchElements(html)
     case Patch.Signals(values) =>
       Datastar.patchSignals(Datastar.signalsJson(values))
     // An empty `Inner` is not a well-formed patch.
@@ -92,15 +88,12 @@ private[runtime] enum HostStep:
 /** A patch and what it does to its client's record. No audience: the session
   * that sends it produced it ([[Patches.resume]]).
   *
-  * `establishes` is what its bytes put in the DOM. `invalidates` names the
-  * `#popups` host an `Inner` insert re-supplied, so that after applying any
-  * patch, `holds` describes the DOM.
+  * `establishes` is what its bytes put in the DOM, so that after applying any
+  * patch, `holds` describes it.
   */
 private[runtime] case class Addressed(
     patch: Patch,
-    establishes: Map[Ix, Held] = Map.empty,
-    // Roots: a host and everything under it ([[TreeIndex.contains]]).
-    invalidates: Set[NodeId] = Set.empty
+    establishes: Map[Ix, Held] = Map.empty
 )
 
 /** The pure core of the live path, apart from [[Server]]'s `Ref`s and `IO`. The
@@ -130,12 +123,12 @@ private[runtime] object Patches {
     * A flipped state pick is logged by its host and its arriving case, and its
     * own id is left out below; so is a viewer pick that flips for some viewer
     * of `seen` (one entry per distinct values, with the containers on screen
-    * for them), logged by its host and each arriving case. A surface binding a
-    * changed entity contributes only if it is shown from the page or a visible
-    * surface ([[SurfaceGraph.visibleContainer]]), so a hidden branch never gets
+    * for them), logged by its host and each arriving case. A case binding a
+    * changed entity contributes only if it is shown from the page
+    * ([[SurfaceGraph.visibleContainer]]), so a hidden branch never gets
     * updates; a viewer's flip cuts no one's visibility here, since it moves the
-    * case for only those it flips for. No viewer's [[Selections]] are read.
-    * `prev` is the version before, so its decisions are what viewers were sent.
+    * case for only those it flips for. `prev` is the version before, so its
+    * decisions are what viewers were sent.
     */
   def plan(
       renderer: Renderer,
@@ -308,13 +301,13 @@ private[runtime] object Patches {
     *
     * Candidates are the nodes logged at `>= v`, where the log's place is the
     * one shown now, and under [[Coverage.Swept]] every node and host of a
-    * container on the viewer's screen, a popup open or a case its values pick.
-    * A node is sent when its byte-slot values differ from what this viewer
-    * holds. A host's keys are decided now and planned against the list it holds
-    * ([[planHost]]); a key held and decided is sent again when its root was
-    * logged and it has no rendering of its own, since it left and came back
-    * while the viewer was away (A → B → A). Nothing inside a range sent whole
-    * or leaving is patched as well. The cursor selects ids, never content.
+    * container on the viewer's screen, a case its values pick. A node is sent
+    * when its byte-slot values differ from what this viewer holds. A host's
+    * keys are decided now and planned against the list it holds ([[planHost]]);
+    * a key held and decided is sent again when its root was logged and it has
+    * no rendering of its own, since it left and came back while the viewer was
+    * away (A → B → A). Nothing inside a range sent whole or leaving is patched
+    * as well. The cursor selects ids, never content.
     */
   def resume(
       renderer: Renderer,
@@ -328,7 +321,6 @@ private[runtime] object Patches {
       env: VarEnv,
       v: Long,
       open: Set[String] = Set.empty,
-      selections: Selections = Selections.none,
       coverage: Coverage = Coverage.Swept
   ): IO[List[Addressed]] =
     renderer
@@ -338,12 +330,12 @@ private[runtime] object Patches {
         (
           at,
           o,
-          renderer.readsForPull(o.touched, o.filled, at, selections, env)
+          renderer.readsForPull(o.touched, o.filled, at, env)
         )
       }
       .flatMap { (at, o, reads) =>
         answers(reads).flatMap(snapshot =>
-          patches(renderer, cache, holds, at, Viewing(selections, snapshot), o)
+          patches(renderer, cache, holds, at, Viewing(snapshot), o)
         )
       }
 
@@ -352,9 +344,9 @@ private[runtime] object Patches {
 
     /** Every frame since the cursor was recorded against this viewer's screen,
       * so the log names all it is owed: a live session's pull, since its page
-      * registers before it renders ([[Server.recordFrame]]) and a tab press or
-      * a popup renders what arrives itself. A node it misses is a recorder bug,
-      * which [[Swept]] would hide; `OracleSuite` is what catches one.
+      * registers before it renders ([[Server.recordFrame]]) and a press renders
+      * what arrives itself. A node it misses is a recorder bug, which [[Swept]]
+      * would hide; `OracleSuite` is what catches one.
       */
     case Logged
 
@@ -560,7 +552,7 @@ private[runtime] object Patches {
       // Every one, held or not: a fill morphs onto what the page has, and the
       // morph re-applies a seed only where its text changed.
       val seeded = placing
-        .collect { case Addressed(_: Patch.Fill, claims, _) => claims }
+        .collect { case Addressed(_: Patch.Fill, claims) => claims }
         .flatMap(_.valuesIterator.flatMap(_.signals))
         .map((name, value) => name -> SlotValue.json(value))
         .toMap
@@ -578,7 +570,7 @@ private[runtime] object Patches {
     if (values.isEmpty) frame
     else
       frame match
-        case Addressed(Patch.Signals(diffed), held, _) :: Nil =>
+        case Addressed(Patch.Signals(diffed), held) :: Nil =>
           List(Addressed(Patch.Signals(diffed ++ values), held))
         case _ => List(Addressed(Patch.Signals(values)))
 
@@ -707,31 +699,8 @@ private[runtime] object Patches {
           .map(t => t.html -> t.claims)
     )
 
-  /** A popup open: one client's choice, so it touches only that session's
-    * `holds`. `#popups` holds no list, so every popup's nodes are evicted: a
-    * stale claim would suppress a real change on its return (R5 makes it an
-    * ordinary host).
-    */
-  private[runtime] def popupFill(
-      renderer: Renderer,
-      arriving: Option[String],
-      shared: Shared,
-      viewing: Viewing
-  ): Option[Addressed] =
-    arriving
-      .flatMap(renderer.surfaces.popupNamed)
-      .flatMap(renderer.renderSurfaceTraced(_, shared, viewing))
-      .map(t =>
-        Addressed(
-          Patch.Insert(t.html, PatchMode.Inner, Dashboard.PopupHostId),
-          t.claims,
-          popupEvicts(renderer)
-        )
-      )
-
-  /** The page, the open popup baked in as on a page load, and what it leaves
-    * the session holding. One morph: a popup sent after it would be emptied by
-    * it first, closing the dialog.
+  /** The page, as a page load paints it, and what it leaves the session
+    * holding: one morph.
     */
   private[runtime] def repaint(
       renderer: Renderer,
@@ -755,14 +724,8 @@ private[runtime] object Patches {
     )
   }
 
-  /** Every popup's nodes: what an open or a close evicts. */
-  private[runtime] def popupEvicts(renderer: Renderer): Set[NodeId] =
-    renderer.surfaces
-      .surfacesAt(Dashboard.PopupHostId)
-      .flatMap(renderer.surfaceNodeIds)
-
-  /** Invalidate first, then claim: a fill re-supplies a host and places members
-    * in it. Containment is [[TreeIndex.contains]]'s, not id spelling.
+  /** Move the lists first, then claim: a fill re-supplies a host and places
+    * members in it. Containment is [[TreeIndex.contains]]'s, not id spelling.
     *
     * A host's list ([[Held.shows]]) follows the structural patch that moved it:
     *   - `Fill` drops everything below the host and sets the list;
@@ -779,7 +742,6 @@ private[runtime] object Patches {
       holds: Map[Ix, Held],
       patch: Addressed
   ): Map[Ix, Held] = {
-    val roots = patch.invalidates.toList.flatMap(index.ixsOf)
     val structural = patch.patch match
       case Patch.Fill(host, _, _, shows) =>
         showing(
@@ -797,13 +759,7 @@ private[runtime] object Patches {
       case _ => holds
     // Merged per node: a morph says nothing about signals and a signal frame
     // nothing about bytes ([[Held.merge]]).
-    patch.establishes.foldLeft(
-      if (roots.isEmpty) structural
-      else
-        structural.filterNot { case (ix, _) =>
-          roots.exists(index.contains(_, ix))
-        }
-    ) { case (acc, (ix, later)) =>
+    patch.establishes.foldLeft(structural) { case (acc, (ix, later)) =>
       acc.updated(ix, acc.get(ix).fold(later)(_.merge(later)))
     }
   }

@@ -180,9 +180,6 @@ object Ready:
       styleSlots: List[fh.view.model.Cell.Entry]
   )
 
-  /** A popup, `defaultOpen` from its activation. */
-  final case class Surface(content: Node, defaultOpen: Boolean)
-
   /** A pick where it stands: its host `node`, whose id, clause and cases' ids
     * are the pick's, and what decides it. Its key is the host's `group`.
     */
@@ -244,12 +241,8 @@ object Ready:
 
     def dashboard(d: fh.view.model.Dashboard): Built[Dashboard] =
       val i = d.index
-      val roots = i.roots.map(r => i.tree(r) -> r).toMap
       (
-        node(i, roots("")),
-        d.surfaces.toList.traverse((k, s) =>
-          surface(i, roots(k), s).map(k -> _)
-        ),
+        node(i, i.root),
         d.calls.toList.traverse((id, decl) => call(decl).map(id -> _)),
         d.varScopes.values.toList
           .flatMap(_.values.flatMap(_.declaration.initialTransform))
@@ -259,16 +252,13 @@ object Ready:
         d.choiceBys.traverse(by =>
           Evaluator.compile(by, scope).map(by.inputKey -> _.run)
         )
-      ).mapN((card, surfaces, calls, initials, choices) =>
+      ).mapN((card, calls, initials, choices) =>
         Dashboard(
           i,
           d.cards,
           card,
           d.theme,
-          surfaces.toMap,
-          (picksIn(card) ++ surfaces.flatMap((_, s) =>
-            picksIn(s.content)
-          )).toMap,
+          picksIn(card).toMap,
           d.slug,
           d.title,
           d.css,
@@ -424,19 +414,6 @@ object Ready:
             cases.zipWithIndex.map((k, i) => k.is.raw -> i).toMap
           )
         )
-    def surface(
-        i: TreeIndex,
-        root: Ix,
-        s: fh.view.model.Surface
-    ): Built[Surface] =
-      node(i, root).map(content =>
-        Surface(
-          content,
-          s.activation match
-            case fh.view.model.Activation.User(d) => d
-        )
-      )
-
     private def call(decl: CallDecl): Built[Call] = decl match
       case d: CallDecl.Service => service(d)
       case d: CallDecl.SetVar  => Right(SetVarCall(d))
@@ -484,7 +461,6 @@ object Ready:
       cards: Map[String, CardDef],
       card: Node,
       theme: Theme,
-      surfaces: Map[String, Surface],
       picks: Map[NodeId, Pick],
       slug: String,
       title: Option[String],

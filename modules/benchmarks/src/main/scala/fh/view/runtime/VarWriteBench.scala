@@ -123,7 +123,7 @@ class VarWriteBench {
         cache,
         Map.empty,
         at,
-        Viewing(Selections.none, FetchSnapshot.of(Map.empty, env)),
+        Viewing(FetchSnapshot.of(Map.empty, env)),
         owing
       )
       .unsafeRunSync()
@@ -138,7 +138,7 @@ class VarWriteBench {
     val readers = renderer.vars.readersOf(WindowKey)
     (for {
       snapshot <- answer(
-        renderer.readsForPull(readers, Nil, at, Selections.none, env),
+        renderer.readsForPull(readers, Nil, at, env),
         env
       )
       patches <- readers.traverseFilter(
@@ -147,7 +147,7 @@ class VarWriteBench {
           cache,
           Map.empty,
           at,
-          Viewing(Selections.none, snapshot),
+          Viewing(snapshot),
           _
         )
       )

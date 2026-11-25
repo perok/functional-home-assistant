@@ -68,7 +68,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     Renderer
       .create(d)
       .signalsFor(
-        LayoutNode.rootId("", d.card),
+        LayoutNode.rootId(d.card),
         Shared.of(st),
         FetchSnapshot.empty
       )

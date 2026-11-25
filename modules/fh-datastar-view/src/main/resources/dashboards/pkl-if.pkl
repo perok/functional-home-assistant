@@ -13,7 +13,7 @@
 // matches" is now the set the author actually meant.
 //
 // `amends "@fh-dashboard/entry.pkl"` supplies the `cards`/`theme` scaffold; this
-// entry sets only `card` (its branches become hoisted surfaces at build time).
+// entry sets only `card`.
 // (Plain `//` comments: a doc comment would attach to the first import, which
 // Pkl rejects — entries have no `module` clause to absorb it.)
 

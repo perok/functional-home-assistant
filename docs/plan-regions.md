@@ -23,7 +23,7 @@ it as `Activation.Var`.
 **State:** direction agreed in chat (2026-11-10); the prework is on main (below); R1 is built
 (`slot-classes`), R2 is built (`set-fill`), R3 is built (`choices-in-pkl`), R4a and R4b are built
 (`one-runtime-path`), R4c is built (`root-hosts`), R4d's D0–D5 are built (`the-planner`), D6
-not; R5's design is agreed (2026-11-24), R5.0–R5.2 are built. The opening describes the shape before R1.
+not; R5's design is agreed (2026-11-24), R5.0–R5.3 are built. The opening describes the shape before R1.
 
 ## What this builds on
 
@@ -322,8 +322,8 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
     Equal content under one id is one case (two cards for one entity share its more-info, and
     whatever is chosen inside it); different content is a Pkl error. Since Pkl is lazy, a popup
     holding its own opener is a reference, and `moreinfo.pkl`'s pinned tap goes.
-  - **A close is a clear** of `popups`, the pick's ordinary leave: the `remove` on `#popups > *` a
-    close already sends (#684). The slot shows one case, so one popup is on screen at a time, and
+  - **A close is a clear** of `popups`, the pick's ordinary leave: a `remove` of the popup's own root
+    (`#<id>`), the host staying for the next open to fill. The slot shows one case, so one popup is on screen at a time, and
     a popup may hold another's opener.
   - **A popup's content starts with the root's scope**: it is a case of the page node's match, the
     rule a tab panel already has, so ADR 0033's rule 6 exception goes, and every root variable
@@ -947,7 +947,15 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      benches equal (`viewerPage` 159,584 → 159,192); `validated` +1.9% (taps 4,075,560 →
      4,152,872, cards 4,085,540 → 4,168,446), the page card's two nodes. ADRs 0002, 0005,
      0011, 0018, 0020, 0033, terminology (the page card), the pipeline doc.
-   - **R5.3, popups as a variable.** `components/popup.pkl`: `popups` on the root, required ids
+   - **R5.3, popups as a variable.** BUILT. Bench (EA off, B/op, against R5.2): `popupOpen`
+     192,421 → 26,568 and `popupClose` 214,953 → 15,320 (a write to `popups` now, the close a
+     pick's leave of one root, `remove #<id>`, rather than an eviction of every popup's claims);
+     `publish` equal; `publishManyPopups` 21,032 → 21,984 (+4.5%, the closed popups' nodes now
+     cases of one match); `viewerPage` equal; `validated` taps 4,155,329 → 3,534,305 (the hoist
+     gone), cards 4,170,461 → 4,380,866 (+5%, every more-info now collected onto the page).
+     `SessionState.open` is still threaded, always empty (R5.4). Tests: `PopupVariableSuite`,
+     `popup.test.pkl`; `SurfaceTapSuite` is `SessionActionSuite`. As agreed:
+     `components/popup.pkl`: `popups` on the root, required ids
      (`c.view.popup`, the library's derived ones), the hidden node and its collection into the
      match, a close as a clear, a popup starting with the root's scope (`NodeVariablesSuite`'s "a
      SURFACE is its own scope root" becomes "a popup starts with the root's scope"), Back and
@@ -961,8 +969,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    - **R5.4, `SessionState.open` goes.** D5.1 took the picks off it. With the popup a variable,
      every container a viewer shows follows from its variables and the state, so each step
      computes D0.3's `BitSet` from them. Nothing spelled as a container then crosses a swap, only
-     `VarKey`s, which `recheck` already checks; `Selections`, the open set's `reveal` and the
-     recorder's reading of `open` go with it.
+     `VarKey`s, which `recheck` already checks; the open set's `reveal` and the recorder's
+     reading of `open` go with it (`Selections` went in R5.3).
    - **R5.5, smoke and the bench.** Smoke tests (CI) for Back and Forward over a popup, over two
      history variables, and from a link naming both; R4's costs-nothing test for a popup; R5.0's
      benches against the base.

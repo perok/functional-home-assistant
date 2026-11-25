@@ -4,7 +4,7 @@
 ///
 /// A facade: every card lives in a family module beside it
 /// (`components/entity.pkl`, …), which is also importable directly. The
-/// component-author kit (`core/node.pkl`, `core/slot.pkl`, `core/surface.pkl`,
+/// component-author kit (`core/node.pkl`, `core/slot.pkl`,
 /// `core/predicate.pkl`) is deliberately not re-exported. Your own card
 /// classes need no registering: a dashboard registers what it uses.
 ///
@@ -21,7 +21,6 @@ import "core/slot.pkl" as slotMod
 import "core/simple.pkl" as simpleMod
 import "core/text.pkl" as coreTextMod
 import "core/tap.pkl" as tapMod
-import "core/surface.pkl" as surfaceMod
 import "core/predicate.pkl" as pred
 import "core/access.pkl" as accessMod
 import "layout.pkl" as layoutMod
@@ -36,6 +35,7 @@ import "components/bar.pkl" as barMod
 import "components/base/slider.pkl" as sliderBaseMod
 import "components/slider.pkl" as sliderMod
 import "components/base/surface.pkl" as surfaces
+import "components/base/popup.pkl" as popupBase
 import "components/history.pkl" as historyMod
 import "components/its.pkl" as itsMod
 import "components/light.pkl" as lightMod
@@ -60,7 +60,7 @@ import "components/examples.pkl" as examplesMod
 hidden tap: tapVerbs = tapVerbs
 
 /// What a click shows, touching nothing in Home Assistant: `c.view.moreInfo(l)`,
-/// `c.view.openPopup("detail")`, `c.view.navigate("under")`.
+/// `c.view.popup("detail", body)`, `c.view.navigate("under")`.
 hidden view: viewVerbs = viewVerbs
 
 /// What the card's OWN entity offers, for its buttons: `c.its.toggle`,
@@ -121,9 +121,7 @@ typealias Column = layoutMod.Column
 typealias Grid = layoutMod.Grid
 /// `"top"` or `"bottom"`: where `.stick(…)` keeps a card.
 typealias Edge = nodeMod.Edge
-typealias SurfaceDef = surfaceMod.SurfaceDef
-typealias PopupSurface = surfaceMod.PopupSurface
-typealias Popup = surfaceMod.Popup
+typealias Popup = popupBase.Popup
 typealias TapAction = tapMod.TapAction
 /// A value expression: a reading, a condition, or CEL (`c.expr`).
 typealias Expr = slotMod.Expr
@@ -155,8 +153,6 @@ hidden column: layoutMod.Column = layoutMod.column
 hidden grid: layoutMod.Grid = layoutMod.grid
 /// Space that takes what its row or column leaves: `(c.row) { children { a; c.spacer; b } }`.
 hidden spacer: nodeMod.LayoutNode = layoutMod.spacer
-/// The popup dialog; rarely written by hand (see `c.view.openPopupInline`).
-hidden popup: surfaceMod.Popup = surfaceMod.popup
 /// `(c.tabs) { tabs { ["Lights"] { ... } } }`.
 hidden tabs: surfaces.Tabs = surfaces.tabs
 
@@ -258,7 +254,7 @@ const modules: List<Module> = List(
   sliderBaseMod,
   sliderMod,
   surfaces,
-  surfaceMod,
+  popupBase,
   moreinfo,
   historyMod,
   examplesMod,

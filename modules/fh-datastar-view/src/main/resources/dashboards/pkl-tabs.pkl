@@ -4,15 +4,12 @@
 //
 // `(c.tabs) { tabs { ["Label"] { ...cards... } } }` is pure composition — each
 // tab amends into existence off the mapping default (its body lists the panel's
-// cards directly; the Row wrap is automatic), the build-phase hoist lifts each
-// panel into the surfaces registry (sharing one exclusivity group + one inline
-// host), the bar buttons open them, the first tab bakes inline for an instant
-// first paint, and the active tab is tracked in a signal (+ URL param) for the
-// highlight and reload-restore. Switching reuses the same surface open/close
-// machinery as popups.
+// cards directly; the Row wrap is automatic), each panel is a case of a match
+// over the bar's `tab` variable, the bar buttons choose it, and the open tab is
+// tracked in a signal (+ URL param) for the highlight and reload-restore.
 //
 // `amends "@fh-dashboard/entry.pkl"` supplies the `cards`/`theme` scaffold; this
-// entry sets only `card` (its tab panels become hoisted surfaces at build time).
+// entry sets only `card`.
 // (Plain `//` comments: a doc comment would attach to the first import, which
 // Pkl rejects — entries have no `module` clause to absorb it.)
 

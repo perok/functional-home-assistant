@@ -117,8 +117,7 @@ class FetchBench {
         answer,
         Map.empty,
         rot,
-        open,
-        renderer.surfaces.selectionsIn(open)
+        open
       )
       .unsafeRunSync()
   }
@@ -151,7 +150,7 @@ class FetchBench {
       renderer.renderPageInto(
         Sink.buffer(renderer.pageBytesHint),
         st,
-        Viewing(Selections.none, f)
+        Viewing(f)
       )
     )
   }

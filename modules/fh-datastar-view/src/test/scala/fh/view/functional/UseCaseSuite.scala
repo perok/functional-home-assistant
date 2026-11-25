@@ -4,7 +4,6 @@ import cats.data.NonEmptyList
 import cats.effect.IO
 import com.comcast.ip4s.{host, port}
 import fh.view.build.{
-  DashboardBuild,
   DumpPackage,
   LibPackage,
   Pins,
@@ -528,8 +527,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val built = SourceEval
       .eval(dir, "mine.pkl")
       .fold(err => fail(s"eval failed: $err"), identity)
-    val dashboard = DashboardBuild
-      .hoistInlineSurfaces(built.value)
+    val dashboard = built.value
       .as[Dashboard]
       .fold(err => fail(s"decode failed: $err"), identity)
 
@@ -607,8 +605,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val built = SourceEval
       .eval(dir, "inline.pkl")
       .fold(err => fail(s"eval failed: $err"), identity)
-    val dashboard = DashboardBuild
-      .hoistInlineSurfaces(built.value)
+    val dashboard = built.value
       .as[Dashboard]
       .fold(err => fail(s"decode failed: $err"), identity)
     assertEquals(dashboard.validate(), Nil)

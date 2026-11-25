@@ -80,7 +80,7 @@ class ViewerGateSuite extends ServerHarness {
     val env = r.vars.env(Map(mode -> on))
     r.renderBodyTraced(
       Shared.of(states).viewing(env),
-      Viewing(Selections.none, FetchSnapshot.of(answers, env))
+      Viewing(FetchSnapshot.of(answers, env))
     ).html
   }
 

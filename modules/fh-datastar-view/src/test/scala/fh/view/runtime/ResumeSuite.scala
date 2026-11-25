@@ -20,7 +20,6 @@ import fh.view.model.{
   Value,
   ValueExpr,
   TemplateSlot,
-  Surface,
   Theme
 }
 import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, PklFixture, TestAuth}
@@ -236,8 +235,7 @@ class ResumeSuite extends ServerHarness {
             Some(
               Server
                 .Cursor(renderer.headHash, renderer.styleHash, logId, version)
-            ),
-            None
+            )
           )
         } yield opening
       }
@@ -397,167 +395,6 @@ class ResumeSuite extends ServerHarness {
     }
   }
 
-  test("a popup open across the disconnect is restored fresh, not closed") {
-    // Backgrounding a phone tab must not dismiss the dialog: it is re-rendered
-    // from the client's own claim.
-    val hostSelector = s"selector #${Dashboard.PopupHostId}"
-    val hostReset = s"selector #${Dashboard.PopupHostId} > *"
-    val withPopup = liveLeafDash.copy(
-      surfaces = Map(
-        "det" -> Surface(
-          LayoutNode.Component(
-            "card",
-            slots = Slots.values(
-              Map(
-                "state" -> TemplateSlot(
-                  ValueExpr(Value.Entity(Some("sensor.b")))
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-    live(
-      withPopup,
-      Map(
-        "sensor.a" -> es("sensor.a", "cold"),
-        "sensor.b" -> es("sensor.b", "B0")
-      )
-    ) { ts =>
-      for {
-        v <- ts.viewer()
-        _ <- v.change(es("sensor.a", "hot"))
-        cursor <- v.cursor.map(Some(_))
-        popupTick <- v.change(es("sensor.b", "B1"))
-        restored <- ts.reconnect(cursor, popup = Some("det"))
-        orphan <- ts.reconnect(cursor, popup = Some("was-renamed"))
-        quiet <- ts.reconnect(cursor)
-      } yield {
-        assertEquals(popupTick, Nil, clue = popupTick)
-        // Its nodes are in `open`, so the one resume rule reconciles them on
-        // their own ids and the dialog is never disturbed.
-        assert(restored.contains(">B1<"), clue = restored)
-        assert(!restored.contains(hostSelector), clue = restored)
-        assert(!restored.contains(hostReset), clue = restored)
-        // A claim the dashboard no longer serves belongs to nothing, so without
-        // this the dialog would sit on screen forever.
-        assert(orphan.contains(hostReset), clue = orphan)
-        // The connect still commits `ui_popups: ""` (ADR 0025), so this asserts
-        // no patch to the host, not the id's absence.
-        assert(!quiet.contains(hostSelector), clue = quiet)
-        assert(!quiet.contains(hostReset), clue = quiet)
-        assert(
-          quiet.contains(
-            s""""${Server.UiSignalPrefix}${Dashboard.PopupHostId}":""""
-          ),
-          clue = quiet
-        )
-      }
-    }
-  }
-
-  private def popupDash(template: String) = liveLeafDash.copy(
-    cards = liveLeafDash.cards + ("detail" -> TestCard(
-      template
-    )),
-    surfaces = Map(
-      "det" -> Surface(
-        LayoutNode.Component(
-          "detail",
-          slots = Slots.values(
-            Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.b")))
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-
-  /** A repaint that left the popup out left the dialog showing what it held
-    * before the disconnect, and `holds` without its nodes, until the next pull
-    * happened to re-send them.
-    */
-  test("a repaint with a popup open repaints the popup too") {
-    live(
-      popupDash("<i>{{state}}</i>"),
-      Map(
-        "sensor.a" -> es("sensor.a", "cold"),
-        "sensor.b" -> es("sensor.b", "B0")
-      )
-    ) { ts =>
-      for {
-        v <- ts.viewer()
-        _ <- v.change(es("sensor.a", "hot"))
-        cursor <- v.cursor
-        _ <- v.change(es("sensor.b", "B1"))
-        repaint <- ts.reconnect(
-          Some(cursor.copy(logId = "gone-with-the-log")),
-          popup = Some("det")
-        )
-      } yield {
-        assert(repaint.contains(BodyRepaint), clue = repaint)
-        assert(
-          repaint.contains(s"""id="${Dashboard.PopupHostId}"><div"""),
-          clue = repaint
-        )
-        assert(repaint.contains("<i>B1</i>"), clue = repaint)
-      }
-    }
-  }
-
-  /** The stream's request is what it CONNECTED with; the popup may have been
-    * closed, or another opened, since.
-    */
-  test("a dashboard edit repaints the popup open now, not the one at connect") {
-    // Baked into the repaint's popup host, as on a page load.
-    val inHost = s"""id="${Dashboard.PopupHostId}"><div"""
-    live(
-      popupDash("<i>{{state}}</i>"),
-      Map(
-        "sensor.a" -> es("sensor.a", "cold"),
-        "sensor.b" -> es("sensor.b", "B0")
-      )
-    ) { ts =>
-      for {
-        kept <- ts.connect("?ui.popups=det")
-        closed <- ts.connect("?ui.popups=det")
-        conn <- closed.drain.map(
-          _.flatMap(_.data)
-            .flatMap(s =>
-              s""""${Server.ConnSignal}":"([^"]+)"""".r.findFirstMatchIn(s)
-            )
-            .map(_.group(1))
-            .head
-        )
-        _ <- ts.post(
-          s"sse/popup/${ts.slug}/close",
-          body = s"""{"${Server.ConnSignal}":"$conn"}"""
-        )
-        _ <- kept.arrived *> closed.arrived *> kept.drain *> closed.drain
-        slug <- ts.server.liveSlug(ts.slug)
-        _ <- slug.install(
-          Server.RendererState.Ready(
-            Renderer.create(popupDash("<em>{{state}}</em>"))
-          )
-        )
-        _ <- kept.arrived *> closed.arrived
-        keptSent <- kept.drain.map(_.flatMap(_.data).mkString("\n"))
-        closedSent <- closed.drain.map(_.flatMap(_.data).mkString("\n"))
-      } yield {
-        assert(keptSent.contains(BodyRepaint), clue = keptSent)
-        assert(keptSent.contains(inHost), clue = keptSent)
-        assert(keptSent.contains("<em>B0</em>"), clue = keptSent)
-        assert(closedSent.contains(BodyRepaint), clue = closedSent)
-        assert(!closedSent.contains(inHost), clue = closedSent)
-        assert(!closedSent.contains("<em>B0</em>"), clue = closedSent)
-      }
-    }
-  }
-
   /** Nothing waits for a repaint: a pull between `install` and it, or a press
     * while the stream is down, diffed the new renderer against what the old one
     * painted.
@@ -569,28 +406,23 @@ class ResumeSuite extends ServerHarness {
       )
     )
     def text(fs: List[SseFrame]) = fs.flatMap(_.data).mkString("\n")
-    live(
-      popupDash("<i>{{state}}</i>"),
-      Map("sensor.a" -> es("sensor.a", "cold"))
-    ) { ts =>
+    live(liveLeafDash, Map("sensor.a" -> es("sensor.a", "cold"))) { ts =>
       for {
         pulled <- ts.viewer()
         pressed <- ts.viewer()
         slug <- ts.server.liveSlug(ts.slug)
         _ <- slug.install(
-          Server.RendererState.Ready(
-            Renderer.create(popupDash("<em>{{state}}</em>"))
-          )
+          Server.RendererState.Ready(Renderer.create(liveLeafDash))
         )
         pullSent <- pulled.step(FixtureEntity("sensor.a", "hot")).map(text)
-        close = ts.postResult(
-          s"sse/popup/${ts.slug}/close",
+        back = ts.postResult(
+          s"sse/history/${ts.slug}",
           body = s"""{"${Server.ConnSignal}":"${pressed.document.conn}"}"""
         )
         // Pressed on the old page: repainted and refused, not run.
-        stale <- close
+        stale <- back
         pressSent <- pressed.session.takeBacklog.map(text)
-        again <- close
+        again <- back
         _ <- slug.install(Server.RendererState.Ready(Renderer.create(scripted)))
         reloadSent <- pulled.pull.map(text)
         // Told once: the page is reloading, so nothing more is sent.
@@ -812,35 +644,6 @@ class ResumeSuite extends ServerHarness {
         assertEquals(before, Some("1"))
         // Back to the declared tab, which a reconnect then renders.
         assertEquals(after, None)
-      }
-    }
-  }
-
-  test("the popup selection is committed as it moves: open, switch, close") {
-    // The client asks; the swap commits `ui_popups` (ADR 0025), so each move
-    // lands in order and the last leaves nothing open.
-    val dash = liveLeafDash.copy(
-      surfaces = Map(
-        "det" -> Surface(LayoutNode.Component("col")),
-        "other" -> Surface(LayoutNode.Component("col"))
-      )
-    )
-    live(dash, cold) { ts =>
-      for {
-        v <- ts.viewer()
-        body = s"""{"${Server.ConnSignal}":"${v.document.conn}"}"""
-        _ <- ts.post(s"sse/surface/${ts.slug}/open/det", body = body)
-        _ <- ts.post(s"sse/surface/${ts.slug}/open/other", body = body)
-        _ <- ts.post(s"sse/popup/${ts.slug}/close", body = body)
-        emitted <- v.session.takeBacklog
-        open <- v.session.state.map(_.open)
-      } yield {
-        val commits = emitted
-          .flatMap(_.signals)
-          .flatMap(s => """"ui_popups":"([^"]*)"""".r.findAllMatchIn(s))
-          .map(_.group(1))
-        assertEquals(commits, List("det", "other", ""), clue = emitted)
-        assertEquals(open, Set.empty[String])
       }
     }
   }

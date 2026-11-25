@@ -230,7 +230,6 @@ object ByteValuesShapePropertySuite {
         NodeId.derived(r.members.memberIdOf(setId("c"), "sensor.a"))
       else
         LayoutNode.childId(
-          "",
           NodeId.derived("panel"),
           LayoutNode.Step(LayoutNode.DefaultRegion, 0),
           leaf("one")
@@ -272,7 +271,7 @@ object ByteValuesShapePropertySuite {
       )
     )
 
-    def viewing(r: Renderer): Viewing = Viewing(Selections.none, fragments(r))
+    def viewing(r: Renderer): Viewing = Viewing(fragments(r))
   }
 
   final class Sample(val shape: Shape, val w1: World, val w2: World) {
