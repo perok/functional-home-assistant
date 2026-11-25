@@ -931,6 +931,9 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          shim's whole-page buffer (`RendererTestOps.renderPageTraced`), and `Server` streams a
          page (`pageWalkStream`). On the live path a buffer is at most 2.4% (`viewerPull`),
          the node's bytes the render cache keeps.
+       - **C, `FragmentLog.touched`, and F, `signalFrame`.** Not built: C is ~6 KB a frame,
+         once per slug, and F's ~25 KB a session is mostly the per-session maps. Both are in
+         `docs/experiments.md` with what would reopen them.
        - **E, the planner.** BUILT. A pull is nearly all per session (its `holds`, its open
          cases); only `log.since` could be shared, ~1.6%. The cost was `planHost` building its
          position map and run for hosts whose held list is already the decided one: those

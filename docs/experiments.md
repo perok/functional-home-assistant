@@ -364,3 +364,46 @@ from `caseAsks`.
 
 **Worth asking again if** a dashboard with many variable or viewer picks shows `chosen` near the
 top of a pull's profile, or a third caller starts deriving it.
+
+## The fragment log, without a map update per touched node
+
+`Patches.record` marks each touched node with `FragmentLog.touched`, one immutable map update
+each, so a frame copies a map path per node. Is a cheaper log worth it?
+
+**How.** `RenderBench.publish` and `publishManyPopups` (the page bench's 200 leaves, one frame
+through the recorder), allocation profile (async-profiler, escape analysis off) in D6's pass.
+
+**Numbers.** `touched` is 31% of `publish` (18,408 B/op) and 26% of `publishManyPopups`
+(21,184), about 6 KB a frame.
+
+**Verdict.** Not built. It is paid once per slug per frame, never per session, and the
+alternatives are no plainer: a batched `++` still copies paths, and a versions array by `Ix`
+copied per frame costs about what it saves at this size, while the log must stay an immutable
+value that sessions read while the recorder writes.
+
+**Worth asking again if** frames touch far more nodes (a dashboard of thousands, or a recorder
+that touches every node of a fill), or the log moves behind a single owner that could keep a
+mutable table safely.
+
+## A tick's signal frame, built once for every session
+
+`Patches.signalFrame` is built per session on each pull: the signal values its nodes have now,
+the ones that moved from what it holds, and two maps, the frame's payload and the session's new
+holds. On an ordinary tick every session gets the same payload. Is sharing it worth it?
+
+**How.** `RenderBench.resumeMorphs` and `resumeMorphsFanout` (ten sessions), and
+`resumeSignalsFanout`; allocation profiles (async-profiler, escape analysis off) in D6's pass
+and again after D6's E.
+
+**Numbers.** `signalFrame` is ~38% of `resumeMorphs` (131,988 B/op) and 41% of
+`resumeMorphsFanout` (615,305), ~25 KB a session. Of that, ~88% is building the two maps and
+~11% the values themselves (`Renderer.signalsOf`), the only part that is the same for every
+session.
+
+**Verdict.** Not built. The maps are per session by nature, since each compares against that
+session's `holds`. Sharing the payload only works for a session whose held signals are all
+stale, so it means a second path for when a session is behind or ahead, for a saving that is
+mostly map building.
+
+**Worth asking again if** many sessions per slug becomes the normal case (a wall of tablets on
+one dashboard), or a profile of a real tick shows `signalFrame` above the render itself.
