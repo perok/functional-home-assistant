@@ -919,6 +919,10 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          4.78 MB/op (−36%), `popupClose` 15,320 → 5,536 (−64%), `viewerPull` −2.5%, the rest
          equal. Left: each leave and place copies the host's list, boxing; worth it only for
          sets far larger than a room's.
+       - **G, the member binding.** BUILT. Who binds an entity depends on who is present, not
+         on the order, so a decision's `Presence` carries the binding and a reorder keeps its
+         predecessor's (a limit cuts by order, so a limited set builds its own).
+         `publishSetOrdered` 274,752 → 120,464 B/op (−56%), the other set benches equal.
        Then `validated`, measured 2026-11-21 on the starter (EA off): 1.65 MB/op, 39% the
        Mustache compile of the cards, 39% validate, 16% `Ready.Compile`, the index 1.3%. R2's
        +6% is its three group nodes walked, not the group card's template; R5 added +7% on
