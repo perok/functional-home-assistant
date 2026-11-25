@@ -887,7 +887,10 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          set and the gate. First run: publishSet +1.8%, profiled to carrying the two new,
          empty per-values tables each frame; an empty table now carries nothing. The sweep
          found one stale sentence (writing-components.md).
-     - **D6, benches** that span steps: everything R2 measured, `publishSetOrdered` also with
+     - **D6, benches**, after R6 so they measure the final shape, on a branch stacked on
+       `the-planner`. Order: one profiling pass over every item below, the items grouped by
+       cause and the fixes agreed (sharing compiled cards discussed first), then each fix built
+       with its own gate. The items: spanning steps, everything R2 measured, `publishSetOrdered` also with
        many sessions, one session's `holds` size, and a profile of D2b's `page` +1.7% (the
        lists' arrays, `Trace.held`'s second map), and D3.4's planner closures on the pull
        (`resumeMorphs*` +2.3%/+3.7%, accepted 2026-11-22; the allocation profile's method is
