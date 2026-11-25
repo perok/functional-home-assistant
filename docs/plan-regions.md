@@ -891,10 +891,13 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        many sessions, one session's `holds` size, and a profile of D2b's `page` +1.7% (the
        lists' arrays, `Trace.held`'s second map), and D3.4's planner closures on the pull
        (`resumeMorphs*` +2.3%/+3.7%, accepted 2026-11-22; the allocation profile's method is
-       in D3's bench line). Each step keeps its own bench gate.
+       in D3's bench line), and R5.3's `publishManyPopups` +4.5% (the closed popups' nodes now
+       cases of one match). Each step keeps its own bench gate.
        Then `validated`, measured 2026-11-21 on the starter (EA off): 1.65 MB/op, 39% the
        Mustache compile of the cards, 39% validate, 16% `Ready.Compile`, the index 1.3%. R2's
-       +6% is its three group nodes walked, not the group card's template. Build: one
+       +6% is its three group nodes walked, not the group card's template; R5 added +7% on
+       `cards` (R5.2's page card +1.9%, R5.3's collection of every more-info onto the page +5%),
+       while `taps` fell 13% with the hoist. Build: one
        `Validate.labelled` per node, not ~8 (~7%), and an allocation-free
        `Templates.View.parse` (~8%). Explore: sharing a compiled card across dashboards and
        reloads. Each `validated` compiles each card once, but nothing is shared between two
