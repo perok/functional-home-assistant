@@ -324,3 +324,25 @@ changes, which neither touches.
 **Worth asking again if** a member-free guard gets expensive (a CEL guard over a fetch or a
 large list), a profile of a set's decision shows guard runs in its top frames, or the guard
 moves to the set on the wire, which would make one compile and one decision fall out.
+
+## A set's moved members, without copying its list per patch
+
+When an ordered set's sort order changes, or members arrive or leave, a session is sent one
+leave and one place per moved member, and `Patches.applied` copies the host's whole held list
+(`Held.shows`) for each one, boxing as it compares. Is folding them worth a rewrite?
+
+**How.** `RenderBench.publishSetOrderedFanout`: 200 members ordered by brightness, a frame
+turning 20 lights on or off, so 20 move; ten sessions that fold what they were sent, as `Server`
+does. Allocation profile (async-profiler, escape analysis off) after D6's A (a leave removes
+its subtree's range, `longestRun` in loops).
+
+**Numbers.** 4.78 MB/op for the ten sessions, ~450 KB each. Of the whole, the list copies in
+`applied` (each leave's `filterNot`, each place's `placedIn`) are ~36% and the plan's position
+map and run ~29%.
+
+**Verdict.** Not built. The fix is hand-written, boxing-free list helpers, and the cost is
+O(moved × members): it matters for a 200-member set reordering 20 at once, not for a room's
+set, and a sort order changes far less often than members tick.
+
+**Worth asking again if** a dashboard with a large ordered set shows the pull in a profile, or
+a set's reorders become frequent (an order on a fast-moving value, such as power draw).
