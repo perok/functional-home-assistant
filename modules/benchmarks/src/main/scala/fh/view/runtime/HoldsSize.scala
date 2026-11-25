@@ -21,9 +21,7 @@ object HoldsSize {
     )
     fixtures.foreach { (name, dash) =>
       val r = Renderer.create(dash)
-      val holds = r.renderPageTraced(st).painted.map { case (ix, p) =>
-        ix -> p.held
-      }
+      val holds = r.renderPageTraced(st).claims
       val total = GraphLayout.parseInstance(holds).totalSize()
       val own = GraphLayout
         .parseInstance(holds)

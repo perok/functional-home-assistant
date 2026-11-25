@@ -257,7 +257,7 @@ class RenderBench {
   private var flat: Renderer = null
   private var set: Renderer = null
   private var setOrdered: Renderer = null
-  private var heldOrdered: Map[Ix, Held] = null
+  private var heldOrdered: Vector[Map[Ix, Held]] = null
   private var setPlain: Renderer = null
   private var setGuarded: Renderer = null
   private var setNamedGuard: Renderer = null
@@ -380,9 +380,8 @@ class RenderBench {
     set = Renderer.create(Dashboard(cards, setTree(Leaves)))
     setOrdered =
       Renderer.create(Dashboard(cards, setTree(Leaves, orderBy = LitBrightest)))
-    heldOrdered = setOrdered.renderPageTraced(st).painted.map { case (ix, p) =>
-      ix -> p.held
-    }
+    heldOrdered =
+      Vector.fill(WireClients)(setOrdered.renderPageTraced(st).claims)
     setPlain =
       Renderer.create(Dashboard(cards, setTree(Leaves, signals = false)))
     setGuarded = Renderer.create(
@@ -455,18 +454,14 @@ class RenderBench {
     // same seed `Server.renderPage` sets, so a pull below starts from a real
     // client's record rather than an empty one. An empty `holds` reads as
     // "unknown, send it" and would make every pull a morph, which is exactly
-    // the case the suppression exists to avoid measuring.
-    val paint = signalled.renderPageTraced(st)
-    heldAfterPaint = paint.painted.map { case (ix, p) =>
-      ix -> p.held
-    }
+    // the case the suppression exists to avoid measuring. `claims`, not
+    // `painted`: only it carries each host's list, and without one every
+    // set's first structural change was a whole fill.
+    heldAfterPaint = signalled.renderPageTraced(st).claims
     tickEntities = Vector.tabulate(TickEntities)(entityId)
     tickNodeIds = tickEntities.flatMap(signalled.componentsFor(_).toList)
     pure = Renderer.create(Dashboard(cards, tree(Leaves, 4, signalOnly = true)))
-    val purePaint = pure.renderPageTraced(st)
-    heldPure = purePaint.painted.map { case (ix, p) =>
-      ix -> p.held
-    }
+    heldPure = pure.renderPageTraced(st).claims
     pureNodeIds = tickEntities.flatMap(pure.componentsFor(_).toList)
     liveCache = RenderCache.create.unsafeRunSync()
     flipped = Renderer.create(flipDash())
@@ -505,9 +500,7 @@ class RenderBench {
       sys.error("publishSetIfsFlip flips no member's If")
     checkFillShape()
     checkPublishShape()
-    heldAfterSetPaint = set.renderPageTraced(st).painted.map { case (ix, p) =>
-      ix -> p.held
-    }
+    heldAfterSetPaint = set.renderPageTraced(st).claims
     // After `checkPublishShape`, whose frame left `set`'s membership held.
     tickMemberIds = tickEntities.flatMap(
       set.members
@@ -553,9 +546,7 @@ class RenderBench {
     popups = Renderer.create(popupsDash(Leaves))
     popupShared = popups.shared(StoreState(st, 0L))
     popupCache = RenderCache.create.unsafeRunSync()
-    heldPopupPage = popups.renderPageTraced(st).painted.map { case (ix, p) =>
-      ix -> p.held
-    }
+    heldPopupPage = popups.renderPageTraced(st).claims
     heldPopupOpen = popupWrite(Some(popupId(0)), heldPopupPage)
     if (heldPopupOpen.sizeIs <= heldPopupPage.size)
       sys.error("popupOpen fills nothing")
@@ -1508,31 +1499,31 @@ class RenderBench {
   }
 
   /** [[publishSetOrdered]] and then its pull for [[WireClients]] sessions, each
-    * holding the ordered page's first paint.
+    * holding what its previous pulls sent it, as `Server` folds them.
     */
   @Benchmark
   def publishSetOrderedFanout(bh: Blackhole): Unit = {
     pubRot += 1
     val log = publishPass(setOrdered, pubFrames(pubRot % 4))
     val shared = heldBy(setOrdered)
-    bh.consume(
-      (1 to WireClients).toList
-        .traverse(_ =>
-          Patches.resume(
-            setOrdered,
-            liveCache,
-            log,
-            heldOrdered,
-            shared,
-            _ => IO.pure(FetchSnapshot.empty),
-            _ => IO.pure(FetchSnapshot.empty),
-            Map.empty,
-            pubRot.toLong,
-            Patches.Coverage.Logged
-          )
+    heldOrdered = heldOrdered.map { holds =>
+      val patches = Patches
+        .resume(
+          setOrdered,
+          liveCache,
+          log,
+          holds,
+          shared,
+          _ => IO.pure(FetchSnapshot.empty),
+          _ => IO.pure(FetchSnapshot.empty),
+          Map.empty,
+          pubRot.toLong,
+          Patches.Coverage.Logged
         )
         .unsafeRunSync()
-    )
+      bh.consume(patches)
+      patches.foldLeft(holds)(Patches.applied(setOrdered.index, _, _))
+    }
   }
 
   /** [[publishSet]] with one guard on every candidate, reading the member: one
