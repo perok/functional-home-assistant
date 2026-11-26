@@ -57,6 +57,8 @@ globalThis.__page = {
         }
     return false
   },
+  /** The browser's Back, inside the dashboard only: false on its first entry. */
+  back: () => history.length > 1 && (history.back(), true),
   /** The requests waiting for an answer, as JSON. */
   requests: () =>
     JSON.stringify(o.pending.map(({ id, method, path, body }) => ({ id, method, path, body }))),

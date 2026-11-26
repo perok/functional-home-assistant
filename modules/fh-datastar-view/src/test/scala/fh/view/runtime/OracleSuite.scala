@@ -114,6 +114,36 @@ class OracleSuite extends HedgehogSuite {
   private def build(e: FixtureEntries.Entry): Dashboard =
     PklFixture.buildDashboard(e.slug, e.source, e.dump)
 
+  /** `e`'s card as the first tab of a tab bar, with and without a second tab
+    * holding a card: tabs are chosen by index, so installing the second over
+    * the first drops the tab a viewer may be on.
+    */
+  private def variants(e: FixtureEntries.Entry): (Dashboard, Dashboard) = {
+    val body = "(?m)^card = ".r.replaceFirstIn(e.source, "local body = ")
+    def under(extra: String) =
+      PklFixture.buildDashboard(
+        e.slug,
+        s"""$body
+           |card = (c.tabs) {
+           |  tabs {
+           |    ["main"] { body }
+           |$extra
+           |  }
+           |}
+           |""".stripMargin,
+        e.dump
+      )
+    (under("""    ["extra"] { c.title("Extra") }"""), under(""))
+  }
+
+  /** For a run that never reloads: `e` as written, whose press indices the
+    * run's steps name.
+    */
+  private def unswapped(e: FixtureEntries.Entry): (Dashboard, Dashboard) = {
+    val d = build(e)
+    (d, d)
+  }
+
   private enum Step {
     case Change(entity: Int, state: Int)
     case Leave(entity: Int)
@@ -121,6 +151,9 @@ class OracleSuite extends HedgehogSuite {
     case Drop(viewer: Int)
     case Connect(viewer: Int)
     case Forget
+    // The other variant installed into the slug, as a hot reload does.
+    case Reload
+    case Back(viewer: Int)
   }
 
   private def statesOf(entityId: String): Vector[String] =
@@ -149,7 +182,9 @@ class OracleSuite extends HedgehogSuite {
       } yield Step.Press(v, p)),
       2 -> genViewer.map(Step.Drop(_)),
       2 -> genViewer.map(Step.Connect(_)),
-      1 -> Gen.constant(Step.Forget)
+      1 -> Gen.constant(Step.Forget),
+      1 -> Gen.constant(Step.Reload),
+      2 -> genViewer.map(Step.Back(_))
     )
   }
 
@@ -166,19 +201,21 @@ class OracleSuite extends HedgehogSuite {
     }
 
   private def run(
-      d: Dashboard,
+      variants: (Dashboard, Dashboard),
       entry: FixtureEntries.Entry,
       steps: List[Step]
   ): Result =
-    served(d, entry, 2)
+    served(variants._1, entry, 2)
       .use { (ts, viewers) =>
         val byId = entry.entities.map(e => e.entityId -> e).toMap
+        val renderer = ts.server
+          .liveSlug(ts.slug)
+          .flatMap(_.renderer.get)
+          .map(_.rendererOf.get)
         for {
-          renderer <- ts.server
-            .liveSlug(ts.slug)
-            .flatMap(_.renderer.get)
-            .map(_.rendererOf.get)
-          ids = byId.keys.filter(renderer.watchedEntities).toVector.sorted
+          first <- renderer
+          ids = byId.keys.filter(first.watchedEntities).toVector.sorted
+          onFirst <- IO.ref(true)
           current <- IO.ref(
             byId.view.mapValues(e => Option(e.state)).toMap
           )
@@ -204,15 +241,29 @@ class OracleSuite extends HedgehogSuite {
                   )
                 )
               case Step.Press(v, p) =>
-                val options = drivable(viewers(v), renderer)
-                IO.whenA(options.nonEmpty)(
-                  viewers(v).post(options(p % options.size))
-                )
+                renderer.flatMap { r =>
+                  val options = drivable(viewers(v), r)
+                  IO.whenA(options.nonEmpty)(
+                    viewers(v).post(options(p % options.size))
+                  )
+                }
               case Step.Drop(v)    => viewers(v).drop
               case Step.Connect(v) =>
                 IO.unlessA(viewers(v).up)(viewers(v).connect)
               case Step.Forget =>
                 FakeBrowser.forgetAll(ts, viewers.toList)
+              case Step.Reload =>
+                onFirst.getAndUpdate(!_).flatMap { was =>
+                  val next = if (was) variants._2 else variants._1
+                  ts.server
+                    .liveSlug(ts.slug)
+                    .flatMap(
+                      _.install(
+                        Server.RendererState.Ready(Renderer.create(next))
+                      )
+                    )
+                }
+              case Step.Back(v) => viewers(v).back
             IO.defer(action) *> viewers.traverse_(_.deliver) *> IO.defer(
               viewers
                 .filter(_.up)
@@ -339,7 +390,7 @@ class OracleSuite extends HedgehogSuite {
     "taps: a popup opened while the stream was down survives the reconnect"
   ) {
     val e = FixtureEntries.taps
-    run(build(e), e, List(Step.Drop(1), Step.Press(1, 1))) match
+    run(unswapped(e), e, List(Step.Drop(1), Step.Press(1, 1))) match
       case Result.Success => ()
       case failure        => throw AssertionError(failure.toString)
   }
@@ -350,7 +401,11 @@ class OracleSuite extends HedgehogSuite {
     */
   test("branches: a connect ends an ask its forgotten session never answered") {
     val e = FixtureEntries.branches
-    run(build(e), e, List(Step.Drop(1), Step.Press(1, 1), Step.Forget)) match
+    run(
+      unswapped(e),
+      e,
+      List(Step.Drop(1), Step.Press(1, 1), Step.Forget)
+    ) match
       case Result.Success => ()
       case failure        => throw AssertionError(failure.toString)
   }
@@ -364,16 +419,43 @@ class OracleSuite extends HedgehogSuite {
     val e = FixtureEntries.viewerDecisions
     val steps =
       List(Step.Forget, Step.Connect(0), Step.Press(0, 1), Step.Change(2, 2))
-    run(build(e), e, steps) match
+    run(unswapped(e), e, steps) match
+      case Result.Success => ()
+      case failure        => throw AssertionError(failure.toString)
+  }
+
+  /** The swap a random run reaches rarely: a viewer on the tab the new
+    * dashboard lacks, and the edit installed under it.
+    */
+  test("a reload drops the tab a viewer is on") {
+    val e = FixtureEntries.sets
+    val (a, b) = variants(e)
+    val r = served(a, e, 1)
+      .use { (ts, viewers) =>
+        val v = viewers(0)
+        for {
+          live <- ts.server.liveSlug(ts.slug)
+          tab <- live.renderer.get.map(
+            _.rendererOf.get.vars.defaults.keys.find(_.name == "tab").get
+          )
+          _ <- v.choose(tab, Some("1")) *> v.deliver
+          _ <- live.install(Server.RendererState.Ready(Renderer.create(b)))
+          _ <- v.deliver
+          r <- v.check
+        } yield r
+      }
+      .timeout(1.minute)
+      .unsafeRunSync()
+    r match
       case Result.Success => ()
       case failure        => throw AssertionError(failure.toString)
   }
 
   for (e <- entries) {
-    lazy val d = build(e)
+    lazy val both = variants(e)
     lazy val watched =
       Renderer
-        .create(d)
+        .create(both._1)
         .watchedEntities
         .intersect(e.entities.map(_.entityId).toSet)
     property(
@@ -383,7 +465,7 @@ class OracleSuite extends HedgehogSuite {
       genStep(watched.size.max(1))
         .list(Range.linear(1, 15))
         .forAll
-        .map(run(d, e, _))
+        .map(run(both, e, _))
     }
   }
 }

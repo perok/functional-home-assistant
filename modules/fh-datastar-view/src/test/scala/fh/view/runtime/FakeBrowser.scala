@@ -106,6 +106,9 @@ final class FakeBrowser private (
   def post(path: String): IO[Unit] =
     IO(current.press(path)) *> answerRequests
 
+  /** Back, within the dashboard's own entries: the page posts its query. */
+  def back: IO[Unit] = IO(current.back()).ifM(answerRequests, IO.unit)
+
   private def answerRequests: IO[Unit] = IO.defer {
     current.requests match
       case Nil => IO.unit

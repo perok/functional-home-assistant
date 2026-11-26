@@ -102,6 +102,13 @@ final class FakePage private (context: Context, page: Value)
     settle()
   }
 
+  /** Back, if the tab has an entry below this one; whether it had. */
+  def back(): Boolean = {
+    val went = call("back").asBoolean
+    settle()
+    went
+  }
+
   /** The requests the page made that wait for an answer. */
   def requests: List[FakePage.Request] =
     io.circe.parser
