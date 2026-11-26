@@ -120,7 +120,8 @@ class FetchBench {
         reads => answer(reads.toList),
         answer,
         at._2,
-        rot
+        rot,
+        Patches.Coverage.Swept
       )
       .unsafeRunSync()
   }

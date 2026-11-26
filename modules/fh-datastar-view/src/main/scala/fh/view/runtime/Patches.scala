@@ -329,7 +329,7 @@ private[runtime] object Patches {
       answers: List[SlotRead] => IO[FetchSnapshot],
       env: VarEnv,
       v: Long,
-      coverage: Coverage = Coverage.Swept
+      coverage: Coverage
   ): IO[List[Addressed]] =
     renderer
       .decide(decisions) { run =>

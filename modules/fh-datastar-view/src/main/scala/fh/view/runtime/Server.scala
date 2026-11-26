@@ -974,7 +974,10 @@ class Server(
                 decisionAnswers,
                 answer(_, env),
                 env,
-                Server.resumeFrom(req, c)
+                Server.resumeFrom(req, c),
+                // A reconnect: this screen may be one no frame was recorded
+                // against.
+                Patches.Coverage.Swept
               )
             )
           // Traced, so the repaint claims what it painted; clearing `holds`
