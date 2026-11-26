@@ -9,7 +9,8 @@ import "../../core/slot.pkl" as slotMod
 /// Closing a popup is going back: each open popup has a history entry of its
 /// own, whose popstate clears or restores the variable (ADR 0005). Guarded by
 /// the variable's committed signal (`VarKey.committedSignal` of the root's
-/// `popups`), so a close outside a popup cannot leave the page.
+/// `popups`, written out here; `VarSignalNamesSuite` holds the two together),
+/// so a close outside a popup cannot leave the page.
 const closeExpr: String = "$_var_root__popups && history.back()"
 
 /// The overlay `<dialog>` and a ✕, closed also by Escape and a tap on the

@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.NodeId
+import fh.view.model.{Dashboard, NodeId}
 import fh.view.testkit.HouseFixture
 import munit.CatsEffectSuite
 
@@ -8,7 +8,8 @@ import scala.concurrent.duration.*
 
 /** '''A variable's names are spelled in several places on one page and must
   * agree''': the URL mirror, the shell's seeds and clear, each button's ask and
-  * each tab's highlight, all from [[VarKey]]. Disagreement is silent — the
+  * each tab's highlight, all from [[VarKey]], and the popup's close, which Pkl
+  * spells by hand (`components/base/popup.pkl`). Disagreement is silent — the
   * server commits a signal no highlight reads — so the declarers come off a
   * real page and every name is checked against the server's.
   */
@@ -131,6 +132,48 @@ class VarSignalNamesSuite extends CatsEffectSuite {
         }
         // Both on the one cell: the mirrors are keyed, so neither drops.
         assertEquals(keys.map(_._1.declarer).distinct.size, 1)
+      }
+  }
+
+  /** The close guard is the hand-spelled name, so every variable signal a page
+    * with a popup open reads is held to the ones the server writes.
+    */
+  test("an open popup reads only the signals the server writes") {
+    val popups = VarKey(Dashboard.PageRootId, "popups")
+    val withPopup =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |
+         |card = (c.column) {
+         |  children {
+         |    c.button("Help", c.view.popup("help", new c.Column {
+         |      children { c.button("Close", c.view.closePopup()) }
+         |    }))
+         |  }
+         |}
+         |""".stripMargin
+    val reads = s"""\\$$(${VarKey.SignalPrefix}[A-Za-z0-9_]+)""".r
+    TestServer
+      .fromWorkspace("var-popups", withPopup, Nil)
+      .use(_.page("?v.popups=help"))
+      .timeout(60.seconds)
+      .map { html =>
+        assert(html.contains("""<dialog open class="fh-popup">"""), html)
+        assert(
+          html.contains(s"$$${popups.committedSignal} && history.back()"),
+          html
+        )
+        val written = Set(
+          popups.committedSignal,
+          popups.pendingSignal,
+          popups.initialValueSignal
+        )
+        assertEquals(
+          reads.findAllMatchIn(html).map(_.group(1)).toSet -- written,
+          Set.empty[String],
+          html
+        )
       }
   }
 }

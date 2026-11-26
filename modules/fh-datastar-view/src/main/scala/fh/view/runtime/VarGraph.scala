@@ -5,7 +5,8 @@ import io.circe.Json
 
 /** A node variable's identity: the node declaring it and its name (ADR 0033). A
   * viewer's choice is keyed by it, and every spelling of the variable on the
-  * page comes from it, which `VarSignalNamesSuite` checks on a real page.
+  * page comes from it but the popup's close, which `components/base/popup.pkl`
+  * writes out; `VarSignalNamesSuite` checks both on a real page.
   */
 final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
 
