@@ -410,19 +410,20 @@ class Renderer(val validated: Dashboard.Validated) {
   /** `s` with its values as this renderer takes them, checked once per
     * renderer: a dashboard edit can refuse a value the old one took (a removed
     * tab), and a refused or no longer declared value falls back to its
-    * declaration, as a stale link does. The refusals, to log.
+    * declaration, as a stale link does. The choices are checked over the
+    * starts, as [[SessionState.values]] lays them. The refusals, to log.
     */
   def recheck(s: SessionState): (SessionState, List[String]) =
     if (s.checkedBy.exists(_ eq generation)) (s, Nil)
     else
-      def kept(m: Map[VarKey, String]) =
-        adopt(Map.empty, m.filter((k, _) => vars.defaults.contains(k)))
-      val (initial, early) = kept(s.initialValues)
-      val (chosen, late) = kept(s.vars)
+      def declared(m: Map[VarKey, String]) =
+        m.filter((k, _) => vars.defaults.contains(k))
+      val (initial, early) = adopt(Map.empty, declared(s.initialValues))
+      val (both, late) = adopt(initial, declared(s.vars))
       (
         s.copy(
           initialValues = initial,
-          vars = chosen,
+          vars = both.filter((k, v) => s.vars.get(k).contains(v)),
           checkedBy = Some(generation)
         ),
         early ++ late
