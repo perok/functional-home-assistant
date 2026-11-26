@@ -530,11 +530,9 @@ object ServerApp extends IOApp {
     lazy val states: Map[String, Server.RendererState] =
       dashboards.map { case (slug, result) => slug -> Server.stateOf(result) }
 
-    /** The model, not the renderer, for [[reloadSite]] to compare
-      * ([[Server.Origin]]).
-      */
-    def content: Map[String, Either[String, Dashboard]] =
-      dashboards.view.mapValues(_.map(_.dashboard)).toMap
+    /** What [[reloadSite]] compares ([[Server.Origin]]). */
+    def content: Map[String, Either[String, Server.Content]] =
+      dashboards.view.mapValues(_.map(Server.Content.of)).toMap
 
     def built: List[(String, Renderer)] = states.toList.collect {
       case (slug, Server.RendererState.Ready(r)) => slug -> r

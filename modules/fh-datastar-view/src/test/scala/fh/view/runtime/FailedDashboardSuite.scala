@@ -357,7 +357,9 @@ class FailedDashboardSuite extends ServerHarness {
         )
         site <- Server.LiveSite.of(
           Map("dash" -> ref),
-          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
+          Map(
+            "dash" -> (Left("seeded broken"): Either[String, Server.Content])
+          ),
           "dash"
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
@@ -388,12 +390,7 @@ class FailedDashboardSuite extends ServerHarness {
     }
   }
 
-  // KNOWN BUG, `.fail` until fixed: the site's rule is folded into each
-  // `Validated` (`Site.decode`), not into the model `planSite` compares, so an
-  // unchanged dashboard keeps its old rule until a restart.
-  test(
-    "a reload applies a changed site access rule to unchanged dashboards".fail
-  ) {
+  test("a reload applies a changed site access rule to unchanged dashboards") {
     staged(Broken).use { ws =>
       for {
         _ <- IO.blocking(
@@ -402,7 +399,7 @@ class FailedDashboardSuite extends ServerHarness {
         ref <- SignallingRef[IO].of(Server.RendererState.Failed("seeded"))
         site <- Server.LiveSite.of(
           Map("dash" -> ref),
-          Map("dash" -> (Left("seeded"): Either[String, Dashboard])),
+          Map("dash" -> (Left("seeded"): Either[String, Server.Content])),
           "dash"
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
@@ -466,7 +463,9 @@ class FailedDashboardSuite extends ServerHarness {
         // Seeded as broken, so the first reload is a real change.
         site <- Server.LiveSite.of(
           Map("dash" -> ref),
-          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
+          Map(
+            "dash" -> (Left("seeded broken"): Either[String, Server.Content])
+          ),
           "dash"
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
@@ -492,7 +491,9 @@ class FailedDashboardSuite extends ServerHarness {
         )
         site <- Server.LiveSite.of(
           Map("dash" -> ref),
-          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
+          Map(
+            "dash" -> (Left("seeded broken"): Either[String, Server.Content])
+          ),
           "dash"
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
@@ -528,14 +529,15 @@ class FailedDashboardSuite extends ServerHarness {
     def validated(d: Dashboard) =
       Right(d.validated().fold(e => fail(e.mkString("\n")), identity))
     val renamed = dash.copy(title = Some("Renamed"))
+    val content = Server.Content(dash, Access.default)
     for {
       live <- Server.LiveSlug.of(Server.RendererState.Failed("x"))
       current = Map(
-        "same" -> Server.Entry(live, Server.Origin.FromSite(Right(dash))),
-        "edited" -> Server.Entry(live, Server.Origin.FromSite(Right(dash))),
-        "broken" -> Server.Entry(live, Server.Origin.FromSite(Right(dash))),
+        "same" -> Server.Entry(live, Server.Origin.FromSite(Right(content))),
+        "edited" -> Server.Entry(live, Server.Origin.FromSite(Right(content))),
+        "broken" -> Server.Entry(live, Server.Origin.FromSite(Right(content))),
         "fixed" -> Server.Entry(live, Server.Origin.FromSite(Left("was bad"))),
-        "dropped" -> Server.Entry(live, Server.Origin.FromSite(Right(dash))),
+        "dropped" -> Server.Entry(live, Server.Origin.FromSite(Right(content))),
         "pushed" -> Server.Entry(live, Server.Origin.Pushed)
       )
       plan = Server.planSite(
