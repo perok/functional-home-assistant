@@ -91,6 +91,13 @@ class Declaration {
   inHistory: Boolean(!this || inUrl) = false
   /// Where a session opens it instead of at [[default]]: [[withInitialTransform]].
   initialTransform: InitialTransform? = null
+  /// Whether a node below may declare the name again, hiding this one from
+  /// what is under it: [[notShadowed]].
+  shadowable: Boolean = true
+
+  /// No node below may declare the name again, so every reader under it reads
+  /// this one: a name a library declares on an author's behalf.
+  function notShadowed(): this = (this) { shadowable = false }
 
   /// Kept out of the page URL: a choice a refresh may forget, such as one
   /// light's control in a set of many. A link naming it is still read.

@@ -413,9 +413,9 @@
 </div></div>
 <!-- ==== as fixtured · case wheel_light_lamp ==== -->
 <div class="fh-cell fh-popup-backdrop" id="wheel_light_lamp"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-wheel" id="wheel_light_lamp_0"
   data-signals="{_e: {light: {lamp: {t#2: false, t#12: '30deg', t#13: '0.6', t#14: 'hsl(30,60%,50%)'}}}}"    data-signals__ifmissing="{ _wheel_light_lamp_0__drag: false, _wheel_light_lamp_0__hs: [], _wheel_light_lamp_0__h: $_e.light.lamp.t#12, _wheel_light_lamp_0__s: $_e.light.lamp.t#13, _wheel_light_lamp_0__p: $_e.light.lamp.t#14 }"
   data-on-signal-patch-filter="{include:/^(_e.light.lamp.t#12|_e.light.lamp.t#13|_e.light.lamp.t#14)$/}"
@@ -1360,9 +1360,9 @@
 </div></div>
 <!-- ==== unavailable · case wheel_light_lamp ==== -->
 <div class="fh-cell fh-popup-backdrop" id="wheel_light_lamp"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-wheel" id="wheel_light_lamp_0"
   data-signals="{_e: {light: {lamp: {t#2: true, t#12: '0deg', t#13: '0', t#14: '#fff'}}}}"    data-signals__ifmissing="{ _wheel_light_lamp_0__drag: false, _wheel_light_lamp_0__hs: [], _wheel_light_lamp_0__h: $_e.light.lamp.t#12, _wheel_light_lamp_0__s: $_e.light.lamp.t#13, _wheel_light_lamp_0__p: $_e.light.lamp.t#14 }"
   data-on-signal-patch-filter="{include:/^(_e.light.lamp.t#12|_e.light.lamp.t#13|_e.light.lamp.t#14)$/}"

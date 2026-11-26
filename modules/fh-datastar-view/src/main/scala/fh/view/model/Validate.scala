@@ -7,8 +7,6 @@ import fh.view.runtime.{Cel, Steps, Templates}
   */
 private[model] object Validate:
 
-  private val PopupsVar = "popups"
-
   // A node's slots in label order, so messages read the same on every build.
   // Built once per node: every slot check reads it.
   private type Labelled = List[(SlotKey, String, BoundSlot)]
@@ -599,10 +597,22 @@ private[model] object Validate:
             s"slot's (${src.`type`.wire})"
       }
 
+    // What `notShadowed()` keeps: a name declared above, which no node below
+    // may declare again, by its declarer.
+    def unshadowable(ix: Ix): Map[String, NodeId] =
+      Iterator
+        .unfold(index.parent(ix))(_.map(a => (a, index.parent(a))))
+        .flatMap(a =>
+          index.node(a).vars.filterNot(_.shadowable).map(_.name -> index.id(a))
+        )
+        .toMap
+
     def varErrors(
+        ix: Ix,
         nodeId: String,
         vars: List[Dashboard.Declaration]
     ): List[String] =
+      lazy val above = unshadowable(ix)
       vars
         .groupBy(_.name)
         .collect {
@@ -611,14 +621,12 @@ private[model] object Validate:
         }
         .toList
         .sorted ++ vars.sortBy(_.name).flatMap { d =>
-        // The page's own (`components/popup.pkl`): one below it would hide the
-        // page's from every opener under it.
-        Option
-          .when(
-            d.name == PopupsVar && nodeId != Dashboard.PageRootId.toString
-          )(
-            s"$nodeId: the variable name '$PopupsVar' is the page's, which " +
-              "holds the open popup — name it something else"
+        above
+          .get(d.name)
+          .map(declarer =>
+            s"$nodeId: the variable '${d.name}' is declared by '$declarer' " +
+              "above, which no node below may declare again — name it " +
+              "something else"
           )
           .toList ++ Option
           .when(!d.name.matches("[A-Za-z][A-Za-z0-9_]*"))(
@@ -859,7 +867,7 @@ private[model] object Validate:
             choiceFillErrors(nodeId, c, here) ++
             choiceErrors(nodeId, c, here) ++
             slotErrors(nodeId, card, checked, here) ++
-            varErrors(nodeId, vars) ++
+            varErrors(ix, nodeId, vars) ++
             slotVarErrors(nodeId, card, bound, here) ++
             valueErrors(nodeId, c, bound) ++
             valueWhileErrors(nodeId, bound) ++
@@ -1094,8 +1102,9 @@ private[model] object Validate:
         }
       }
 
-    /** What an authored `id` has to satisfy: a plain token, used once, not
-      * inside a candidate set's clause, and not one of the page card's.
+    /** What an authored `id` has to satisfy: a plain token, used once, and not
+      * inside a candidate set's clause. Used once is what keeps the page card's
+      * own (`root`, `popups`) theirs, since every page has both.
       *
       * Deliberately NOT a rule: that an id must not read as another node's
       * descendant. Containment is the index's ([[TreeIndex.contains]]), which
@@ -1113,20 +1122,12 @@ private[model] object Validate:
       val authored = all.collect { case (ix, id, inSet, Some(name)) =>
         (ix, id, inSet, name)
       }
-      val ids = all.map(_._2)
+      // `core/page.pkl`'s node and those its slots hold: `root`, `c`, `popups`.
+      def pageOwn(ix: Ix) = ix == Ix(0) || index.parent(ix).contains(Ix(0))
 
       val shape = authored.flatMap { case (ix, id, inSet, name) =>
-        // The page card's own (`core/page.pkl`): the root, and its popup host.
-        val reserved = name match
-          case "root"   => ix != Ix(0)
-          case "popups" => !index.parent(ix).contains(Ix(0))
-          case _        => false
-        if (reserved)
-          List(
-            s"node id '$name' is reserved for the page card's own node — " +
-              "name it something else"
-          )
-        else if (inSet)
+        lazy val holders = all.collect { case (o, `id`, _, _) => o }
+        if (inSet)
           List(
             s"node id '$name' is inside a candidate set's clause, which is " +
               "rendered once per member — every member would claim the name"
@@ -1136,8 +1137,16 @@ private[model] object Validate:
             s"node id '$name' is not a plain token ([A-Za-z0-9_]+) — ids are " +
               "interpolated into `id` attributes and signal names"
           )
-        else if (ids.count(_ == id) > 1)
-          List(s"node id '$name' is used more than once")
+        else if (holders.sizeIs > 1)
+          // Reported from the author's side, naming the page's.
+          val others = holders.filterNot(_ == ix)
+          if (pageOwn(ix) && others.exists(o => !pageOwn(o))) Nil
+          else if (!pageOwn(ix) && others.exists(pageOwn))
+            List(
+              s"node id '$name' is used more than once, also by the page " +
+                "card's own node — name it something else"
+            )
+          else List(s"node id '$name' is used more than once")
         else Nil
       }
 

@@ -8,8 +8,7 @@ import scala.concurrent.duration.*
 
 /** '''A variable's names are spelled in several places on one page and must
   * agree''': the URL mirror, the shell's seeds and clear, each button's ask and
-  * each tab's highlight, all from [[VarKey]], and the popup's close, which Pkl
-  * spells by hand (`components/base/popup.pkl`). Disagreement is silent — the
+  * each tab's highlight, all from [[VarKey]]. Disagreement is silent — the
   * server commits a signal no highlight reads — so the declarers come off a
   * real page and every name is checked against the server's.
   */
@@ -135,8 +134,9 @@ class VarSignalNamesSuite extends CatsEffectSuite {
       }
   }
 
-  /** The close guard is the hand-spelled name, so every variable signal a page
-    * with a popup open reads is held to the ones the server writes.
+  /** The library's popup is Pkl written around a variable, so every variable
+    * signal a page with a popup open reads is held to the ones the server
+    * writes.
     */
   test("an open popup reads only the signals the server writes") {
     val popups = VarKey(Dashboard.PageRootId, "popups")
@@ -160,10 +160,6 @@ class VarSignalNamesSuite extends CatsEffectSuite {
       .timeout(60.seconds)
       .map { html =>
         assert(html.contains("""<dialog open class="fh-popup">"""), html)
-        assert(
-          html.contains(s"$$${popups.committedSignal} && history.back()"),
-          html
-        )
         val written = Set(
           popups.committedSignal,
           popups.pendingSignal,

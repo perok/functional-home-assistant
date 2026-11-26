@@ -53,7 +53,7 @@
       "regions" : [
         "children"
       ],
-      "template" : "<div class=\"fh-cell fh-popup-backdrop{{{cellClasses}}}\"{{{cell}}} data-on:click=\"evt.target === el && $_var_root__popups && history.back()\"><dialog open class=\"fh-popup\"><button class=\"fh-popup-close\" data-on:click=\"$_var_root__popups && history.back()\" data-on:keydown__window=\"evt.key === 'Escape' && $_var_root__popups && history.back()\">✕</button>{{{children}}}</dialog></div>"
+      "template" : "<div class=\"fh-cell fh-popup-backdrop{{{cellClasses}}}\"{{{cell}}} data-fh-popup-marker data-on:click=\"evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()\"><dialog open class=\"fh-popup\"><button class=\"fh-popup-close\" data-on:click=\"el.closest('[data-fh-popup-marker]') && history.back()\" data-on:keydown__window=\"evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()\">✕</button>{{{children}}}</dialog></div>"
     },
     "selectChoiceIcon" : {
       "template" : "<i class=\"fh-cell {{glyph}}{{{cellClasses}}}\"{{{cell}}} title=\"{{label}}\"></i>"
@@ -121,7 +121,8 @@
         },
         "inHistory" : true,
         "inUrl" : true,
-        "name" : "popups"
+        "name" : "popups",
+        "shadowable" : false
       }
     ],
     "wireSlots" : {

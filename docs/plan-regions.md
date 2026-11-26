@@ -304,11 +304,12 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
     The theme's `chrome` is its template, placing `\(body)` and `\(popups)` (the theme still
     imports nothing), so Pkl's "nodes slot is never placed" check replaces `validate`'s chrome
     check, and Scala's default `<main id="dashboard">` frame becomes the card's default template.
-    `entry.pkl` builds the page node with the authored id `root`, and a repaint targets it. `root`
-    and `popups` are reserved node ids, refused by name.
-  - **The root declares `popups`** (`components/popup.pkl`), a reserved name: `validate` refuses an
-    author's declaration of it, which would hide the root's from every opener below (ADR 0033
-    records a `root.` reference as the alternative). Its default is no value; it is in history. A
+    `entry.pkl` builds the page node with the authored id `root`, and a repaint targets it. An
+    author's `root` or `popups` is refused as an id used more than once, naming the page card's
+    node; no id is reserved by name.
+  - **The root declares `popups`** (`components/popup.pkl`), `notShadowed()`: `validate` refuses a
+    declaration of the name below it, which would hide the root's from every opener there (ADR 0033
+    records a `root.` reference as the alternative). Scala knows no variable by name. Its default is no value; it is in history. A
     variable the root declares spells its URL parameter `v.<name>` (`v.popups=moreinfo_light_kitchen`),
     which cannot be confused with `v.<declarer>.<name>` since a node id has no `.`; `VarKey` owns
     the spelling.
@@ -344,7 +345,8 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
     what moved. A variable kept out of the URL (`notInUrl()`) is left alone, since its absent
     parameter would read as its default. So Back returns the whole previous URL: a change made
     since then to a variable not in history (a window chooser) goes back too. A close stays
-    `history.back()`, so the popup's ✕, backdrop and Escape are unchanged.
+    `history.back()`, so the popup's ✕, backdrop and Escape are unchanged; it is guarded by the
+    popup's own root (`el.closest('[data-fh-popup-marker]')`), not by the variable's signal.
   - **Two history variables** need the mirror to mark the entries it made as its own, not by key,
     and to strip every history parameter from an entry it did not make before its first push.
     Today `history.state.fhPushed` names one key, so a link naming two builds entries where Back
@@ -983,13 +985,13 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      which today's popup swap still fills), the theme's `chrome` its template and off the wire
      (`hidden`), `entry.pkl` building the page node `root` as the wire's `root` (the author's
      `card` hidden; Scala's `Dashboard.card` decodes from it). Pkl refuses a frame missing a hole
-     or writing `id="root"`/`id="popups"`; `validate` refuses `root` and `popups` as an author's
-     ids; `VarKey` spells `v.<name>` on the root. Scala's frame (`chromeTemplate`, the default
+     or writing `id="root"`/`id="popups"`; `validate` refuses an author's `root` or `popups` as a
+     duplicate id; `VarKey` spells `v.<name>` on the root. Scala's frame (`chromeTemplate`, the default
      `<main id="dashboard">`, the chrome check, the popup-host warnings) is gone. A page load and
      a repaint are one walk of the root, the open popup baked into `popups`
      (`Renderer.popupsHost`, until R5.3); a repaint is one outer morph, `selector #root`, where it
      was an inner `#dashboard` patch plus a popup frame. Tests: `page.test.pkl`, `TestPage` for a
-     Scala fixture that needs the host, the reserved-id case. Bench (EA off, B/op): render
+     Scala fixture that needs the host, the duplicate-id case. Bench (EA off, B/op): render
      benches equal (`viewerPage` 159,584 → 159,192); `validated` +1.9% (taps 4,075,560 →
      4,152,872, cards 4,085,540 → 4,168,446), the page card's two nodes. ADRs 0002, 0005,
      0011, 0018, 0020, 0033, terminology (the page card), the pipeline doc.
@@ -1033,7 +1035,7 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
    only `Server`'s shell and error page and `Renderer`'s two head parts.
 
 Docs go in each step's commit: ADRs 0002 (popups), 0003 (sets), 0005/0025/0033 (the popup
-variable, a popup's scope, the reserved name, the history mirror), 0007
+variable, a popup's scope, the not-shadowed name, the history mirror), 0007
 (choices), 0008 (the set's root is a card), 0016/0024 (a popup's open and close are `SetVar`
 calls, and what a press's body carries),
 0011 (the log keeps `fragments`, `holds` each host's keys), 0012 (structure, `bakeIndex`,

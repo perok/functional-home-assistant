@@ -161,9 +161,9 @@
 <div class="" id="popups"></div></div>
 <!-- ==== as fixtured · case confirm_open_lock_front_door ==== -->
 <div class="fh-cell fh-popup-backdrop" id="confirm_open_lock_front_door"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-col" id="confirm_open_lock_front_door_0"><h2 class="fh-cell fh-section fh-text" id="confirm_open_lock_front_door_0_0"><span class="fh-text-run">Open the door?</span></h2>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="confirm_open_lock_front_door_0_1"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'locked', t#12: false, t#13: 'lock/unlock'}}}}"
@@ -191,26 +191,26 @@
   data-class:fh-disabled="$_confirm_open_lock_front_door_0_2__busy || $_e.lock.front_door.t#14"
   data-class:fh-loading="$_confirm_open_lock_front_door_0_2__busy"
   data-class:fh-error="$_confirm_open_lock_front_door_0_2__error"><span class="fh-text"><span class="fh-text-run">Open the door</span></span></button><button class="fh-cell fh-press fh-size-large " id="confirm_open_lock_front_door_0_3"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></dialog></div>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></dialog></div>
 <!-- ==== as fixtured · case detail ==== -->
 <div class="fh-cell fh-popup-backdrop" id="detail"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-col" id="detail_0"><h2 class="fh-cell fh-section fh-text" id="detail_0_0"><span class="fh-text-run">Detail</span></h2><button class="fh-cell fh-press fh-size-large " id="detail_0_1"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== as fixtured · case inline ==== -->
 <div class="fh-cell fh-popup-backdrop" id="inline"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-col" id="inline_0"><h2 class="fh-cell fh-section fh-text" id="inline_0_0"><span class="fh-text-run">Inline</span></h2><button class="fh-cell fh-press fh-size-large " id="inline_0_1"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== as fixtured · case moreinfo_light_kitchen ==== -->
 <div class="fh-cell fh-popup-backdrop" id="moreinfo_light_kitchen"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-col" id="moreinfo_light_kitchen_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card fh-active" id="moreinfo_light_kitchen_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false, t#3: 'on'}}}}"
@@ -246,12 +246,12 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">on</span></span></span></div></article></div>
 <div class="fh-cell fh-card fh-entity-info" id="moreinfo_light_kitchen_0_2">  <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">brightness: 180&#10;friendly_name: Kitchen</pre></div><button class="fh-cell fh-press fh-size-large " id="moreinfo_light_kitchen_0_3"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== as fixtured · case moreinfo_lock_front_door ==== -->
 <div class="fh-cell fh-popup-backdrop" id="moreinfo_lock_front_door"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-col" id="moreinfo_lock_front_door_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="moreinfo_lock_front_door_0_0"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'locked'}}}}"
@@ -302,7 +302,7 @@
   data-class:fh-busy-spin="$_moreinfo_lock_front_door_0_0_features_1__busy_slow"
   data-attr:aria-busy="$_moreinfo_lock_front_door_0_0_features_1__busy_slow"><i class="mdi mdi-door-open" ></i></span><span class="fh-text"><span class="fh-text-run">Open</span></span></button></article>
 <div class="fh-cell fh-card fh-entity-info" id="moreinfo_lock_front_door_0_1">  <code class="fh-entity-info-id">lock.front_door</code>  <pre class="fh-entity-info-attrs">changed_by: keypad&#10;friendly_name: Front Door Lock&#10;supported_features: 1</pre></div><button class="fh-cell fh-press fh-size-large " id="moreinfo_lock_front_door_0_2"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== as fixtured · patch c_4 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="c_4"
   data-on:click="$_c_4__busy ? '' : @post('sse/call/taps/call_4?node=c_4', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
@@ -403,22 +403,22 @@
   data-class:fh-error="$_confirm_open_lock_front_door_0_2__error"><span class="fh-text"><span class="fh-text-run">Open the door</span></span></button>
 <!-- ==== as fixtured · patch confirm_open_lock_front_door_0_3 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="confirm_open_lock_front_door_0_3"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button>
 <!-- ==== as fixtured · patch detail_0_0 ==== -->
 <h2 class="fh-cell fh-section fh-text" id="detail_0_0"><span class="fh-text-run">Detail</span></h2>
 <!-- ==== as fixtured · patch detail_0_1 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="detail_0_1"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
 <!-- ==== as fixtured · patch inline_0_0 ==== -->
 <h2 class="fh-cell fh-section fh-text" id="inline_0_0"><span class="fh-text-run">Inline</span></h2>
 <!-- ==== as fixtured · patch inline_0_1 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="inline_0_1"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
 <!-- ==== as fixtured · patch moreinfo_light_kitchen_0_2 ==== -->
 <div class="fh-cell fh-card fh-entity-info" id="moreinfo_light_kitchen_0_2">  <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">brightness: 180&#10;friendly_name: Kitchen</pre></div>
 <!-- ==== as fixtured · patch moreinfo_light_kitchen_0_3 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="moreinfo_light_kitchen_0_3"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
 <!-- ==== as fixtured · patch moreinfo_lock_front_door_0_0_features_0_0 ==== -->
 <button class="fh-cell fh-press fh-size-large fh-badged" id="moreinfo_lock_front_door_0_0_features_0_0"
   data-on:click="$_moreinfo_lock_front_door_0_0_features_0_0__busy ? '' : $_e.lock.front_door.t#7 ? '' : @post('sse/call/taps/call_7?node=moreinfo_lock_front_door_0_0_features_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
@@ -468,7 +468,7 @@
 <div class="fh-cell fh-card fh-entity-info" id="moreinfo_lock_front_door_0_1">  <code class="fh-entity-info-id">lock.front_door</code>  <pre class="fh-entity-info-attrs">changed_by: keypad&#10;friendly_name: Front Door Lock&#10;supported_features: 1</pre></div>
 <!-- ==== as fixtured · patch moreinfo_lock_front_door_0_2 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="moreinfo_lock_front_door_0_2"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
 <!-- ==== flipped · body ==== -->
 <div class="" id="root"
   data-fh-url:popups__history="['v.popups', $_var_root__popups, '']"><main>
@@ -635,9 +635,9 @@
 <!-- ==== flipped · case inline: as fixtured ==== -->
 <!-- ==== flipped · case moreinfo_light_kitchen ==== -->
 <div class="fh-cell fh-popup-backdrop" id="moreinfo_light_kitchen"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-col" id="moreinfo_light_kitchen_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="moreinfo_light_kitchen_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false, t#3: 'off'}}}}"
@@ -673,7 +673,7 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">off</span></span></span></div></article></div>
 <div class="fh-cell fh-card fh-entity-info" id="moreinfo_light_kitchen_0_2">  <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">brightness: 180&#10;friendly_name: Kitchen</pre></div><button class="fh-cell fh-press fh-size-large " id="moreinfo_light_kitchen_0_3"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== flipped · case moreinfo_lock_front_door: as fixtured ==== -->
 <!-- ==== flipped · patch c_4: as fixtured ==== -->
 <!-- ==== flipped · patch c_5: as fixtured ==== -->
@@ -857,9 +857,9 @@
 <div class="" id="popups"></div></div>
 <!-- ==== unavailable · case confirm_open_lock_front_door ==== -->
 <div class="fh-cell fh-popup-backdrop" id="confirm_open_lock_front_door"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-col" id="confirm_open_lock_front_door_0"><h2 class="fh-cell fh-section fh-text" id="confirm_open_lock_front_door_0_0"><span class="fh-text-run">Open the door?</span></h2>
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="confirm_open_lock_front_door_0_1"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'unavailable', t#12: true, t#13: 'lock/lock'}}}}"
@@ -886,14 +886,14 @@
   data-class:fh-disabled="$_confirm_open_lock_front_door_0_2__busy || $_e.lock.front_door.t#14"
   data-class:fh-loading="$_confirm_open_lock_front_door_0_2__busy"
   data-class:fh-error="$_confirm_open_lock_front_door_0_2__error"><span class="fh-text"><span class="fh-text-run">Open the door</span></span></button><button class="fh-cell fh-press fh-size-large " id="confirm_open_lock_front_door_0_3"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></dialog></div>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Cancel</span></span></button></div></dialog></div>
 <!-- ==== unavailable · case detail: as fixtured ==== -->
 <!-- ==== unavailable · case inline: as fixtured ==== -->
 <!-- ==== unavailable · case moreinfo_light_kitchen ==== -->
 <div class="fh-cell fh-popup-backdrop" id="moreinfo_light_kitchen"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-col" id="moreinfo_light_kitchen_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="moreinfo_light_kitchen_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true, t#3: 'unavailable'}}}}"
@@ -929,12 +929,12 @@
   <span class="fh-reading fh-text"><span class="fh-text-run"
   data-text="$_e.light.kitchen.t#3">unavailable</span></span></span></div></article></div>
 <div class="fh-cell fh-card fh-entity-info" id="moreinfo_light_kitchen_0_2">  <code class="fh-entity-info-id">light.kitchen</code>  <pre class="fh-entity-info-attrs">friendly_name: Kitchen</pre></div><button class="fh-cell fh-press fh-size-large " id="moreinfo_light_kitchen_0_3"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== unavailable · case moreinfo_lock_front_door ==== -->
 <div class="fh-cell fh-popup-backdrop" id="moreinfo_lock_front_door"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-col" id="moreinfo_lock_front_door_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="moreinfo_lock_front_door_0_0"
   data-signals="{_e: {lock: {front_door: {t#4: false, t#5: 'mdi mdi-lock', t#6: 'unavailable'}}}}"
@@ -984,7 +984,7 @@
   data-class:fh-busy-spin="$_moreinfo_lock_front_door_0_0_features_1__busy_slow"
   data-attr:aria-busy="$_moreinfo_lock_front_door_0_0_features_1__busy_slow"><i class="mdi mdi-door-open" ></i></span><span class="fh-text"><span class="fh-text-run">Open</span></span></button></article>
 <div class="fh-cell fh-card fh-entity-info" id="moreinfo_lock_front_door_0_1">  <code class="fh-entity-info-id">lock.front_door</code>  <pre class="fh-entity-info-attrs">friendly_name: Front Door Lock&#10;supported_features: 1</pre></div><button class="fh-cell fh-press fh-size-large " id="moreinfo_lock_front_door_0_2"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== unavailable · patch c_4: as fixtured ==== -->
 <!-- ==== unavailable · patch c_5: as fixtured ==== -->
 <!-- ==== unavailable · patch c_6_features_0_0: as fixtured ==== -->

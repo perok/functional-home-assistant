@@ -16,8 +16,9 @@ import "base/popup.pkl" as popupBase
 /// so Back closes a popup and Forward opens it again.
 const popupsVar: varMod.Variable = new { name = "popups" }
 
-/// What the page node declares; `validate` refuses the name anywhere else.
-const declaration: varMod.Declaration = popupsVar.startingEmpty().inHistory()
+/// What the page node declares. Not shadowed, so a card cannot hide it from the
+/// openers under it.
+const declaration: varMod.Declaration = popupsVar.startingEmpty().inHistory().notShadowed()
 
 /// Open the popup `popupId`, holding `body`. Every opener of one id must hold
 /// the same body, which is then one popup: two cards for one entity share its

@@ -1276,14 +1276,16 @@ object Dashboard:
     * no value until a viewer chooses), whether a choice is mirrored into the
     * URL (ADR 0005) and pushed as a history entry, and where a session opens it
     * instead of at the default, evaluated once as the session opens and never
-    * followed, so a head does not move under the viewer's finger.
+    * followed, so a head does not move under the viewer's finger. One that is
+    * not `shadowable` may not be declared again below it.
     */
   final case class Declaration(
       name: String,
       default: Option[String],
       inUrl: Boolean = true,
       initialTransform: Option[InitialTransform] = None,
-      inHistory: Boolean = false
+      inHistory: Boolean = false,
+      shadowable: Boolean = true
   )
 
   object Declaration:
@@ -1309,7 +1311,8 @@ object Dashboard:
         inUrl <- c.getOrElse[Boolean]("inUrl")(true)
         initial <- c.get[Option[InitialTransform]]("initialTransform")
         inHistory <- c.getOrElse[Boolean]("inHistory")(false)
-      yield Declaration(name, default, inUrl, initial, inHistory)
+        shadowable <- c.getOrElse[Boolean]("shadowable")(true)
+      yield Declaration(name, default, inUrl, initial, inHistory, shadowable)
     )
 
   /** Where a session opens a node variable: CEL over one entity's state. */

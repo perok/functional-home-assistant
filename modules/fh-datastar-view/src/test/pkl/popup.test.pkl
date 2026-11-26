@@ -62,11 +62,10 @@ facts {
     // stops at an id it has.
     ids(column(new { c.entityCard(outside) })) == List("moreinfo_sensor_outside")
   }
-  ["an open chooses the page's popups; a close is going back"] {
+  ["an open chooses the page's popups"] {
     local opener = c.view.popup("help", c.title("h"))
     opener.variable == "popups"
     opener.value == "help"
     opener.carries.first.id == "help"
-    c.view.closePopup().onclick == "$_var_root__popups && history.back()"
   }
 }

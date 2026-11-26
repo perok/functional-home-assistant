@@ -57,7 +57,8 @@
         },
         "inHistory" : true,
         "inUrl" : true,
-        "name" : "popups"
+        "name" : "popups",
+        "shadowable" : false
       }
     ],
     "wireSlots" : {

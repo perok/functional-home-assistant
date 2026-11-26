@@ -79,9 +79,9 @@
 <div class="" id="popups"></div></div>
 <!-- ==== as fixtured · case moreinfo_sensor_outside_temp ==== -->
 <div class="fh-cell fh-popup-backdrop" id="moreinfo_sensor_outside_temp"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-col" id="moreinfo_sensor_outside_temp_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="moreinfo_sensor_outside_temp_0_0"
   data-signals="{_e: {sensor: {outside_temp: {t#12: '12.4 °C'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_moreinfo_sensor_outside_temp_0_0__busy ? '' : $_var_root__popups__pending = 'moreinfo_sensor_outside_temp'; @post('sse/call/readings/call_3?node=moreinfo_sensor_outside_temp_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
@@ -151,7 +151,7 @@
   data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy_slow">30d</a></div>
 <div class="fh-cell fh-card fh-chart" id="moreinfo_sensor_outside_temp_0_1_0"><svg/></div></div>
 <div class="fh-cell fh-card fh-entity-info" id="moreinfo_sensor_outside_temp_0_2">  <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">device_class: temperature&#10;friendly_name: Outside Temperature&#10;unit_of_measurement: °C</pre></div><button class="fh-cell fh-press fh-size-large " id="moreinfo_sensor_outside_temp_0_3"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== as fixtured · patch c_0 ==== -->
 <button class="fh-cell fh-press fh-size-large fh-badged" id="c_0"
   data-class:warm="$_e.light.kitchen.t#1"
@@ -258,7 +258,7 @@
 <div class="fh-cell fh-card fh-entity-info" id="moreinfo_sensor_outside_temp_0_2">  <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">device_class: temperature&#10;friendly_name: Outside Temperature&#10;unit_of_measurement: °C</pre></div>
 <!-- ==== as fixtured · patch moreinfo_sensor_outside_temp_0_3 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="moreinfo_sensor_outside_temp_0_3"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
 <!-- ==== flipped · body ==== -->
 <div class="" id="root"
   data-fh-url:popups__history="['v.popups', $_var_root__popups, '']"><main>
@@ -427,9 +427,9 @@
 <div class="" id="popups"></div></div>
 <!-- ==== unavailable · case moreinfo_sensor_outside_temp ==== -->
 <div class="fh-cell fh-popup-backdrop" id="moreinfo_sensor_outside_temp"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-col" id="moreinfo_sensor_outside_temp_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="moreinfo_sensor_outside_temp_0_0"
   data-signals="{_e: {sensor: {outside_temp: {t#12: 'unavailable'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_moreinfo_sensor_outside_temp_0_0__busy ? '' : $_var_root__popups__pending = 'moreinfo_sensor_outside_temp'; @post('sse/call/readings/call_3?node=moreinfo_sensor_outside_temp_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
@@ -499,7 +499,7 @@
   data-class:fh-busy-after="$_moreinfo_sensor_outside_temp_0_1_bar_0_3__busy_slow">30d</a></div>
 <div class="fh-cell fh-card fh-chart" id="moreinfo_sensor_outside_temp_0_1_0"><svg/></div></div>
 <div class="fh-cell fh-card fh-entity-info" id="moreinfo_sensor_outside_temp_0_2">  <code class="fh-entity-info-id">sensor.outside_temp</code>  <pre class="fh-entity-info-attrs">device_class: temperature&#10;friendly_name: Outside Temperature&#10;unit_of_measurement: °C</pre></div><button class="fh-cell fh-press fh-size-large " id="moreinfo_sensor_outside_temp_0_3"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== unavailable · patch c_0: as fixtured ==== -->
 <!-- ==== unavailable · patch c_1: as fixtured ==== -->
 <!-- ==== unavailable · patch c_2: as fixtured ==== -->

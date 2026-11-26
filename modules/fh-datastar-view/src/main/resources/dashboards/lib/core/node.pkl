@@ -56,10 +56,12 @@ class Cell {
 
 /// How `site.pkl` and `entry.pkl` render the wire: a [[Cell]]'s empty fields are
 /// left out. They stay non-null for the author, since a null default cannot be
-/// amended (`new c.Cell { classes { … } }`).
+/// amended (`new c.Cell { classes { … } }`). A declaration's `shadowable` is
+/// left out at its default, which Scala decodes it as.
 const wireRenderer: JsonRenderer = new {
   converters {
     [Cell] = (cell) -> cell.toMap().filter((_, v) -> !((v is Listing || v is Mapping) && v.isEmpty))
+    [varMod.Declaration] = (d) -> d.toMap().filter((k, v) -> v != null && !(k == "shadowable" && v == true))
   }
 }
 

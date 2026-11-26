@@ -813,8 +813,16 @@ facts {
     // the target test any tap inside the popup would close it.
     local popup = c.cards["popup"]
     popup.classes == "fh-popup-backdrop"
-    popup.attrs == #"data-on:click="evt.target === el && \#(popupBaseMod.closeExpr)""#
+    popup.attrs.endsWith(#"data-on:click="evt.target === el && \#(popupBaseMod.closeExpr)""#)
     popup.template.startsWith("<dialog open class=\"fh-popup\">")
+  }
+
+  ["a close acts only inside an element the popup's root marks"] {
+    // `el.closest('[attr]')`: the attribute it looks for is one the root carries,
+    // since a close outside every popup must not go back off the page.
+    local selector = Regex(#"el\.closest\('\[([\w-]+)\]'\)"#).findMatchesIn(popupBaseMod.closeExpr)
+    selector.length == 1
+    c.cards["popup"].attrs.split(" ").contains(selector.first.groups[1]!!.value)
   }
 
   ["the popup's ✕ is a touch target, and a member row has an edge"] {

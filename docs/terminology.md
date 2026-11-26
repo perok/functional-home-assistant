@@ -167,7 +167,8 @@ Three words go with it, and they are not interchangeable:
   of one, as opposed to a value written down (`Choice.Fixed`). The distinction is the access story rather than a convenience:
   only a declared variable is writable, so a value written down has nowhere for a write to land.
 - **Shadow** — a nested declaration of a name an ancestor also declares, winning for its own
-  subtree and nothing else. What "one control over three charts, except this one" is made of.
+  subtree and nothing else. What "one control over three charts, except this one" is made of. A
+  declaration that is `notShadowed()` (the page's `popups`) has none: one below it fails the build.
 - **Variable** vs **declaration** — a variable (`varMod.Variable`) is only the name, which a
   reader holds without knowing who declares it. A declaration (`varMod.Declaration`, an entry in
   `Component.vars`) is one node owning a value for that name, and holds the variable.
