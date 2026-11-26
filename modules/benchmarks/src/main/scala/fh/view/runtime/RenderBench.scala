@@ -346,6 +346,11 @@ class RenderBench {
   private var clauseFlips: Vector[Map[String, EntityState]] = null
   private var clauseSteady: Vector[Map[String, EntityState]] = null
   private var clauseRot = 0
+  // [[publishClauseSwitches]] and [[publishClauseSwitch]]: their own renderers,
+  // since [[publishPass]] carries each one's previous version.
+  private var clauseSetMany: Renderer = null
+  private var clauseSetOne: Renderer = null
+  private var oneSwitchFrames: Vector[Frame] = null
   // [[viewerPull]]: a tab bar over a node variable, one session per client.
   private var viewers: Renderer = null
   private var viewerStates: Map[String, EntityState] = null
@@ -534,6 +539,13 @@ class RenderBench {
       sys.error("memberClauseFlip switches no clause")
     if (clauseSteady.map(clauseAt).distinct.sizeIs != 1)
       sys.error("memberClauseSteady switches a clause")
+    clauseSetMany = Renderer.create(Dashboard(cards, clauseSetTree(Leaves)))
+    clauseSetOne = Renderer.create(Dashboard(cards, clauseSetTree(Leaves)))
+    oneSwitchFrames = Vector.tabulate(4)(i =>
+      publishFrame(st, i % 2, tickEntities.take(1).toList)
+    )
+    checkClauseSwitchShape(clauseSetMany, pubFrames, TickEntities)
+    checkClauseSwitchShape(clauseSetOne, oneSwitchFrames, 1)
     viewers = Renderer.create(viewerDash())
     viewerPaint = states(ViewerEntities)
     viewerStates = viewerPaint
@@ -1498,6 +1510,51 @@ class RenderBench {
     bh.consume(publishPass(setOrdered, pubFrames(pubRot % 4)))
   }
 
+  /** [[publish]]'s frame against [[clauseSetTree]]: all [[TickEntities]]
+    * members switch clause together, as a scene does to the lights a "lit
+    * first" set lists. Against [[publishClauseSwitch]] the gap per extra switch
+    * is what one membership update costs inside a frame that has others.
+    */
+  @Benchmark
+  def publishClauseSwitches(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(clauseSetMany, pubFrames(pubRot % 4)))
+  }
+
+  /** The same set, one member switching per frame. */
+  @Benchmark
+  def publishClauseSwitch(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(clauseSetOne, oneSwitchFrames(pubRot % 4)))
+  }
+
+  /** Each frame must switch exactly `switches` members' clause, or the pair
+    * prices something else.
+    */
+  private def checkClauseSwitchShape(
+      renderer: Renderer,
+      frames: Vector[Frame],
+      switches: Int
+  ): Unit = {
+    val gid = renderer.members.memberIds
+      .flatMap(renderer.members.memberAt(_, stShared))
+      .head
+      .gid
+    def clauses(states: Map[String, EntityState]) = {
+      val shared = Shared.of(states)
+      frames.head.changes.map(c =>
+        renderer.members
+          .memberAt(renderer.members.memberIdOf(gid, c.entityId), shared)
+          .map(_.clause)
+      )
+    }
+    val switched = clauses(frames(0).states)
+      .zip(clauses(frames(1).states))
+      .count(_ != _)
+    if (switched != switches)
+      sys.error(s"$switched clause switches a frame, not $switches")
+  }
+
   /** [[publishSetOrdered]] and then its pull for [[WireClients]] sessions, each
     * holding what its previous pulls sent it, as `Server` folds them.
     */
@@ -1691,9 +1748,10 @@ class RenderBench {
     */
   private def publishFrame(
       base: Map[String, EntityState],
-      rot: Int
+      rot: Int,
+      ids: List[String] = tickEntities.toList
   ): Frame = {
-    val moved = tickEntities.toList.map { id =>
+    val moved = ids.map { id =>
       val prev = base(id)
       val next = prev.copy(
         state = if (rot % 2 == 0) "on" else "off",
