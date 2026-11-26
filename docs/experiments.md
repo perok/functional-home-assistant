@@ -439,3 +439,23 @@ reload no longer validates a dashboard that decodes equal to what it serves
 **Worth asking again if** a site of many dashboards on one theme is the normal case and a reload
 or a dump refresh that changes every one of them shows up in a Pi's heap or reload time, or the
 retained size of the compiled cards (unmeasured; a JOL count like `HoldsSize`) turns out large.
+
+## The planner's per-client allocation, slimmed
+
+D3.4's planner (`Patches.owing`: `covered`, `hostsAt`, `owe`'s closures) allocates ~2.1 KB per
+client per pull that the `Patches.reordered` search it replaced did not. Worth a pass of its own?
+
+**How.** `RenderBench.resumeMorphs`/`resumeMorphsFanout` (B/op, escape analysis off) across D3,
+with async-profiler allocation profiles; retained `holds` from `HoldsSize`.
+
+**Numbers.** `resumeMorphs` 130,311 → 133,323 B/op (+2.3%), `resumeMorphsFanout` 609,785 →
+632,096 (+3.7%), times within error; what is left after the profile fix is the planner's ~2.1 KB
+a client. It is garbage per pull, not held: a session's retained `holds` is ~75 KB for 200
+leaves either way.
+
+**Verdict.** Not built (2026-11-26). It scales with open viewers, not with dashboard size, and a
+home has few; slimming it means specialising the one planner's closures for a cost no profile of
+a real pull has shown.
+
+**Worth asking again if** a Pi's GC shows up in a pull's latency with several tablets open, or
+`viewerPull`/`resumeMorphsFanout` move by more than the gate on a later change to `owing`.

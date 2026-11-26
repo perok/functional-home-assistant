@@ -764,8 +764,8 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
          (async-profiler) found a member decision per touched node in `record` (`ixAt`), the
          same per logged place in `owing`, and `since` boxing a `Set[Ix]` per pull; the fix
          decides only a clause-split id and makes `since` a `BitSet`. What is left is D3.4's
-         planner, ~2.1 KB per client (`covered`, `hostsAt`, `owe`'s closures): slimmed in the
-         finishing pass (D6).
+         planner, ~2.1 KB per client (`covered`, `hostsAt`, `owe`'s closures): not slimmed,
+         see `docs/experiments.md`.
      - **D5, one decision mechanism; the variable-read refusals go:** BUILT, D5.0–D5.5
        (ebb77d83 … c474a1ff, fed719aa). The mixed `by`, a computed
        read of a variable, set guards, order keys and `valueWhile` (§4), with a test of one guard
