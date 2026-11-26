@@ -459,3 +459,25 @@ a real pull has shown.
 
 **Worth asking again if** a Pi's GC shows up in a pull's latency with several tablets open, or
 `viewerPull`/`resumeMorphsFanout` move by more than the gate on a later change to `owing`.
+
+## A stable set's membership, rebuilt once a frame
+
+A stable set's delta (`MemberGraph.keysMoved`) folds `applyOne` over the touched entities, and
+each one that switches clause builds a fresh `GroupMembers`, so its `Presence` scan, again. A
+frame where several members switch together (a scene) pays it once per member. Build it once
+after the fold instead?
+
+**How.** `RenderBench.publishClauseSwitches` against `publishClauseSwitch` (9258dac6): the
+publisher pass on `clauseSetTree(200)`, 20 members switching clause per frame against one.
+
+**Numbers.** 173 against 50 µs, 495 against 190 KB: ~6.5 µs and 15 KB per extra switch. That
+is an upper bound on the rebuild's share, since the 20-switch frame also carries 19 more changes
+through the reverse index and the log; no control with 20 changes and no switch was run.
+
+**Verdict.** Not built (2026-11-26). It is paid once per slug per frame, not per viewer, and
+only when many members of one set switch at once, which a scene does a few times a day: ~1 ms
+on a Pi at worst.
+
+**Worth asking again if** a dashboard's sets hold hundreds of candidates that switch together
+often, or a Pi's profile of the recorder shows `GroupMembers.of` under `keysMoved`. Start with
+the control (20 changes, no switch) to split the rebuild from the frame's other work.
