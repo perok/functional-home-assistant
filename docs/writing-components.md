@@ -554,8 +554,8 @@ your card's root, so it must be the card's whole template (`template =
 "\(panel)"`); the build refuses one beside anything else. To put it among other
 content, place a group holding it, which is a card of its own:
 `panel.of(new Listing { groupMod.inner("div", "my-panel", nodeMod.match(…)) })`
-(`core/group.pkl`; `groupMod.group` for one that is a layout cell). A node with
-two choices in different slots is an error for now.
+(`core/group.pkl`; `groupMod.group` for one that is a layout cell). So a card
+holds at most one choice or set; for two, give each its own group.
 
 ---
 
