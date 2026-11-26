@@ -51,7 +51,6 @@
           
         },
         "inHistory" : true,
-        "inUrl" : true,
         "name" : "popups",
         "shadowable" : false
       }

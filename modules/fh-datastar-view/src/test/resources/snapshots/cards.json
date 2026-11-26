@@ -83,7 +83,6 @@
           
         },
         "inHistory" : true,
-        "inUrl" : true,
         "name" : "popups",
         "shadowable" : false
       }
@@ -1634,8 +1633,6 @@
                                                   "vars" : [
                                                     {
                                                       "default" : "24h",
-                                                      "inHistory" : false,
-                                                      "inUrl" : true,
                                                       "name" : "window"
                                                     }
                                                   ],

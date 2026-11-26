@@ -120,7 +120,6 @@
           
         },
         "inHistory" : true,
-        "inUrl" : true,
         "name" : "popups",
         "shadowable" : false
       }
@@ -145,8 +144,6 @@
                         "vars" : [
                           {
                             "default" : "brightness",
-                            "inHistory" : false,
-                            "inUrl" : true,
                             "initialTransform" : {
                               "entityId" : "light.lamp",
                               "transform" : "(value.attr[?'color_mode'].orValue('') in ['color_temp'] ? 'colourTemp' : (value.attr[?'color_mode'].orValue('') in ['hs', 'xy', 'rgb', 'rgbw', 'rgbww'] ? 'colour' : 'brightness'))"
@@ -1110,8 +1107,6 @@
                         "vars" : [
                           {
                             "default" : "brightness",
-                            "inHistory" : false,
-                            "inUrl" : true,
                             "name" : "control"
                           }
                         ],

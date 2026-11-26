@@ -95,7 +95,6 @@
           
         },
         "inHistory" : true,
-        "inUrl" : true,
         "name" : "popups",
         "shadowable" : false
       }
@@ -120,8 +119,6 @@
                         "vars" : [
                           {
                             "default" : "brightness",
-                            "inHistory" : false,
-                            "inUrl" : true,
                             "name" : "control"
                           }
                         ],
@@ -2646,8 +2643,6 @@
                                   "vars" : [
                                     {
                                       "default" : "brightness",
-                                      "inHistory" : false,
-                                      "inUrl" : true,
                                       "name" : "control"
                                     }
                                   ],
@@ -3629,8 +3624,6 @@
                                   "vars" : [
                                     {
                                       "default" : "brightness",
-                                      "inHistory" : false,
-                                      "inUrl" : true,
                                       "name" : "control"
                                     }
                                   ],
