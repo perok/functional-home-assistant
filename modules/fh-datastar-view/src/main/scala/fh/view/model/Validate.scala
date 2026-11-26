@@ -386,7 +386,8 @@ private[model] object Validate:
     def valueErrors(
         nodeId: String,
         c: LayoutNode.Component,
-        bound: Labelled
+        bound: Labelled,
+        checked: Labelled
     ): List[String] =
       val read = c.bound.values.flatMap(_.inputs.keySet).toSet
       c.inputs.keys.toList.sorted.flatMap { name =>
@@ -415,7 +416,7 @@ private[model] object Validate:
             List(_)
           )
       } ++ (
-        bound.map((_, n, s) =>
+        checked.map((_, n, s) =>
           (s"slot '$n'", s.expr, ValueExpr.env(c.inputs))
         ) ++ c.inputs.toList
           .sortBy(_._1)
@@ -869,7 +870,7 @@ private[model] object Validate:
             slotErrors(nodeId, card, checked, here) ++
             varErrors(ix, nodeId, vars) ++
             slotVarErrors(nodeId, card, bound, here) ++
-            valueErrors(nodeId, c, bound) ++
+            valueErrors(nodeId, c, bound, checked) ++
             valueWhileErrors(nodeId, bound) ++
             typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++

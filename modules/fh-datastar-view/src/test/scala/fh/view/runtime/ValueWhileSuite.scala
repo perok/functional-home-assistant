@@ -268,6 +268,25 @@ class ValueWhileSuite extends munit.FunSuite {
     )
   }
 
+  test("its own CEL inputs are checked as a slot's are") {
+    def gate(own: Map[String, ValueExpr]) = Some(
+      ValueExpr(
+        Value.Entity(Some("sensor.left"), Part.Whole),
+        List(Step.Cel("double(value.state) > n", own))
+      )
+    )
+    val one = ValueExpr(Value.Literal(Lit.Whole(1)))
+    assertEquals(dashboard(node(peak(gate(Map("n" -> one))))).validate(), Nil)
+    assert(
+      dashboard(node(peak(gate(Map("n" -> one, "unread" -> one)))))
+        .validate()
+        .mkString("\n")
+        .contains(
+          "'of.valueWhile' has an input 'unread' its expression does not read"
+        )
+    )
+  }
+
   test("the wire nests it as a value beside the slot's") {
     assertEquals(
       decode[TemplateSlot](
