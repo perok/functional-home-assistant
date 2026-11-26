@@ -25,6 +25,7 @@ import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseM
 import "../../main/resources/dashboards/lib/components/base/tabs.pkl" as tabsMod
 import "../../main/resources/dashboards/lib/components/base/iff.pkl" as iffMod
 import "../../main/resources/dashboards/lib/components/base/popup.pkl" as popupBaseMod
+import "../../main/resources/dashboards/lib/components/popup.pkl" as popupMod
 import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
 import "../../main/resources/dashboards/lib/theme-beer.pkl" as beerMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
@@ -509,7 +510,7 @@ facts {
     // A stray tap on a wall tablet must not unlock the front door, so the card
     // posts nothing and opens a popup instead, as HA's tile does.
     !c.entityCard(latchLock).slotsByName.containsKey("service")
-    !c.entityCard(latchLock).carries.isEmpty
+    !popupMod.carried(c.entityCard(latchLock)).isEmpty
     local card = c.lock.controls(latchLock) as nodeMod.Node
     !card.slotsByName.containsKey("service")
     // Its features: Lock and Unlock side by side (HA's `lock-commands`), then
@@ -528,7 +529,7 @@ facts {
         List("locking", "opening", "unavailable", "unlocked", "unlocking"))
     // More-info shows the same buttons, on a tile that opens nothing: it would
     // only open the popup it is in.
-    local popup = c.entityCard(latchLock).carries.first
+    local popup = popupMod.carried(c.entityCard(latchLock)).first
     local body = popup.regions["children"].toList().first as nodeMod.Node
     local inPopup = body.regions["children"].toList().first as nodeMod.Node
     !inPopup.slotsByName.containsKey("tappable")
@@ -542,7 +543,7 @@ facts {
     // Still tappable — but it opens the popup rather than posting a service
     // call HA would reject. This is the flip the more-info work gated.
     card.slotsByName["tappable"].value == true
-    card.carries.first.id == "moreinfo_sensor_outside"
+    popupMod.carried(card).first.id == "moreinfo_sensor_outside"
     card.declared["tap"].variable == "popups"
     card.declared["tap"].value == "moreinfo_sensor_outside"
   }
@@ -553,7 +554,7 @@ facts {
     // the entry collects one popup.
     local popup = c.view.moreInfo(outside).carries.first
     local inner = (popup.children[0] as nodeMod.Node).children.toList().first as nodeMod.Node
-    inner.carries.first == popup
+    popupMod.carried(inner).first == popup
   }
 
   ["every class the base stylesheet styles is fh- prefixed, clear of a framework's utilities"] {
@@ -932,7 +933,7 @@ facts {
     // The amend-scoping trap, and silent when broken: a mixin resolving the
     // entity anywhere but on the card it is applied to opens the wrong popup.
     local card = (c.entityCard(kitchen)) |> c.informative
-    card.carries.first.children[0].children[0]
+    popupMod.carried(card).first.children[0].children[0]
       .slotsByName["entity_id"].value == "light.kitchen"
   }
 
@@ -1316,8 +1317,8 @@ facts {
     !liveOn.apply(acts[1], "fh-active")
     // A popup action carries its popup, so it hangs off the button that opens
     // it rather than off the slider.
-    !acts[1].carries.isEmpty
-    row.carries.isEmpty
+    !popupMod.carried(acts[1]).isEmpty
+    popupMod.carried(row).isEmpty
   }
 
   ["a slider with no actions still renders the strip, and the theme hides it"] {
@@ -1823,10 +1824,10 @@ facts {
     local latch = c.lock.openLatch(latchLock)
     // The latch itself calls nothing — it opens a confirmation, which is the
     // whole point: releasing a latch opens a door.
-    !latch.carries.isEmpty
+    !popupMod.carried(latch).isEmpty
     !latch.slotsByName.containsKey("service")
     // …and `lock/open` lives inside it, aimed at the lock by its own target.
-    local body = latch.carries.first.children.toList().first
+    local body = popupMod.carried(latch).first.children.toList().first
     local press = body.children.toList()
       .filter((n) -> n.card == "button" && n.declared.containsKey("tap"))
       .first
@@ -1874,7 +1875,7 @@ facts {
     // the press inside — the one that posts `lock/open` — refused only a dead
     // lock.
     local press = c.tap.locks.openLatch(latchLock)
-    local confirm = c.lock.openLatch(latchLock).carries.first
+    local confirm = popupMod.carried(c.lock.openLatch(latchLock)).first
       .children.toList().first.children.toList()
       .filter((n) -> n.card == "button" && n.declared.containsKey("tap"))
       .first

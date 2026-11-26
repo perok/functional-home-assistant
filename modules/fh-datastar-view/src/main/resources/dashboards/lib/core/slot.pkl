@@ -167,6 +167,9 @@ class SetVarCall extends CallDecl {
 /// template piece shared across cards places one with no [[declares]].
 class CallSlot extends Slot {
   hidden declares: CallDecl? = null
+  /// What a press brings onto the page, off the wire: the popup a tap opens
+  /// ([[tapMod.TapAction.carries]]), here because no working tap lacks its call.
+  hidden carries: List<nodeMod.Node> = List()
   fixed callId: String = "{{{" + name + ".callId}}}"
   /// The pending ask a choice writes as the press starts (ADR 0025), or
   /// nothing.

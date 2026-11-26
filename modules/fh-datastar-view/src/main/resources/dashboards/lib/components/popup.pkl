@@ -6,6 +6,7 @@ module components.popup
 
 import "../core/choice.pkl" as choiceMod
 import "../core/node.pkl" as nodeMod
+import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
 import "../core/variable.pkl" as varMod
 import "../hass.pkl"
@@ -40,8 +41,12 @@ const function cases(root: nodeMod.Node): choiceMod.Match|Listing<nodeMod.Layout
     if (found.isEmpty) new Listing {}
     else nodeMod.match(popupsVar.value, found.toMapping())
 
+/// The popups a tap on `n` itself opens.
+const function carried(n: nodeMod.Node): List<nodeMod.Node> =
+  n.valueSlots.filter((s) -> s is slotMod.CallSlot).flatMap((s) -> (s as slotMod.CallSlot).carries)
+
 const local function opened(n: nodeMod.Node): List<nodeMod.Node> =
-  nodeMod.nodesUnder(n).flatMap((k) -> k.carries)
+  nodeMod.nodesUnder(n).flatMap((k) -> carried(k))
 
 const local function gather(level: List<nodeMod.Node>, seen: Map<String, nodeMod.Node>): Map<String, nodeMod.Node> =
   let (byId = level.groupBy((p) -> p.id!!))
