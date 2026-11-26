@@ -163,7 +163,9 @@ see is in scope too when every tap that chooses the case sees it from the same d
 **Test.** (a) a popup under one chooser reading `window` builds, shows the chooser's value, and
 repaints when the chooser is written while it is open; (b) taps under two choosers: the build
 error names both; (c) two popups opening each other, a name declared above only one tap: builds;
-(d) every golden and snapshot unchanged.
+(d) a popup still open after its chooser left the screen (a tab switched away) keeps reading the
+chooser's value, since values are kept by declarer (ADR 0033 rule 9), and a write elsewhere does
+not move it; (e) every golden and snapshot unchanged.
 
 **Gate.** `ValidateBench.validated`, equal within error.
 
@@ -195,7 +197,11 @@ oracle's fixtures so a state change shows and hides it.
 **Test.** A Pkl fact (an alert's markup has no close); the fixture's alert shown, then hidden by a
 state change; the oracle over it.
 
-**Docs.** `writing-dashboards.md` (Alerts), ADR 0002, `docs/terminology.md` (Alert).
+**Docs.** `writing-dashboards.md` (Alerts), ADR 0002, `docs/terminology.md` (Alert). The guide
+says an alert covers the page for as long as its condition holds, so a sensor stuck `on` blocks
+the tablet, and shows the way out through HA: a helper in the condition
+(`doorbell on && ack off`), a button in the alert turning `ack` on, an automation resetting it on
+the next ring. That is a dismissal shared by every viewer; a per-viewer one is out of scope.
 
 **Open.** The names (`alerts`, `c.view.alert`). The order: before user popups (recommended, so an
 alert's buttons open above it), which means an alert arriving while a viewer has a popup open
