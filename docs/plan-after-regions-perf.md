@@ -90,3 +90,12 @@ order the walk met them.
 8. **A patch's frame copies its fragment about five times** (`collapse`, `"elements " +`,
    the lines' `mkString`, http4s's `renderString`, `getBytes`), per connection, on main too. One
    pass from the fragment to the frame's bytes; `RenderBench.wire` prices it.
+9. **No version refers to another** (replaces 5's release). 5 releases a version `Decided` lets
+   go: a manual dispose that every holder of versions must remember. The forward offer has a
+   customer each frame (the recorder advances, then plans against `prev`, so its late "before"
+   fills reach `next` through `Table.next`), so it stays, found through what owns the versions:
+   a late fill asks `Decided` for the kept version carried from its own, and the keys that may
+   arrive move onto the receiving table as what its frame dirtied. Then no version can keep
+   another alive, and `next`, `release` and the CAS loop go. Wiring: a `Shared` reaches its
+   `Decided`, and a table its counterpart in the successor. Gate: `publishIdle(Set)`'s `gc.time`
+   and `-Xlog:gc` flat, B/op equal to 5's.
