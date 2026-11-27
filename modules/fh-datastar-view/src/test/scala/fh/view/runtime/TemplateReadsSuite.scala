@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 
 /** What [[Templates.card]] reads off a template: the names a node must set, the
@@ -89,9 +91,11 @@ class TemplateReadsSuite extends munit.FunSuite:
       ),
       LayoutNode.Component(
         "card",
-        templateSlots = Map(
-          "state" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some("sensor.a")))
+        slots = Slots.values(
+          Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.a")))
+            )
           )
         )
       )

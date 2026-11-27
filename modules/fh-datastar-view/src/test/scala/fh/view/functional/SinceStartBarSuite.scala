@@ -106,10 +106,10 @@ class SinceStartBarSuite extends CatsEffectSuite {
         ended <- client.drain
       } yield {
         assert(idle.contains("Vask"), clue = idle)
-        // No bar on the first paint: its `c.iff` host is empty, which the
+        // No bar on the first paint: its `c.iff` root is empty, which the
         // base stylesheet collapses, margins and all.
         assert(
-          """<div class="fh-ifhost" id="[^"]*"></div>""".r
+          """<div class="fh-cell fh-ifhost[^"]*" id="[^"]*"></div>""".r
             .findFirstIn(idle)
             .isDefined,
           clue = idle

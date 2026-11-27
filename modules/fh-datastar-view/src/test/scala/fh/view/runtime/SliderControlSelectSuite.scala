@@ -51,7 +51,7 @@ class SliderControlSelectSuite extends CatsEffectSuite {
 
   private val label =
     // A control's icon is the face; its label is the icon's title.
-    """<summary class="fh-select-summary"><span id="[^"]+"><i class="fh-cell [^"]*" id="[^"]+" title="([^"]*)">""".r
+    """<summary class="fh-select-summary"><span class="" id="[^"]+"><i class="fh-cell [^"]*" id="[^"]+" title="([^"]*)">""".r
 
   private def served[A](f: TestServer => IO[A]): IO[A] =
     TestServer

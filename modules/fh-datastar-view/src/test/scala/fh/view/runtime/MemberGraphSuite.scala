@@ -1,12 +1,17 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.testkit.Conds
 
 import fh.view.model.{
+  CardDef,
+  Dashboard,
   IdKind,
   SortTerm,
   LayoutNode,
-  MemberId,
   NodeId,
   Op,
   Ready,
@@ -15,7 +20,8 @@ import fh.view.model.{
   ValueExpr,
   TemplateSlot
 }
-import fh.view.testkit.DashboardBuilders.{lit, st}
+import fh.view.testkit.DashboardBuilders.{col, lit, st}
+import fh.view.testkit.{PklFixture, TestCard}
 import io.circe.Json
 
 /** Presence and order, with no server: which candidates render, in what order,
@@ -24,48 +30,82 @@ import io.circe.Json
   */
 class MemberGraphSuite extends munit.FunSuite {
 
-  private val gid: SetId = SetId.of(NodeId.derived("c_0"), LayoutNode.SetNode())
+  private val gid: SetId = SetId.of(NodeId.derived("c"), Sets.fill())
 
   private def card(e: String, kind: String): LayoutNode.Component =
-    LayoutNode.Component(kind, Map("entity_id" -> lit(e)))
+    LayoutNode.Component(kind, Slots.values(Map("entity_id" -> lit(e))))
 
   private def clause(
       e: String,
       when: Option[ValueExpr] = None,
       as: String = "entity"
-  ): LayoutNode.SetClause = LayoutNode.SetClause(when, card(e, as))
+  ): Sets.Clause = Sets.Clause(when, card(e, as))
 
   private def isOn(e: String): ValueExpr =
     Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(e))
 
   private def set(
       candidates: List[String],
-      clauses: String => List[LayoutNode.SetClause] = e => List(clause(e)),
+      clauses: String => List[Sets.Clause] = e => List(clause(e)),
       orderBy: List[SortTerm] = Nil,
       limit: Option[Int] = None
-  ): LayoutNode.SetNode =
-    LayoutNode.SetNode(
+  ): LayoutNode.Component =
+    Sets.node(
       candidates = candidates,
-      members =
-        candidates.map(e => e -> LayoutNode.SetMember(clauses(e))).toMap,
+      members = candidates.map(e => e -> Sets.Member(clauses(e))).toMap,
       orderBy = orderBy,
       limit = limit
     )
 
-  private def graphOf(
-      s: LayoutNode.SetNode,
-      root: String = ""
-  ): MemberGraph = new MemberGraph(Map(gid -> compile.set(s)), Map(gid -> root))
+  private val cards: Map[String, CardDef] = Sets.cards ++
+    List("entity", "slider", "pill").map(_ -> TestCard("{{entity_id}}")) ++
+    Map(
+      "tile" -> TestCard("{{{children}}}", regions = Set(Sets.SlotName)),
+      "col" -> TestCard("{{{children}}}", regions = Set(Sets.SlotName))
+    )
+
+  private lazy val tabs = PklFixture.shape(
+    """card = (c.tabs) { tabs { ["A"] { t.hole("a") } ["B"] { t.hole("b") } } }"""
+  )
+
+  /** A real compiled dashboard holding `s` on the page, or in the case
+    * [[caseSpelling]] of a tab bar, which shows the other one.
+    */
+  private def rendererOf(
+      s: LayoutNode.Component,
+      inCase: Boolean = false
+  ): Renderer =
+    Renderer.create(
+      if (inCase)
+        Dashboard(
+          cards = cards ++ tabs.cards,
+          card = tabs.fill("a" -> col(), "b" -> s)
+        )
+      else Dashboard(cards = cards, card = s)
+    )
+
+  private def graphOf(s: LayoutNode.Component): MemberGraph =
+    rendererOf(s).members
+
+  private val caseSpelling = "c_panel_0_1"
+
+  /** The set in [[caseSpelling]]: the first in the tree. */
+  private def caseSet(r: Renderer): SetId =
+    SetId.of(
+      r.index.all
+        .find(ix => r.index.node(ix).set.isDefined)
+        .map(r.index.id)
+        .get,
+      Sets.fill()
+    )
 
   private object compile:
-    private val walk = Ready.Compile(Evaluator.Scope(""))
-    def set(s: LayoutNode.SetNode): Ready.SetNode = Conds.compiled(walk.set(s))
-    def node(n: LayoutNode): Ready.Node = Conds.compiled(walk.node(n))
+    def node(n: LayoutNode): Ready.Node = Conds.compiledAlone(n)
 
   extension (g: MemberGraph)
-    // The main page's: a root of `""`.
+    // Every graph here but the tab case's has the page as its one container.
     private def affectedSets(changes: List[StateChange]): List[SetId] =
-      g.affectedSetsWithin(changes, _.isEmpty)
+      g.affectedSetsWithin(changes, _ => true)
 
   private def snapshot(states: EntityState*): Map[String, EntityState] =
     states.map(s => s.entityId -> s).toMap
@@ -251,14 +291,17 @@ class MemberGraphSuite extends munit.FunSuite {
         List(change(before, after, "light.b")),
         Shared.of(before),
         Shared.of(after)
-      )(gid)
-    assertEquals(delta.was, List("light.a", "light.c"))
-    assertEquals(delta.now, List("light.a", "light.b", "light.c"))
-    assertEquals(delta.replaced.map(_.id), Vector.empty[MemberId])
+      )
+    assertEquals(delta, List(gid))
+    assertEquals(
+      g.membersOf(gid, Shared.of(after)).map(_.entity).toList,
+      List("light.a", "light.b", "light.c")
+    )
   }
 
-  test("a clause switch is reported as REPLACED, not as a departure") {
-    // The arriving card may bind nothing live, so the member id is the handle.
+  test("a clause switch moves the set's keys, though the member stays") {
+    // The arriving card may bind nothing live, so the key (the clause's root)
+    // is the handle.
     val g = graphOf(
       set(
         List("light.a"),
@@ -274,13 +317,13 @@ class MemberGraphSuite extends munit.FunSuite {
         List(change(before, after, "light.a")),
         Shared.of(before),
         Shared.of(after)
-      )(gid)
-    assertEquals(delta.was, List("light.a"))
-    assertEquals(delta.now, List("light.a"))
-    assertEquals(delta.replaced.map(_.id), Vector(g.memberIdOf(gid, "light.a")))
+      )
+    assertEquals(delta, List(gid))
   }
 
-  test("a switch between clauses with equal nodes is REPLACED, limit or not") {
+  test(
+    "a switch between clauses with equal nodes moves the keys, limit or not"
+  ) {
     // Hoisting lifts a slider's heads out of its node, so two slider clauses
     // can leave equal nodes over different surfaces: only the clause differs.
     // A limit takes the rebuild path, which must say so too.
@@ -295,12 +338,8 @@ class MemberGraphSuite extends munit.FunSuite {
         List(change(before, after, "light.a")),
         Shared.of(before),
         Shared.of(after)
-      )(gid)
-      assertEquals(
-        delta.replaced.map(_.id),
-        Vector(g.memberIdOf(gid, "light.a")),
-        clue = s"limit $limit"
       )
+      assertEquals(delta, List(gid), clue = s"limit $limit")
     }
   }
 
@@ -314,9 +353,8 @@ class MemberGraphSuite extends munit.FunSuite {
         List(change(before, after, "light.a")),
         Shared.of(before),
         Shared.of(after)
-      )(gid)
-    assertEquals(delta.was, delta.now)
-    assertEquals(delta.replaced.map(_.id), Vector.empty[MemberId])
+      )
+    assertEquals(delta, Nil)
   }
 
   test("affectedSets wakes a set for a GUARD's entity, not only a candidate") {
@@ -339,17 +377,22 @@ class MemberGraphSuite extends munit.FunSuite {
     )
   }
 
-  test("affectedSets is scoped to the layout tree the set lives in") {
-    val g = graphOf(set(List("light.a")), root = "detail")
+  test("affectedSets is scoped to the container the set lives in") {
+    val r = rendererOf(set(List("light.a")), inCase = true)
+    val caseGid = caseSet(r)
+    val inCase = r.picks.containersSpelled(caseSpelling).toSet
     val ch = List(StateChange.Moved("light.a", None, st("light.a", "on")))
-    assertEquals(g.affectedSets(ch), Nil)
-    assertEquals(g.affectedSetsWithin(ch, _ == "detail"), List(gid))
+    assertEquals(
+      r.members.affectedSetsWithin(ch, _ == r.picks.pageRoot),
+      Nil
+    )
+    assertEquals(r.members.affectedSetsWithin(ch, inCase), List(caseGid))
   }
 
   test("a member id is derived from its KEY, sanitized") {
     assertEquals(
       g0.memberIdOf(gid, "light.kitchen_1"): String,
-      "c_0_light_kitchen_1"
+      "c_light_kitchen_1"
     )
   }
 
@@ -383,38 +426,40 @@ class MemberGraphSuite extends munit.FunSuite {
   private val g0 = graphOf(set(List("light.kitchen_1")))
 
   test("a set nested in a member is enumerated, and inherits its tile's tree") {
-    // The root decides who a member's patch may reach. A nested set is not in
-    // the static index, which answered "" and leaked a surface's patches to
-    // everyone.
+    // A nested set in a case must not reach a viewer the case is not shown.
     val inner = set(List("light.b"))
-    val outer = LayoutNode.SetNode(
+    val outer = Sets.node(
       candidates = List("light.a"),
       members = Map(
-        "light.a" -> LayoutNode.SetMember(
+        "light.a" -> Sets.Member(
           List(
-            LayoutNode.SetClause(
+            Sets.Clause(
               None,
-              LayoutNode.Component("tile", Map.empty, LayoutNode.kids(inner))
+              LayoutNode.Component("tile", Slots.kids(inner))
             )
           )
         )
       )
     )
-    val g = graphOf(outer, root = "detail")
-    val innerId = g.innerSetId(
-      g.memberIdOf(gid, "light.a"),
-      0,
-      List(LayoutNode.Step(LayoutNode.DefaultRegion, 0)),
-      inner
+    val r = rendererOf(outer, inCase = true)
+    val g = r.members
+    val innerId = SetId.of(
+      LayoutNode.innerSetId(
+        g.memberIdOf(caseSet(r), "light.a"),
+        0,
+        List(LayoutNode.Step(LayoutNode.DefaultRegion, 0))
+      ),
+      Sets.of(inner).get
     )
     assert(
       g.setContainer(innerId).isDefined,
       s"$innerId should be a set container"
     )
 
-    val states = snapshot(st("light.a", "on"), st("light.b", "on"))
-    val innerMember = g.membersOf(innerId, Shared.of(states)).head
-    assertEquals(innerMember.root, "detail")
+    val ch = List(StateChange.Moved("light.b", None, st("light.b", "on")))
+    val inCase = r.picks.containersSpelled(caseSpelling).toSet
+    assertEquals(g.affectedSetsWithin(ch, inCase), List(innerId))
+    assertEquals(g.affectedSetsWithin(ch, _ == r.picks.pageRoot), Nil)
   }
 
   test(
@@ -422,16 +467,19 @@ class MemberGraphSuite extends munit.FunSuite {
   ) {
     val nested = LayoutNode.Component(
       "tile",
-      Map(
-        "entity_id" -> lit("light.a"),
-        // This is what makes the tile itself track light.a.
-        "state" -> TemplateSlot(ValueExpr(Value.Entity(Some("light.a"))))
-      ),
-      LayoutNode.kids(
+      Slots.values(
+        Map(
+          "entity_id" -> lit("light.a"),
+          // This is what makes the tile itself track light.a.
+          "state" -> TemplateSlot(ValueExpr(Value.Entity(Some("light.a"))))
+        )
+      ) ++ Slots.kids(
         LayoutNode.Component(
           "row",
-          Map(
-            "x" -> TemplateSlot(ValueExpr(Value.Entity(Some("sensor.k"))))
+          Slots.values(
+            Map(
+              "x" -> TemplateSlot(ValueExpr(Value.Entity(Some("sensor.k"))))
+            )
           )
         ),
         set(List("light.deep"))
@@ -493,12 +541,12 @@ class MemberGraphSuite extends munit.FunSuite {
 
   test("an area set decides by what its guards name, shared or not") {
     val disco = isOn("light.disco")
-    val s = LayoutNode.SetNode(
+    val s = Sets.node(
       candidates = List("stue", "kjokken", "bad"),
       members = Map(
-        "stue" -> LayoutNode.SetMember(List(clause("stue", Some(disco)))),
-        "kjokken" -> LayoutNode.SetMember(List(clause("kjokken", Some(disco)))),
-        "bad" -> LayoutNode.SetMember(
+        "stue" -> Sets.Member(List(clause("stue", Some(disco)))),
+        "kjokken" -> Sets.Member(List(clause("kjokken", Some(disco)))),
+        "bad" -> Sets.Member(
           List(clause("bad", Some(isOn("fan.bad"))))
         )
       ),

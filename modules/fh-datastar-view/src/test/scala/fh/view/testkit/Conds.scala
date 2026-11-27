@@ -2,11 +2,14 @@ package fh.view.testkit
 
 import fh.view.runtime.Evaluator
 import fh.view.model.{
+  LayoutNode,
   Lit,
   Op,
   Part,
+  Ready,
   SortTerm,
   Step,
+  TreeIndex,
   Value,
   ValueExpr,
   ValueType
@@ -23,6 +26,12 @@ object Conds {
     */
   def run(e: ValueExpr): Evaluator.Run =
     compiled(Evaluator.compile(e, Evaluator.Scope(""))).run
+
+  /** `n` compiled as the root of a page, or of the popup `sid`. */
+  def compiledAlone(n: LayoutNode): Ready.Component = {
+    val i = TreeIndex.of(n)
+    compiled(Ready.Compile(Evaluator.Scope("")).node(i, i.root))
+  }
 
   /** What compiled, as the walk would have it. */
   def compiled[A](b: Evaluator.Built[A]): A =

@@ -1,32 +1,31 @@
-/// An If chosen by a node variable (#510): what it bakes.
+/// An If chosen by a node variable (#510): what it writes.
 ///
 /// Outside `lib/` deliberately — see `components.test.pkl`.
 amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
-import "../../main/resources/dashboards/lib/core/surface.pkl" as surfaceMod
+import "../../main/resources/dashboards/lib/core/choice.pkl" as choiceMod
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/layout.pkl" as layout
 
 local window = c.variable("window")
 
-local function activation(i: Any, member: String): Any =
-  (i.inlineSurfaces as Mapping)[member].activation
+local function chosen(i: Any): choiceMod.ChosenNodes =
+  (i.nodesSlots.findOrNull((s) -> s.choice != null)!!.fill as slotMod.NodesFill).choice as choiceMod.ChosenNodes
 
 facts {
-  ["then is the member at the value, else the member at every other"] {
-    let (i = c.iff(window.valueIs("30d")).then(c.title("Month")).`else`(c.title("Other")))
-      let (t = activation(i, "then") as surfaceMod.VarActivation)
-        let (e = activation(i, "else") as surfaceMod.VarActivation)
-          t.name == "window" && (t.at as surfaceMod.AtValue).value == "30d"
-          && e.name == "window" && e.at is surfaceMod.AtOtherwise
+  ["then is the case at the value, else the otherwise at every other"] {
+    let (w = chosen(c.iff(window.valueIs("30d")).then(c.title("Month")).`else`(c.title("Other"))))
+      (w.by.source as slotMod.VarRead).name == "window"
+      && w.cases.toList().map((k) -> k.`is`) == List("30d")
+      && w.otherwise != null
   }
   ["over a variable, an If with no else still has the fallback, empty"] {
-    let (i = c.iff(window.valueIs("7d")).then(c.title("Week")))
-      ((i.inlineSurfaces as Mapping)["else"].content as layout.Row).children.isEmpty
-      && (activation(i, "else") as surfaceMod.VarActivation).at is surfaceMod.AtOtherwise
+    let (w = chosen(c.iff(window.valueIs("7d")).then(c.title("Week"))))
+      (w.otherwise!![0] as layout.Row).children.isEmpty
   }
   ["over state, an If with no else has none, as before"] {
-    !(c.iff(true).then(c.title("x")).inlineSurfaces as Mapping).containsKey("else")
+    chosen(c.iff(true).then(c.title("x"))).otherwise == null
   }
   ["a variable's value reads it by name, and valueIs compares it as text"] {
     let (json = new JsonRenderer { indent = "" })

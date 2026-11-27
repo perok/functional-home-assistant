@@ -7,7 +7,7 @@ import cats.syntax.all.*
 import fh.view.telemetry.Logging
 import fh.view.testkit.FixtureEntity
 import fh.view.testkit.TestIds.given
-import RendererTestOps.heldFor
+import RendererTestOps.{heldFor, ixOf}
 import io.circe.Json
 import org.http4s.*
 
@@ -100,9 +100,10 @@ class SessionLifecycleSuite extends ServerHarness {
         epoch <- established.traverse(_.tenure.get)
         snapshot <- ts.store.current
       } yield {
+        val r = Renderer.create(mixedTabsDash)
         assertEquals(
-          held.flatMap(_.get("c_0")),
-          Renderer.create(mixedTabsDash).heldFor("c_0", snapshot.entities),
+          held.flatMap(_.get(r.ixOf("c_0"))),
+          r.heldFor("c_0", snapshot.entities),
           clue = held
         )
         assertEquals(

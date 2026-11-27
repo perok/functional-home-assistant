@@ -1,6 +1,11 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
+import fh.view.testkit.TestPage
 import fh.view.testkit.Conds
 
 import fh.view.fetch.FetchSnapshot
@@ -11,21 +16,17 @@ import cats.effect.std.Supervisor
 import cats.effect.testkit.TestControl
 import cats.syntax.all.*
 import fh.view.model.{
-  Activation,
   CardDef,
   Dashboard,
+  Ix,
   LayoutNode,
-  NodeId,
   Op,
-  Region,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
-import fh.view.testkit.{FakeHomeAssistant, FixtureEntity}
-import fh.view.testkit.DashboardBuilders.{declared, st}
-import fh.view.testkit.TestIds.given
+import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, PklFixture}
+import fh.view.testkit.DashboardBuilders.st
 import fh.view.testkit.TestAuth
 import fh.view.build.SystemPkl
 import fh.view.telemetry.{Logging, Meters}
@@ -132,11 +133,12 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def resumeNow(
       renderer: Renderer,
       log: FragmentLog,
-      holds: Map[NodeId, Held],
+      holds: Map[Ix, Held],
       states: Map[String, EntityState],
       v: Long,
-      open: Set[String],
-      selections: Selections
+      env: VarEnv = Map.empty,
+      coverage: (FragmentLog, Long) => Patches.Coverage = (_, v) =>
+        Patches.Coverage.Swept(v)
   ): List[Addressed] =
     RenderCache.create
       .flatMap(
@@ -148,81 +150,26 @@ trait ServerHarness extends munit.CatsEffectSuite {
           Shared.of(states),
           noDecisionFetches,
           _ => IO.pure(FetchSnapshot.empty),
-          Map.empty,
-          v,
-          open,
-          selections
+          env,
+          coverage(log, v)
         )
       )
       .unsafeRunSync()
 
   def tabsRenderer: Renderer = Renderer.create(tabsDash)
 
-  def tabsDash: Dashboard = {
-    val cards = Map(
-      "btn" ->
-        TestCard("<button>{{label}}</button>"),
-      "card" ->
-        TestCard("<span>{{state}}</span>"),
-      // Shaped like the shipped `Tabs`: the bar is structure, never a patch
-      // target.
-      "tabs" -> TestCard(
-        template = """<div class="tabs">""" +
-          """{{{children}}}</div>""" +
-          """<div id="{{hostId}}" data-signals="{ tab_{{id}}: {{bakeIndex}} }">{{{panel}}}</div>""",
-        regions = Map("children" -> Region(), "panel" -> Region(Region.Baked))
-      )
-    )
-    def panel(name: String): LayoutNode.Component =
-      LayoutNode.Component(
-        "card",
-        templateSlots = Map(
-          "state" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some(s"sensor.$name")))
-          )
-        )
-      )
-    Dashboard(
-      cards,
-      LayoutNode.Component(
-        "tabs",
-        regions = LayoutNode.kids(
-          LayoutNode.Component(
-            "btn",
-            Map("label" -> TemplateSlot(ValueExpr.literal("A")))
-          ),
-          LayoutNode
-            .Component(
-              "btn",
-              Map("label" -> TemplateSlot(ValueExpr.literal("B")))
-            )
-        ),
-        vars = TabDeclared
-      ),
-      surfaces = Map(
-        "c_t0" -> tabMember(panel("a"), "c", 0),
-        "c_t1" -> tabMember(panel("b"), "c", 1)
-      )
-    )
-  }
-
-  /** What a tab bar declares: the open member's index (ADR 0033). */
-  val TabDeclared: List[Dashboard.Declaration] = declared("tab" -> "0")
-
-  /** A member of a tab bar's panel, selected by the bar's `tab`. */
-  def tabMember(
-      content: LayoutNode,
-      host: String,
-      index: Int,
-      bakeAs: String = "panel"
-  ): Surface =
-    Surface(
-      content,
-      bakeInto = Some(host),
-      bakeAs = Some(bakeAs),
-      bakeIndex = Some(index),
-      activation = Activation.Var("tab")
-    )
+  /** The shipped tab bar at the root "c", tab `A` over sensor.a and `B` over
+    * sensor.b.
+    */
+  def tabsDash: Dashboard = PklFixture.snippet(
+    """card = (c.tabs) {
+      |  tabs {
+      |    ["A"] { t.state("sensor.a") }
+      |    ["B"] { t.state("sensor.b") }
+      |  }
+      |}
+      |""".stripMargin
+  )
 
   /** A stream carrying this viewer's committed tabs, as a reconnect does
     * (`Server.SseInclude`): with no document, nothing else names them.
@@ -239,23 +186,28 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def get(params: (String, String)*): Request[IO] =
     Request[IO](Method.GET, uri"/".withQueryParams(params.toMap))
 
-  // No bake groups, so its live patches belong entirely to the shared pass.
-  def liveLeafDash = Dashboard(
-    cards = Map(
-      "col" -> TestCard(
-        "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+  // No picks, so its live patches belong entirely to the shared pass. Under
+  // the page card, as a built dashboard is, so its repaint is [[BodyRepaint]].
+  def liveLeafDash = TestPage.around(
+    Dashboard(
+      cards = Sets.cards ++ Map(
+        "col" -> TestCard(
+          "<div>{{{children}}}</div>",
+          regions = Set("children")
+        ),
+        "card" -> TestCard("<span>{{state}}</span>")
       ),
-      "card" -> TestCard("<span>{{state}}</span>")
-    ),
-    card = LayoutNode.Component(
-      "col",
-      regions = LayoutNode.kids(
-        LayoutNode.Component(
-          "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.a")))
+      card = LayoutNode.Component(
+        "col",
+        slots = Slots.kids(
+          LayoutNode.Component(
+            "card",
+            slots = Slots.values(
+              Map(
+                "state" -> TemplateSlot(
+                  ValueExpr(Value.Entity(Some("sensor.a")))
+                )
+              )
             )
           )
         )
@@ -273,18 +225,20 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def onSet(
       candidates: List[String],
       clauses: List[(Option[ValueExpr], String, Map[String, TemplateSlot])]
-  ): LayoutNode.SetNode =
-    LayoutNode.SetNode(
+  ): LayoutNode.Component =
+    Sets.node(
       candidates = candidates,
       members = candidates.map { id =>
-        id -> LayoutNode.SetMember(clauses.map { case (extra, card, slots) =>
-          LayoutNode.SetClause(
+        id -> Sets.Member(clauses.map { case (extra, card, slots) =>
+          Sets.Clause(
             when = Some(
               extra.fold[ValueExpr](isOn)(e => Conds.and(List(isOn, e)))
             ),
             node = LayoutNode.Component(
               card,
-              slots.updated("entity_id", TemplateSlot(ValueExpr.literal(id)))
+              Slots.values(
+                slots.updated("entity_id", TemplateSlot(ValueExpr.literal(id)))
+              )
             )
           )
         })
@@ -294,7 +248,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
   val isOn: ValueExpr = Conds.cmp("state", Op.Eq, Json.fromString("on"))
 
   def dynDash = Dashboard(
-    cards = Map("dot" -> TestCard("<span>{{state}}</span>")),
+    cards = Sets.cards ++ Map("dot" -> TestCard("<span>{{state}}</span>")),
     // Sorted, which the placement assertions were written against; a set places
     // by authored order.
     card = onSet(
@@ -309,74 +263,44 @@ trait ServerHarness extends munit.CatsEffectSuite {
     )
   )
 
-  def logged(log: FragmentLog): Map[NodeId, Long] = log.fragments
+  def logged(log: FragmentLog): Map[Ix, Long] = log.fragments
 
   def elementPatches(batch: List[SseFrame]): List[String] =
     batch.map(_.render).filterNot(_.contains("datastar-patch-signals"))
 
-  // An empty conjunction is vacuously true and reads no entity, so an `else`
-  // needs no subject.
-  val always: ValueExpr = Conds.and(Nil)
-
-  def entityIs(id: String, state: String): ValueExpr =
-    Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
-
-  val armedCond = entityIs("alarm.h", "armed")
-
-  val ifCards = Map(
-    "col" -> TestCard(
-      "<div>{{{children}}}</div>",
-      regions = Map("children" -> Region())
-    ),
-    // Pure structure, like `lib/components/base/surface.pkl`'s `If`.
-    "ifhost" -> TestCard(
-      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
-      regions = Map("branch" -> Region(Region.Baked))
-    ),
-    "card" -> TestCard("<span>{{state}}</span>"),
-    "dot" -> TestCard("<b>{{state}}</b>")
-  )
-
   def branchCard(entity: String): LayoutNode.Component =
     LayoutNode.Component(
       "card",
-      templateSlots = Map(
-        "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(entity))))
+      slots = Slots.values(
+        Map(
+          "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(entity))))
+        )
       )
     )
 
-  def stateMember(
-      content: LayoutNode,
-      host: String,
-      index: Int,
-      condition: ValueExpr
-  ): Surface =
-    Surface(
-      content,
-      bakeInto = Some(host),
-      bakeAs = Some("branch"),
-      bakeIndex = Some(index),
-      activation = Activation.State(Some(condition))
-    )
+  /** The house plus what [[ifSnippet]] conditions on. */
+  val alarm: FixtureEntity = FixtureEntity("alarm.h", "armed")
 
-  /** `ifhost` at "c_0". `then` is active while alarm.h == armed, and the
-    * always-true `else` otherwise; by default they show sensor.a and sensor.b.
+  /** The shipped `If`: its row `<host>_branch_0` shows `thenContent` while
+    * alarm.h == armed, and its row `<host>_branch_1` `elseContent` otherwise
+    * (Pkl node expressions).
     */
+  def ifSnippet(
+      thenContent: String = """t.state("sensor.a")""",
+      elseContent: Option[String] = Some("""t.state("sensor.b")""")
+  ): String =
+    s"""c.iff(q.entity(dump.entities.alarm_h).stateIs("armed")).then($thenContent)""" +
+      elseContent.fold("")(e => s".`else`($e)")
+
+  /** An [[ifSnippet]] at "c_0", in a column. */
   def ifDash(
-      thenContent: LayoutNode = branchCard("sensor.a"),
-      elseContent: LayoutNode = branchCard("sensor.b")
+      thenContent: String = """t.state("sensor.a")""",
+      elseContent: Option[String] = Some("""t.state("sensor.b")"""),
+      extras: List[FixtureEntity] = Nil
   ): Dashboard =
-    Dashboard(
-      cards = ifCards,
-      card = LayoutNode
-        .Component(
-          "col",
-          regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
-        ),
-      surfaces = Map(
-        "then" -> stateMember(thenContent, "c_0", 0, armedCond),
-        "else" -> stateMember(elseContent, "c_0", 1, always)
-      )
+    PklFixture.snippet(
+      s"card = (c.column) { children { ${ifSnippet(thenContent, elseContent)} } }",
+      (alarm :: extras)*
     )
 
   def es(id: String, state: String): EntityState = st(id, state)
@@ -386,49 +310,30 @@ trait ServerHarness extends munit.CatsEffectSuite {
     * returns what this viewer's pull emits. `holds` and `position` accumulate
     * across steps.
     */
-  val BodyRepaint = "selector #dashboard"
+  /** A repaint: the morph over the page card's root. */
+  val BodyRepaint = s"selector #${Dashboard.PageRootId}"
 
-  def mixedTabsDash = Dashboard(
-    cards = Map(
-      "col" -> TestCard(
-        "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
-      ),
-      "card" -> TestCard("<span>{{state}}</span>"),
-      "tabs" -> TestCard(
-        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
-        regions = Map("panel" -> Region(Region.Baked))
-      )
-    ),
-    card = LayoutNode.Component(
-      "col",
-      regions = LayoutNode.kids(
-        LayoutNode.Component(
-          "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.shared")))
-            )
-          )
-        ),
-        LayoutNode.Component("tabs", vars = TabDeclared)
-      )
-    ),
-    surfaces = Map(
-      "t0" -> tabMember(
-        LayoutNode.Component(
-          "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.a")))
-            )
-          )
-        ),
-        "c_1",
-        0
-      )
-    )
+  /** A card on sensor.shared at `c_0` and the shipped tab bar at `c_1`, whose
+    * tab `i` shows a card on `sensors(i)`: the case `c_1_panel_0_<i>`.
+    */
+  def tabsAt(sensors: String*): Dashboard = PklFixture.snippet(
+    s"""card = (c.column) {
+       |  children {
+       |    t.state("sensor.shared")
+       |    (c.tabs) {
+       |      tabs {
+       |${sensors.zipWithIndex
+        .map((e, i) => s"""        ["T$i"] { t.state("$e") }""")
+        .mkString("\n")}
+       |      }
+       |    }
+       |  }
+       |}
+       |""".stripMargin
   )
+
+  /** [[tabsAt]] with one tab, on sensor.a. */
+  def mixedTabsDash: Dashboard = tabsAt("sensor.a")
 
   /** A server-built event carries `data: ` on its continuation lines; a decoded
     * one, and an [[SseFrame]] read through its parser, do not. Tolerating both
@@ -461,8 +366,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def events(out: List[Addressed]): List[SseFrame] =
     out.map(_.patch.toSse)
-
-  val PopupSig = Server.UiSignalPrefix + Dashboard.PopupHostId
 
   val Elements = "datastar-patch-elements"
 
@@ -672,58 +575,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
         )
     } yield ()).timeout(30.seconds)
 
-  def twoTabsDash = Dashboard(
-    cards = Map(
-      "col" -> TestCard(
-        "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
-      ),
-      "card" -> TestCard("<span>{{state}}</span>"),
-      "tabs" -> TestCard(
-        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
-        regions = Map("panel" -> Region(Region.Baked))
-      )
-    ),
-    card = LayoutNode.Component(
-      "col",
-      regions = LayoutNode.kids(
-        LayoutNode.Component(
-          "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.shared")))
-            )
-          )
-        ),
-        LayoutNode.Component("tabs", vars = TabDeclared)
-      )
-    ),
-    surfaces = Map(
-      "t0" -> tabMember(
-        LayoutNode.Component(
-          "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.a")))
-            )
-          )
-        ),
-        "c_1",
-        0
-      ),
-      "t1" -> tabMember(
-        LayoutNode.Component(
-          "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.b")))
-            )
-          )
-        ),
-        "c_1",
-        1
-      )
-    )
-  )
+  /** [[tabsAt]] with two tabs, on sensor.a and sensor.b. */
+  def twoTabsDash: Dashboard = tabsAt("sensor.a", "sensor.b")
 
 }

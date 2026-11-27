@@ -258,17 +258,28 @@ final class FakeHomeAssistant private (
     clock.updateAndGet(_ + 1).flatMap { tick =>
       stateRef
         .modify { current =>
-          val changed = nexts.map { next =>
-            val prev = current.getOrElse(
-              next.entityId,
-              FixtureEntity(next.entityId, "unknown", Map.empty)
+          // An entity HA does not hold arrives whole, as after a removal.
+          val (known, fresh) =
+            nexts.partition(n => current.contains(n.entityId))
+          val changed = known.map { next =>
+            next.entityId -> next.deltaFrom(
+              current(next.entityId),
+              FixtureEntity.epochAt(tick)
             )
-            next.entityId -> next.deltaFrom(prev, FixtureEntity.epochAt(tick))
           }
-          (current ++ nexts.map(n => n.entityId -> n), changed.toMap)
+          val added = fresh.map(_.toFeedEntry(FixtureEntity.epochAt(tick)))
+          (
+            current ++ nexts.map(n => n.entityId -> n),
+            EntitiesEvent(added = added.toMap, changed = changed.toMap)
+          )
         }
-        .flatMap(changed => deltas.offer(EntitiesEvent(changed = changed)))
+        .flatMap(deltas.offer)
     }
+
+  /** The entity leaves HA, as a `subscribe_entities` removal frame says. */
+  def remove(entityId: String): IO[Unit] =
+    clock.update(_ + 1) *> stateRef.update(_ - entityId) *>
+      deltas.offer(EntitiesEvent(removed = List(entityId)))
 
   /** The registry-watch analogue of [[emit]]. */
   def pushRawEvent(eventType: String, payload: Json): IO[Unit] =

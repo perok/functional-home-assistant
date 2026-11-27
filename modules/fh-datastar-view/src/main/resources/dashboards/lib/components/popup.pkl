@@ -1,0 +1,60 @@
+/// Popups, a layer on ordinary nodes slots (ADR 0002): the page node declares
+/// the variable `popups`, a popup is a node with an id, a tap opening one
+/// chooses that id, and the entry collects every popup a tap can open into one
+/// match over the variable, which fills the page card's `popups`.
+module components.popup
+
+import "../core/choice.pkl" as choiceMod
+import "../core/node.pkl" as nodeMod
+import "../core/slot.pkl" as slotMod
+import "../core/tap.pkl" as tapMod
+import "../core/variable.pkl" as varMod
+import "../hass.pkl"
+import "base/popup.pkl" as popupBase
+
+/// The id of the open popup, none while closed. Each choice is a history entry,
+/// so Back closes a popup and Forward opens it again.
+const popupsVar: varMod.Variable = new { name = "popups" }
+
+/// What the page node declares. Not shadowed, so a card cannot hide it from the
+/// openers under it.
+const declaration: varMod.Declaration = popupsVar.startingEmpty().inHistory().notShadowed()
+
+/// Open the popup `popupId`, holding `body`. Every opener of one id must hold
+/// the same body, which is then one popup: two cards for one entity share its
+/// more-info, and whatever was chosen inside it.
+const function popup(popupId: varMod.Value, body: nodeMod.LayoutNode): tapMod.SetVar =
+  (popupsVar.choose(popupId)) { carries = List(new popupBase.Popup { id = popupId; children { body } }) }
+
+/// A popup id derived from `e`, for the library's own: `moreinfo_light_kitchen`.
+const function idFor(kind: String, e: hass.Entity): varMod.Value =
+  "\(kind)_\(e.entity_id.replaceAll(".", "_"))"
+
+/// Close the open popup, as its ✕ does.
+const function closePopup(): tapMod.Click = new { onclick = popupBase.closeExpr }
+
+/// What fills the page's `popups`: a case per popup a tap under `root` opens,
+/// looking inside each popup for the ones it opens in turn. Since Pkl is lazy, a
+/// popup holding its own opener is a reference, and the walk stops at an id it
+/// has.
+const function cases(root: nodeMod.Node): choiceMod.Match|Listing<nodeMod.LayoutNode> =
+  let (found = gather(opened(root), Map()))
+    if (found.isEmpty) new Listing {}
+    else nodeMod.match(popupsVar.value, found.toMapping())
+
+/// The popups a tap on `n` itself opens.
+const function carried(n: nodeMod.Node): List<nodeMod.Node> =
+  n.valueSlots.filter((s) -> s is slotMod.CallSlot).flatMap((s) -> (s as slotMod.CallSlot).carries)
+
+const local function opened(n: nodeMod.Node): List<nodeMod.Node> =
+  nodeMod.nodesUnder(n).flatMap((k) -> carried(k))
+
+const local function gather(level: List<nodeMod.Node>, seen: Map<String, nodeMod.Node>): Map<String, nodeMod.Node> =
+  let (byId = level.groupBy((p) -> p.id!!))
+  let (clashes = byId.filter((k, ps) -> (if (seen.containsKey(k)) ps.add(seen[k]) else ps).distinct.length > 1).keys)
+    if (!clashes.isEmpty)
+      throw("two popups have the id '\(clashes.first)' and different content: give one of them another id")
+    else
+      let (fresh = byId.filter((k, _) -> !seen.containsKey(k)).mapValues((_, ps) -> ps.first))
+        if (fresh.isEmpty) seen
+        else gather(fresh.values.flatMap((p) -> opened(p)), seen + fresh)

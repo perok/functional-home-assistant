@@ -38,7 +38,10 @@ class ActionConcurrencySuite extends ServerHarness {
 
   private val dash = liveLeafDash.copy(
     cards = liveLeafDash.cards + ("call" -> FixtureDashboard.cards("call")),
-    card = DashboardBuilders.col(liveLeafDash.card, callNode)
+    card = DashboardBuilders.col(
+      fh.view.testkit.PklFixture.body(liveLeafDash).copy(id = None),
+      callNode
+    )
   )
 
   test(

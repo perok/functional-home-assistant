@@ -2,7 +2,7 @@
 /// component author may copy, and none is part of the everyday set.
 module components.examples
 
-import "../core/node.pkl" as nodes
+import "../core/node.pkl" as nodeMod
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/text.pkl" as textMod
@@ -19,9 +19,9 @@ import "../hass.pkl"
 /// escaped hole. A re-fetch morphs the attribute, and Datastar re-applies a
 /// changed `data-*` attribute, so every reading re-runs. The JSON is the
 /// history provider's `{"points": [[epochMillis, value], …]}`, every point.
-class HistoryReadings extends nodes.Node {
+class HistoryReadings extends nodeMod.Node {
   card = "historyReadings"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     template = """
       <article class="fh-card fh-readings" data-signals:\(readingsSignal)="\(readings)">
         <header>\(textMod.hole(label))</header>

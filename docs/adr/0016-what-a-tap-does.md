@@ -42,8 +42,8 @@ the `{{{action}}}` slot). Before this, `Button.action` held a `TapAction` while
 **A tap names what it acts on.** A `TapAction` is a `Press`, a declared call
 (ADR 0023): a `Call` — a service on a `Target` (an entity, an area or a floor) —
 or a `SetVar`, this viewer's choice of a node variable (a tab, a select option,
-ADR 0033). Otherwise it is a `Click` (navigate, or close a popup; an
-`OpenSurface` when it opens one). A `Call`'s route, its refusal and a state-picked
+ADR 0033), a popup's open among them. Otherwise it is a `Click` (navigate,
+or close a popup). A `Call`'s route, its refusal and a state-picked
 service all read the TARGET, never the card it sits on. So a card may show one
 entity and act on another, or act while showing none:
 `c.button("Kjøkken", c.tap.toggle(kitchen))`. The alternative this replaced let

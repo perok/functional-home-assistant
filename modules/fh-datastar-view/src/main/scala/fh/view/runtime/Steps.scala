@@ -92,11 +92,38 @@ object Steps {
               h
             }
           case _ => null
+      case Step.IndexOfTrue =>
+        value match
+          case xs: List[?] =>
+            var rest = xs
+            indexOfTrue(rest.nonEmpty) {
+              val h = rest.head
+              rest = rest.tail
+              h
+            }
+          case _ => null
       case Step.Compare(op, to) => compare(value, a, op, to)
       case Step.Not             =>
         value match
           case b: Boolean => !b
           case _          => null
+
+  /** The position of the first item that is `true`, reading `next` while `more`
+    * holds and stopping there; `null` if none is. An item with no value does
+    * not hold, as a clause's guard that reads one does not (ADR 0035). Inline,
+    * as [[kleene]].
+    */
+  private[view] inline def indexOfTrue(inline more: Boolean)(
+      inline next: Any
+  ): Any =
+    var at = 0L
+    var found = false
+    while (!found && more) {
+      next match
+        case b: java.lang.Boolean if b.booleanValue => found = true
+        case _                                      => at += 1
+    }
+    if (found) java.lang.Long.valueOf(at) else null
 
   /** Kleene's and (`decides = false`) or or (`true`), the one spelling of the
     * rule (ADR 0035): `next` is read while `more` holds, stopping at the item
@@ -129,10 +156,15 @@ object Steps {
       to: Value.Operand
   ): Boolean =
     to match
-      // `ne` is not `eq`, as in CEL, where values of two types are unequal.
+      // `ne` holds for no number, as in CEL, where values of two types are
+      // unequal. Matched rather than through `number`: its `Some` and box
+      // escaped per guard (`RenderBench.conditionTree`).
       case Value.Literal(Lit.Whole(_) | Lit.Real(_)) =>
-        if (op == Op.Ne) !number(value).exists(_ == dbl(operand))
-        else number(value).exists(onLine(_, dbl(operand), op))
+        value match
+          case n: java.lang.Number => onLine(n.doubleValue, dbl(operand), op)
+          case s: String           =>
+            s.toDoubleOption.fold(op == Op.Ne)(onLine(_, dbl(operand), op))
+          case _ => op == Op.Ne
       case Value.Literal(Lit.Bool(_)) =>
         op match
           case Op.Eq => text(value) == text(operand)

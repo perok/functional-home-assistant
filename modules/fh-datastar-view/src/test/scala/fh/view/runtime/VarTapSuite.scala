@@ -1,5 +1,9 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.testkit.DashboardBuilders
 
 import fh.view.testkit.TestCard
@@ -14,7 +18,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   FetchTemplate,
-  Region,
   Value,
   ValueExpr,
   TemplateSlot
@@ -43,31 +46,33 @@ class VarTapSuite extends ServerHarness {
 
   private val panelCard = TestCard(
     "<div>{{{children}}}</div>",
-    regions = Map("children" -> Region())
+    regions = Set("children")
   )
 
   private val chartNode = LayoutNode.Component(
     "chart",
-    templateSlots = Map(
-      "chart" -> TemplateSlot(
-        ValueExpr(
-          Value.Fetch(
-            FetchTemplate(
-              "sensor.a",
-              DashboardBuilders.chosenBy("window", Windows.presets)
-            )
-          ),
-          List(Step.Json, Step.JsonText)
+    slots = Slots.values(
+      Map(
+        "chart" -> TemplateSlot(
+          ValueExpr(
+            Value.Fetch(
+              FetchTemplate(
+                "sensor.a",
+                DashboardBuilders.chosenBy("window", Windows.presets)
+              )
+            ),
+            List(Step.Json, Step.JsonText)
+          )
         )
       )
     )
   )
 
   private val dash = Dashboard(
-    cards = Map("chart" -> chartCard, "panel" -> panelCard),
+    cards = Sets.cards ++ Map("chart" -> chartCard, "panel" -> panelCard),
     card = LayoutNode.Component(
       "panel",
-      regions = LayoutNode.kids(chartNode),
+      slots = Slots.kids(chartNode),
       id = Some("panel"),
       vars = declared("window" -> "24h")
     )
@@ -75,21 +80,23 @@ class VarTapSuite extends ServerHarness {
 
   /** Two variables, each read by its own chart. */
   private val twoVarDash = Dashboard(
-    cards = Map("chart" -> chartCard, "panel" -> panelCard),
+    cards = Sets.cards ++ Map("chart" -> chartCard, "panel" -> panelCard),
     card = LayoutNode.Component(
       "panel",
-      regions = LayoutNode.kids(
-        chartNode.copy(templateSlots =
-          Map(
-            "chart" -> TemplateSlot(
-              ValueExpr(
-                Value.Fetch(
-                  FetchTemplate(
-                    "sensor.b",
-                    DashboardBuilders.chosenBy("w", Windows.presets)
-                  )
-                ),
-                List(Step.Json, Step.JsonText)
+      slots = Slots.kids(
+        chartNode.copy(slots =
+          Slots.values(
+            Map(
+              "chart" -> TemplateSlot(
+                ValueExpr(
+                  Value.Fetch(
+                    FetchTemplate(
+                      "sensor.b",
+                      DashboardBuilders.chosenBy("w", Windows.presets)
+                    )
+                  ),
+                  List(Step.Json, Step.JsonText)
+                )
               )
             )
           )
@@ -142,13 +149,14 @@ class VarTapSuite extends ServerHarness {
       d.copy(
         cards =
           d.cards + (DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard),
-        card = root.copy(regions =
-          root.regions.updatedWith(LayoutNode.DefaultRegion)(
-            _.map(_ ++ picks)
+        card = root.copy(slots =
+          Slots.nodes(
+            root.regions.updatedWith(LayoutNode.DefaultRegion)(
+              _.map(_ ++ picks)
+            )
           )
         )
       )
-    case _ => d
 
   private def choose(
       ts: TestServer,
@@ -292,20 +300,22 @@ class VarTapSuite extends ServerHarness {
     * through the set's scope (ADR 0033).
     */
   private val setDash = {
-    def chartOf(entity: String) = LayoutNode.SetMember(
+    def chartOf(entity: String) = Sets.Member(
       List(
-        LayoutNode.SetClause(node =
-          chartNode.copy(templateSlots =
-            Map(
-              "chart" -> TemplateSlot(
-                ValueExpr(
-                  Value.Fetch(
-                    FetchTemplate(
-                      entity,
-                      DashboardBuilders.chosenBy("window", Windows.presets)
-                    )
-                  ),
-                  List(Step.Json, Step.JsonText)
+        Sets.Clause(node =
+          chartNode.copy(slots =
+            Slots.values(
+              Map(
+                "chart" -> TemplateSlot(
+                  ValueExpr(
+                    Value.Fetch(
+                      FetchTemplate(
+                        entity,
+                        DashboardBuilders.chosenBy("window", Windows.presets)
+                      )
+                    ),
+                    List(Step.Json, Step.JsonText)
+                  )
                 )
               )
             )
@@ -316,8 +326,8 @@ class VarTapSuite extends ServerHarness {
     dash.copy(card =
       LayoutNode.Component(
         "panel",
-        regions = LayoutNode.kids(
-          LayoutNode.SetNode(
+        slots = Slots.kids(
+          Sets.node(
             candidates = List("sensor.a", "sensor.b"),
             members = Map(
               "sensor.a" -> chartOf("sensor.a"),
@@ -389,13 +399,14 @@ class VarTapSuite extends ServerHarness {
         dash.copy(
           cards =
             dash.cards + (DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard),
-          card = root.copy(regions =
-            root.regions.updatedWith(LayoutNode.DefaultRegion)(
-              _.map(_ ++ DashboardBuilders.choices("nosuch", "7d"))
+          card = root.copy(slots =
+            Slots.nodes(
+              root.regions.updatedWith(LayoutNode.DefaultRegion)(
+                _.map(_ ++ DashboardBuilders.choices("nosuch", "7d"))
+              )
             )
           )
         )
-      case _ => fail("a panel")
     val errors = stray.validate()
     assert(
       errors.exists(_.contains("chooses the variable 'nosuch', which no node")),
@@ -655,13 +666,15 @@ class VarTapSuite extends ServerHarness {
     )),
     card = LayoutNode.Component(
       "panel",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.Component(
           "both",
-          templateSlots = chartNode.templateSlots +
-            ("state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.a")))
-            ))
+          slots = Slots.values(
+            chartNode.valueSlots +
+              ("state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.a")))
+              ))
+          )
         )
       ),
       id = Some("panel"),
@@ -725,13 +738,12 @@ class VarTapSuite extends ServerHarness {
       dash.validated().fold(e => sys.error(e.mkString("; ")), identity)
     )
     val declared = Server
-      .openingSignals(renderer, Set.empty, Map.empty, "log", 0L)
+      .openingSignals(renderer, Map.empty, "log", 0L)
       .data
       .getOrElse("")
     val chosen = Server
       .openingSignals(
         renderer,
-        Set.empty,
         Map(VarKey(NodeId.derived("panel"), "window") -> "7d"),
         "log",
         0L

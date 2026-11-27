@@ -1,11 +1,12 @@
 package fh.view.build
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Conds
 
 import fh.view.model.{
   SortTerm,
   Access,
-  Activation,
   CallDecl,
   CardDef,
   Case,
@@ -14,17 +15,18 @@ import fh.view.model.{
   LayoutNode,
   Choice,
   FetchTemplate,
+  Fill,
   Lit,
   Op,
   Part,
   SignalBind,
+  Slot,
   Step,
   Value,
   ValueExpr,
   ValueType,
   TemplateSlot,
-  Theme,
-  VarAt
+  Theme
 }
 import fh.view.history.Window
 import fh.view.testkit.PklWorkspace
@@ -58,9 +60,10 @@ class WireShapeSuite extends munit.FunSuite {
         |import "pkl:reflect"
         |import "@fh-dashboard/components.pkl" as c
         |import "@fh-dashboard/hass.pkl"
-        |import "@fh-dashboard/core/node.pkl" as nodes
+        |import "@fh-dashboard/core/node.pkl" as nodeMod
         |import "@fh-dashboard/core/slot.pkl" as slotMod
-        |import "@fh-dashboard/core/surface.pkl" as surfaceMod
+        |import "@fh-dashboard/core/choice.pkl" as choiceMod
+        |import "@fh-dashboard/components/base/popup.pkl" as popupBase
         |import "@fh-dashboard/core/tap.pkl" as tapMod
         |import "@fh-dashboard/core/predicate.pkl" as pred
         |import "@fh-dashboard/core/simple.pkl" as simpleMod
@@ -74,13 +77,13 @@ class WireShapeSuite extends munit.FunSuite {
         |// sees only what a module DECLARES — the facade declares no classes at
         |// all. So merge every module that owns wire classes; that also keeps
         |// "does this module own the ancestor" true across a module boundary
-        |// (`SetNode extends LayoutNode` now spans two files).
+        |// (`Node extends LayoutNode` spans two files).
         |local mods: List<Module> =
-        |  List(nodes, slotMod, surfaceMod, tapMod, pred, simpleMod, accessMod, varMod, historyProv, chartMod, themeMod) + c.modules
+        |  List(nodeMod, slotMod, choiceMod, popupBase, tapMod, pred, simpleMod, accessMod, varMod, historyProv, chartMod, themeMod) + c.modules
         |local own: Map<String, reflect.Class> =
         |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
-        |// INHERITED properties count: `SetNode extends LayoutNode`, and `cell`
+        |// INHERITED properties count: `Node extends LayoutNode`, and `cell`
         |// is declared on the base. `reflect.Class.properties` reports only what
         |// a class declares, so walk up — stopping at the first ancestor this
         |// module does not own, which is where Pkl's own builtins begin.
@@ -166,28 +169,36 @@ class WireShapeSuite extends munit.FunSuite {
   }
 
   test("the component node agrees on both sides") {
-    // `regions` is emitted and decoded, while the authored `children` is
-    // `hidden`. If only one side moved, every container's children would decode
-    // to `Map.empty`. `inlineSurfaces` is Pkl-only: a build-phase marker
-    // `DashboardBuild.hoistInlineSurfaces` lifts and removes. Scala's `inputs`
-    // is Pkl's `wireInputs`, since Pkl's `inputs` is the author's hidden one.
+    // `wireSlots` is emitted and decoded, while the authored `children` and
+    // `slots` are `hidden`. If only one side moved, every container's children
+    // would decode to `Map.empty`. Scala's `inputs` is Pkl's `wireInputs`, since Pkl's `inputs` is the author's hidden one,
+    // and `slots` is `wireSlots` for the same reason.
     check(
       "Node",
       LayoutNode.Component("card"),
-      scalaOnly = Set("inputs"),
-      pklOnly = Set("inlineSurfaces", "wireInputs")
+      scalaOnly = Set("inputs", "slots"),
+      pklOnly = Set("wireInputs", "wireSlots")
     )
   }
 
   test("a node variable's declaration agrees on both sides") {
-    check("Declaration", Dashboard.Declaration("view", "plain"))
+    check("Declaration", Dashboard.Declaration("view", Some("plain")))
     check("InitialTransform", Dashboard.InitialTransform("light.a", "'x'"))
   }
 
-  test("SetNode / SetMember / SetClause agree on both sides") {
-    check("SetNode", LayoutNode.SetNode())
-    check("SetMember", LayoutNode.SetMember())
-    check("SetClause", LayoutNode.SetClause(node = LayoutNode.SetNode()))
+  test("a set fill and its members' choice agree on both sides") {
+    check("SetFill", Fill.Set())
+    // A member is a node, or a choice of one whose cases are positions; Pkl
+    // writes no `otherwise`, which a set's member does not take.
+    check(
+      "MemberChosen",
+      Choice.Chosen(
+        ValueExpr(Value.Var("x")),
+        List(Case(Lit.Bool(true), Sets.node()))
+      ),
+      scalaOnly = Set("otherwise")
+    )
+    check("MemberCase", Case(Lit.Bool(true), Sets.node()))
   }
 
   test("every condition class writes a reading") {
@@ -207,7 +218,7 @@ class WireShapeSuite extends munit.FunSuite {
 
   test("the slot shape agrees, minus what only one side names") {
     // `Reading` is `ValueExpr`: "reading" is the authoring word. Its
-    // `valueWhileSlot` is the slot's `valueWhile`, which `nodes.wireSlots` writes
+    // `valueWhileSlot` is the slot's `valueWhile`, which `nodeMod.wireSlots` writes
     // beside the expression's fields.
     check(
       "Reading",
@@ -223,6 +234,16 @@ class WireShapeSuite extends munit.FunSuite {
       scalaOnly = Set("expr", "valueWhile"),
       pklOnly = Set("name", "value", "raw", "bind", "jsValue", "signalName")
     )
+    check(
+      "NodesSlot",
+      Slot.Nodes(Fill.Nodes(Choice.Fixed(Nil))),
+      pklOnly = Set("name")
+    )
+    check("NodesFill", Fill.Nodes(Choice.Fixed(Nil)))
+    // A nodes slot's choice: a case holds a node list, and `otherwise` may be
+    // none.
+    check("ChosenNodes", Choice.Chosen(ValueExpr(Value.Var("x")), Nil))
+    check("NodesCase", Case(Lit.Bool(true), List.empty[LayoutNode]))
     // `provider` picks the decoder rather than filling a field.
     check(
       "HistoryFetch",
@@ -293,6 +314,7 @@ class WireShapeSuite extends munit.FunSuite {
     check("CountStep", Step.Count)
     check("AllOfStep", Step.AllOf)
     check("AnyOfStep", Step.AnyOf)
+    check("IndexOfTrueStep", Step.IndexOfTrue)
     check("CompareStep", Step.Compare(Op.Eq, lit))
     check("NotStep", Step.Not)
     check("CheckStep", Step.Check(Nil))
@@ -317,10 +339,9 @@ class WireShapeSuite extends munit.FunSuite {
     // `Access` assigns a plain String, so a bad site rule reaches the decoder's
     // fallback (`SiteAccessSuite`); its literals are pinned by decoding below.
     val families: List[(Set[String], Set[String])] = List(
-      caseNames[LayoutNode] -> Set("Node", "SetNode"),
-      caseNames[Activation] ->
-        Set("UserActivation", "VarActivation", "StateActivation"),
-      caseNames[VarAt] -> Set("AtValue", "AtIndex", "AtOtherwise"),
+      caseNames[LayoutNode] -> Set("Node"),
+      caseNames[Slot] -> Set("Slot", "NodesSlot"),
+      caseNames[Fill] -> Set("NodesFill", "SetFill"),
       caseNames[Value] ->
         Set(
           "EntityRead",
@@ -348,6 +369,7 @@ class WireShapeSuite extends munit.FunSuite {
         "CountStep",
         "AllOfStep",
         "AnyOfStep",
+        "IndexOfTrueStep",
         "CompareStep",
         "NotStep",
         "CheckStep",
@@ -366,7 +388,8 @@ class WireShapeSuite extends munit.FunSuite {
         "BindClass"
       ),
       caseNames[Window] -> Set("Raw", "Statistics"),
-      caseNames[Choice[Window]] - "Fixed" -> Set("Chosen"),
+      caseNames[Choice[Window]] - "Fixed" ->
+        Set("Chosen", "MemberChosen", "ChosenNodes"),
       caseNames[CallDecl] -> Set("ServiceCall", "SetVarCall")
     )
     families.foreach { (scalaNames, pklClasses) =>

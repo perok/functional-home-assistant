@@ -22,6 +22,7 @@ class LiveCellClassSuite extends munit.CatsEffectSuite {
        |import "@fh-dashboard/components.pkl" as c
        |import "@fh-dashboard/core/slot.pkl" as slotMod
        |import "@fh-dashboard/core/simple.pkl" as simpleMod
+       |import "@fh-dashboard/query.pkl" as q
        |import "@fh-home/dump.pkl" as dump
        |
        |local kitchenOn = (simpleMod.stateIn(new Listing { "on" })) {
@@ -106,6 +107,28 @@ class LiveCellClassSuite extends munit.CatsEffectSuite {
       } yield {
         assert(sent.contains(sig.split('.').last + "\":false"), clue = sent)
         assert(!sent.contains("Warm"), clue = sent)
+      }
+    }
+  }
+
+  test(
+    "a set's root takes a live class as any card's root: bound, then a frame"
+  ) {
+    val set =
+      s"""    q.from(List(dump.entities.${lock.dumpKey})).render((e) -> c.entityCard(e)).build()
+         |      .cellClassWhen("warm", kitchenOn)""".stripMargin
+    withServer(set) { ts =>
+      for {
+        html <- ts.page()
+        sig = classSignal(html, "warm")
+        sent <- ts.sentAfter(ts.change(kitchen.entityId, "off"))
+      } yield {
+        boundWrappers(html).filter(_.contains("data-class:warm")) match {
+          case List(w) => assert(classesOf(w).contains("fh-group"), w)
+          case other   => fail("expected one bound wrapper", clues(other, html))
+        }
+        assert(sent.contains(sig.split('.').last + "\":false"), clue = sent)
+        assert(!sent.contains("fh-group"), clue = sent)
       }
     }
   }

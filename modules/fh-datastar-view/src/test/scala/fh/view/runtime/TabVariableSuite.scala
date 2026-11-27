@@ -1,79 +1,42 @@
 package fh.view.runtime
 
-import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.{
-  Activation,
-  CardDef,
-  Dashboard,
-  LayoutNode,
-  NodeId,
-  Region,
-  Surface
-}
+import fh.view.model.{Ix, NodeId}
 import fh.view.testkit.FixtureEntity
-import fh.view.testkit.TestIds.given
-import fh.view.testkit.DashboardBuilders
 import fh.view.testkit.DashboardBuilders.declared
+import fh.view.testkit.PklFixture
 import org.http4s.*
 
 import scala.concurrent.duration.*
 
 /** A tab bar's selection as a node variable (issue #209, step 4): the bar
-  * declares `tab`, its panel's bake group is selected by it, and a press is a
-  * variable write that swaps the panel.
+  * declares `tab`, its panel is a choice over it, and a press is a variable
+  * write that swaps the panel.
   */
 class TabVariableSuite extends ServerHarness {
 
-  private val barCard = TestCard(
-    """<div id="{{hostId}}">{{{buttons}}}{{{panel}}}</div>""",
-    regions = Map("panel" -> Region(Region.Baked), "buttons" -> Region())
+  /** The shipped tab bar, named "bar": tab `0` shows "PanelOne" and a button
+    * choosing a tab past the bar, `1` "PanelTwo".
+    */
+  private val dash = PklFixture.snippet(
+    """card = (c.tabs) {
+      |  id = "bar"
+      |  tabs {
+      |    ["A"] { t.label("PanelOne") c.button("Past", c.variable("tab").choose("5")) }
+      |    ["B"] { t.label("PanelTwo") }
+      |  }
+      |}
+      |""".stripMargin
   )
-  private val textCard = TestCard("<p>{{text}}</p>")
 
-  private def panel(i: Int, text: String) =
-    Surface(
-      LayoutNode.Component("text", templateSlots = Map("text" -> lit(text))),
-      bakeInto = Some("bar"),
-      bakeAs = Some("panel"),
-      bakeIndex = Some(i),
-      activation = Activation.Var("tab")
-    )
-
-  private def lit(s: String) =
-    fh.view.model.TemplateSlot(fh.view.model.ValueExpr.literal(s))
-
-  /** With a button per tab, and one past them, where it declares `tab`. */
-  private def barNode(vars: Map[String, String]) =
-    LayoutNode.Component(
-      "bar",
-      id = Some("bar"),
-      vars = declared(vars.toList*),
-      regions =
-        if (vars.contains("tab"))
-          Map("buttons" -> DashboardBuilders.choices("tab", "0", "1", "5"))
-        else Map.empty
-    )
-
-  private val dash = Dashboard(
-    cards = Map(
-      "bar" -> barCard,
-      "text" -> textCard,
-      DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard
-    ),
-    card = barNode(Map("tab" -> "0")),
-    surfaces = Map("t0" -> panel(0, "first"), "t1" -> panel(1, "second"))
-  )
+  private val bar = PklFixture.body(dash)
 
   private def served[A](f: TestServer => IO[A]): IO[A] =
     TestServer
       .resource(dash, List(FixtureEntity("sensor.a", "1")))
       .use(f)
       .timeout(30.seconds)
-
-  private def post(ts: TestServer, conn: String, path: String) =
-    ts.postResult(path, body = s"""{"${Server.ConnSignal}":"$conn"}""")
 
   private def press(ts: TestServer, conn: String, tab: String) =
     ts.choose(conn, VarKey(NodeId.derived("bar"), "tab"), Some(tab))
@@ -89,17 +52,53 @@ class TabVariableSuite extends ServerHarness {
         conn <- ts.load().map(_.conn)
         session <- ts.sessions.get(conn)
         result <- press(ts, conn, "1")
-        open <- session.traverse(_.state.map(_.open))
+        state <- session.traverse(_.state)
         sent <- drain(session)
       } yield {
         assertEquals(result._1, Status.NoContent)
-        assertEquals(open.map(_.intersect(Set("t0", "t1"))), Some(Set("t1")))
-        assert(sent.contains("second"), clue = sent)
+        assertEquals(
+          state.map(_.vars),
+          Some(Map(VarKey(NodeId.derived("bar"), "tab") -> "1"))
+        )
+        assert(sent.contains("PanelTwo"), clue = sent)
         assert(sent.contains("\"_var_bar__tab\":\"1\""), clue = sent)
         assert(!sent.contains("ui_bar"), clue = sent)
         // The commit rides after the panel, so the highlight agrees only once
         // the panel is in.
-        assert(sent.indexOf("second") < sent.indexOf("_var_bar__tab"), sent)
+        assert(sent.indexOf("PanelTwo") < sent.indexOf("_var_bar__tab"), sent)
+      }
+    }
+  }
+
+  test("a tab switch leaves the host holding the new case, none of the old") {
+    val r = Renderer.create(dash)
+    val pick = NodeId.derived("bar_panel_0")
+    val host = r.hostIx(pick, Shared.of(Map.empty))
+    val one = r.index.ixsOf(NodeId.derived("bar_panel_0_0")).head
+    val two = r.index.ixsOf(NodeId.derived("bar_panel_0_1")).head
+    def under(root: Ix, holds: Map[Ix, Held]) =
+      holds.keySet.filter(r.index.contains(root, _))
+    served { ts =>
+      for {
+        conn <- ts.load().map(_.conn)
+        session <- ts.sessions.get(conn)
+        _ <- session.traverse(_.takeBacklog)
+        _ <- press(ts, conn, "0")
+        before <- session.traverse(_.state.map(_.holds))
+        _ <- press(ts, conn, "1")
+        after <- session.traverse(_.state.map(_.holds))
+      } yield {
+        assertEquals(
+          before.flatMap(_.get(host)).flatMap(_.shows).map(_.toList),
+          Some(List(one))
+        )
+        assert(before.exists(under(one, _).nonEmpty), clue = before)
+        assertEquals(
+          after.flatMap(_.get(host)).flatMap(_.shows).map(_.toList),
+          Some(List(two))
+        )
+        assertEquals(after.map(under(one, _)), Some(Set.empty[Ix]))
+        assert(after.exists(under(two, _).nonEmpty), clue = after)
       }
     }
   }
@@ -132,50 +131,45 @@ class TabVariableSuite extends ServerHarness {
     }
   }
 
-  test("a variable-selected panel is chosen, never opened") {
-    // An open would move the panel without the variable, and the next page
-    // load would show another tab than the one on screen.
-    served { ts =>
-      for {
-        conn <- ts.load().map(_.conn)
-        result <- post(ts, conn, s"sse/surface/${ts.slug}/open/t1")
-      } yield {
-        assertEquals(result._1, Status.Ok)
-        assert(result._2.contains("node variable"), clue = result._2)
-      }
-    }
-  }
-
   test("a link chooses the tab on the first paint") {
     served(ts =>
       (ts.page(), ts.page("?v.bar.tab=1"), ts.page("?ui.bar=1")).mapN {
         (plain, linked, old) =>
-          assert(plain.contains("first") && !plain.contains("second"), plain)
-          assert(linked.contains("second") && !linked.contains("first"), linked)
+          assert(
+            plain.contains("PanelOne") && !plain.contains("PanelTwo"),
+            plain
+          )
+          assert(
+            linked.contains("PanelTwo") && !linked.contains("PanelOne"),
+            linked
+          )
           // An old `ui.` link lands on the declared tab.
-          assert(old.contains("first") && !old.contains("second"), old)
+          assert(old.contains("PanelOne") && !old.contains("PanelTwo"), old)
       }
     )
   }
 
-  test("a bar's variable must be declared at the bar, as a member index") {
-    val undeclared = dash.copy(card = barNode(Map.empty))
+  test("a bar's variable must be declared at the bar, at a value a tab takes") {
+    val undeclared = PklFixture.withBody(dash, bar.copy(vars = Nil))
     assert(
       undeclared
         .validate()
-        .exists(_.contains("which no node at or above it declares")),
+        .exists(_.contains("which no ancestor declares")),
       clue = undeclared.validate()
     )
-    val outside = dash.copy(card = barNode(Map("tab" -> "2")))
+    val outside =
+      PklFixture.withBody(dash, bar.copy(vars = declared("tab" -> "2")))
     assert(
-      outside.validate().exists(_.contains("not a member index (0..1)")),
+      outside
+        .validate()
+        .exists(_.contains("declared '2', which no case takes")),
       clue = outside.validate()
     )
     assertEquals(dash.validate(), Nil)
     assertEquals(
       Renderer(dash.validated().fold(e => fail(e.mkString), identity)).vars
         .panelsSelectedBy(VarKey(NodeId.derived("bar"), "tab")),
-      List(NodeId.derived("bar"))
+      List(NodeId.derived("bar_panel_0"))
     )
   }
 }

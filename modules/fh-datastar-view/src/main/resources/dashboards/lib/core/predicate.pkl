@@ -8,7 +8,7 @@
 /// always carries a binding.
 module core.predicate
 
-import "node.pkl" as nodes
+import "node.pkl" as nodeMod
 import "simple.pkl" as simpleMod
 import "slot.pkl" as slotMod
 import "../hass.pkl"
@@ -44,6 +44,8 @@ class Cmp extends Predicate {
 /// [[Tally]].
 open class TallyOf {
   function count(): Tally = throw("not a set")
+  /// The set as what fills a nodes slot.
+  function fill(): SetFill = throw("not a set")
 }
 
 /// A static candidate list and which of it is present (`fh.view.model.Value.Present`):
@@ -147,23 +149,56 @@ class PConst extends Predicate {
 
 // ---- candidate sets (ADR 0003) ----
 
-/// "If `when` holds, render `node`." The node is complete, so a clause cannot
-/// be wrong about which member it belongs to. `when = null` is unconditional.
-class SetClause {
-  `when`: slotMod.Expr? = null
-  node: nodes.LayoutNode
+/// The position of the first of `items` that holds, an unnamed read in one
+/// reading the candidate: a chain of conditions as the one key a choice picks
+/// its case by (`fh.view.model.Step.IndexOfTrue`).
+class FirstTrue extends slotMod.Expr {
+  hidden items: Listing<slotMod.Expr|Boolean>
+  source = let (f = this) new slotMod.ListRead { items = f.items }
+  steps { new simpleMod.IndexOfTrueStep {} }
 }
 
-/// The first clause whose guard holds decides; falling off the end means not
-/// rendered, which is how "only while on" is written.
-class SetMember {
-  clauses: Listing<SetClause>
+/// One case of a [[MemberChosen]]: its node where `by` reads `is`.
+class MemberCase {
+  `is`: Boolean|Int
+  value: nodeMod.LayoutNode
 }
 
-/// A set over a candidate list known at build time; the runtime decides
-/// presence and order, never membership.
-class SetNode extends nodes.LayoutNode {
-  kind: "SetNode" = "SetNode"
+/// A member picked by what `by` reads for its candidate
+/// (`fh.view.model.Choice.Chosen`); no case taking it means not rendered, which
+/// is how "only while on" is written.
+class MemberChosen {
+  kind: "Chosen" = "Chosen"
+  by: slotMod.Expr
+  cases: Listing<MemberCase>
+}
+
+/// What renders for one candidate: a node always, or one picked by a guard.
+typealias Member = nodeMod.LayoutNode|MemberChosen
+
+/// A member from its clauses, each a guard and the complete node it renders
+/// (`null` guards always hold): the first that holds renders, the case index
+/// being its position. A lone guard is `by` itself.
+const function memberOf(clauses: List<Pair<slotMod.Expr?, nodeMod.LayoutNode>>): Member =
+  if (clauses.length == 1 && clauses.first.first == null) clauses.first.second
+  else if (clauses.length == 1)
+    new MemberChosen {
+      by = clauses.first.first!!
+      cases { new MemberCase { `is` = true; value = clauses.first.second } }
+    }
+  else
+    new MemberChosen {
+      by = new FirstTrue { items { for (c in clauses) { c.first ?? true } } }
+      cases {
+        for (i, c in clauses) { new MemberCase { `is` = i; value = c.second } }
+      }
+    }
+
+/// A set over a candidate list known at build time: what fills a nodes slot
+/// (`NodesSlot.of`), the members placed straight into its card's root. The
+/// runtime decides presence and order, never membership.
+class SetFill {
+  kind: "Set" = "Set"
   /// In render order, already sorted when the ordering folded to registry facts.
   candidates: Listing<String>
   /// Most significant first; empty when the ordering folded away.
@@ -171,9 +206,13 @@ class SetNode extends nodes.LayoutNode {
   /// At most this many present members, after ordering. A cut member is absent
   /// from the DOM, not hidden in it.
   limit: Int? = null
-  members: Mapping<String, SetMember>
+  members: Mapping<String, Member>
   /// What the candidates are, when not entities ([[Tally.of]]).
   of: ("area"|"floor")? = null
+  /// Every node a member can be.
+  hidden nodes: List<nodeMod.LayoutNode> =
+    members.toMap().values.flatMap((m) ->
+      if (m is MemberChosen) m.cases.toList().map((k) -> k.value) else List(m as nodeMod.LayoutNode))
 }
 
 /// One ordering position, read per member: a property's value

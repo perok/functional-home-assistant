@@ -4,7 +4,6 @@ import cats.data.NonEmptyList
 import cats.effect.IO
 import com.comcast.ip4s.{host, port}
 import fh.view.build.{
-  DashboardBuild,
   DumpPackage,
   LibPackage,
   Pins,
@@ -279,7 +278,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           assertEquals(LibPackage.sha256(zipBytes), artifacts.sha256)
           assertEquals(missing.status, Status.NotFound)
 
-          assert(properties.containsKey("card"), clue = properties.keySet)
+          assert(properties.containsKey("root"), clue = properties.keySet)
           assert(
             os.exists(
               LibPackage.cacheEntryDir(laptopCache, v) /
@@ -486,14 +485,14 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     // A card author imports the kit; `components.pkl` holds no card contract.
     """module mycards
       |
-      |import "@fh-dashboard/core/node.pkl" as nodes
+      |import "@fh-dashboard/core/node.pkl" as nodeMod
       |import "@fh-dashboard/core/slot.pkl" as slotMod
       |
       |const local labelSlot = slotMod.slot("label")
       |
-      |class Gauge extends nodes.Node {
+      |class Gauge extends nodeMod.Node {
       |  card = "gauge"
-      |  cardDef = new nodes.CardDef {
+      |  cardDef = new nodeMod.CardDef {
       |    template = "<article class=\"mine\">\(labelSlot)</article>"
       |  }
       |  label: String
@@ -528,8 +527,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val built = SourceEval
       .eval(dir, "mine.pkl")
       .fold(err => fail(s"eval failed: $err"), identity)
-    val dashboard = DashboardBuild
-      .hoistInlineSurfaces(built.value)
+    val dashboard = built.value
       .as[Dashboard]
       .fold(err => fail(s"decode failed: $err"), identity)
 
@@ -561,8 +559,8 @@ class UseCaseSuite extends munit.CatsEffectSuite {
           // server log, so the rejection comes back on the wire.
           bogus <- push(
             "bogus",
-            """{"cards":{},"card":{"kind":"Component","card":"nosuchcard",
-              |"children":[],"templateSlots":{}}}""".stripMargin
+            """{"cards":{},"root":{"kind":"Component","card":"nosuchcard",
+              |"children":[],"wireSlots":{}}}""".stripMargin
           )
           bogusBody <- bogus.body.through(fs2.text.utf8.decode).compile.string
           notJson <- push("bad", "not json at all")
@@ -591,14 +589,14 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       dir / "inline.pkl",
       s"""amends "@fh-dashboard/entry.pkl"
          |
-         |import "@fh-dashboard/core/node.pkl" as nodes
+         |import "@fh-dashboard/core/node.pkl" as nodeMod
          |import "@fh-dashboard/theme.pkl" as th
          |
          |theme = ${PklFixture.dummyTheme}
          |
-         |local class Badge extends nodes.Node {
+         |local class Badge extends nodeMod.Node {
          |  card = "badge"
-         |  cardDef = new nodes.CardDef { template = "<b class=\\"badge\\">here</b>" }
+         |  cardDef = new nodeMod.CardDef { template = "<b class=\\"badge\\">here</b>" }
          |}
          |
          |card = new Badge {}
@@ -607,8 +605,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
     val built = SourceEval
       .eval(dir, "inline.pkl")
       .fold(err => fail(s"eval failed: $err"), identity)
-    val dashboard = DashboardBuild
-      .hoistInlineSurfaces(built.value)
+    val dashboard = built.value
       .as[Dashboard]
       .fold(err => fail(s"decode failed: $err"), identity)
     assertEquals(dashboard.validate(), Nil)
@@ -632,15 +629,15 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       s"""amends "@fh-dashboard/entry.pkl"
          |
          |import "@fh-dashboard/components.pkl" as c
-         |import "@fh-dashboard/core/node.pkl" as nodes
+         |import "@fh-dashboard/core/node.pkl" as nodeMod
          |import "mycards.pkl" as mine
          |import "@fh-dashboard/theme.pkl" as th
          |
          |theme = ${PklFixture.dummyTheme}
          |
-         |local class Other extends nodes.Node {
+         |local class Other extends nodeMod.Node {
          |  card = "gauge"
-         |  cardDef = new nodes.CardDef { template = "<i>not the same</i>" }
+         |  cardDef = new nodeMod.CardDef { template = "<i>not the same</i>" }
          |}
          |
          |card = (c.column) { children { mine.gauge("a") new Other {} } }
@@ -688,7 +685,7 @@ class UseCaseSuite extends munit.CatsEffectSuite {
       .hcursor
       .downField("dashboards")
       .downField("two")
-      .downField("card")
+      .downField("root")
       .downField("card")
       .withFocus(_ => io.circe.Json.fromString("nosuchcard"))
       .top

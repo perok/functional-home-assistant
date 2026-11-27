@@ -1,5 +1,9 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -12,7 +16,6 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   Op,
-  Region,
   Value,
   ValueExpr,
   TemplateSlot
@@ -29,7 +32,7 @@ import io.circe.Json
   * just-connected viewer has no membership history, so the first change refills
   * wholesale and the frame after it is under test.
   */
-class SetNodeSuite extends ServerHarness {
+class SetSuite extends ServerHarness {
 
   /** The document's first paint, and a viewer holding it. */
   private def viewing(dash: Dashboard, states: Map[String, EntityState])(
@@ -52,9 +55,11 @@ class SetNodeSuite extends ServerHarness {
     // injected at render time.
     LayoutNode.Component(
       "tile",
-      Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
-        "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(id))))
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+          "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(id))))
+        )
       )
     )
 
@@ -65,12 +70,12 @@ class SetNodeSuite extends ServerHarness {
       limit: Option[Int] = None
   ): Dashboard =
     Dashboard(
-      cards = tile,
-      card = LayoutNode.SetNode(
+      cards = Sets.cards ++ tile,
+      card = Sets.node(
         candidates = candidates,
         members = candidates.map { id =>
-          id -> LayoutNode.SetMember(
-            List(LayoutNode.SetClause(guard(id), tileNode(id)))
+          id -> Sets.Member(
+            List(Sets.Clause(guard(id), tileNode(id)))
           )
         }.toMap,
         orderBy = orderBy,
@@ -127,9 +132,8 @@ class SetNodeSuite extends ServerHarness {
         _ <- step(v, off("light.a"))
         patches <- step(v, on("light.a"))
       } yield {
-        // Remove-then-insert, the idempotent pair an arrival always is.
-        assertEquals(patches.size, 2, clue = patches)
-        assert(patches.head.contains("mode remove"), clue = patches.head)
+        // One insert: the viewer's own list says it was not on the page.
+        assertEquals(patches.size, 1, clue = patches)
         val p = patches.last
         assert(p.contains("mode before"), clue = p)
         // Authored order is c,a,b,d,e, so `a` anchors before `b`.
@@ -140,19 +144,6 @@ class SetNodeSuite extends ServerHarness {
         )
       }
     }
-  }
-
-  test("a reorder moves the FEWEST members that can produce it") {
-    // A set ordered on a live value reorders whenever two members cross, so
-    // moving everything on each crossing would be a patch storm.
-    def moves(before: String, after: String) =
-      Patches.reordered(before.split(" ").toList, after.split(" ").toList)
-
-    assertEquals(moves("a b c", "a b c"), Nil)
-    assertEquals(moves("a b c", "c a b"), List("c"))
-    assertEquals(moves("a b c d", "a d b c"), List("d"))
-    // A full reversal costs n-1; which element stays is arbitrary.
-    assertEquals(moves("a b c", "c b a").size, 2)
   }
 
   private def bri(id: String, v: Int) =
@@ -270,24 +261,26 @@ class SetNodeSuite extends ServerHarness {
   test("a member renders a SUBTREE, and a child's entity patches that child") {
     // A member's children are nodes with ids of their own (#556), so a tick on
     // what one child binds patches that child, not the whole member.
-    val cards = tile ++ Map(
+    val cards = Sets.cards ++ tile ++ Map(
       "col" -> TestCard(
         """<div>{{{children}}}</div>""",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       )
     )
     val subtree = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         tileNode("light.a"),
         LayoutNode.Component(
           "tile",
-          Map(
-            "entity_id" -> TemplateSlot(
-              ValueExpr.literal("sensor.temp")
-            ),
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.temp")))
+          Slots.values(
+            Map(
+              "entity_id" -> TemplateSlot(
+                ValueExpr.literal("sensor.temp")
+              ),
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.temp")))
+              )
             )
           )
         )
@@ -295,11 +288,11 @@ class SetNodeSuite extends ServerHarness {
     )
     val dash = Dashboard(
       cards = cards,
-      card = LayoutNode.SetNode(
+      card = Sets.node(
         candidates = List("light.a"),
         members = Map(
-          "light.a" -> LayoutNode.SetMember(
-            List(LayoutNode.SetClause(None, subtree))
+          "light.a" -> Sets.Member(
+            List(Sets.Clause(None, subtree))
           )
         )
       )
@@ -324,25 +317,25 @@ class SetNodeSuite extends ServerHarness {
   test("a tile per room: the inner set is addressable, the tile is not") {
     // Nested rather than composed so a bulb patches its own element, and the
     // tile, a registry fact and so a literal, is never re-rendered.
-    val cards = tile ++ Map(
+    val cards = Sets.cards ++ tile ++ Map(
       "col" -> TestCard(
         """<div>{{{children}}}</div>""",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       )
     )
     def room(id: String, lights: List[String]) =
-      id -> LayoutNode.SetMember(
+      id -> Sets.Member(
         List(
-          LayoutNode.SetClause(
+          Sets.Clause(
             None,
             LayoutNode.Component(
               "col",
-              regions = LayoutNode.kids(
-                LayoutNode.SetNode(
+              slots = Slots.kids(
+                Sets.node(
                   candidates = lights,
                   members = lights.map { l =>
-                    l -> LayoutNode.SetMember(
-                      List(LayoutNode.SetClause(Some(whileOn), tileNode(l)))
+                    l -> Sets.Member(
+                      List(Sets.Clause(Some(whileOn), tileNode(l)))
                     )
                   }.toMap
                 )
@@ -353,7 +346,7 @@ class SetNodeSuite extends ServerHarness {
       )
     val dash = Dashboard(
       cards = cards,
-      card = LayoutNode.SetNode(
+      card = Sets.node(
         candidates = List("area.stue", "area.bad"),
         members = Map(
           room("area.stue", List("light.a", "light.b", "light.d")),
@@ -388,26 +381,26 @@ class SetNodeSuite extends ServerHarness {
     // which cannot hold a nested set). Whatever the renderer paints as a group
     // must be a container it knows, two levels deep so one level cannot pass by
     // luck.
-    val cards = tile ++ Map(
+    val cards = Sets.cards ++ tile ++ Map(
       "col" -> TestCard(
         """<div>{{{children}}}</div>""",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       )
     )
     def wrap(children: List[LayoutNode]) =
-      LayoutNode.Component("col", regions = LayoutNode.kids(children*))
-    def leafSet(ids: List[String]) = LayoutNode.SetNode(
+      LayoutNode.Component("col", slots = Slots.kids(children*))
+    def leafSet(ids: List[String]) = Sets.node(
       candidates = ids,
       members = ids.map { l =>
-        l -> LayoutNode.SetMember(List(LayoutNode.SetClause(None, tileNode(l))))
+        l -> Sets.Member(List(Sets.Clause(None, tileNode(l))))
       }.toMap
     )
-    val middle = LayoutNode.SetNode(
+    val middle = Sets.node(
       candidates = List("area.stue"),
       members = Map(
-        "area.stue" -> LayoutNode.SetMember(
+        "area.stue" -> Sets.Member(
           List(
-            LayoutNode.SetClause(
+            Sets.Clause(
               None,
               wrap(List(leafSet(List("light.a", "light.b"))))
             )
@@ -417,11 +410,11 @@ class SetNodeSuite extends ServerHarness {
     )
     val dash = Dashboard(
       cards = cards,
-      card = LayoutNode.SetNode(
+      card = Sets.node(
         candidates = List("floor.up"),
         members = Map(
-          "floor.up" -> LayoutNode.SetMember(
-            List(LayoutNode.SetClause(None, wrap(List(middle))))
+          "floor.up" -> Sets.Member(
+            List(Sets.Clause(None, wrap(List(middle))))
           )
         )
       )
@@ -500,7 +493,7 @@ class SetNodeSuite extends ServerHarness {
         patches <- step(v, on(hall))
       } yield {
         assert(!html.contains("""id="c_light_a""""), clue = html)
-        assertEquals(patches.size, 2, clue = patches)
+        assertEquals(patches.size, 1, clue = patches)
         val p = patches.last
         assert(p.contains("mode before"), clue = p)
         assert(p.contains("selector #c_light_c"), clue = p)

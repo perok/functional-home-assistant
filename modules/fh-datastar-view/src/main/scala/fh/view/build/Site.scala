@@ -39,7 +39,8 @@ object Site {
       json: Json,
       sources: Set[os.Path] = Set.empty,
       log: Logger[IO] = Logging.console.getLoggerFromName("fh.view.build.Site"),
-      minifier: Minifier = Minifier.none
+      minifier: Minifier = Minifier.none,
+      live: Map[String, Dashboard.Validated] = Map.empty
   ): IO[Decoded] =
     json.asObject.flatMap(_(DashboardsKey)).flatMap(_.asObject) match {
       case None     => missingDashboards.raiseError[IO, Decoded]
@@ -57,7 +58,7 @@ object Site {
           .sortBy(_._1)
           .traverse { case (slug, value) =>
             DashboardBuild
-              .decode(value, sources, Some(slug), minifier)
+              .decode(value, sources, Some(slug), minifier, live.get(slug))
               .map(_.withAccess(siteAccess))
               .attempt
               .timed

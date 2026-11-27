@@ -25,6 +25,12 @@ two transforms would collide. A `cssClass` slot's reading keys apart (`BoundSlot
 hashed segment): its value is the theme's swap of what it reads (ADR 0020), so it must not share a
 signal with a text slot reading the same thing.
 
+**A node variable's highlight has no signal of its own.** A bool slot holding `v.valueIs(x)` is
+bound to the variable's pending and committed signals at its declarer, which every page already
+has, as `String(($<pending> || $<committed>)) === 'x'` (ADR 0033): a viewer's value never reaches
+a signal every viewer shares, so no frame or seed carries it. Any other variable read in a signal
+is refused.
+
 Dots are path separators, not characters: the bundle rewrites `$_e.light.taklys.state` to
 `$['_e']['light']['taklys']['state']`, and `datastar-patch-signals` applies `mergePatch`, which
 recurses only where a value is an object. So a frame carries a nested structure and never a flat
@@ -76,10 +82,13 @@ Each form is load-bearing:
   disappeared with it. On a first paint signal slots are a straight cost with no suppression to
   offset them at all (`pageSignals` against `page`, roughly 2x) — that is the case this ADR is
   not about.
-- **An element seeds its own signal.** The document form's `data-signals` means a first paint, a
-  host fill or a `?prev=` reconnect repaint needs no frame to be correct. `data-signals`
-  overwrites by default in the pinned bundle (`__ifmissing` is opt-in), so re-seeding on a later
-  wholesale render is correct rather than a race.
+- **An element seeds its own signal.** The document form's `data-signals` means a first paint or a
+  host fill needs no frame to be correct. `data-signals` overwrites by default in the pinned
+  bundle (`__ifmissing` is opt-in), so re-seeding on a later wholesale render is correct rather
+  than a race. The exception is a body repaint (`Patches.repaint`), which also sends its signal
+  values as a frame. The morph re-applies a seed only when its text changed. On a page that
+  missed frames (a forgotten session, a restart), a value that moved and came back would stay
+  where the frames left it.
 - **A JS-less browser gets the value.** It receives the document and nothing else — no Datastar, no
   SSE, no patches ever — so the inline value is exactly and only what it needs.
 
@@ -425,13 +434,13 @@ is the only window in which any of this is observable.
 
 ### One record, not two
 
-`Session.holds` is `Map[NodeId, Held]`, where `Held(values: Option[Map[String, SlotValue]],
+`Session.holds` is `Map[Ix, Held]`, where `Held(values: Option[ByteValues],
 signals: Map[SignalId, SlotValue])`. Both halves answer "is this worth sending?" about one node.
 
 Sharing the map is not tidiness. A host fill makes everything under it unknown, and with a
 separate signal map keyed by signal *name* that invalidation could only be expressed by
-string-prefixing the name back into a node id. Keyed by node, it is the id-prefix test
-`Patches.applied` already runs.
+mapping the name back to a node. Keyed by node, it is the subtree test `Patches.applied` already
+runs (`TreeIndex.contains`).
 
 A signal name is no longer node-scoped, so one value can sit in TWO nodes' `Held.signals`. That is
 fine and stays fine: the frame is a map keyed by name, so duplicates collapse, and a node dropped by

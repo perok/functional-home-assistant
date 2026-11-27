@@ -122,8 +122,9 @@ evaluating ECharts costs ~300 ms per context and a pool pays that per member. A 
 bucket is ~240 ms of serialised drawing, and every viewer after the first in that bucket pays
 nothing.
 
-It is built **lazily** (`Resource#memoizedAcquire`), so an instance whose dashboards hold no chart
-pays neither the ECharts evaluation nor the isolate's heap.
+It is built **lazily** (`ChartRenderer.lazily`, a `Resource#memoizedAcquire`), so an instance
+whose dashboards hold no chart pays neither the ECharts evaluation nor the isolate's heap. It
+reaches the server through `ServerApp.Edges`, so a test suite booting many servers hands them one.
 
 The other user of GraalJS, `build/Minifier` (csso and terser over a dashboard's inline CSS and JS,
 #153), does not share it: borrowing the chart engine would make every instance pay the chart's heap
