@@ -545,7 +545,7 @@ private[runtime] object Patches {
                 Patch.Fill(
                   p.host,
                   renderer.hostId(p.gid),
-                  content.parts.map(_._2).mkString,
+                  content.html,
                   Some(content.shown)
                 ),
                 content.claims
