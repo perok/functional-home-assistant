@@ -4,7 +4,8 @@ A full bench comparison of `after-regions` (9baea638) against main (574f062c), c
 `-f 3` and then profiled (async-profiler, alloc and cpu), found five regressions. Each one below
 names its cause, measured; the fixes keep behaviour byte-identical.
 
-**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7 built, 8 and 9 open.
+**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7 built; 8–11 open, in the order at
+the end.
 
 ## Working this plan
 
@@ -88,9 +89,28 @@ order the walk met them.
    pays once per version. `Shared.of` is 984 B, 448 of it seven tables' empty
    `ConcurrentHashMap`s: every table, not only the three, makes its map on the first fill, at a
    null check on every read.
-8. **A patch's frame copies its fragment about five times** (`collapse`, `"elements " +`,
-   the lines' `mkString`, http4s's `renderString`, `getBytes`), per connection, on main too. One
-   pass from the fragment to the frame's bytes; `RenderBench.wire` prices it.
+8. **A repaint streams like a page load.** A frame copies its fragment about five times
+   (`collapse`, `"elements " +`, the lines' `mkString`, http4s's `renderString`, `getBytes`); a
+   per-node frame is small, but a repaint (`Patches.repaint`) walks the whole body into one
+   `String` (`tracedHtml`) and then copies the document five times, the regex over all of it,
+   where a page load streams the same walk (`tracedInto`) holding one node. The repaint frame is
+   written into the stream instead: its `data: … elements ` prefix, the walk through the page's
+   writer chain behind a filter that folds a whitespace run holding a newline into one space,
+   then its end; the session's holds commit after the walk, as a page load's do. No hand-written
+   UTF-8: the writer's encoder does it in a fixed buffer. Gate: 10's `repaint` B/op near
+   `pageWalk`'s.
+10. **A bench of a real dashboard** (first). Every `RenderBench` page is synthetic (`TestCard`), and
+    no bench prices a repaint. The starter site over a fixture house shaped after the
+    maintainer's (domains, counts, areas), evaluated through `PklBuild` at setup as
+    `PklEvalBench` does: `pageWalk` (the shipped writer chain), `repaint`, and a cold single-shot
+    variant; `-prof gc`, and runs under the Pi's flags (`-XX:+UseSerialGC -Xms64M -Xmx512M`).
+    B/op is the gate that carries to the Pi; time carries in direction only.
+11. **A span on the stream's open**, tagged with whether it repainted, frames and bytes: the walk
+    span (`dashboard.page.walk`) covers a page load only, and a phone reopening the app resumes a
+    stream.
+
+Order: 10, 11, 8, then the reconnect question (a tab switch of a few seconds repaints
+wholesale; why, with the browser test setup: it decides how often 8's path runs), then 9.
 9. **No version refers to another** (replaces 5's release). 5 releases a version `Decided` lets
    go: a manual dispose that every holder of versions must remember. The forward offer has a
    customer each frame (the recorder advances, then plans against `prev`, so its late "before"
