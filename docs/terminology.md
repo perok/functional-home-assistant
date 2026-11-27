@@ -396,7 +396,8 @@ word the runtime uses; not to be confused with a **region**, which is the declar
 the host renders it as **bakeAs**; **bakeIndex** is which member of the group is currently chosen,
 exposed so a card can show the selection without JavaScript.
 
-**Bake group** — the set of surfaces competing for one host. Exactly one is baked at a time. Who
+**Bake group** — the set of surfaces competing for one host, derived from a nodes slot's `Chosen`
+fill (one member per case, plus the otherwise). Exactly one is baked at a time. Who
 chooses is the group's activation: a node variable for a tab bar, a `c.select` or an If over a
 variable (`Activation.Var`, ADR 0033), each member selected at one of its values or, for an If's
 `else`, at every other value; a condition for an If over state. Inside a candidate set's clause,

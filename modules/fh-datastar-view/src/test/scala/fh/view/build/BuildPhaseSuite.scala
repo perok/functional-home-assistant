@@ -1163,6 +1163,29 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
   }
 
+  test("the hoist walks each case of a Chosen fill under its surface's root") {
+    // A popup a case's node opens is keyed under that node's id, which the
+    // model derives for the case as `<host>_t<i>` / `<host>_else`.
+    val opener =
+      """{ "kind": "Component", "card": "x", "inlineSurfaces": { "self": {
+        |  "content": { "kind": "Component", "card": "x" } } } }""".stripMargin
+    val json = parser
+      .parse(s"""{ "cards": {}, "card": { "kind": "Component", "card": "h",
+        "wireSlots": { "branch": { "kind": "Nodes", "fill": { "kind": "Nodes",
+          "choice": { "kind": "Chosen",
+            "by": { "source": { "kind": "Var", "name": "v" } },
+            "cases": [ { "is": "a", "value": [ $opener ] } ],
+            "otherwise": [ $opener ] } } } } } }""")
+      .toOption
+      .get
+    val hoisted = DashboardBuild.hoistInlineSurfaces(json)
+    assertEquals(
+      hoisted.hcursor.downField("surfaces").keys.map(_.toList.sorted),
+      Some(List("s_c_else__c_self", "s_c_t0__c_self"))
+    )
+    assertEquals(DashboardBuild.unresolvedTokens(hoisted), Nil)
+  }
+
   test("validate checks card references inside a surface") {
     val d = Dashboard(
       cards = Map("ok" -> TestCard("<i>{{label}}</i>")),

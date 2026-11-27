@@ -394,7 +394,29 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
      slider's surface keys are `t<n>`. No node id moved (`dashboardGoldensVs set-fill` passes).
    - `Variable.selects` and `AtIndex` are now used only by a `components.test.pkl` fact; they
      go in R4 with `Activation.Var`.
-4. **R4, one runtime path.**
+4. **R4, one runtime path.** Built in four green steps, each its own commit series:
+   - **R4a, a choice on the wire.** `Fill.Nodes(Chosen)` replaces the bake fields a choice
+     writes (`inlineSurfaces` for choices, `bakeInto`/`bakeAs`/`bakeIndex`, `.baked()` and the
+     card's `regions`); the key types move off the window (§3); `IndexOfTrue` decides a chain.
+     The runtime still serves a choice through `SurfaceGraph`'s bake group, its members derived
+     in Scala from the compiled `Chosen` (one member per case plus the otherwise, active when the
+     decided key is its key; case `i` is surface `<host>_t<i>`, the otherwise `<host>_else`). A
+     case holding several nodes stays a `Row` in Pkl, so the wire holds one node per case. The
+     hand-built bake surfaces (`bakeInto`/`bakeAs`/`bakeIndex`, `Activation.Var`/`State`,
+     `VarAt`) stay in the Scala model for the ~20 suites and benches that build them; the four
+     suites named below move to `Chosen` fills. Popups keep `inlineSurfaces`. A guard mixing a
+     variable and state stays refused. The JSON hoist walks each case of a `Chosen`. Rendered
+     bytes do not move: the goldens are the check.
+   - **R4b, the pick.** Deciding per send replaces the bake group: a state-only `by` once per
+     version in `Shared`, a variable-reading one per session; the shared decisions' variable
+     refusals (§4) and the mixed-guard refusal go; `MemberGraph`'s nesting cases go. The
+     hand-built bake surfaces and their suites (~20, `RendererSuite` and `ServerHarness`
+     among them) are rewritten here, once, onto `Chosen` fills, and `Region.fill`, `.baked()`
+     and `Dashboard.choiceSurfaces` go with the bake group. R4a left `validated` on `branches`
+     6.5% above R3 in allocation (deriving the surfaces) and a state group running `by` once
+     per member; the pick removes both.
+   - **R4c, the root hosts.** The group, the If losing a `div`, and the id move (below).
+   - **R4d, the planner.** `holds` keeps each host's keys; the log down to `fragments` (below).
    - `Fill.Nodes(Chosen)` replaces the bake fields on the wire, `inlineSurfaces` staying only for
      popups; `nodeMod.match` over a state reading. The four suites building on `{{bakeIndex}}`
      (`LiveStreamSuite`, `RenderInputsSuite`, `RendererSuite`, `ServerHarness`) are rewritten;

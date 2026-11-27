@@ -420,12 +420,11 @@ facts {
     module.catch(() -> new varMod.Variable { name = "my window" }.name).contains("matches")
   }
 
-  ["a variable is its name: its reads, its declaration and what it selects"] {
+  ["a variable is its name: its reads and its declaration"] {
     local tab = new varMod.Variable { name = "tab" }
     (tab.value.source as slotMod.VarRead).name == "tab"
     tab.defaultingTo("0").variable == tab
     tab.defaultingTo("0").default == "0"
-    tab.selects.name == "tab"
   }
 
   ["the declared window moves with `defaultingTo`"] {

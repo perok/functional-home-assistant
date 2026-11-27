@@ -1,5 +1,5 @@
 /// Surfaces — the on-demand subtrees the build's hoist lifts into a
-/// dashboard's `surfaces`: popups, tab panels, `If` branches. [[Popup]] is here
+/// dashboard's `surfaces`: popups. [[Popup]] is here
 /// because the mechanism itself wraps with it; the dialog is a card the
 /// authoring layer composes, never backend chrome (ADR 0002).
 module core.surface
@@ -7,64 +7,25 @@ module core.surface
 import "node.pkl" as nodeMod
 import "slot.pkl" as slotMod
 
-/// One surface (`fh.view.model.Surface`). `bake*` drive first-paint baking
-/// (tabs, [[If]] branches); `activation` null is user-activated and closed.
+/// One popup (`fh.view.model.Surface`); `activation` null is user-activated and
+/// closed. A choice's branches are not surfaces here: a nodes slot's fill
+/// carries them (`core/choice.pkl`).
 ///
-/// An OWNED surface (a tab panel, an `If` branch) belongs to one node and is
-/// written inline there. A popup any number of taps may open earns a registry
-/// entry: the test is being named from more than one place, or from somewhere
-/// that is not its parent. `openPopupInline` is locality only — its id derives
-/// from the owning node, so no second tap can name it.
+/// An OWNED popup belongs to one node and is written inline there. A popup any
+/// number of taps may open earns a registry entry: the test is being named from
+/// more than one place, or from somewhere that is not its parent.
+/// `openPopupInline` is locality only — its id derives from the owning node, so
+/// no second tap can name it.
 open class SurfaceDef {
   content: nodeMod.LayoutNode
-  bakeInto: String? = null
-  bakeAs: String? = null
-  bakeIndex: Int? = null
-  activation: (UserActivation|VarActivation|StateActivation)? = null
+  activation: UserActivation? = null
 }
 
 /// A popup, shown by a tap; per session. `defaultOpen` shows it from the first
-/// paint. Never a baked member: a host is filled by a [[VarActivation]] or a
-/// [[StateActivation]].
+/// paint.
 class UserActivation {
   kind: "User" = "User"
   defaultOpen: Boolean = false
-}
-
-/// The member the node variable `name` selects [[at]], as seen from the node it
-/// bakes into. Per viewer, like [[UserActivation]], but declared, so a choice
-/// is a variable write (ADR 0033).
-class VarActivation {
-  kind: "Var" = "Var"
-  name: String
-  at: VarAt = new AtIndex {}
-}
-
-/// Which values of a [[VarActivation]]'s variable select its member.
-typealias VarAt = AtValue|AtIndex|AtOtherwise
-
-/// One value.
-class AtValue {
-  kind: "Value" = "Value"
-  value: String
-}
-
-/// The member's `bakeIndex`, as a number.
-class AtIndex {
-  kind: "Index" = "Index"
-}
-
-/// Every value no other member of the group names: an If's else.
-class AtOtherwise {
-  kind: "Otherwise" = "Otherwise"
-}
-
-/// Shown while `condition` holds over live state — the same for every viewer;
-/// none always holds, an If's else. Subject-free: every comparison names its
-/// own entity, and one that names none is a `Dashboard.validate` error.
-class StateActivation {
-  kind: "State" = "State"
-  condition: slotMod.Expr? = null
 }
 
 /// A registered popup whose `body` is wrapped in the [[Popup]] dialog. The

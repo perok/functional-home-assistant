@@ -303,14 +303,16 @@ class NodesSlot extends AnySlot {
   /// members placed straight into its root.
   hidden set: predMod.SetFill? = null
   /// The choice filling it, in place of [[nodes]]: a tab panel, an `If`'s
-  /// branches. It lowers to the node's bake group, and the card places the host
-  /// it is patched into, `id="{{hostId}}"`.
+  /// branches. The card places the host it is patched into, `id="{{hostId}}"`.
   hidden choice: choiceMod.Choice? = null
   hidden bakedBy: Boolean = choice != null
   /// What the wire holds of it, [[nodes]] being a fixed fill.
-  fixed fill: NodesFill|predMod.SetFill = if (set != null) set!! else new NodesFill { choice = nodes }
+  fixed fill: NodesFill|predMod.SetFill =
+    if (set != null) set!!
+    else if (choice != null) let (ch = choice!!) new NodesFill { choice = ch.wire() }
+    else let (ns = nodes) new NodesFill { choice = ns }
   /// Whether anything fills it.
-  hidden filled: Boolean = set != null || !nodes.isEmpty
+  hidden filled: Boolean = set != null || choice != null || !nodes.isEmpty
 
   /// Fixed nodes, a set (`q.from(…).where(…).render(…)`, the one fill of its
   /// card) or a choice (`nodeMod.iff(…)`, `nodeMod.match(…)`).
@@ -329,7 +331,7 @@ class NodesSlot extends AnySlot {
 /// A [[NodesSlot]]'s fill as the wire holds it (`fh.view.model.Fill`).
 class NodesFill {
   kind: "Nodes" = "Nodes"
-  choice: Listing<nodeMod.LayoutNode>
+  choice: Listing<nodeMod.LayoutNode>|choiceMod.ChosenNodes
 }
 
 const function nodes(n: String): NodesSlot = new { name = n }

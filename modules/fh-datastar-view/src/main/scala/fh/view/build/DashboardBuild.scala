@@ -79,6 +79,7 @@ object DashboardBuild {
   val MembersKey: String = "members"
   val CasesKey: String = "cases"
   val ValueKey: String = "value"
+  val OtherwiseKey: String = "otherwise"
 
   /** Stands for the node's own id, which only this pass can mint; the
     * `c.openPopup`/`c.tabs` builders embed it.
@@ -225,10 +226,64 @@ object DashboardBuild {
           ),
           ss
         )
+      case None if fill(ChoiceKey).exists(_.isObject) =>
+        val (walked, ss) = walkChosen(
+          fill(ChoiceKey).flatMap(_.asObject).getOrElse(JsonObject.empty),
+          idBase,
+          clause
+        )
+        (
+          Json.fromJsonObject(
+            obj.add(
+              FillKey,
+              Json.fromJsonObject(
+                fill.add(ChoiceKey, Json.fromJsonObject(walked))
+              )
+            )
+          ),
+          ss
+        )
       case None =>
         val (walked, ss) = walkMembers(fill, idBase, prefix)
         (Json.fromJsonObject(obj.add(FillKey, Json.fromJsonObject(walked))), ss)
     }).getOrElse((slot, Nil))
+
+  /** A `Chosen` fill's cases, each walked as the root of the surface it is
+    * served as: case `i` is `<host>_t<i>`, the otherwise `<host>_else`, inside
+    * a set member's clause `<host>_k<clause>_…`. The model derives the same ids
+    * ([[fh.view.model.Dashboard.choiceSurfaces]]); a second spelling here would
+    * leave `@@NODE_ID@@` in the DOM.
+    */
+  private def walkChosen(
+      chosen: JsonObject,
+      idBase: String,
+      clause: Option[Int]
+  ): (JsonObject, List[(String, Json)]) = {
+    def sidOf(key: String) =
+      clause.fold(surfaceId(idBase, key))(k => surfaceId(s"${idBase}_k$k", key))
+    def nodes(key: String, js: Json): (Json, List[(String, Json)]) =
+      val rs = js.asArray.getOrElse(Vector.empty).map { n =>
+        walkRoot(n, LayoutNode.surfacePrefix(sidOf(key)))
+      }
+      (Json.fromValues(rs.map(_._1)), rs.toList.flatMap(_._2))
+    val cases = chosen(CasesKey).flatMap(_.asArray).getOrElse(Vector.empty)
+    val walkedCases = cases.zipWithIndex.map { (kase, i) =>
+      val kObj = kase.asObject.getOrElse(JsonObject.empty)
+      kObj(ValueKey).fold((kase, List.empty[(String, Json)])) { v =>
+        val (js, ss) = nodes(s"t$i", v)
+        (Json.fromJsonObject(kObj.add(ValueKey, js)), ss)
+      }
+    }
+    val walkedOtherwise =
+      chosen(OtherwiseKey).filter(!_.isNull).map(nodes("else", _))
+    val withCases = chosen.add(CasesKey, Json.fromValues(walkedCases.map(_._1)))
+    (
+      walkedOtherwise.fold(withCases)((js, _) =>
+        withCases.add(OtherwiseKey, js)
+      ),
+      walkedCases.toList.flatMap(_._2) ++ walkedOtherwise.toList.flatMap(_._2)
+    )
+  }
 
   /** A set's member nodes under [[LayoutNode.memberSegment]], as `MemberGraph`
     * mints them. Every case of a candidate gets the same id, since one is ever
