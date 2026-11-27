@@ -5,7 +5,7 @@ runtime throw, a gap in the oracle and in two benches, and two things a popup ca
 put the rules where a mistake cannot be written and close the test gaps; G and H are the popup
 work. Each step is a commit (or a few) that is green on its own.
 
-**State:** planned 2026-11-26; A built (with its leaning dashboard and the Back reload); B built; C built. Branch `after-regions`, stacked on `d6-benches`
+**State:** planned 2026-11-26; A built (with its leaning dashboard and the Back reload); B built; C built; D dropped. Branch `after-regions`, stacked on `d6-benches`
 (#731).
 
 ## Working this plan
@@ -90,31 +90,30 @@ moved head is `Reload`. `openingPatches` runs it and logs a repaint's reason at 
 
 **Docs.** The pipeline doc's opening paragraph; ADR 0011 where it lists the conditions.
 
-## D. What a decision reads, in its type
+## D. Dropped: what a decision reads, in its type
 
-**Why.** What a decision needs is known when it compiles: whether its `by` reads a variable, a
-fetch, both or neither. `Shared` enforces it at run time instead: `viewer` throws when a decision
-reading a variable is asked with no viewer, and `answered` throws when one reading a fetch is
-reached outside a run.
+Dropped at review, 2026-11-27, before anything was built. The idea was to compile what each decision
+reads (a variable, a fetch, both, neither) into its type, so `Shared`'s two throws (`viewer` with
+no viewer, `answered` outside a run) go, a lookup is quicker and a meaningless setup is refused.
+None of the three holds:
 
-**Shape.** `Ready` compiles each decision (a pick, a set member, a `valueWhile`, an order key) into
-a type that says what it needs, and `Shared` decides each only through a method that takes that: a
-viewer's values, a run, both. The two throws go. A read after its run has finished (`Run.answers`)
-is about time, not type, and stays a check.
+- **Already compiled.** What a decision reads is worked out once, when the dashboard is compiled:
+  `PickGraph`'s `statePicks`/`viewerPicks`/`varPicks`, a set source's `variables` and `reads`, a
+  gate's `variables`. At run time the dispatch is a field read or a set lookup, and a sum type would
+  only turn it into a `match`, which costs the same.
+- **No speed.** The cost of a lookup is in `Shared.decideAt`, which builds and hashes a `List` of
+  the viewer's values on every call. That depends on the viewer, not on the decision's type, and is
+  worth measuring (`viewerPull`, `publishSet`) only if it shows in a profile.
+- **No new validation.** The throws are internal invariants, and nothing an author writes reaches
+  them. Every production walk runs under `renderer.decide`, with a run, and the recorder plans per
+  viewer when `members.readsViewer`. Neither message has a fix commit. The setups an author can get
+  wrong are refused at build already (`Validate.decisionFetchErrors`, a read with no declarer, a
+  condition naming no entity).
+- **The cost.** Run and viewer types threaded through `PickGraph`, `MemberGraph`, `Renderer` and
+  `Server`, plus about 20 test fixtures, all to guard a walk that nobody has written yet.
 
-**Where.** `Ready`, `Shared` (`decideAt` and the methods routed through it), `PickGraph`,
-`MemberGraph`, `VarGraph`.
-
-**Test.** Cannot fail at run time once the types hold it: the suites stay green and `git grep`
-finds neither message.
-
-**Gate.** `RenderBench.publishSet`, `publishSetOrdered`, `publishSetNamedGuard`, `viewerPull`,
-`resumeMorphsFanout`.
-
-**Docs.** The pipeline doc, §1 (`Shared` and the two levels); `docs/terminology.md` if a type
-name becomes a word the docs use.
-
-**Open.** The type names, settled at the step.
+Reopen with a meaningless setup that builds today: that one becomes a `Validate` rule with a test,
+not a type.
 
 ## E. A reload compares what a dashboard was resolved with
 
