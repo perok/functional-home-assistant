@@ -56,13 +56,16 @@ private[runtime] object Opening {
           val heldElsewhere = s.painter match
             case Painter.By(p) => !(p eq r)
             case _             => false
-          if (c.logId != log.id || !log.numberedBy(r))
-            Repaint(RepaintReason.OtherLog)
-          else if (c.version > storeVersion) Repaint(RepaintReason.AheadOfStore)
-          else if (!log.reaches(c.version)) Repaint(RepaintReason.BeforeGap)
-          else if (c.version < s.told) Repaint(RepaintReason.BehindTold)
-          else if (heldElsewhere) Repaint(RepaintReason.HeldElsewhere)
-          else Resume(resumeFrom(c, reconnect))
+          if (c.logId != log.id) Repaint(RepaintReason.OtherLog)
+          else
+            log.cannotResume(r, c.version) match
+              case Some(why) => Repaint(why)
+              case None      =>
+                if (c.version > storeVersion)
+                  Repaint(RepaintReason.AheadOfStore)
+                else if (c.version < s.told) Repaint(RepaintReason.BehindTold)
+                else if (heldElsewhere) Repaint(RepaintReason.HeldElsewhere)
+                else Resume(resumeFrom(c, reconnect))
     }
 
   /** A reconnect's cursor (signals) may hold only part of version V — one

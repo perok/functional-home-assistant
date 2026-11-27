@@ -83,6 +83,15 @@ private[runtime] case class FragmentLog(
     */
   def reaches(v: Long): Boolean = completeFrom <= v + 1
 
+  /** Why this log cannot name what a page painted under `r` missed after `v`,
+    * if it cannot: the one test a live pull ([[Patches.Watched]]) and an
+    * opening ([[Opening.of]]) both resume on.
+    */
+  def cannotResume(r: Renderer.Stamp, v: Long): Option[RepaintReason] =
+    if (!numberedBy(r)) Some(RepaintReason.OtherLog)
+    else if (!reaches(v)) Some(RepaintReason.BeforeGap)
+    else None
+
   // A fragment's version never goes backwards.
   def touched(ix: Ix, at: Long): FragmentLog =
     if (fragments.get(ix).exists(_ > at)) this

@@ -375,7 +375,7 @@ private[runtime] object Patches {
       * before it is painted, a page before its snapshot is read
       * ([[Server.recordFrame]]), so every frame since was recorded against its
       * screen, and a press renders what arrives itself. And `log` still
-      * describes everything after `position` ([[FragmentLog.reaches]]).
+      * describes everything after `position` ([[FragmentLog.cannotResume]]).
       */
     def of(
         log: FragmentLog,
@@ -383,7 +383,7 @@ private[runtime] object Patches {
         position: Long
     ): Option[Watched] =
       painter match
-        case Painter.By(p) if log.numberedBy(p) && log.reaches(position) =>
+        case Painter.By(p) if log.cannotResume(p, position).isEmpty =>
           Some(new Watched(position))
         case _ => None
   }

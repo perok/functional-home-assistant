@@ -654,7 +654,8 @@ values show; the page's container is no pick's case, so `PickGraph.chosen` does 
 
 `Logged` carries the evidence, a `Patches.Watched` minted only by `Watched.of` from the session's
 `position` and `painter`: the log reaches the position, and the session was painted under the
-renderer that numbers the log. The resume starts from that position, so the evidence cannot be
+renderer that numbers the log, which is the test an opening resumes on too
+(`FragmentLog.cannotResume`). The resume starts from that position, so the evidence cannot be
 paired with another cursor; where the mint refuses, the pull repaints (`Server.owed`).
 
 A client's cursor gets `>=` where a session's `position` gets `+ 1`, and the difference is who is
