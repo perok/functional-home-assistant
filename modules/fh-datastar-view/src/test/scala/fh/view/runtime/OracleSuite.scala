@@ -451,6 +451,23 @@ class OracleSuite extends HedgehogSuite {
       case failure        => throw AssertionError(failure.toString)
   }
 
+  /** A press on a page a reload swapped, while down, queues the swap's repaint;
+    * the porch changing after it reaches the page only through the opening that
+    * follows that repaint on the reconnect.
+    */
+  test(
+    "viewer-decisions: a reconnect after a swap sends what changed since"
+  ) {
+    val e = FixtureEntries.viewerDecisions
+    run(
+      variants(e),
+      e,
+      List(Step.Drop(0), Step.Reload, Step.Press(0, 0), Step.Change(4, 1))
+    ) match
+      case Result.Success => ()
+      case failure        => throw AssertionError(failure.toString)
+  }
+
   /** Back on a page whose session is forgotten: the browser has moved the URL
     * off the popup, so the page reloads there; refused, it kept the popup, and
     * the reconnect adopted it from the page's committed choices.
