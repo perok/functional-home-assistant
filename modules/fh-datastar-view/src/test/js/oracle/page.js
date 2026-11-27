@@ -57,14 +57,16 @@ globalThis.__page = {
         }
     return false
   },
+  /** The browser's Back, inside the dashboard only: false on its first entry. */
+  back: () => history.length > 1 && (history.back(), true),
   /** The requests waiting for an answer, as JSON. */
   requests: () =>
     JSON.stringify(o.pending.map(({ id, method, path, body }) => ({ id, method, path, body }))),
-  answer: (id, status, text) => {
+  answer: (id, status, mediaType, text) => {
     const i = o.pending.findIndex((r) => r.id === id)
     if (i < 0) throw new Error("no request " + id)
     const [r] = o.pending.splice(i, 1)
-    r.resolveFetch(o.response(status, text))
+    r.resolveFetch(o.response(status, text, undefined, mediaType))
   },
   /** The request never reaches a server, as `fetch` rejects when none answers. */
   unreachable: (id) => {

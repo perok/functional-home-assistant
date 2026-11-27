@@ -419,7 +419,8 @@ class ResumeSuite extends ServerHarness {
           s"sse/history/${ts.slug}",
           body = s"""{"${Server.ConnSignal}":"${pressed.document.conn}"}"""
         )
-        // Pressed on the old page: repainted and refused, not run.
+        // Back on the old page: repainted, not run, and the page reloads at its
+        // URL (ADR 0024).
         stale <- back
         pressSent <- pressed.session.takeBacklog.map(text)
         again <- back
@@ -431,7 +432,7 @@ class ResumeSuite extends ServerHarness {
         assert(pullSent.contains(BodyRepaint), clue = pullSent)
         assert(pullSent.contains(">hot<"), clue = pullSent)
         assert(pressSent.contains(BodyRepaint), clue = pressSent)
-        assert(stale._2.contains(Server.DashboardChangedMessage), clue = stale)
+        assert(stale._2.contains(Server.BackReloadedNotice), clue = stale)
         assertEquals(again._1, Status.NoContent, clue = again)
         assert(reloadSent.contains(Server.ReloadSignal), clue = reloadSent)
         assert(!reloadSent.contains(BodyRepaint), clue = reloadSent)

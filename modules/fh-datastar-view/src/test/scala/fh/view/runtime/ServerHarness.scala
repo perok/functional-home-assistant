@@ -137,7 +137,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
       states: Map[String, EntityState],
       v: Long,
       env: VarEnv = Map.empty,
-      coverage: Patches.Coverage = Patches.Coverage.Swept
+      coverage: (FragmentLog, Long) => Patches.Coverage = (_, v) =>
+        Patches.Coverage.Swept(v)
   ): List[Addressed] =
     RenderCache.create
       .flatMap(
@@ -150,8 +151,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
           noDecisionFetches,
           _ => IO.pure(FetchSnapshot.empty),
           env,
-          v,
-          coverage
+          coverage(log, v)
         )
       )
       .unsafeRunSync()

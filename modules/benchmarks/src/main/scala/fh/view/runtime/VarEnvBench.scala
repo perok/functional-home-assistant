@@ -71,21 +71,21 @@ class VarEnvBench {
   @Benchmark
   def pullPlain(bh: Blackhole): Unit = {
     rot += 1
+    val log = renderer.index
+      .ixsOf(FetchBench.PlainId)
+      .foldLeft(Pulled.log(renderer))(_.touched(_, rot))
     bh.consume(
       Patches
         .resume(
           renderer,
           cache,
-          renderer.index
-            .ixsOf(FetchBench.PlainId)
-            .foldLeft(FragmentLog("bench"))(_.touched(_, rot)),
+          log,
           Map.empty,
           st,
           _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.of(Map.empty)),
           renderer.vars.env(Map(window -> "7d")),
-          rot,
-          Patches.Coverage.Logged
+          Pulled.from(renderer, log, rot)
         )
         .unsafeRunSync()
     )

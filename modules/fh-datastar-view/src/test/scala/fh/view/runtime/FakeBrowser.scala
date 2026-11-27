@@ -41,15 +41,27 @@ final class FakeBrowser private (
 
   /** The stream from the page's own request; a `_reload` it sets loads the page
     * again at its URL and connects that one.
+    *
+    * The backlog is applied here, after the request is spelled: a real stream
+    * sends it ahead of the opening, and a swap's repaint in it ends with a
+    * cursor, where the read below would stop short of the opening.
     */
   def connect: IO[Unit] = IO.defer {
-    ts.gatedApp
-      .run(
-        Request[IO](
-          Method.GET,
-          Uri.unsafeFromString(current.streamRequest)
-        )
+    val request = Request[IO](
+      Method.GET,
+      Uri.unsafeFromString(current.streamRequest)
+    )
+    ts.sessions
+      .get(conn)
+      .flatMap(
+        _.traverse_(_.takeBacklog.flatMap(fs => IO(fs.foreach(current(_)))))
       )
+      .flatMap(_ => IO(current.reloadAsked).ifM(reload, opened(request)))
+  }
+
+  private def opened(request: Request[IO]): IO[Unit] =
+    ts.gatedApp
+      .run(request)
       .flatMap(
         _.body
           .through(ServerSentEvent.decoder[IO])
@@ -69,7 +81,6 @@ final class FakeBrowser private (
       .timeout(15.seconds) *>
       IO { streaming = true } *>
       IO(current.reloadAsked).ifM(reload, IO.unit)
-  }
 
   private def reload: IO[Unit] = IO.defer {
     val query = current.query
@@ -106,17 +117,20 @@ final class FakeBrowser private (
   def post(path: String): IO[Unit] =
     IO(current.press(path)) *> answerRequests
 
+  /** Back, within the dashboard's own entries: the page posts its query. */
+  def back: IO[Unit] = IO(current.back()).ifM(answerRequests, IO.unit)
+
   private def answerRequests: IO[Unit] = IO.defer {
     current.requests match
-      case Nil => IO.unit
+      case Nil => IO(current.reloadAsked).ifM(reload, IO.unit)
       case rs  =>
         rs.traverse_ { r =>
           IO.raiseUnless(r.method == "POST")(
             IllegalStateException(s"the page made a ${r.method} ${r.path}")
           ) *>
-            ts.postResult(r.path, body = r.body)
-              .flatMap((status, body) =>
-                IO(current.answer(r.id, status.code, body))
+            ts.postAnswer(r.path, body = r.body)
+              .flatMap((status, mediaType, body) =>
+                IO(current.answer(r.id, status.code, mediaType, body))
               )
         } *> answerRequests
   }

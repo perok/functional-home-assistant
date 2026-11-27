@@ -143,7 +143,8 @@ server keeps showing one.
   absent param the declared value, and whatever moved re-rendered as a press
   would. So a choice made since then to a variable in the URL but not in history
   (a window chooser) goes back too. A variable kept out of the URL is left
-  alone, since its absent param would read as its declared value.
+  alone, since its absent param would read as its declared value. A post the
+  server has no session for reloads the page at that URL (ADR 0024).
 - **The mirror marks the entries it made, not by key.** A mark naming one key
   erased a second history variable's param from that one's own entry, and a link
   naming two pushed one entry each, so Back reopened one. Now an entry the mirror

@@ -298,11 +298,11 @@ class Server(
       (why, pending) => actionRefused(req, why, pending),
       (renderer, key, conn) =>
         inSession(
-          req,
           slug,
           IO.pure(renderer),
           conn,
-          Some(key.pendingSignal)
+          actionRefused(req, _, Some(key.pendingSignal)),
+          actionRefused(req, _, Some(key.pendingSignal))
         )((session, renderer) => setVar(session, renderer, key, d.value))
     )
 
@@ -834,10 +834,11 @@ class Server(
       )
     }
 
-  /** A log another renderer numbers, or one that does not reach the position (a
-    * recorder's seed above it, a stretch nobody watched), cannot say what this
-    * session missed: it repaints. The log can be newer than `installed` (a
-    * second swap in flight); the ring that swap sends repaints again.
+  /** A log that cannot say what this session missed ([[Patches.Watched]]:
+    * another renderer numbers it, or a recorder's seed or a stretch nobody
+    * watched is above the position) repaints. The log can be newer than
+    * `installed` (a second swap in flight); the ring that swap sends repaints
+    * again.
     */
   private def owed(
       live: Server.LiveSlug,
@@ -855,11 +856,12 @@ class Server(
         store <- OptionT.liftF(stateStore.current)
       yield (renderer, s, log, store))
         .semiflatMap { (renderer, s, log, store) =>
-          if (log.numberedBy(renderer.generation) && log.reaches(s.position))
-            resumed(live, renderer, s, log, store, version)
-          else
-            repaint(live, session, renderer.generation, renderer)(was)
-              .map(st => Session.Step(st.next, st.frames, st.frames))
+          Patches.Watched.of(log, s.painter, s.position) match
+            case Some(watched) =>
+              resumed(live, renderer, s, log, store, version, watched)
+            case None =>
+              repaint(live, session, renderer.generation, renderer)(was)
+                .map(st => Session.Step(st.next, st.frames, st.frames))
         }
         .getOrElse(Session.Step(was, Nil, Nil))
 
@@ -869,7 +871,8 @@ class Server(
       s: SessionState,
       log: FragmentLog,
       store: StoreState,
-      version: Long
+      version: Long,
+      watched: Patches.Watched
   ): IO[Session.Step[List[SseFrame]]] = {
     val env = renderer.vars.env(s.values)
     Patches
@@ -882,10 +885,7 @@ class Server(
         decisionAnswers,
         answer(_, env),
         env,
-        s.position + 1,
-        // Only reached when the log reaches `position`, and this session
-        // has been watched since its page.
-        Patches.Coverage.Logged
+        Patches.Coverage.Logged(watched)
       )
       .map { patches =>
         // The cursor rides LAST, which makes it an ack: a client echoing it
@@ -911,11 +911,8 @@ class Server(
       }
   }
 
-  /** What a (re)connecting client is sent first (ADR 0011): '''reload''' when
-    * the head's unpatchable part moved ([[Renderer.headHash]]), '''resume'''
-    * when the cursor provably names what this DOM holds, else '''repaint''' —
-    * always correct, where a wrong resume is silently stale forever. A stale
-    * theme or title is patched in front of either ([[headPatches]]).
+  /** Runs [[Opening.of]]. A stale theme or title is patched in front of a
+    * resume or a repaint ([[headPatches]]).
     *
     * '''The doorbell is read BEFORE the log.''' The store runs ahead of the
     * log, so a resume claiming `store.version` would claim a change nobody
@@ -935,91 +932,82 @@ class Server(
       stateStore.current
     ).flatMapN { (covered, installed, log, store) =>
       val cursor = Server.cursorOf(req)
-      installed.rendererOf match
-        // A failed slug: the error page is a reload away.
-        case None => IO.pure(Server.reloaded(s, installed))
-        case Some(renderer) if cursor.exists(_.headHash != renderer.headHash) =>
-          IO.pure(Server.reloaded(s, renderer.generation))
-        case Some(renderer) =>
+      val opening = Opening.of(
+        serving = installed.rendererOf.map(_.generation),
+        cursor = cursor,
+        reconnect = Server.isReconnect(req),
+        log = log,
+        storeVersion = store.version,
+        s = s
+      )
+      def opened(renderer: Renderer, claim: Long)(
+          sentIO: IO[(List[SseFrame], Map[Ix, Held])]
+      ): IO[Session.Step[Unit]] =
+        val head =
+          if (cursor.exists(_.styleHash != renderer.styleHash))
+            Server.headPatches(renderer, slug)
+          else Nil
+        sentIO.map { (sent, held) =>
+          Session.Step(
+            s.copy(
+              holds = held,
+              position = claim,
+              told = claim,
+              painter = Painter.By(renderer.generation)
+            ),
+            head ++ sent :+
+              // With the variables: a stream that died between a press's
+              // patch and its commit left them disagreeing.
+              Server.openingSignals(
+                renderer,
+                s.values,
+                log.idUnder(renderer.generation),
+                claim
+              ),
+            ()
+          )
+        }
+      (installed.rendererOf, opening) match
+        case (Some(renderer), Opening.Resume(from)) =>
           val env = renderer.vars.env(s.values)
-          val shared = renderer.shared(store)
-          val head =
-            if (cursor.exists(_.styleHash != renderer.styleHash))
-              Server.headPatches(renderer, slug)
-            else Nil
-          // `Patches.resume` is total, so only global reasons repaint: no
-          // cursor, another log's (restart or swap), one ahead of the store
-          // (rewound counter), one from before a gap nobody watched
-          // ([[FragmentLog.reaches]]) — or one behind `told`. `holds` records
-          // what was SENT; a cursor rides last in its batch, so an echo behind
-          // `told` means claimed bytes were lost.
-          // And never across a swap: `holds` is one renderer's, and the log
-          // read here may be the next renderer's already.
-          val heldHere = s.painter match
-            case Painter.By(p) => p eq renderer.generation
-            case _             => true
-          val resumedIO = cursor
-            .filter(c =>
-              heldHere && log.numberedBy(renderer.generation) &&
-                c.logId == log.id && c.version <= store.version &&
-                log.reaches(c.version) && c.version >= s.told
-            )
-            .traverse(c =>
-              Patches.resume(
+          opened(renderer, covered)(
+            Patches
+              .resume(
                 renderer,
                 live.cache,
                 log,
                 s.holds,
-                shared,
+                renderer.shared(store),
                 decisionAnswers,
                 answer(_, env),
                 env,
-                Server.resumeFrom(req, c),
-                // A reconnect: this screen may be one no frame was recorded
-                // against.
-                Patches.Coverage.Swept
+                Patches.Coverage.Swept(from)
               )
-            )
+              .map(patches =>
+                patches.map(_.patch.toSse) ->
+                  patches.foldLeft(s.holds)(
+                    Patches.applied(renderer.index, _, _)
+                  )
+              )
+          )
+        case (Some(renderer), Opening.Repaint(reason)) =>
+          val env = renderer.vars.env(s.values)
           // Traced, so the repaint claims what it painted; clearing `holds`
           // instead would re-send the whole page on the next pull.
-          val painted =
-            pageAnswers(renderer, store, env).map((fragments, at) =>
-              Patches.repaint(renderer, at, Viewing(fragments))
-            )
-          resumedIO.flatMap { resumed =>
-            val claim = resumed.fold(store.version)(_ => covered)
-            resumed
-              .fold(painted)(patches =>
-                IO.pure(
-                  patches.map(_.patch.toSse) ->
-                    patches
-                      .foldLeft(s.holds)(
-                        Patches.applied(renderer.index, _, _)
-                      )
-                )
+          logger.debug(s"$slug: the opening repaints ($reason)") *>
+            opened(renderer, store.version)(
+              pageAnswers(renderer, store, env).map((fragments, at) =>
+                Patches.repaint(renderer, at, Viewing(fragments))
               )
-              .map { (sent, held) =>
-                Session.Step(
-                  s.copy(
-                    holds = held,
-                    position = claim,
-                    told = claim,
-                    painter = Painter.By(renderer.generation)
-                  ),
-                  head ++ sent :+
-                    // With the variables: a stream that died between a press's
-                    // patch and its commit left them disagreeing.
-                    Server
-                      .openingSignals(
-                        renderer,
-                        s.values,
-                        log.idUnder(renderer.generation),
-                        claim
-                      ),
-                  ()
-                )
-              }
-          }
+            )
+        // A failed slug: the error page is a reload away.
+        case _ =>
+          IO.pure(
+            Server.reloaded(
+              s,
+              installed.rendererOf.fold[AnyRef](installed)(_.generation)
+            )
+          )
     }
 
   /** The first step of a stream. A forgotten session's carried variables are
@@ -1150,7 +1138,7 @@ class Server(
           s"no node this viewer is shown reads the variable '${key.name}' declared on '${key.declarer}'"
         )
       )
-      _ <- renderer.refusals(proposed) match {
+      _ <- renderer.refusals(s.initialValues ++ proposed) match {
         case Nil     => IO.unit
         case refused =>
           IO.raiseError(FHError.badCondition(refused.mkString("; ")))
@@ -1174,6 +1162,7 @@ class Server(
   )(s: SessionState): IO[Session.Step[Unit]] = {
     val inUrl = renderer.vars.inUrl
     val (proposed, refused) = renderer.adopt(
+      s.initialValues,
       s.vars.filterNot((k, _) => inUrl(k)),
       url.view.filterKeys(inUrl).toMap
     )
@@ -1300,6 +1289,7 @@ class Server(
       req: Request[IO]
   ): IO[SessionState] = {
     val (kept, refused) = renderer.adopt(
+      s.initialValues,
       s.vars,
       Server.carriedVars(req, renderer).removedAll(s.vars.keys)
     )
@@ -1330,25 +1320,32 @@ class Server(
       case _ => IO.pure(FetchSnapshot.of(Map.empty, env))
     }
 
-  /** Resolve `conn` (from the signals body) to its session and renderer, and
-    * run `f` as one of its steps. Only success is NoContent; every refusal is
-    * [[actionRefused]] (ADR 0024).
+  /** Back or Forward under `conn`, as one step of its session; success is
+    * NoContent. Not run, with no session or on a page a dashboard edit replaced
+    * ([[swapAnswer]]), the page reloads at its URL with a notice (ADR 0024):
+    * the browser has already moved the URL, and a refusal leaves the session's
+    * choices disagreeing with it, so a popup Back closed came back open.
     */
   private def withSession(
       req: Request[IO],
       slug: String
   )(
       f: (Session, Renderer) => SessionState => IO[Session.Step[Unit]]
-  ): IO[Response[IO]] =
+  ): IO[Response[IO]] = {
+    def lost(why: String) =
+      logger.info(s"Back reloaded a page on '$slug': $why") *>
+        Ok(
+          Json.obj(
+            Server.ReloadSignal -> Json.fromString(Server.BackReloadedNotice)
+          )
+        )
     req.bodyText.compile.string
       .map(io.circe.parser.parse(_).toOption.flatMap(connOf))
       .flatMap {
-        case None =>
-          actionRefused(req, "missing conn")
+        case None       => lost("missing conn")
         case Some(conn) =>
           gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
             inSession(
-              req,
               slug,
               rendererFor(slug).flatMap(
                 _.liftTo[IO](
@@ -1356,20 +1353,23 @@ class Server(
                 )
               ),
               conn,
-              None
+              lost,
+              lost
             )(f)
           )
       }
+  }
 
-  /** [[withSession]] once `conn` is read and the request is admitted. A refusal
-    * also clears `pending`.
+  /** `f` as one step of `conn`'s session, once the request is admitted. No
+    * session for `conn` on this slug is `lost`; any other refusal is `refuse`,
+    * each with its message.
     */
   private def inSession(
-      req: Request[IO],
       slug: String,
       served: IO[Renderer],
       conn: String,
-      pending: Option[String]
+      lost: String => IO[Response[IO]],
+      refuse: String => IO[Response[IO]]
   )(
       f: (Session, Renderer) => SessionState => IO[Session.Step[Unit]]
   ): IO[Response[IO]] =
@@ -1378,10 +1378,9 @@ class Server(
         // Only the stream makes a session: a press carries too little of the
         // page to rebuild one (ADR 0024).
         sessions.get(conn).flatMap {
-          case None =>
-            actionRefused(req, Server.NotConnectedMessage, pending)
+          case None => lost(Server.NotConnectedMessage)
           case Some(session) if session.slug != slug =>
-            actionRefused(req, Server.WrongSlugMessage, pending)
+            lost(Server.WrongSlugMessage)
           case Some(session) =>
             session
               .run(was =>
@@ -1405,15 +1404,14 @@ class Server(
               )
               .flatMap(ran =>
                 if ran then NoContent()
-                else actionRefused(req, Server.DashboardChangedMessage, pending)
+                else refuse(Server.DashboardChangedMessage)
               )
         }
       }
       // A 4xx becomes a refusal; a 5xx is our bug and stays with
       // [[FHError.handle]] rather than showing the user an internal message.
       .recoverWith {
-        case e: FHError if e.status < 500 =>
-          actionRefused(req, e.message, pending)
+        case e: FHError if e.status < 500 => refuse(e.message)
       }
 
   private def connOf(body: Json): Option[String] =
@@ -1676,7 +1674,11 @@ class Server(
     // Narrowed to declarations: an undeclared URL key would become a
     // signal name in the opening frame. A refused one is dropped, not a
     // 400: a link outlives the layout it was copied from.
+    // From this read, not the walk's: an initial value is decided once,
+    // and a state a few milliseconds older decides it just as well.
+    val initialValues = renderer.initialValuesFor(store.entities)
     val (choices, refused) = renderer.adopt(
+      initialValues,
       Map.empty,
       Server
         .varChoicesOf(req)
@@ -1684,9 +1686,6 @@ class Server(
         .filterKeys(renderer.vars.defaults.contains)
         .toMap
     )
-    // From this read, not the walk's: an initial value is decided once,
-    // and a state a few milliseconds older decides it just as well.
-    val initialValues = renderer.initialValuesFor(store.entities)
     IO.whenA(refused.nonEmpty)(
       logger.warn(
         s"a link carried choices no reader takes, ignored: ${refused.mkString("; ")}"
@@ -2008,7 +2007,7 @@ class Server(
     val connBanner = themeClasses.rewriteTemplate(
       s"""<div data-signals="{${Server.HaDownSignal}: $haDown, ${Server.SseSignal}: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, ${Server.ConnSignal}: '${Server
           .escapeJsString(restore.conn)}'$varSeed}"
-         |     data-effect="$$${Server.ReloadSignal} && window.location.reload()"$fromHistory
+         |     data-effect="$$${Server.ReloadSignal} && fhReload($$${Server.ReloadSignal})"$fromHistory
          |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
          |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
          |     data-on:$sseEvent="$$${Server.SseSignal} = $sseLatched">
@@ -2663,6 +2662,10 @@ object Server {
   private[runtime] val NotConnectedMessage: String =
     "Not connected — press again once the page has reconnected"
 
+  /** What the page reloaded by a refused Back toasts once it is back. */
+  private[runtime] val BackReloadedNotice: String =
+    "The page was reloaded to follow Back"
+
   /** A press on a page a dashboard edit has since replaced ([[swapAnswer]]). */
   private[runtime] val DashboardChangedMessage: String =
     "The dashboard changed — press again"
@@ -2886,13 +2889,8 @@ object Server {
   private[runtime] def isReconnect(req: Request[IO]): Boolean =
     signalsOf(req).exists(_.downField(CursorSignal).succeeded)
 
-  /** A reconnect's cursor (signals) may hold only part of version V — one
-    * version can produce several batches — so it resumes from V. A document's
-    * (query params) was rendered from one snapshot and has all of V, so it
-    * resumes from V + 1.
-    */
   private[runtime] def resumeFrom(req: Request[IO], c: Cursor): Long =
-    if (isReconnect(req)) c.version else c.version + 1
+    Opening.resumeFrom(c, isReconnect(req))
 
   /** Signals first, as in [[cursorOf]]. */
   private[runtime] def connOf(req: Request[IO]): Option[String] =

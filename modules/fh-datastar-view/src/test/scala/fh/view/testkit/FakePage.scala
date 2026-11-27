@@ -102,6 +102,13 @@ final class FakePage private (context: Context, page: Value)
     settle()
   }
 
+  /** Back, if the tab has an entry below this one; whether it had. */
+  def back(): Boolean = {
+    val went = call("back").asBoolean
+    settle()
+    went
+  }
+
   /** The requests the page made that wait for an answer. */
   def requests: List[FakePage.Request] =
     io.circe.parser
@@ -117,8 +124,8 @@ final class FakePage private (context: Context, page: Value)
         )
       )
 
-  def answer(id: Int, status: Int, body: String): Unit = {
-    val _ = call("answer", Int.box(id), Int.box(status), body)
+  def answer(id: Int, status: Int, mediaType: String, body: String): Unit = {
+    val _ = call("answer", Int.box(id), Int.box(status), mediaType, body)
     settle()
   }
 
@@ -180,7 +187,8 @@ final class FakePage private (context: Context, page: Value)
   /** The page card's root (`#c` and the popup host on a fixture with none), in
     * canonical form. A seed is left out, a morph not having to resend one whose
     * values a signals frame moved; so are a `data-bind` control's `value` and
-    * `checked`, which its handlers own.
+    * `checked`, which its handlers own, and `fh-error`, a refusal's report to
+    * the page that pressed, which no load restates.
     */
   def view: String = {
     val d = doc
@@ -198,6 +206,8 @@ final class FakePage private (context: Context, page: Value)
           if (el.hasAttr("data-bind")) {
             val _ = el.removeAttr("value").removeAttr("checked")
           }
+          val _ = el.removeClass("fh-error")
+          if (el.attr("class").isEmpty) { val _ = el.removeAttr("class") }
         }
         s"#$id\n" + FakePage.canonical(c)
       }

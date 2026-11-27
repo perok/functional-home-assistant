@@ -106,7 +106,7 @@ flowchart TB
   end
 
   GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>a call is admitted by its declared id, and only on a node that places it"]
-  VAR["node variable (ADR 0033)<br/>a declared SetVar call, POST call/&lt;slug&gt;/&lt;callId&gt;?node= · or v. on the page URL<br/>· or Back/Forward, POST history/&lt;slug&gt; + the page query (ADR 0005)<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press and a popup's open are one: each moves the pick it decides<br/>a popup's close is Back<br/>a conn this process has forgotten is REFUSED, said so; only the stream rebuilds it (ADR 0024)<br/>re-renders the readers this viewer is shown, commits LAST"]
+  VAR["node variable (ADR 0033)<br/>a declared SetVar call, POST call/&lt;slug&gt;/&lt;callId&gt;?node= · or v. on the page URL<br/>· or Back/Forward, POST history/&lt;slug&gt; + the page query (ADR 0005)<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press and a popup's open are one: each moves the pick it decides<br/>a popup's close is Back<br/>a conn this process has forgotten is REFUSED, said so; only the stream rebuilds it; Back on one, or on a page an edit replaced, reloads at its URL (ADR 0024)<br/>re-renders the readers this viewer is shown, commits LAST"]
   SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>holds (what this DOM has: byte-slot values, signals,<br/>each host's shown roots in order),<br/>position, told, vars (this viewer's choices),<br/>initialValues (where the document opened a variable)<br/>+ a backlog for a client with no stream"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>Ix -&gt; version: a node, a host, an arriving key, each at its clause's place<br/>where to look, never what a client has")]
 
@@ -362,17 +362,18 @@ GET /sse/dashboard/:slug/patch
     // inherits sessionStorage and would otherwise evict a live viewer
   adopt the session that URL's conn names (epoch++); mint one under the same id
     if it is gone — a reap, a bookmark, a restart: costs suppression, not correctness
-  opening patches, narrowest that is still correct:
+  opening patches, narrowest that is still correct (`Opening.of`, a pure value):
       resume   if the cursor's logId matches, nothing structural moved, AND the
                cursor is not behind `told` — a client that never acknowledged
                what we announced has `holds` we cannot answer from
-      repaint  if it does not      // claims what it painted, same as the document:
+      repaint  if it does not, with its `RepaintReason` (logged at debug)
+                                   // claims what it painted, same as the document:
                                    // one morph of the root, the open popup
                                    // a case of `popups` (Patches.repaint),
                                    // plus their signal values as a frame: a
                                    // seed whose text did not change is not
                                    // re-applied (ADR 0017)
-      reload   if the document itself is stale
+      reload   if the document itself is stale, or the slug failed
     ...then position = WHAT THIS CONNECTION CAN PROVE IT SENT: the doorbell's
       value (read BEFORE the log) for a resume, since a resume can only answer
       for versions the changelog describes; the snapshot's version for a
@@ -625,9 +626,11 @@ Same call as a live pull; only the cursor differs.
 
 ```
 client sends back its stored signals: logId, version, headHash, styleHash
-  different logId, a log the serving renderer did not stamp, version ahead of the
-    store, head moved, or a cursor from before a stretch this slug did not record
-    (or before the log's seed) -> full repaint
+  head moved -> reload
+  no cursor, different logId or a log the serving renderer did not stamp,
+    version ahead of the store, a cursor from before a stretch this slug did not
+    record (or before the log's seed), one behind `told`, or `holds` painted
+    under another renderer -> full repaint (`Opening.of`, one `RepaintReason` each)
   otherwise since(version):
       nodes   whose logged version >= cursor   -> sent, rendered NOW, if their byte-slot
                                                   values are not what this client holds
@@ -648,6 +651,12 @@ node it misses is a recorder bug. Sweeping the screen on every pull would hide t
 looks. Only a reconnect sweeps (`Coverage.Swept`): its screen may be one no frame was recorded
 against. The sweep is every node of the page's own container and of each case the viewer's
 values show; the page's container is no pick's case, so `PickGraph.chosen` does not hold it.
+
+`Logged` carries the evidence, a `Patches.Watched` minted only by `Watched.of` from the session's
+`position` and `painter`: the log reaches the position, and the session was painted under the
+renderer that numbers the log, which is the test an opening resumes on too
+(`FragmentLog.cannotResume`). The resume starts from that position, so the evidence cannot be
+paired with another cursor; where the mint refuses, the pull repaints (`Server.owed`).
 
 A client's cursor gets `>=` where a session's `position` gets `+ 1`, and the difference is who is
 claiming: a client can hold version V having seen only part of it, where a position is what this
@@ -1242,11 +1251,13 @@ opens on the declared value rather than dying mid-walk or refusing a link that o
 
 **A declaration may OPEN elsewhere, once.** `Declaration.initialTransform` gives a variable a CEL
 expression over one entity's state, compiled with the slots' transforms. The page route runs it
-from the store as it mints the session (`Renderer.initialValuesFor`), keeps a result only where `Renderer.refusals` takes it, and records it as
+from the store as it mints the session (`Renderer.initialValuesFor`), keeps a result only where `Renderer.adopt` takes it, and records it as
 `SessionState.initialValues`, a layer under the viewer's choices: everything that resolves the
 viewer's values reads `SessionState.values`, a choice over an initial value over the default. Nothing
 re-evaluates it afterwards, so an entity changing does not move an open page (it is not a flip,
-ADR 0007), and a write's own re-render keeps it under the new choice. An initial value is not a
+ADR 0007), and a write's own re-render keeps it under the new choice. Every check of a choice —
+a press, a link, Back, a carry, a renderer swap — runs over the initial values (`Renderer.adopt`'s
+`starts`), since whether one is taken can lean on where another variable opened. An initial value is not a
 choice: it puts no `v.` param on the URL, because such a variable's mirror compares the committed
 value to `_var_<declarer>__<name>__initialValue`, which the shell seeds per document
 (`VarGraph.mirroredInitials`, so only where a mirror reads it), not to the

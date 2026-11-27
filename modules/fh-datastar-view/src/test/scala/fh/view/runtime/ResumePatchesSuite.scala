@@ -91,7 +91,8 @@ class ResumePatchesSuite extends munit.FunSuite {
       holds: Map[Ix, Held],
       now: Map[String, EntityState] = states,
       by: Renderer = renderer
-  ): List[String] =
+  ): List[String] = {
+    val numbered = log.copy(stamp = Some(by.generation))
     // A fresh cache per call, so no test depends on what another rendered.
     RenderCache.create
       .flatMap(
@@ -99,20 +100,41 @@ class ResumePatchesSuite extends munit.FunSuite {
           .resume(
             by,
             _,
-            log,
+            numbered,
             holds,
             Shared.of(now),
             noDecisionFetches,
             _ => IO.pure(FetchSnapshot.empty),
             Map.empty,
-            v,
-            Patches.Coverage.Logged
+            Pulled.from(by, numbered, v)
           )
       )
       .unsafeRunSync()
       .map(_.patch.toSse.render)
+  }
 
   private val empty = FragmentLog("test")
+
+  test("a live pull trusts only a log that names what its session missed") {
+    val log = Pulled.log(renderer).touched(key("light.b"), 5L)
+    val painted = Painter.By(renderer.generation)
+    assert(Patches.Watched.of(log, painted, 4L).isDefined)
+    // A stretch nobody watched, and a log its recorder has not seeded yet.
+    assert(Patches.Watched.of(log.skipped(6L), painted, 4L).isEmpty)
+    assert(
+      Patches.Watched
+        .of(FragmentLog.fresh("f", Some(renderer.generation)), painted, 4L)
+        .isEmpty
+    )
+    // Another renderer's log, or a session this renderer did not paint.
+    assert(Patches.Watched.of(FragmentLog("none"), painted, 4L).isEmpty)
+    assert(
+      Patches.Watched
+        .of(log, Painter.By(TwoClauses.r.generation), 4L)
+        .isEmpty
+    )
+    assert(Patches.Watched.of(log, Painter.Unpainted, 4L).isEmpty)
+  }
 
   test("an arrival is placed, anchored on the next member") {
     val out = resume(

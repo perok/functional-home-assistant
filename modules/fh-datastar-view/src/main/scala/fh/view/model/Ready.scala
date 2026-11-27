@@ -273,7 +273,6 @@ object Ready:
         )
       )
 
-    /** The node at `at`, its descendants found by step in the index. */
     def node(i: TreeIndex, at: Ix): Built[Component] =
       val c = i.node(at)
       val kids = i.children(at)

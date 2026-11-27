@@ -32,7 +32,6 @@ final class TreeIndex private (entries: Vector[TreeIndex.Entry]) {
 
   def all: Iterator[Ix] = Iterator.range(0, entries.size).map(Ix(_))
 
-  /** The page's root. */
   val root: Ix = Ix(0)
 
   def node(ix: Ix): LayoutNode.Component = entries(ix.toInt).node
@@ -71,11 +70,10 @@ final class TreeIndex private (entries: Vector[TreeIndex.Entry]) {
   private lazy val byId: Map[NodeId, List[Ix]] =
     all.toList.groupBy(id)
 
-  /** Whether `inner` is `outer` or below it: `[outer, end)` is its subtree. */
+  /** `inner` is `outer` or below it: `[outer, end)` is its subtree. */
   def contains(outer: Ix, inner: Ix): Boolean =
     outer.toInt <= inner.toInt && inner.toInt < entries(outer.toInt).end
 
-  /** `outer` and every node [[contains]] puts below it. */
   def subtree(outer: Ix): Iterator[Ix] =
     Iterator.range(outer.toInt, entries(outer.toInt).end).map(Ix(_))
 

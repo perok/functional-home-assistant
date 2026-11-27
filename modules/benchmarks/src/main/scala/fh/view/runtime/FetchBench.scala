@@ -111,38 +111,40 @@ class FetchBench {
   private def pull(
       node: NodeId,
       at: (Shared, VarEnv),
-      coverage: Patches.Coverage = Patches.Coverage.Logged
+      coverage: (FragmentLog, Long) => Patches.Coverage
   ): List[Addressed] = {
     rot += 1
+    val log = renderer.index
+      .ixsOf(node)
+      .foldLeft(Pulled.log(renderer))(_.touched(_, rot))
     Patches
       .resume(
         renderer,
         cache,
-        renderer.index
-          .ixsOf(node)
-          .foldLeft(FragmentLog("bench"))(_.touched(_, rot)),
+        log,
         Map.empty,
         at._1,
         reads => answer(reads.toList),
         answer,
         at._2,
-        rot,
-        coverage
+        coverage(log, rot)
       )
       .unsafeRunSync()
   }
 
+  private def live(log: FragmentLog, v: Long) = Pulled.from(renderer, log, v)
+
   @Benchmark
   def pullPlain(bh: Blackhole): Unit =
-    bh.consume(pull(PlainId, (st, Map.empty)))
+    bh.consume(pull(PlainId, (st, Map.empty), live))
 
   @Benchmark
   def reconnectTabOpen(bh: Blackhole): Unit =
-    bh.consume(pull(PlainId, tabOpen, Patches.Coverage.Swept))
+    bh.consume(pull(PlainId, tabOpen, (_, v) => Patches.Coverage.Swept(v)))
 
   @Benchmark
   def pullChart(bh: Blackhole): Unit =
-    bh.consume(pull(ChartId, (st, Map.empty)))
+    bh.consume(pull(ChartId, (st, Map.empty), live))
 
   @Benchmark
   def pagePrepass(bh: Blackhole): Unit =

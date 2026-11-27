@@ -273,7 +273,17 @@ const history = {
     href = new URL(String(u), href).href
     entries.push({ state, href })
   },
-  back() {},
+  // The entry above is dropped rather than kept for a Forward nobody steps.
+  back() {
+    if (entries.length < 2) return
+    entries.pop()
+    href = entries[entries.length - 1].href
+    g.setTimeout(() => {
+      const e = new g.Event("popstate")
+      e.state = history.state
+      g.dispatchEvent(e)
+    })
+  },
   forward() {},
 }
 const location = {
@@ -327,11 +337,21 @@ Object.assign(g, {
 g.MathMLElement ??= class {}
 g.HTMLSelectElement ??= class {}
 g.HTMLTextAreaElement ??= class {}
-// No window events on this page: popstate, pagehide and the gesture guards
-// listen and never hear anything.
-g.addEventListener = () => {}
-g.removeEventListener = () => {}
-g.dispatchEvent = () => true
+// The window hears only what `history.back` dispatches: pagehide and the
+// gesture guards listen and never hear anything.
+const windowListeners = []
+g.addEventListener = (type, f) => {
+  windowListeners.push({ type, f })
+}
+g.removeEventListener = (type, f) => {
+  const i = windowListeners.findIndex((l) => l.type === type && l.f === f)
+  if (i >= 0) windowListeners.splice(i, 1)
+}
+g.dispatchEvent = (e) => {
+  for (const { type, f } of windowListeners.slice())
+    if (type === e.type) typeof f === "function" ? f.call(g, e) : f.handleEvent(e)
+  return true
+}
 
 // fetch: the stream (`@get` of `sse/dashboard/…`) stays open until the host
 // ends it, and is never answered — its frames arrive through `apply`. Any
@@ -348,14 +368,14 @@ class Headers {
     return k.toLowerCase() in this.h
   }
 }
-const response = (status, text, onRead) => {
+const response = (status, text, onRead, mediaType = "text/event-stream") => {
   const bytes = new TextEncoder().encode(text)
   let sent = false
   return {
     ok: status >= 200 && status < 300,
     status,
     redirected: false,
-    headers: new Headers({ "content-type": "text/event-stream" }),
+    headers: new Headers({ "content-type": mediaType }),
     body: {
       getReader: () => ({
         read: onRead ?? (async () => (sent ? { done: true, value: undefined } : ((sent = true), { done: false, value: bytes }))),
