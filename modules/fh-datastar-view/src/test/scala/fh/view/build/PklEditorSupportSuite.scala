@@ -26,11 +26,19 @@ class PklEditorSupportSuite extends munit.CatsEffectSuite {
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-dashboard/core/node.pkl" as nodeMod
+       |import "@fh-dashboard/core/slot.pkl" as slotMod
        |import "@fh-dashboard/query.pkl" as q
        |import "@fh-dashboard/theme.pkl" as th
        |import "@fh-home/dump.pkl" as dump
        |
        |local light = dump.entities.${HouseFixture.kitchenLight.dumpKey}
+       |
+       |const local panel = slotMod.nodes("panel")
+       |local class Probe extends nodeMod.Node {
+       |  card = "probe"
+       |  cardDef = new nodeMod.CardDef { template = "<b>\\(panel)</b>" }
+       |}
        |
        |theme = ${PklFixture.dummyTheme}
        |
@@ -98,6 +106,20 @@ class PklEditorSupportSuite extends munit.CatsEffectSuite {
       "card = c.entityCard(light).columns(1‸3)",
       "",
       Ask.Diagnostic("13"),
+      Status.Works
+    ),
+    Case(
+      "a nodes slot's handle",
+      "card = let (h = panel.‸) new Probe { slots { h } }",
+      "of(new Listing {})",
+      Ask.Completion(Set("of")),
+      Status.Works
+    ),
+    Case(
+      "a value slot's builder on a nodes slot, flagged before the build",
+      "card = new Probe { slots { panel.bi‸nd } }",
+      "",
+      Ask.Diagnostic("bind"),
       Status.Works
     ),
     Case(

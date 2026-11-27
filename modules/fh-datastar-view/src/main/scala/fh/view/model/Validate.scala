@@ -7,6 +7,10 @@ import fh.view.runtime.{Cel, Steps, Templates}
   */
 private[model] object Validate:
 
+  // A node's slots in label order, so messages read the same on every build.
+  // Built once per node: every slot check reads it.
+  private type Labelled = List[(SlotKey, String, BoundSlot)]
+
   def errors(
       d: Dashboard,
       locateTransform: String => Option[String],
@@ -30,11 +34,11 @@ private[model] object Validate:
         case None =>
           List(s"$nodeId: references unknown card '$cardName'")
         case Some(cd) =>
-          val undeclared = (filled -- cd.regions.keySet).toList.sorted.map(r =>
+          val undeclared = (filled -- cd.regions).toList.sorted.map(r =>
             s"$nodeId: fills region '$r', which card '$cardName' does not " +
               "declare — its children would never render"
           ) ++ slotNames
-            .intersect(cd.regions.keySet)
+            .intersect(cd.regions)
             .toList
             .sorted
             .map(r =>
@@ -43,8 +47,7 @@ private[model] object Validate:
             )
           val names = cardReads.get(cardName).flatMap(_.toOption)
           val known = slotNames ++ Dashboard.injectedStatic ++
-            cd.regions.keySet ++
-            Option.when(cd.bakedRegions.nonEmpty)(Dashboard.BakeIndexVar)
+            cd.regions
           val unset = names.toList
             .flatMap(_.required)
             .filterNot(known)
@@ -97,10 +100,10 @@ private[model] object Validate:
     def slotErrors(
         nodeId: String,
         cardName: String,
-        slots: Map[SlotKey, BoundSlot],
-        scope: Map[String, String]
+        slots: Labelled,
+        scope: Dashboard.Declared
     ): List[String] =
-      labelled(slots).flatMap { case (key, name, src) =>
+      slots.flatMap { case (key, name, src) =>
         val stepErrors =
           // A fetch slot's steps are `fetchErrors`' to check.
           if (src.fetch.isDefined) Nil
@@ -176,16 +179,14 @@ private[model] object Validate:
             .flatten
       }
 
-    /** A chosen window's `by` reads only variables declared above it, is a key
-      * a case can spell, never a fetch, and decides a case at its declared
-      * values where it reads no state; every window it could pick is one HA
-      * answers. A viewer's value is checked at the write.
+    /** A chosen window's `by` ([[chosenErrors]]); every window it could pick is
+      * one HA answers. A viewer's value is checked at the write.
       */
     def askErrors(
         nodeId: String,
         name: String,
         template: FetchTemplate,
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       val at = s"$nodeId: slot '$name'"
       val problems = template.window.all
@@ -193,65 +194,83 @@ private[model] object Validate:
         .distinct
         .map(p => s"$at $p")
       template.window match
-        case Choice.Fixed(_)                         => problems
-        case c @ Choice.Chosen(by, cases, otherwise) =>
-          val refErrors = by.variables.sorted
-            .filterNot(scope.contains)
-            .map(v =>
-              s"$at reads the variable '$v', which no ancestor declares — " +
-                "declare it on the node that owns the choice, or write the " +
-                "value down"
-            )
-          val keyType = by.typed(Nil) match
-            case Left(m) =>
-              Left(
-                s"$at chooses its window by a value that does not type: ${m.message}"
-              )
-            case Right(t) if Choice.KeyTypes(t.out) => Right(t.out)
-            case Right(t)                           =>
-              Left(
-                s"$at chooses its window by a ${t.out.name}, which no case " +
-                  "can spell — text, a bool or a whole number"
-              )
-          def shown(l: Lit) = Steps.text(l.raw)
-          val caseErrors = keyType.fold(
-            List(_),
-            t =>
-              cases.collect {
-                case k if ValueType.of(k.is) != t =>
-                  s"$at has the case '${shown(k.is)}', a " +
-                    s"${ValueType.of(k.is).name}, where its window is chosen by " +
-                    s"a ${t.name}"
-              }
-          ) ++ cases
-            .groupBy(k => Lit.key(k.is))
-            .collect { case (_, ks) if ks.sizeIs > 1 => shown(ks.head.is) }
-            .toList
-            .sorted
-            .map(k => s"$at has the case '$k' twice")
-          val fetchErrors = Option
-            .when(by.fetches.nonEmpty)(
-              s"$at chooses its window by a fetch, whose answer could only be " +
-                "read once the window is chosen"
-            )
-            .toList
-          val declared =
-            if (refErrors.nonEmpty || keyType.isLeft || !c.refusesUntaken) Nil
+        case Choice.Fixed(_)     => problems
+        case c: Choice.Chosen[?] =>
+          chosenErrors(at, "its window", "the window", c, scope) ++ problems
+
+    /** What a `Chosen` holds wherever it is: its `by` reads only variables
+      * declared above it, is a key a case can spell, never a fetch, and decides
+      * a case at its declared values where it reads no state. `what` and `the`
+      * name what it picks, for the message.
+      */
+    def chosenErrors(
+        at: String,
+        what: String,
+        the: String,
+        c: Choice.Chosen[?],
+        scope: Dashboard.Declared
+    ): List[String] =
+      val Choice.Chosen(by, cases, _) = c
+      val refErrors = by.variables.sorted
+        .filterNot(scope.contains)
+        .map(v =>
+          s"$at reads the variable '$v', which no ancestor declares — " +
+            "declare it on the node that owns the choice, or write the " +
+            "value down"
+        )
+      val keyType = by.typed(Nil) match
+        case Left(m) =>
+          Left(
+            s"$at chooses $what by a value that does not type: ${m.message}"
+          )
+        case Right(t) if Choice.KeyTypes(t.out) => Right(t.out)
+        case Right(t)                           =>
+          Left(
+            s"$at chooses $what by a ${t.out.name}, which no case " +
+              "can spell — text, a bool or a whole number"
+          )
+      def shown(l: Lit) = Steps.text(l.raw)
+      val caseErrors = keyType.fold(
+        List(_),
+        t =>
+          cases.collect {
+            case k if ValueType.of(k.is) != t =>
+              s"$at has the case '${shown(k.is)}', a " +
+                s"${ValueType.of(k.is).name}, where $what is chosen by " +
+                s"a ${t.name}"
+          }
+      ) ++ cases
+        .groupBy(k => Lit.key(k.is))
+        .collect { case (_, ks) if ks.sizeIs > 1 => shown(ks.head.is) }
+        .toList
+        .sorted
+        .map(k => s"$at has the case '$k' twice")
+      val fetchErrors = Option
+        .when(by.fetches.nonEmpty)(
+          s"$at chooses $what by a fetch, whose answer could only be " +
+            s"read once $the is chosen"
+        )
+        .toList
+      val declared =
+        if (
+          refErrors.nonEmpty || keyType.isLeft || !c.refusesUntaken ||
+          by.variables.exists(scope.get(_).contains(None))
+        ) Nil
+        else
+          val read = FetchTemplate.atDeclared(scope)(by)
+          val reads =
+            if (by.variables.isEmpty)
+              s"chooses $what by a value no case takes"
             else
-              val read = FetchTemplate.atDeclared(scope)(by)
-              val reads =
-                if (by.variables.isEmpty)
-                  "chooses its window by a value no case takes"
-                else
-                  s"reads the variable '${by.variables.mkString(", ")}' at " +
-                    "its declared value"
-              Option
-                .unless(c.takes(read))(
-                  s"$at $reads: '${Steps.text(read)}' is not one of " +
-                    cases.map(k => shown(k.is)).sorted.mkString(", ")
-                )
-                .toList
-          refErrors ++ caseErrors ++ fetchErrors ++ declared ++ problems
+              s"reads the variable '${by.variables.mkString(", ")}' at " +
+                "its declared value"
+          Option
+            .unless(c.takes(read))(
+              s"$at $reads: '${Steps.text(read)}' is not one of " +
+                cases.map(k => shown(k.is)).sorted.mkString(", ")
+            )
+            .toList
+      refErrors ++ caseErrors ++ fetchErrors ++ declared
 
     /** Otherwise a bad fetch renders blank forever with nothing saying why. A
       * fetch slot's value is its stage's bytes, so a step after the stage would
@@ -261,7 +280,7 @@ private[model] object Validate:
         nodeId: String,
         name: String,
         src: BoundSlot,
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       src.fetch.toList.flatMap { template =>
         val stageError = src.expr.steps match
@@ -364,7 +383,12 @@ private[model] object Validate:
       */
     // Bound to every slot that reads one, so "read by no slot" is the
     // binding's absence.
-    def valueErrors(nodeId: String, c: LayoutNode.Component): List[String] =
+    def valueErrors(
+        nodeId: String,
+        c: LayoutNode.Component,
+        bound: Labelled,
+        checked: Labelled
+    ): List[String] =
       val read = c.bound.values.flatMap(_.inputs.keySet).toSet
       c.inputs.keys.toList.sorted.flatMap { name =>
         if (!Dashboard.InputName.matches(name))
@@ -392,7 +416,7 @@ private[model] object Validate:
             List(_)
           )
       } ++ (
-        labelled(c.bound).map((_, n, s) =>
+        checked.map((_, n, s) =>
           (s"slot '$n'", s.expr, ValueExpr.env(c.inputs))
         ) ++ c.inputs.toList
           .sortBy(_._1)
@@ -428,7 +452,7 @@ private[model] object Validate:
             }
           }
         }
-      } ++ labelled(c.bound).map((_, n, s) => (n, s)).collect {
+      } ++ bound.map((_, n, s) => (n, s)).collect {
         // The once-cache keys by what a value IS, not by what it counts now.
         case (slot, src)
             if src.reads == Reads.Once && src.allInputs.exists(_.isLive) =>
@@ -446,26 +470,27 @@ private[model] object Validate:
           s"$nodeId: slot '${Dashboard.SubjectSlot}' must be a literal — it " +
             "names the entity the card's other slots read, which is a " +
             "build-time fact"
-      } ++ labelled(c.bound).flatMap((_, n, s) =>
+      } ++ bound.flatMap((_, n, s) =>
         s.expr.unnamedComparison(s"$nodeId: slot '$n'", s.typed)
       )
 
     /** A variable's value is the viewer's, so it is read only where bytes are
       * rendered per viewer: a leaf's value slot. A signal is named by what it
-      * reads and shared by every viewer, and structure is never re-rendered. A
-      * decision's are [[decisionVarErrors]]'.
+      * reads and shared by every viewer, and structure is never re-rendered.
+      * The exception is `v.valueIs(x)` in a bool signal, on any card, which the
+      * browser reads off the variable's own signals. A `valueWhile` is read as
+      * part of its slot: decided at the viewer's values, it makes the slot the
+      * viewer's too.
       */
     def slotVarErrors(
         nodeId: String,
         cardName: String,
-        slots: Map[SlotKey, BoundSlot],
-        scope: Map[String, String]
+        slots: Labelled,
+        scope: Dashboard.Declared
     ): List[String] =
       val structural = cards.get(cardName).exists(_.isStructure)
-      labelled(slots).flatMap { (_, name, s) =>
-        val read = (s.expr.variables ++ s.inputs.values.flatMap(
-          _.variables
-        )).distinct.sorted
+      slots.flatMap { (_, name, s) =>
+        val read = s.variables.sorted
         val where = read.map(v => s"'$v'").mkString(", ")
         read
           .filterNot(scope.contains)
@@ -473,7 +498,7 @@ private[model] object Validate:
             s"$nodeId: slot '$name' reads the variable '$v', which no " +
               "ancestor declares — declare it on the node that owns the choice"
           ) ++ (
-          if (read.isEmpty) None
+          if (read.isEmpty || s.chosenSignal.isDefined) None
           else if (structural)
             Some(
               s"$nodeId: slot '$name' reads the variable $where, but card " +
@@ -484,7 +509,7 @@ private[model] object Validate:
             Some(
               s"$nodeId: slot '$name' reads the variable $where, but it is a " +
                 "signal, which every viewer shares — read it in a slot that " +
-                "is not a signal"
+                "is not a signal, or as `v.valueIs(x)` in a bool one"
             )
           else None
         )
@@ -492,9 +517,9 @@ private[model] object Validate:
 
     def valueWhileErrors(
         nodeId: String,
-        slots: Map[SlotKey, BoundSlot]
+        slots: Labelled
     ): List[String] =
-      labelled(slots).flatMap { (_, name, src) =>
+      slots.flatMap { (_, name, src) =>
         src.valueWhile.toList.flatMap { w =>
           Option
             .when(src.reads == Reads.Once)(
@@ -511,7 +536,7 @@ private[model] object Validate:
 
     def typeErrors(
         nodeId: String,
-        slots: Map[SlotKey, BoundSlot]
+        slots: Labelled
     ): List[String] =
       // An attribute is `dyn` to CEL, but read bare it is text or a number far
       // more often than a bool.
@@ -526,7 +551,7 @@ private[model] object Validate:
         case o if o == ValueType.Series =>
           "give it a stage: json then jsonText, or a chart"
         case _ => "make it text, `str(…)` or `string(…)`"
-      labelled(slots).flatMap { case (_, name, src) =>
+      slots.flatMap { case (_, name, src) =>
         src.typed match
           case Left(ValueExpr.Mistyped(err, Some(t))) =>
             val at = locateTransform(t).fold("")(loc => s" (at $loc)")
@@ -554,7 +579,7 @@ private[model] object Validate:
                   s"${src.`type`.wire} slot does not take — ${hint(t.out, src.`type`)}"
             )
           case _ => Nil
-      } ++ labelled(slots).collect {
+      } ++ slots.collect {
         case (_, name, src)
             if src.signal.exists(_.isInstanceOf[SignalBind.Class]) &&
               !src.isBool =>
@@ -573,10 +598,22 @@ private[model] object Validate:
             s"slot's (${src.`type`.wire})"
       }
 
+    // What `notShadowed()` keeps: a name declared above, which no node below
+    // may declare again, by its declarer.
+    def unshadowable(ix: Ix): Map[String, NodeId] =
+      Iterator
+        .unfold(index.parent(ix))(_.map(a => (a, index.parent(a))))
+        .flatMap(a =>
+          index.node(a).vars.filterNot(_.shadowable).map(_.name -> index.id(a))
+        )
+        .toMap
+
     def varErrors(
+        ix: Ix,
         nodeId: String,
         vars: List[Dashboard.Declaration]
     ): List[String] =
+      lazy val above = unshadowable(ix)
       vars
         .groupBy(_.name)
         .collect {
@@ -585,7 +622,14 @@ private[model] object Validate:
         }
         .toList
         .sorted ++ vars.sortBy(_.name).flatMap { d =>
-        Option
+        above
+          .get(d.name)
+          .map(declarer =>
+            s"$nodeId: the variable '${d.name}' is declared by '$declarer' " +
+              "above, which no node below may declare again — name it " +
+              "something else"
+          )
+          .toList ++ Option
           .when(!d.name.matches("[A-Za-z][A-Za-z0-9_]*"))(
             s"$nodeId: variable '${d.name}' is not a plain name " +
               "([A-Za-z][A-Za-z0-9_]*) — it is spelled into signal names and " +
@@ -608,16 +652,54 @@ private[model] object Validate:
         c: LayoutNode.Component
     ): List[String] =
       c.calls.keySet
-        .intersect(c.templateSlots.keySet)
+        .intersect(c.valueSlots.keySet)
         .toList
         .sorted
         .map(n => s"$nodeId: '$n' is both a slot and a call — rename one")
+
+    /** A nodes slot's choice: keys typed by `by`, one node per case. A `by`
+      * reading variables and state decides per viewer, and a value no case
+      * takes shows nothing; only the plain variable's declared value is held to
+      * a case, since it would show nothing before anyone chooses. One declared
+      * with no value means to.
+      */
+    def choiceFillErrors(
+        nodeId: String,
+        c: LayoutNode.Component,
+        scope: Dashboard.Declared
+    ): List[String] =
+      c.chosen.toList.sortBy(_._1).flatMap { (n, k) =>
+        val at = s"$nodeId: nodes slot '$n'"
+        val nodes = k.cases.map(_.value) ++ k.otherwise
+        val lengths = nodes
+          .filter(_.sizeIs != 1)
+          .map(_ =>
+            s"$at has a case that is not exactly one node (several go in a " +
+              "row)"
+          )
+          .distinct
+        val unshown = Choice.plainVariable(k.by) match
+          case Some(v) if k.otherwise.isEmpty =>
+            scope
+              .get(v)
+              .flatten
+              .filterNot(d => k.cases.exists(_.is == Lit.Text(d)))
+              .map(d =>
+                s"$at is chosen by '$v', declared '$d', which no case takes " +
+                  s"(${k.cases.map(c => Steps.text(c.is.raw)).mkString(", ")}): " +
+                  "it would show nothing until a viewer chooses"
+              )
+              .toList
+          case _ => Nil
+        chosenErrors(at, "its nodes", "its nodes", k, scope) ++ lengths ++
+          unshown
+      }
 
     /** A choice is of the variable as this node reads it. */
     def choiceErrors(
         nodeId: String,
         c: LayoutNode.Component,
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       c.calls.toList.sortBy(_._1).collect {
         case (n, CallDecl.SetVar(v, _)) if !scope.contains(v) =>
@@ -691,15 +773,8 @@ private[model] object Validate:
               " — the value would stop updating"
           )
 
-    def childErrors(
-        kids: Map[String, List[LayoutNode]],
-        prefix: String,
-        id: NodeId,
-        scope: Map[String, String]
-    ): List[String] =
-      LayoutNode.steps(kids).flatMap { case (step, n) =>
-        walk(n, prefix, LayoutNode.childId(prefix, id, step, n), scope)
-      }
+    def childErrors(ix: Ix, scope: Dashboard.Declared): List[String] =
+      index.children(ix).filter(index.step(_).isDefined).flatMap(walk(_, scope))
 
     // Interpolated into a `class` attribute unescaped.
     def classTokenErrors(nodeId: String, cls: String): List[String] =
@@ -720,20 +795,6 @@ private[model] object Validate:
             s"$nodeId: cellStyle '$p' must read live state — anything else " +
               "is never bound"
         })
-
-    // A set has no slots to bind a reading with; Pkl's builders refuse one too.
-    def setCellErrors(setId: String, cell: Option[Cell]): List[String] =
-      cellErrors(setId, cell) ++ cell.toList
-        .flatMap(c =>
-          c.live.map {
-            case (CellKey.Class(cls), _) => s"cell class '$cls'"
-            case (CellKey.Style(p), _)   => s"cell style '$p'"
-          } ++ c.atRender.keys.map(cls => s"cell class '$cls' at render")
-        )
-        .map(what =>
-          s"$setId: a set's $what reads state, which only a card node can " +
-            "bind — put it on the clause's node"
-        )
 
     // The renderer places the binding itself, so only the shape can be wrong —
     // and each wrong shape is a class that silently never moves.
@@ -773,54 +834,13 @@ private[model] object Validate:
           )
           .toList
 
-    /** A class decided at render is a plain token, by a bool over what the
-      * document has in hand: the state, and the variables declared above. A
-      * fetch is never pre-read for it.
-      */
-    def atRenderErrors(
-        nodeId: String,
-        c: LayoutNode.Component,
-        scope: Map[String, String]
-    ): List[String] =
-      c.cell.toList.flatMap(_.atRender.toList).flatMap { (cls, raw) =>
-        val e = raw.about(c.subjectEntity)
-        val at = s"$nodeId: cell class '$cls' at render"
-        classTokenErrors(nodeId, cls) ++
-          (e.boolError orElse e.bypassError(ownMay = false))
-            .map(m => s"$at: $m")
-            .toList ++
-          e.variables.sorted
-            .filterNot(scope.contains)
-            .map(v =>
-              s"$at reads the variable '$v', which no ancestor declares — " +
-                "declare it on the node that owns the choice"
-            ) ++
-          Option
-            .when(e.readsMissingSubject)(
-              s"$at reads the card's entity, and the card has none"
-            )
-            .toList ++
-          Option
-            .when(e.fetches.nonEmpty)(
-              s"$at reads a fetch, which nothing answers for it"
-            )
-            .toList
-      }
-
-    // In label order, for messages that read the same on every build.
-    def labelled(
-        slots: Map[SlotKey, BoundSlot]
-    ): List[(SlotKey, String, BoundSlot)] =
+    def labelled(slots: Map[SlotKey, BoundSlot]): Labelled =
       slots.toList.map((k, s) => (k, SlotKey.label(k), s)).sortBy(_._2)
 
-    def walk(
-        node: LayoutNode,
-        prefix: String,
-        nodeId: NodeId,
-        scope: Map[String, String]
-    ): List[String] =
-      node match
-        case c @ LayoutNode.Component(card, slots, _, cell, _, vars, _, _) =>
+    def walk(ix: Ix, scope: Dashboard.Declared): List[String] =
+      val nodeId = index.id(ix)
+      index.node(ix) match
+        case c @ LayoutNode.Component(card, _, cell, _, vars, _, _) =>
           val layoutErrors = Option
             .when(
               cards.get(card).exists(!_.layoutCell) &&
@@ -833,76 +853,148 @@ private[model] object Validate:
             .toList
           val here = scope ++ c.defaults
           // Each `valueWhile` is checked as the slot it is, under its own name.
-          val checked = c.bound ++ c.bound.flatMap((k, s) =>
-            s.valueWhile.map((SlotKey.label(k) + ".valueWhile": SlotKey) -> _)
+          val bound = labelled(c.bound)
+          val checked = labelled(
+            c.bound ++ c.bound.flatMap((k, s) =>
+              s.valueWhile.map((SlotKey.label(k) + ".valueWhile": SlotKey) -> _)
+            )
           )
           templateErrors(
             nodeId,
             card,
-            slots.keySet ++ c.calls.keySet,
-            c.regions.keySet
+            c.valueSlots.keySet ++ c.calls.keySet,
+            c.fills.keySet
           ) ++ placedCallErrors(nodeId, c) ++
+            choiceFillErrors(nodeId, c, here) ++
             choiceErrors(nodeId, c, here) ++
             slotErrors(nodeId, card, checked, here) ++
-            varErrors(nodeId, vars) ++
-            slotVarErrors(nodeId, card, c.bound, here) ++
-            valueErrors(nodeId, c) ++
-            valueWhileErrors(nodeId, c.bound) ++
+            varErrors(ix, nodeId, vars) ++
+            slotVarErrors(nodeId, card, bound, here) ++
+            valueErrors(nodeId, c, bound, checked) ++
+            valueWhileErrors(nodeId, bound) ++
             typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++
-            atRenderErrors(nodeId, c, here) ++
-            layoutErrors ++ childErrors(c.regions, prefix, nodeId, here)
-        // Clauses carry complete nodes, validated as ordinary ones.
-        case s: LayoutNode.SetNode =>
-          val setId = nodeId
-          setCellErrors(setId, s.cell) ++
-            s.orderBy
-              .flatMap(t =>
-                t.by.typed(Nil).left.toOption.map(_.message) orElse
-                  t.by.bypassError(ownMay = false)
-              )
-              .map(e => s"$setId: an order term cannot be read: $e") ++
-            s.members.toList.sortBy(_._1).flatMap { (candidate, m) =>
-              m.clauses
-                .flatMap(_.when)
-                .flatMap(conditionError)
+            layoutErrors ++ childErrors(ix, here) ++ setErrors(ix, c, scope)
+
+    // A set's members are complete nodes, validated as ordinary ones.
+    def setErrors(
+        ix: Ix,
+        c: LayoutNode.Component,
+        scope: Dashboard.Declared
+    ): List[String] =
+      val setId = index.id(ix)
+      val sets = c.fills.toList.sortBy(_._1).collect { case (n, s: Fill.Set) =>
+        n -> s
+      }
+      // The card's root is the element a choice's case is patched into.
+      val choices = c.fills.toList.sortBy(_._1).collect {
+        case (n, Fill.Nodes(_: Choice.Chosen[?]))
+            if cards.get(c.card).exists(_.regions != Set(n)) =>
+          s"$setId: the choice in '$n' is not its card's whole template — " +
+            "its case is patched into the card's root, so put the choice in " +
+            "a group of its own"
+      }
+      choices ++ sets.flatMap { (region, s) =>
+        val whole =
+          Option
+            .when(
+              sets.size > 1 || cards
+                .get(c.card)
+                .exists(_.regions != Set(region))
+            )(
+              s"$setId: the set in '$region' is not its card's whole " +
+                "template — members are placed relative to each other, so " +
+                "a fixed sibling in the same element would need anchors"
+            )
+            .toList
+        val order = s.orderBy
+          .flatMap(t =>
+            t.by.typed(Nil).left.toOption.map(_.message) orElse
+              t.by.bypassError(ownMay = false)
+          )
+          .map(e => s"$setId: an order term cannot be read: $e")
+        val members = s.members.toList.sortBy(_._1).flatMap { (candidate, m) =>
+          m match
+            case Choice.Fixed(_)                     => Nil
+            case Choice.Chosen(by, cases, otherwise) =>
+              // A chain's items are the conditions; its own type is the key's.
+              val guards = by match
+                case ValueExpr(
+                      Value.List(_, items),
+                      List(Step.IndexOfTrue),
+                      _,
+                      _
+                    ) =>
+                  items.map(conditionError)
+                case single => List(conditionError(single))
+              val keyed = by.typed(Nil) match
+                case Right(t) if Choice.KeyTypes(t.out) =>
+                  cases.collect {
+                    case k if ValueType.of(k.is) != t.out =>
+                      s"$setId: a case of '$candidate' is a " +
+                        s"${ValueType.of(k.is).name}, where its guard is a " +
+                        s"${t.out.name}"
+                  }
+                case _ => Nil
+              guards.flatten
                 .map(e =>
                   s"$setId: a clause of '$candidate' does not decide: $e"
-                )
-            } ++
-            s.candidates.filterNot(s.members.contains).map { c =>
-              s"$setId: candidate '$c' has no member entry — it could never " +
-                "render, so the build dropped it inconsistently"
-            } ++
-            Option
-              .when(
-                s.of != IdKind.Entity && (
-                  s.members.values
-                    .flatMap(_.clauses)
-                    .flatMap(_.when)
-                    .exists(_.readsMissingSubject) ||
-                    s.orderBy.exists(_.by.readsMissingSubject)
-                )
-              )(
-                s"$setId: a set of ${s.of.word}s reads its member, which has " +
-                  "no state — name the entity a guard or an order term reads"
-              )
-              .toList ++
-            s.members.toList.sortBy(_._1).flatMap { case (_, m) =>
-              m.clauses.zipWithIndex.flatMap { case (clause, i) =>
-                walk(
-                  clause.node,
-                  prefix,
-                  LayoutNode.childId(
-                    prefix,
-                    nodeId,
-                    LayoutNode.Step(LayoutNode.DefaultRegion, i),
-                    clause.node
-                  ),
-                  scope
-                )
-              }
-            }
+                ) ++
+                keyed ++
+                otherwise.map(_ =>
+                  s"$setId: '$candidate' has an otherwise, which a set's " +
+                    "member does not take"
+                ) ++
+                cases
+                  .groupBy(k => Lit.key(k.is))
+                  .collect { case (_, ks) if ks.sizeIs > 1 => ks.head }
+                  .map(k =>
+                    s"$setId: '$candidate' has the case " +
+                      s"'${Steps.text(k.is.raw)}' twice"
+                  )
+        }
+        // Read at the set's node, as a pick's are at its host: a member's own
+        // declarations exist only once it does.
+        val undeclared =
+          (s.orderBy.flatMap(_.by.variables) ++ s.members.values.flatMap {
+            case Choice.Chosen(by, _, _) => by.variables
+            case Choice.Fixed(_)         => Nil
+          }).distinct.sorted
+            .filterNot((scope ++ c.defaults).contains)
+            .map(v =>
+              s"$setId: a set's guard or order reads the variable '$v', " +
+                "which no node at or above the set declares"
+            )
+        val unmembered = s.candidates.filterNot(s.members.contains).map { cd =>
+          s"$setId: candidate '$cd' has no member entry — it could never " +
+            "render, so the build dropped it inconsistently"
+        }
+        val readsMember = Option
+          .when(
+            s.of != IdKind.Entity && (
+              s.members.values.exists {
+                case Choice.Chosen(by, _, _) => by.readsMissingSubject
+                case Choice.Fixed(_)         => false
+              } || s.orderBy.exists(_.by.readsMissingSubject)
+            )
+          )(
+            s"$setId: a set of ${s.of.word}s reads its member, which has " +
+              "no state — name the entity a guard or an order term reads"
+          )
+          .toList
+        // Such a member's root and its inner set would share one id
+        // (`innerSetId(member, clause, Nil)`).
+        val bare = s.nodes.collect {
+          case n: LayoutNode.Component if n.set.isDefined =>
+            s"$setId: a member is itself a set — put the set inside a card " +
+              "the member renders"
+        }.distinct
+        whole ++ order ++ members ++ undeclared ++ unmembered ++ readsMember ++
+          bare
+      } ++ index
+        .children(ix)
+        .filter(index.step(_).isEmpty)
+        .flatMap(walk(_, scope))
 
     // Structure is never a patch target, so a live bytes slot on it never
     // reaches the DOM; a signal slot needs no patch target (ADR 0017). The Pkl
@@ -923,16 +1015,10 @@ private[model] object Validate:
                 "never reach the DOM. Put the live markup in a region as a " +
                 "node, or make the slot a signal slot"
             )
-          here ++ c.allChildren.flatMap(walk)
-        case s: LayoutNode.SetNode =>
-          s.members.toList
-            .sortBy(_._1)
-            .flatMap(_._2.clauses)
-            .flatMap(cl => walk(cl.node))
+          here ++ c.allChildren.flatMap(walk) ++
+            c.set.toList.flatMap((_, s) => s.nodes.flatMap(walk))
       }
-      (walk(card) ++ surfaces.toList
-        .sortBy(_._1)
-        .flatMap(s => walk(s._2.content))).distinct
+      walk(card).distinct
     }
 
     // A region renders its children under fixed ids, so it is placed exactly
@@ -944,7 +1030,7 @@ private[model] object Validate:
           case Left(e) =>
             List(s"card '$name': its template does not compile: $e")
           case Right(reads) =>
-            cd.regions.toList.sortBy(_._1).flatMap { case (r, region) =>
+            cd.regions.toList.sorted.flatMap { r =>
               val hole = cd.holeOf(r)
               if reads.misplacedRegions(r) then
                 List(
@@ -957,7 +1043,7 @@ private[model] object Validate:
                 reads.regionHoles.getOrElse(r, 0) match
                   case 0 =>
                     List(
-                      s"card '$name': declares region '$r' (${region.fill}) " +
+                      s"card '$name': declares region '$r' " +
                         s"but its `template` places no $hole hole for it — " +
                         "nothing would ever appear there"
                     )
@@ -1006,7 +1092,7 @@ private[model] object Validate:
     // all-digit name would read as an index.
     val regionNameErrors: List[String] =
       cards.toList.sortBy(_._1).flatMap { case (name, cd) =>
-        cd.regions.keys.toList.sorted.collect {
+        cd.regions.toList.sorted.collect {
           case r if r.isEmpty || !r.matches("[A-Za-z0-9_]+") =>
             s"card '$name': region name '$r' is not a plain token " +
               "([A-Za-z0-9_]+) — region names enter node ids"
@@ -1018,49 +1104,30 @@ private[model] object Validate:
       }
 
     /** What an authored `id` has to satisfy: a plain token, used once, and not
-      * inside a candidate set's clause.
+      * inside a candidate set's clause. Used once is what keeps the page card's
+      * own (`root`, `popups`) theirs, since every page has both.
       *
       * Deliberately NOT a rule: that an id must not read as another node's
-      * descendant. Ancestry comes from [[fh.view.runtime.NodeAncestry]], which
+      * descendant. Containment is the index's ([[TreeIndex.contains]]), which
       * asks the tree, so `detail` and `detail_0` may be unrelated.
       */
     val authoredIdErrors: List[String] = {
-      def walkIds(
-          node: LayoutNode,
-          prefix: String,
-          id: NodeId,
-          inSet: Boolean
-      ): List[(NodeId, Boolean, Option[String])] =
-        (id, inSet, node.authoredId) :: (node match {
-          case c: LayoutNode.Component =>
-            LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
-              walkIds(
-                ch,
-                prefix,
-                LayoutNode.childId(prefix, id, step, ch),
-                inSet
-              )
-            }
-          // A clause node renders once per member, so every member would
-          // claim its id.
-          case s: LayoutNode.SetNode =>
-            s.members.toList.sortBy(_._1).flatMap { case (_, m) =>
-              m.clauses.flatMap(cl => walkIds(cl.node, prefix, id, true))
-            }
-        })
-
-      val all =
-        walkIds(card, "", LayoutNode.rootId("", card), false) ++
-          surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
-            val p = LayoutNode.surfacePrefix(sid)
-            walkIds(s.content, p, LayoutNode.rootId(p, s.content), false)
-          }
-      val authored = all.collect { case (id, inSet, Some(name)) =>
-        (id, inSet, name)
+      val all = index.all.toList.map(ix =>
+        (
+          ix,
+          index.id(ix),
+          index.within(ix).isDefined,
+          index.node(ix).authoredId
+        )
+      )
+      val authored = all.collect { case (ix, id, inSet, Some(name)) =>
+        (ix, id, inSet, name)
       }
-      val ids = all.map(_._1)
+      // `core/page.pkl`'s node and those its slots hold: `root`, `c`, `popups`.
+      def pageOwn(ix: Ix) = ix == Ix(0) || index.parent(ix).contains(Ix(0))
 
-      val shape = authored.flatMap { case (id, inSet, name) =>
+      val shape = authored.flatMap { case (ix, id, inSet, name) =>
+        lazy val holders = all.collect { case (o, `id`, _, _) => o }
         if (inSet)
           List(
             s"node id '$name' is inside a candidate set's clause, which is " +
@@ -1071,22 +1138,21 @@ private[model] object Validate:
             s"node id '$name' is not a plain token ([A-Za-z0-9_]+) — ids are " +
               "interpolated into `id` attributes and signal names"
           )
-        else if (ids.count(_ == id) > 1)
-          List(s"node id '$name' is used more than once")
+        else if (holders.sizeIs > 1)
+          // Reported from the author's side, naming the page's.
+          val others = holders.filterNot(_ == ix)
+          if (pageOwn(ix) && others.exists(o => !pageOwn(o))) Nil
+          else if (!pageOwn(ix) && others.exists(pageOwn))
+            List(
+              s"node id '$name' is used more than once, also by the page " +
+                "card's own node — name it something else"
+            )
+          else List(s"node id '$name' is used more than once")
         else Nil
       }
 
       shape.distinct
     }
-
-    val chromeErrors: List[String] =
-      Option
-        .when(
-          theme.chrome.nonEmpty && !theme.chrome.contains("id=\"dashboard\"")
-        )(
-          "theme.chrome must contain an element with id=\"dashboard\" wrapping {{{body}}}"
-        )
-        .toList
 
     // Given a tone and a text, nothing else: any other name would print empty.
     val failedLabelErrors: List[String] = label.fold(
@@ -1098,165 +1164,21 @@ private[model] object Validate:
         )
     )
 
-    // The hoist mints `bakeInto`, so a dangling one means the build's and the
-    // renderer's id derivations drifted; otherwise the symptom is a blank
-    // panel, indistinguishable from an unmatched state group.
-    val danglingBakes: List[String] = {
-      // Every node under the id the runtime gives it, set members' included:
-      // a member's nodes own bake groups too, a slider's heads (#556).
-      def nodesIn(
-          node: LayoutNode,
-          prefix: String,
-          id: NodeId,
-          within: Option[(NodeId, Int, List[LayoutNode.Step])]
-      ): List[(NodeId, LayoutNode, Boolean)] =
-        (id, node, within.isDefined) :: (node match {
-          case c: LayoutNode.Component =>
-            LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
-              nodesIn(
-                ch,
-                prefix,
-                LayoutNode.childIdWithin(prefix, id, step, ch, within),
-                within.map((m, cl, path) => (m, cl, path :+ step))
-              )
-            }
-          case set: LayoutNode.SetNode =>
-            set.members.toList.flatMap { (entityId, m) =>
-              val member =
-                NodeId.derived(LayoutNode.memberSegment(id, entityId))
-              m.clauses.zipWithIndex.flatMap((clause, ci) =>
-                nodesIn(clause.node, prefix, member, Some((member, ci, Nil)))
-              )
-            }
-        })
-      val walked =
-        nodesIn(card, "", LayoutNode.rootId("", card), None) ++
-          surfaces.toList.flatMap { case (sid, s) =>
-            val p = LayoutNode.surfacePrefix(sid)
-            nodesIn(s.content, p, LayoutNode.rootId(p, s.content), None)
-          }
-      val nodes: Map[NodeId, LayoutNode] =
-        walked.map((id, n, _) => id -> n).toMap
-      val inMember: Set[NodeId] =
-        walked.collect { case (id, _, true) => id }.toSet
-      def hostCard(gid: NodeId): Option[CardDef] =
-        nodes
-          .get(gid)
-          .collect { case c: LayoutNode.Component => c.card }
-          .flatMap(cards.get)
-
-      surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
-        s.bakeInto.toList.flatMap { gid =>
-          if (!nodes.contains(gid))
-            List(
-              s"surface '$sid' bakes into '$gid', which is not a node in this " +
-                "dashboard (main tree or any surface's content)"
-            )
-          // Every clause of a candidate mints the same ids below the member, so
-          // only the clause tells two clauses' groups apart (`Surface.group`).
-          else if (inMember(gid) && s.clause.isEmpty)
-            List(
-              s"surface '$sid' bakes into '$gid', inside a candidate set's " +
-                "clause, but names no clause"
-            )
-          else
-            // `bakeAs` must be a baked region of that node's card.
-            (s.bakeAs, hostCard(gid)) match {
-              case (Some(region), Some(cd))
-                  if !cd.regions.get(region).exists(_.fill == Region.Baked) =>
-                val baked = cd.bakedRegions.keys.toList.sorted
-                List(
-                  s"surface '$sid' bakes into '$gid' as '$region', but that " +
-                    s"node's card declares no baked region '$region'" +
-                    (if (baked.isEmpty) " (it declares none)"
-                     else s" — it has ${baked.mkString(", ")}")
-                )
-              // Incoherent: the node owns a bake group while `hostId` falls to
-              // the popup host. Also what keeps "a bake owner is structure"
-              // true, which the render cache relies on.
-              case (None, _) =>
-                List(
-                  s"surface '$sid' bakes into '$gid' but names no 'bakeAs' — " +
-                    "a baked surface must name the region it fills"
-                )
-              case _ => Nil
-            }
-        }
-      }
-    }
-
-    // Selection is per session or server truth per group, never both.
-    val activationErrors: List[String] =
-      surfaces.toList
-        .flatMap { case (sid, s) => s.group.map((_, sid, s.activation)) }
-        .groupBy(_._1)
-        .toList
-        .sortBy(_._1)
-        .flatMap { case (gid, members) =>
-          val kinds = members.map {
-            case (_, _, _: Activation.User)  => "user"
-            case (_, _, _: Activation.Var)   => "var"
-            case (_, _, _: Activation.State) => "state"
-          }.distinct
-          val names = members.collect { case (_, _, Activation.Var(n, _)) =>
-            n
-          }
-          // A baked member has a host, and what fills a host is a choice the
-          // server knows: a viewer's variable or a condition (ADR 0033).
-          val unchosen = members.collect { case (_, sid, _: Activation.User) =>
-            sid
-          }.sorted
-          Option
-            .when(unchosen.nonEmpty)(
-              s"bake group '$gid' has members nothing selects (" +
-                unchosen.mkString(", ") + "): a baked surface is chosen by a " +
-                "node variable (activation kind \"var\") or a condition " +
-                "(\"state\")"
-            )
-            .toList ++ Option
-            .when(kinds.size > 1 && unchosen.isEmpty)(
-              s"bake group '$gid' mixes var- and state-activated members: " +
-                members.map(_._2).sorted.mkString(", ")
-            )
-            .toList ++ names.distinct.match {
-            case List(name) =>
-              // In [[SurfaceGraph.bakeGroup]]'s order.
-              val inOrder = members
-                .map(_._2)
-                .sorted
-                .flatMap(surfaces.get)
-                .sortBy(_.bakeIndex.getOrElse(Int.MaxValue))
-              varSelectionErrors(
-                d,
-                gid,
-                inOrder.flatMap(_.bakeInto).headOption.getOrElse(gid),
-                name,
-                inOrder.flatMap(_.selectedAt),
-                inOrder.count(_.isOtherwise)
-              )
-            case Nil  => Nil
-            case many =>
-              List(
-                s"bake group '$gid' is selected by more than one variable: " +
-                  many.sorted.mkString(", ")
-              )
-          }
-        }
-
+    // A choice is decided about no subject, over state, variables or both.
     val unboundConditions: List[String] =
-      surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
-        s.activation match
-          case Activation.State(Some(c)) if conditionError(c).nonEmpty =>
-            conditionError(c).toList.map(e =>
-              s"surface '$sid' is shown by a condition that does not decide: $e"
+      picks.toList.sortBy(_._1).flatMap { (gid, p) =>
+        val by = p.choice.by
+        by.bypassError(ownMay = false)
+          .map(e =>
+            s"the choice at '$gid' is decided by a value that does not decide: $e"
+          )
+          .orElse(
+            Option.when(by.readsMissingSubject)(
+              s"the choice at '$gid' compares an unnamed entity; a choice " +
+                "over state must name the entity each comparison reads"
             )
-          case Activation.State(Some(c)) if c.readsMissingSubject =>
-            List(
-              s"surface '$sid' is shown by a condition that compares an " +
-                "unnamed entity; a state condition must name the entity each " +
-                "comparison reads"
-            )
-          case _ => Nil
+          )
+          .toList
       }
 
     // A call runs at the press as a decision: for no viewer, about no subject.
@@ -1317,15 +1239,20 @@ private[model] object Validate:
           fieldErrors ++ dataKeyErrors
         }
 
-    // A decision's reads are what it asks every version, so its window is
-    // written down: one chosen by state would be a pick per version.
+    // A decision's reads are what it asks every version, whoever is viewing,
+    // so its window is written down: one chosen by state would be a pick per
+    // version, and one a viewer's variable chooses would be asked per viewer.
+    // Lifting it: resolve the decision's fetches at the viewer's values (the
+    // memo's key already carries them) and answer them with the viewer's env
+    // (`Server.decisionAnswers`); reopen when a card needs a decision over a
+    // chosen window.
     val decisionFetchErrors: List[String] =
       decisionFetches.flatMap((where, f) =>
         f.window match
           case Choice.Chosen(by, _, _) if by.variables.nonEmpty =>
             by.variables.map(v =>
-              s"$where reads the fetch '${f.key}': a decision is made for " +
-                s"every viewer at once, so its fetch cannot read the variable '$v'"
+              s"$where reads the fetch '${f.key}': a decision asks for its " +
+                s"fetches every version, so its window cannot read the variable '$v'"
             )
           case _: Choice.Chosen[?] =>
             List(
@@ -1335,81 +1262,18 @@ private[model] object Validate:
           case Choice.Fixed(_) => Nil
       )
 
-    val decisionVarErrors: List[String] =
-      decisionExprs
-        .flatMap((where, e) =>
-          e.variables.map(v =>
-            s"$where reads the variable '$v': a decision is made for every " +
-              "viewer at once, so it cannot read a viewer's value — a " +
-              "variable chooses a branch through c.iff(v.valueIs(x))"
-          )
-        )
-        .distinct
-
     authoredIdErrors ++
       callErrors ++
       decisionFetchErrors ++
-      decisionVarErrors ++
       structureLiveSlotErrors ++
       regionHoleErrors ++
       viewErrors ++
       regionNameErrors ++
-      chromeErrors ++
       failedLabelErrors ++
       theme.classes.errors ++
-      danglingBakes ++
-      activationErrors ++
       unboundConditions ++
-      walk(card, "", LayoutNode.rootId("", card), Map.empty) ++
-      surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
-        val p = LayoutNode.surfacePrefix(sid)
-        walk(
-          surface.content,
-          p,
-          LayoutNode.rootId(p, surface.content),
-          scopeOf(surface)
-        ).map(err => s"surface '$sid': $err")
-      }
+      walk(index.root, Map.empty)
 
-  /** A clause's or a state surface's condition: a bool that bypasses nothing.
-    */
+  /** A clause's condition: a bool that bypasses nothing. */
   private def conditionError(e: ValueExpr): Option[String] =
     e.boolError orElse e.bypassError(ownMay = false)
-
-  /** A variable-selected group needs its variable in scope at the host, and a
-    * declared value that is a member index: the declared value is what bakes
-    * before anyone chooses, and only a viewer's choice is checked at the write.
-    */
-  private def varSelectionErrors(
-      d: Dashboard,
-      gid: NodeId,
-      host: NodeId,
-      name: String,
-      values: List[String],
-      fallbacks: Int
-  ): List[String] =
-    import d.*
-    Option
-      .when(values.distinct.size != values.size)(
-        s"bake group '$gid' has two members selected at one value of '$name': " +
-          values.mkString(", ")
-      )
-      .toList ++ Option
-      .when(fallbacks > 1)(
-        s"bake group '$gid' has $fallbacks members selected at every other " +
-          s"value of '$name'; one can be"
-      )
-      .toList ++ (varScopes.get(host).flatMap(_.get(name)) match {
-      case None =>
-        List(
-          s"bake group '$gid' is selected by the variable '$name', which no " +
-            "node at or above it declares"
-        )
-      case Some(in)
-          if fallbacks == 0 && !values.contains(in.declaration.default) =>
-        List(
-          s"bake group '$gid' is selected by '$name', declared '${in.declaration.default}' " +
-            s"on ${in.declarer}, which is not ${Surface.membersText(values)}"
-        )
-      case Some(_) => Nil
-    })

@@ -1,24 +1,25 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.syntax.all.*
 import fh.view.model.{
-  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
   Part,
-  Region,
   SignalBind,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.{declared, st}
+import fh.view.testkit.PklFixture
 import fh.view.testkit.TestIds.given
+import fh.view.runtime.RendererTestOps.ixOf
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.jdk.CollectionConverters.*
@@ -33,93 +34,45 @@ class RenderCacheContentionSuite extends ServerHarness {
   override protected def simulateTime: Boolean = true
 
   /** `c_0` is the tabs host, structure that renders nothing per frame. [[Live]]
-    * is the leaf in its `bar` region, whose bytes mention no selection, so
-    * every viewer shares them.
+    * is the live leaf the bar holds beside its buttons, whose bytes mention no
+    * selection, so every viewer shares them.
     */
-  private val Live: NodeId = "c_0_bar_0"
+  private val Live: NodeId = "c_0_2"
+  private val LiveIx = Renderer.create(leafDash).ixOf(Live)
 
-  private def leafDash = Dashboard(
-    cards = Map(
-      "col" -> TestCard(
-        "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
-      ),
-      "card" -> TestCard("<span>{{state}}</span>"),
-      "tabs" -> TestCard(
-        template =
-          """{{{bar}}}<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
-        regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
-      )
-    ),
-    card = LayoutNode.Component(
-      "col",
-      regions = LayoutNode.kids(
-        LayoutNode.Component(
-          "tabs",
-          regions = Map(
-            "bar" -> List(
-              LayoutNode.Component(
-                "card",
-                templateSlots = Map(
-                  "state" -> TemplateSlot(
-                    ValueExpr(Value.Entity(Some("sensor.shared")))
-                  )
-                )
-              )
-            )
-          ),
-          vars = declared("tab" -> "0")
-        )
-      )
-    ),
-    surfaces = Map(
-      "t0" -> Surface(
-        LayoutNode.Component(
-          "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.a")))
-            )
-          )
-        ),
-        bakeInto = Some("c_0"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(0),
-        activation = Activation.Var("tab")
-      ),
-      "t1" -> Surface(
-        LayoutNode.Component(
-          "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.b")))
-            )
-          )
-        ),
-        bakeInto = Some("c_0"),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(1),
-        activation = Activation.Var("tab")
-      )
-    )
+  private def leafDash = PklFixture.snippet(
+    """card = (c.column) {
+      |  children {
+      |    (c.tabs) {
+      |      tabs {
+      |        ["A"] { t.state("sensor.a") }
+      |        ["B"] { t.state("sensor.b") }
+      |      }
+      |      children { t.state("sensor.shared") }
+      |    }
+      |  }
+      |}
+      |""".stripMargin
   )
 
   private def plainDash = Dashboard(
     cards = Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       ),
       "card" -> TestCard("<span>{{state}}</span>")
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.shared")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.shared")))
+              )
             )
           )
         )
@@ -134,20 +87,22 @@ class RenderCacheContentionSuite extends ServerHarness {
     cards = Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       ),
       "card" -> TestCard("<span>{{state}} {{window}}</span>")
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.shared")))
-            ),
-            "window" -> TemplateSlot(ValueExpr(Value.Var("window")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.shared")))
+              ),
+              "window" -> TemplateSlot(ValueExpr(Value.Var("window")))
+            )
           )
         )
       ),
@@ -236,9 +191,9 @@ class RenderCacheContentionSuite extends ServerHarness {
     )
 
   test("one selection is one render a frame, however many viewers hold it") {
-    assertCost("no bake group, 3 viewers", List.fill(3)(""), plainDash, 1.0) *>
+    assertCost("no pick, 3 viewers", List.fill(3)(""), plainDash, 1.0) *>
       assertCost(
-        "beside a bake owner, 4 viewers on one tab",
+        "beside a pick's host, 4 viewers on one tab",
         List.fill(4)(""),
         leafDash,
         1.0,
@@ -247,7 +202,7 @@ class RenderCacheContentionSuite extends ServerHarness {
       )
   }
 
-  /** A bake owner is structure, never cached or rendered per frame; the leaf
+  /** A pick's host is structure, never cached or rendered per frame; the leaf
     * beside it is owed the same bytes on any tab. So the floor is 1.0 at any
     * mix; 2.0 would mean cost follows selection and a cache keyed on entities
     * alone evicts one tab's bytes for the other's.
@@ -291,23 +246,28 @@ class RenderCacheContentionSuite extends ServerHarness {
     cards = Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       ),
       "card" -> TestCard("<b {{{state.bind}}}>{{state}}</b><i>{{name}}</i>")
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.shared"))),
-              signal = Some(SignalBind.Text)
-            ),
-            "name" -> TemplateSlot(
-              ValueExpr(
-                Value.Entity(Some("sensor.shared"), Part.Attr("friendly_name"))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.shared"))),
+                signal = Some(SignalBind.Text)
+              ),
+              "name" -> TemplateSlot(
+                ValueExpr(
+                  Value.Entity(
+                    Some("sensor.shared"),
+                    Part.Attr("friendly_name")
+                  )
+                )
               )
             )
           )
@@ -341,14 +301,14 @@ class RenderCacheContentionSuite extends ServerHarness {
 
   test("one entry per node, however many values are posted") {
     val renderer = Renderer.create(varDash)
-    val on = (v: String) => ByteValues(Map("window" -> v), None)
+    val on = (v: String) => ByteValues(Map("window" -> v))
     for {
       cache <- RenderCache.create
       _ <- (1 to 50).toList.traverse_(i =>
-        IO(cache("c_0", renderer, on(s"v$i"))(s"<b>$i</b>"))
+        IO(cache(LiveIx, renderer, on(s"v$i"))(s"<b>$i</b>"))
       )
       gens <- cache.size
-      again <- IO(cache("c_0", renderer, on("v50"))("<b>never</b>"))
+      again <- IO(cache(LiveIx, renderer, on("v50"))("<b>never</b>"))
     } yield {
       assertEquals(gens, 1, "50 values, one entry")
       assertEquals(again, "<b>50</b>", "the last value's install stands")
@@ -365,13 +325,13 @@ class RenderCacheContentionSuite extends ServerHarness {
     for {
       cache <- RenderCache.create
       _ <- (1L to 50L).toList.traverse_(n =>
-        IO(cache("c_0_bar_0", renderer, v(n))(s"<b>$n</b>"))
+        IO(cache(LiveIx, renderer, v(n))(s"<b>$n</b>"))
       )
       afterChurn <- cache.size
     } yield assertEquals(afterChurn, 1, "50 frames, one entry")
   }
 
-  private def at(v: Long): ByteValues = ByteValues(Map("state" -> s"v$v"), None)
+  private def at(v: Long): ByteValues = ByteValues(Map("state" -> s"v$v"))
 
   /** Sessions pull on their own fibers, so they do not render from one
     * snapshot. The straggler's install evicts the newer entry: the next session
@@ -385,9 +345,9 @@ class RenderCacheContentionSuite extends ServerHarness {
     for {
       cache <- RenderCache.create
       renderer = Renderer.create(leafDash)
-      newest <- IO(cache(Live, renderer, at(2))(render("<b>v2</b>")))
-      late <- IO(cache(Live, renderer, at(1))(render("<b>v1</b>")))
-      third <- IO(cache(Live, renderer, at(2))(render("<b>v2 again</b>")))
+      newest <- IO(cache(LiveIx, renderer, at(2))(render("<b>v2</b>")))
+      late <- IO(cache(LiveIx, renderer, at(1))(render("<b>v1</b>")))
+      third <- IO(cache(LiveIx, renderer, at(2))(render("<b>v2 again</b>")))
       gens <- cache.size
     } yield {
       assertEquals(newest, "<b>v2</b>")
@@ -406,9 +366,9 @@ class RenderCacheContentionSuite extends ServerHarness {
     for {
       cache <- RenderCache.create
       renderer = Renderer.create(leafDash)
-      _ <- IO(cache(Live, renderer, at(1))(render("<b>v1</b>")))
-      _ <- IO(cache(Live, renderer, at(2))(render("<b>v2</b>")))
-      hit <- IO(cache(Live, renderer, at(2))(render("<b>never</b>")))
+      _ <- IO(cache(LiveIx, renderer, at(1))(render("<b>v1</b>")))
+      _ <- IO(cache(LiveIx, renderer, at(2))(render("<b>v2</b>")))
+      hit <- IO(cache(LiveIx, renderer, at(2))(render("<b>never</b>")))
       gens <- cache.size
     } yield {
       assertEquals(hit, "<b>v2</b>")
@@ -424,9 +384,9 @@ class RenderCacheContentionSuite extends ServerHarness {
 
     for {
       cache <- RenderCache.create
-      old <- IO(cache(Live, before, at(1L))("<b>old</b>"))
+      old <- IO(cache(LiveIx, before, at(1L))("<b>old</b>"))
       first <- cache.size
-      fresh <- IO(cache(Live, after, at(1L))("<b>new</b>"))
+      fresh <- IO(cache(LiveIx, after, at(1L))("<b>new</b>"))
       afterSwap <- cache.size
     } yield {
       assertEquals(old, "<b>old</b>")

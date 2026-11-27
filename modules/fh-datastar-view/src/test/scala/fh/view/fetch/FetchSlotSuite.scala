@@ -1,5 +1,7 @@
 package fh.view.fetch
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -9,34 +11,29 @@ import cats.syntax.all.*
 import fh.view.model.{
   SlotType,
   Part,
-  Activation,
   BoundSlot,
   CardDef,
   Dashboard,
   LayoutNode,
-  NodeId,
-  Op,
   SignalBind,
   Choice,
   FetchTemplate,
   SlotAsk,
   SlotRead,
   Ready,
-  Region,
+  TreeIndex,
   SlotShape,
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import fh.view.history.{ChartStyle, History, SeriesSource, Window, Windows}
-import fh.view.runtime.{EntityState, Evaluator, Renderer, Selections, sharedOf}
-import io.circe.Json
+import fh.view.runtime.{EntityState, Evaluator, Renderer, choosing, viewedOf}
 import io.github.iltotore.iron.*
 import fh.view.FHError
-import fh.view.testkit.DashboardBuilders.declared
+import fh.view.testkit.{FixtureEntity, PklFixture}
 
 import java.time.Instant
 
@@ -47,8 +44,10 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
 
   private object compile:
     private val walk = Ready.Compile(Evaluator.Scope(""))
-    def component(c: LayoutNode.Component): Ready.Component =
-      Conds.compiled(walk.component(c))
+    def component(c: LayoutNode.Component): Ready.Component = {
+      val i = TreeIndex.of(c)
+      Conds.compiled(walk.node(i, i.root))
+    }
 
   /** A window written down resolves to itself in any environment, so the
     * assertions stay about the fetch slot, not variables. Named by preset.
@@ -84,13 +83,15 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
   private def chartNode(window: String = "24h") =
     LayoutNode.Component(
       card = "historyChart",
-      templateSlots = Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
-        "chart" -> chartSource(window),
-        "name" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some("sensor.t"), Part.Whole),
-            List(Step.Cel("value.state"))
+      slots = Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
+          "chart" -> chartSource(window),
+          "name" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("sensor.t"), Part.Whole),
+              List(Step.Cel("value.state"))
+            )
           )
         )
       )
@@ -110,9 +111,11 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
         .component(
           LayoutNode.Component(
             card = "historyChart",
-            templateSlots = Map(
-              "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
-              "chart" -> chartSource()
+            slots = Slots.values(
+              Map(
+                "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.t")),
+                "chart" -> chartSource()
+              )
             )
           )
         )
@@ -132,7 +135,8 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
     assertEquals(
       compile
         .component(
-          LayoutNode.Component(card = "c", templateSlots = Map("chart" -> src))
+          LayoutNode
+            .Component(card = "c", slots = Slots.values(Map("chart" -> src)))
         )
         .liveEntitiesAsBytes,
       Nil
@@ -144,10 +148,12 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
     val two = compile.component(
       LayoutNode.Component(
         card = "twoCharts",
-        templateSlots = Map(
-          "a" -> chartSource("1h"),
-          "b" -> chartSource("1h"),
-          "c" -> chartSource("30d")
+        slots = Slots.values(
+          Map(
+            "a" -> chartSource("1h"),
+            "b" -> chartSource("1h"),
+            "c" -> chartSource("30d")
+          )
         )
       )
     )
@@ -313,122 +319,43 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("a surface's fetches are found before it is rendered") {
-    // More-info is a triggered surface, so what it reads must be answerable
-    // from the static tree: a render is a synchronous string build, a provider
-    // `IO`.
-    val d = Dashboard(
-      cards = Map(
-        "chart" -> TestCard("""<div>{{{chart}}}</div>"""),
-        "col" -> TestCard(
-          """<div>{{{children}}}</div>""",
-          regions = Map("children" -> Region())
-        )
-      ),
-      card = LayoutNode.Component(card = "col"),
-      surfaces = Map(
-        "popup" -> Surface(
-          content = LayoutNode.Component(
-            card = "col",
-            regions = Map(
-              "children" -> List(
-                LayoutNode.Component(
-                  card = "chart",
-                  templateSlots = Map(
-                    "chart" -> TemplateSlot(
-                      ValueExpr(
-                        Value.Fetch(chart()),
-                        List(drawnStep())
-                      ),
-                      `type` = SlotType.TextRaw
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-    val r = Renderer.create(d)
-    assertEquals(
-      r.fetchesForSurface(
-        "popup",
-        sharedOf(Map.empty),
-        Selections.none,
-        Map.empty
-      ),
-      List(read())
-    )
-    assertEquals(
-      r.fetchesForSurface(
-        "nope",
-        sharedOf(Map.empty),
-        Selections.none,
-        Map.empty
-      ),
-      Nil
-    )
-  }
-
   test("a page resolves the tab it shows and the branch state picks, only") {
     // An unselected tab is fetched by its own switch and an inactive branch is
     // off screen; resolving either draws charts nobody sees.
     def panel(w: String) =
       LayoutNode.Component(
         card = "chart",
-        templateSlots = Map("chart" -> chartSource(w))
+        slots = Slots.values(Map("chart" -> chartSource(w)))
       )
-    def host(id: String) = LayoutNode.Component(card = "host", id = Some(id))
-    def baked(into: String, idx: Int, w: String, activation: Activation) =
-      Surface(
-        panel(w),
-        bakeInto = Some(NodeId.derived(into)),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(idx),
-        activation = activation
-      )
-    val lightOn =
-      Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
+    val library = PklFixture.shape(
+      """card = (c.column) {
+        |  children {
+        |    (c.tabs) { id = "tabs"; tabs { ["A"] { t.hole("1h") } ["B"] { t.hole("7d") } } }
+        |    (c.iff(q.entity(dump.entities.light_a).stateIs("on"))
+        |      .then(t.hole("24h")).`else`(t.hole("30d"))) { id = "branch" }
+        |  }
+        |}
+        |""".stripMargin,
+      FixtureEntity("light.a", "on")
+    )
     val r = Renderer.create(
       Dashboard(
-        cards = Map(
-          "chart" -> TestCard(
-            """<div>{{{chart}}}</div>"""
-          ),
-          "col" -> TestCard(
-            """<div>{{{children}}}</div>""",
-            regions = Map("children" -> Region())
-          ),
-          "host" -> TestCard(
-            """<div id="{{hostId}}">{{{panel}}}</div>""",
-            regions = Map("panel" -> Region(Region.Baked))
-          )
-        ),
-        card = LayoutNode.Component(
-          card = "col",
-          regions = LayoutNode.kids(
-            host("tabs").copy(vars = declared("tab" -> "0")),
-            host("branch")
-          )
-        ),
-        surfaces = Map(
-          "t0" -> baked("tabs", 0, "1h", Activation.Var("tab")),
-          "t1" -> baked("tabs", 1, "7d", Activation.Var("tab")),
-          "on" -> baked("branch", 0, "24h", Activation.State(Some(lightOn))),
-          "off" -> baked(
-            "branch",
-            1,
-            "30d",
-            Activation.State()
-          )
+        cards = library.cards + ("chart" -> TestCard(
+          """<div>{{{chart}}}</div>"""
+        )),
+        card = library.fill(
+          "1h" -> panel("1h"),
+          "7d" -> panel("7d"),
+          "24h" -> panel("24h"),
+          "30d" -> panel("30d")
         )
       )
     )
     def light(s: String) =
       Map("light.a" -> EntityState("light.a", s, Map.empty))
-    def windows(selected: String, states: Map[String, EntityState]) =
-      r.fetchesForPage(Set(selected), sharedOf(states), Map.empty)
+    def windows(tab: String, states: Map[String, EntityState]) = {
+      val env = choosing(r, "tabs", "tab", tab)
+      r.fetchesForPage(viewedOf(states, env), env)
         .map(r =>
           Windows.presets
             .collectFirst {
@@ -437,8 +364,9 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
             .getOrElse(fail(s"not a preset: ${r.fetch}"))
         )
         .toSet
-    assertEquals(windows("t0", light("on")), Set("1h", "24h"))
-    assertEquals(windows("t1", light("off")), Set("7d", "30d"))
+    }
+    assertEquals(windows("0", light("on")), Set("1h", "24h"))
+    assertEquals(windows("1", light("off")), Set("7d", "30d"))
   }
 
   private def dashboard(src: TemplateSlot) =
@@ -447,7 +375,7 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
         Map("chart" -> TestCard("""<div id="{{id}}">{{{chart}}}</div>""")),
       card = LayoutNode.Component(
         card = "chart",
-        templateSlots = Map("chart" -> src)
+        slots = Slots.values(Map("chart" -> src))
       )
     )
 
@@ -468,8 +396,10 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
         cards = Map("chart" -> TestCard(s"""<div id="{{id}}">$hole</div>""")),
         card = LayoutNode.Component(
           card = "chart",
-          templateSlots = Map(
-            "chart" -> chartSource()
+          slots = Slots.values(
+            Map(
+              "chart" -> chartSource()
+            )
           )
         )
       ).validate()

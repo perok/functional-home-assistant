@@ -2,9 +2,10 @@
   "name": "fh-datastar-view-frontend",
   "private": true,
   "type": "module",
-  "description": "Frontend sources for the Datastar dashboard: the page shell's inlined helpers and the /edit editor (CodeMirror 6 + @codemirror/lsp-client). Vite bundles src/js into target/frontend, which sbt's NpmPlugin folds into the module's managed resources — so nothing built is committed. Driven by sbt (frontendInstall / frontendBundle); the npm scripts are what it calls.",
+  "description": "Frontend sources for the Datastar dashboard: the page shell's inlined helpers and the /edit editor (CodeMirror 6 + @codemirror/lsp-client). Vite bundles src/js into target/frontend, which sbt's NpmPlugin folds into the module's managed resources — so nothing built is committed. Driven by sbt (frontendInstall / frontendBundle); the npm scripts are what it calls. `build:oracle` is a TEST resource: the model-based oracle's page (src/test/js), the served shell and Datastar on linkedom, for GraalJS.",
   "scripts": {
     "build": "tsc --noEmit && vite build",
+    "build:oracle": "vite build -c vite.oracle.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -17,11 +18,12 @@
     "@codemirror/view": "^6",
     "csso": "5.0.5",
     "echarts": "6.1.0",
-    "terser": "5.51.2"
+    "terser": "5.51.4"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "linkedom": "0.18.15",
     "typescript": "^7.0.2",
-    "vite": "^8.3.6"
+    "vite": "^8.3.8"
   }
 }

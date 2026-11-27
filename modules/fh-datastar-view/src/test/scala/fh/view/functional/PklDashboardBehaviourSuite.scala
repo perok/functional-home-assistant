@@ -154,14 +154,14 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       )
       // The busy signal is created client-side by the indicator, so only a
       // payload, which the bundle sends in place of the signals, keeps it out
-      // of the request body.
+      // of the request body. Sent once: no retry posts a stale press.
       assert(
         html.contains(
-          "{payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+          "{retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
         ),
         clue = html
       )
-      // A more-info tap is guarded too: the open answers once the popup's
+      // A more-info tap is guarded too: the choice answers once the popup's
       // fetches have resolved, and a chart's fetch is a wait (issue #412).
       assert(html.contains("data-indicator=\"_c_1__busy\""), clue = html)
       assert(html.contains("data-on:click=\"$_c_1__busy"), clue = html)
@@ -382,6 +382,56 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .use(f)
       .timeout(60.seconds)
 
+  /** Three branches over two lights: the first condition to hold shows, so both
+    * on is the first branch.
+    */
+  private val chainEntry =
+    s"""amends "@fh-dashboard/entry.pkl"
+       |
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-dashboard/query.pkl" as q
+       |import "@fh-home/dump.pkl" as dump
+       |
+       |card = (c.column) {
+       |  children {
+       |    c
+       |      .iff(q.entity(dump.entities.${light.dumpKey}).stateIs("on"))
+       |      .then(c.title("Branch one"))
+       |      .elif(q.entity(dump.entities.${other.dumpKey}).stateIs("on"))
+       |      .then(c.title("Branch two"))
+       |      .`else`(c.title("Branch neither"))
+       |  }
+       |}
+       |""".stripMargin
+
+  test("an elif chain shows the first branch whose condition holds") {
+    TestServer
+      .fromWorkspace("elif-chain", chainEntry, List(light, other))
+      .use { ts =>
+        def shown: IO[List[String]] =
+          ts.page().map { html =>
+            List("Branch one", "Branch two", "Branch neither")
+              .filter(html.contains)
+          }
+        // No client is connected, so the frame is recorded and not pulled: the
+        // page is each branch's first paint.
+        def set(a: String, b: String): IO[Unit] =
+          ts.record(light.copy(state = a), other.copy(state = b))
+        for {
+          both <- set("on", "on") *> shown
+          second <- set("off", "on") *> shown
+          neither <- set("off", "off") *> shown
+          first <- set("on", "off") *> shown
+        } yield {
+          assertEquals(both, List("Branch one"))
+          assertEquals(second, List("Branch two"))
+          assertEquals(neither, List("Branch neither"))
+          assertEquals(first, List("Branch one"))
+        }
+      }
+      .timeout(60.seconds)
+  }
+
   test("first paint: the branch's tab panel carries its content") {
     withBranchServer(_.page()).map { html =>
       assert(html.contains("Light is on"), clue = html)
@@ -394,11 +444,11 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** Written out because it is the contract: the hoist's `bakeInto`, the
+  /** Written out because it is the contract: the pick's host, the
     * `v.<host>.tab` param and the renderer's node id are this one string, and
     * they have silently drifted apart.
     */
-  private val tabsHost = "s_c_1_then__c_0_1"
+  private val tabsHost = "c_1_branch_0_0_1"
 
   /** A connect carrying this viewer's committed tab, as a reconnect does
     * (`Server.SseInclude`): a stream opened with no page has no session to hold
@@ -534,7 +584,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     */
   private val siblingBar = "c_0"
   private val outerBar = "c_1"
-  private val innerBar = "s_c_1_t0__c_0"
+  private val innerBar = "c_1_panel_0_0_0"
 
   private def withNestedServer[A](
       f: (TestServer, IO[Set[String]]) => IO[A]

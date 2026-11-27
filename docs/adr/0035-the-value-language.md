@@ -3,7 +3,7 @@
 A `ValueExpr` is an s-expression written as a pipeline: `source |> f |> g` is `(g (f source))`,
 Clojure's `->`. `state |> Compare(eq, 21)` is `(compare = (state x) 21)`, and `List[a, b] |>
 AllOf` is `(and a b)`. Every reading in a dashboard is one — a slot, a condition (a clause, a
-guard, a state surface, `c.iff`), an order term, a CEL source's named input — and **one
+guard, a pick's `by`, `c.iff`), an order term, a CEL source's named input — and **one
 evaluator** runs them all (`fh.view.runtime.Evaluator`), so a reading means the same thing
 wherever it stands.
 
@@ -30,7 +30,10 @@ until something has built the entity's whole attribute map (`EntityState.attribu
 **A list source declares its item type** (`itemType`: `bool` for the and/or of conditions, the
 literals' own type for a call's list value), and each item is held to it. The type is the list's own, never read off its items or
 the step after it, so an empty list is typed as any other. Its size is the runtime's: `AllOf`
-over none holds, `AnyOf` over none does not, `Count` is 0.
+over none holds, `AnyOf` over none does not, `Count` is 0, `IndexOfTrue` is no value. `IndexOfTrue`
+is the position of the first item that holds, stopping there: an item with no value does not hold
+and the chain goes on, so a clause reading an attribute its entity does not report falls to the next
+(ADR 0003, a set's member is picked by it).
 
 **A node variable's value is text** (`Value.Var`, ADR 0033): the viewer's, so a reading of one is
 decided per viewer, where every other source is decided once per state version.
@@ -148,7 +151,7 @@ unavailable switch.
   answers and the node's variables, and throws on a read of either that is not: a decision's
   has no variables, since it has no viewer. `Dashboard.validated` walks the wire model into a second, compiled
   one (`Ready`, `Ready.Compile`), every expression beside its run, from `validate`'s own typing;
-  the renderer, `MemberGraph`, `SurfaceGraph`, the order keys and set calls read only that tree,
+  the renderer, `MemberGraph`, `PickGraph`, the order keys and set calls read only that tree,
   so nothing that runs can reach an expression with no run. An expression inside another (a CEL
   input, a guard, a list's item) compiles into its parent's run. One scope per dashboard
   (`Evaluator.Scope`) builds each CEL program the first time a `Cel.Key` asks; `Cel.asts`, the
@@ -159,7 +162,7 @@ unavailable switch.
   decoder would make a decoder fail on what is not a decoding error, outside the errors
   `validated` collects for the whole dashboard.
 - **Early stops are picked at compile time:** `Present |> Count |> Compare(op, n)` counts until
-  the answer is settled, `List |> AllOf/AnyOf` stops at the item that decides it, `First` is one
+  the answer is settled, `List |> AllOf/AnyOf/IndexOfTrue` stops at the item that decides it, `First` is one
   pass with no sorted list.
 - **One implementation per step.** The match on `Step` is exhaustive, so a step the evaluator does
   not run fails to compile. `Stage` steps are the renderer's, applied after the run.
@@ -174,7 +177,7 @@ unavailable switch.
   whose work lives in shared helpers, so a faster dispatch only shortens the gaps between them,
   2–4% of a render as profiled. The measurement, and what would reopen it, is in
   `docs/experiments.md` ("A faster dispatch for the value-language evaluator").
-- **CEL is allowed wherever a value is read:** a clause, a guard, a state surface, an order term
+- **CEL is allowed wherever a value is read:** a clause, a guard, a pick's `by`, an order term
   and a list's item compile it as a slot does, and a bool is the one rule where a bool is
   required (`ValueExpr.boolError`). The library's builders still write simple steps (ADR 0028);
   CEL in a guard is the author's choice, at about three times the allocation

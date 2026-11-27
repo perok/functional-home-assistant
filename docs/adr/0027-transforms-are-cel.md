@@ -45,7 +45,7 @@ Dashjoin is gone from the build, benchmarks included.
   attribute read bypasses the engine, as the simple tier does (ADR 0028).
 - **The library re-authored, not translated at runtime.** The shipped strings
   are ours (`slider.pkl`, `control.pkl`, `core/tap.pkl`, `core/slot.pkl`,
-  `core/surface.pkl`, more-info, demo boards, fixtures); `$dashboardSlug`
+  more-info, demo boards, fixtures); `$dashboardSlug`
   became the `dashboard_slug` binding. Validation stays the ONE gate — a
   transform that does not compile fails the build — and during the swap it
   caught exactly its defect class: a re-authored `fillExpr` splice had dropped

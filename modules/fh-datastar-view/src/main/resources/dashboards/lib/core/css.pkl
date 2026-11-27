@@ -87,7 +87,7 @@ const layoutCss: String = """
   .fh-col{display:flex;flex-direction:column;gap:var(--fh-gap,1rem)}
   .fh-col>*{--fh-cell-width:100%;--fh-cell-flex:0 1 auto;--fh-cell-align-self:stretch}
   .fh-col.fh-fill-screen{min-block-size:calc(100vh - var(--fh-chrome-block,1rem));min-block-size:calc(100dvh - var(--fh-chrome-block,1rem))}
-  .fh-cell:has(>.fh-ifhost:empty){display:none}
+  .fh-ifhost:empty{display:none}
   @media (max-width:640px){.fh-grid>.fh-cell,.fh-group>.fh-cell{flex-basis:100%}}
   """
 

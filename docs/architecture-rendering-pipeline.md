@@ -15,7 +15,7 @@ what its viewer has selected).
 >   ADRs [0011](adr/0011-the-live-connection.md) and
 >   [0012](adr/0012-each-session-renders-what-it-is-owed.md) are the two that most often will;
 >   [0003](adr/0003-candidate-sets.md) (candidate sets) and
->   [0007](adr/0007-state-activated-surfaces.md) (state-activated surfaces) own two of the three node
+>   [0007](adr/0007-state-activated-surfaces.md) (if/else) own two of the three node
 >   kinds below.
 > - When proposing work here, say which box moves. "Render outside the critical section" is a
 >   statement about §1; "prune at pull time" is a statement about §6.
@@ -90,7 +90,7 @@ flowchart TB
     direction TB
     OPEN["openingPatches<br/>resume ▸ repaint ▸ reload<br/>narrowest that is still correct"]
     BEAT["keepAlive · every 25s<br/>a comment, or the CURSOR when position moved<br/>since this stream last said so"]
-    PULL["Server.pull<br/>Patches.resume from position + 1<br/>ALL RENDERING HAPPENS HERE, in the PATCH form:<br/>a signal slot's value is NOT in these bytes<br/>against THIS session's holds + open set"]
+    PULL["Server.pull<br/>Patches.resume from position + 1<br/>ALL RENDERING HAPPENS HERE, in the PATCH form:<br/>a signal slot's value is NOT in these bytes<br/>against THIS session's holds, popups and values"]
     SIGS["Patches.signalFrame<br/>ONE datastar-patch-signals for the batch<br/>the candidates' signal slots, diffed<br/>against this session's record, their CEL<br/>reading the batch's pre-read fetches<br/>— the CURSOR merges into it when no<br/>element patch separates them"]
     APPL["Patches.applied<br/>forget the hosts it re-supplied,<br/>claim what its bytes placed<br/>AND what the frame set"]
     MERGE["the session's owner: one step at a time<br/>(opening, pulls, writes, repaints, keepAlive)<br/>into the stream's Outlet IN STEP ORDER<br/>▸ merged with haDown"]
@@ -106,10 +106,9 @@ flowchart TB
   end
 
   GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>a call is admitted by its declared id, and only on a node that places it"]
-  ACT["action POST<br/>surface/&lt;slug&gt;/open · popup/&lt;slug&gt;/close<br/>(a popup's also from popstate: Back/Forward, ADR 0005)<br/>carries conn + the popup's ui-state<br/>a conn this process has forgotten is REFUSED, said so; only the stream rebuilds it (ADR 0024)<br/>the swap COMMITS ui_popups; the tap only says what it asked for (ADR 0025)"]
-  VAR["node variable (ADR 0033)<br/>a declared SetVar call, POST call/&lt;slug&gt;/&lt;callId&gt;?node= · or v. on the page URL<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press is one: it swaps the panel it selects<br/>re-renders the readers this viewer is shown, commits LAST"]
-  SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>open set, holds (what this DOM has: byte-slot values, signals),<br/>position, told, vars (this viewer's choices),<br/>initialValues (where the document opened a variable)<br/>+ a backlog for a client with no stream"]
-  LOG[("FragmentLog per slug — the CHANGELOG<br/>node -&gt; version · Gone/Placed · horizon<br/>absence means: unknown, send it")]
+  VAR["node variable (ADR 0033)<br/>a declared SetVar call, POST call/&lt;slug&gt;/&lt;callId&gt;?node= · or v. on the page URL<br/>· or Back/Forward, POST history/&lt;slug&gt; + the page query (ADR 0005)<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press and a popup's open are one: each moves the pick it decides<br/>a popup's close is Back<br/>a conn this process has forgotten is REFUSED, said so; only the stream rebuilds it; Back on one, or on a page an edit replaced, reloads at its URL (ADR 0024)<br/>re-renders the readers this viewer is shown, commits LAST"]
+  SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>holds (what this DOM has: byte-slot values, signals,<br/>each host's shown roots in order),<br/>position, told, vars (this viewer's choices),<br/>initialValues (where the document opened a variable)<br/>+ a backlog for a client with no stream"]
+  LOG[("FragmentLog per slug — the CHANGELOG<br/>Ix -&gt; version: a node, a host, an arriving key, each at its clause's place<br/>where to look, never what a client has")]
 
   HA --> PUMP --> STORE --> CH --> SYNC --> PLAN --> REC --> BELL
   BELL --> PULL --> SIGS --> APPL --> MERGE --> SSE
@@ -120,12 +119,9 @@ flowchart TB
   OPEN <-.->|since cursor| LOG
   APPL <-.->|holds| SESS
   GATE --> OPEN
-  GATE --> ACT
   GATE -.->|untilRevoked: a logout or an HA revocation sends _reload,<br/>then the merge ends the stream — a goodbye, not a cut| SSE
-  ACT --> SESS
   SESS -->|a write's frames, or the backlog on attach| MERGE
-  ACT -.->|hostFill claims into holds| SESS
-  SESS -.->|openSets: which surfaces are worth recording| PLAN
+  SESS -.->|watching: each session's values, worth recording| PLAN
   GATE --> VAR
   VAR -->|vars · morphs, then the commit| SESS
   PULL -.->|the reads it will render| QS
@@ -165,11 +161,12 @@ the candidate LIST does not. See ADR 0023.
 will receive it, from the same `Patches.resume` a reconnect runs. A live tick is a resume from
 `position + 1` — one mechanism, not two — which is why there is no audience tag on a patch and no
 per-client filter at the wire edge: a patch exists only because the session that will send it asked
-for it, against its own open set and its own record of its own DOM.
+for it, against its own values and its own record of its own DOM.
 
 The recorder is **one fiber per slug** (`Server.publisherFor`), re-armed by `switchMap` on every
-renderer swap — and a swap past the first mints a fresh log identity, so cursors issued against the
-old renderer cannot be resumed.
+renderer swap. A swap installs a fresh log, stamped with the new renderer, before the renderer
+itself (`LiveSlug.install`), so cursors issued against the old renderer cannot be resumed and the
+old recorder, still running a moment longer, finds a log that is not its own and leaves it alone.
 
 **Three scopes, not two.** Getting these confused is the easiest mistake to make here:
 
@@ -177,7 +174,7 @@ old renderer cannot be resumed.
 |---|---|---|
 | Global | process | the HA WebSocket, `HaFeed`, **the `StateStore`**, the `frames` topic, the `Sessions` registry, the `AuthSessions` registry (a different fact — `Sessions` is keyed by `conn` and is a TAB, `AuthSessions` is keyed by a cookie and is a PERSON), and the fetch side: `FetchResolver` with its stage cache, `History` with its series cache, the one `ChartRenderer` |
 | Per slug | dashboard | the recorder fiber, the `RendererState` (in a `SignallingRef`: `Ready(renderer)` or `Failed(message)`, hot-swapped on edit) **and, when ready, the renderer and the member graph inside it**, the recorder's `Shared` (held in its fold, reset per renderer) and the renderer's `Decided` (the two newest versions' `Shared`, which every viewer reads), the `FragmentLog`, the doorbell, the `RenderCache` |
-| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream that names a `conn` this process does not have (a tap naming one is refused, ADR 0024), empty (slug, and a `SessionState`: open surfaces, `holds`/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back — and that viewer's node-variable choices, `vars`, over where its document opened them, `initialValues`), the SSE stream and its `Outlet`. ONE OWNER fiber per session moves the state: a pull, a selection write, the opening, a repaint and the keepalive are each a step (`Session.run`), run one at a time, and a step's frames reach the outlet in the order the steps ran — returned to separate branches of a merge, a pull made after a write could reach the client before it. A step that raises keeps nothing and sends nothing. The owner lives on the server's supervisor and ends when the session is reaped (a supervisor holds a fiber until it completes, and an owner waiting on its inbox never does); a step asked of it after that is refused (`Session.ended`). Others (the recorder's `openSets`, pruning's `floor`) read the last state a step left, except that a step `reveal`s a surface it opens before it reads the store |
+| Per connection | browser tab | the `Session` — normally created by the DOCUMENT and adopted by the stream, but MINTED by a stream that names a `conn` this process does not have (a tap naming one is refused, ADR 0024), empty (slug, and a `SessionState`: `holds` (keyed by `Ix`; a set or pick host's entry also lists the `Ix` of each root it shows, in the order sent, which a pull plans the host against)/`position`/`told` — what THIS client's DOM has, how far it has been served, and the newest version it was ANNOUNCED, which is the most it can echo back — and that viewer's node-variable choices, `vars`, over where its document opened them, `initialValues`), the SSE stream and its `Outlet`. ONE OWNER fiber per session moves the state: a pull, a selection write, the opening, a repaint and the keepalive are each a step (`Session.run`), run one at a time, and a step's frames reach the outlet in the order the steps ran — returned to separate branches of a merge, a pull made after a write could reach the client before it. A step that raises keeps nothing and sends nothing. The owner lives on the server's supervisor and ends when the session is reaped (a supervisor holds a fiber until it completes, and an owner waiting on its inbox never does); a step asked of it after that is refused (`Session.ended`). The recorder's `Sessions.watching` reads the last state a step left, except that a step `reveal`s the values it moves to before it reads the store |
 
 There is exactly ONE store and ONE upstream subscription for every dashboard — `HaFeed.resource`
 creates the store, `Server.fromFeed` takes `feed.store`. Dashboards are views over one shared state,
@@ -194,8 +191,8 @@ layers only look it up.
 | Layer | Once per | Input | What it produces |
 |---|---|---|---|
 | **Build** | evaluation | the dashboard's JSON | `Dashboard.Validated`, through the build passes (`docs/terminology.md`): decoded, checked, CEL and card templates compiled (`Validated.templates`, the same tree the checks read), fetches parsed, and the tree walked into the compiled one (`Validated.ready`, `Ready.Compile`): every slot, guard, state condition and order beside its run. Everything below reads only that tree |
-| **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's fetching slots with the `valueWhile` each waits for (`Renderer`'s `Index`, one for the body and one per surface; `Component.fetching`), which nodes an entity wakes, every member a candidate can be in each clause with its nodes and fetches (`MemberGraph`, `Member.fetching`), the sets inside each clause (`MemberGraph.setsIn`), bake groups and which surface each controls (`SurfaceGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
-| **Decisions** | state version | the entity states, and the answers to the fetches a decision reads | what they decide, in that version's `Shared`: which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`), which branch a state group shows (`SurfaceGraph.resolveActiveByState`), and whether each `valueWhile` holds. Each is carried from the version before unless the frame between DIRTIED it (an edge in the index, read off the expression that decides it), or made on demand by the first reader that reaches it; every viewer of one version shares them. Beside them, a node's signal values (`Shared.signals`), made by the first session's signal frame and never carried; a node reading a fetch is left out, since its answer is the viewer's (ten clients' signal tick: 341 to 213 µs, `RenderBench.resumeSignalsFanout`). A viewer's own part of a send is its `Viewing`: its `Selections` and its slot answers (§6) |
+| **Index** | renderer | the validated tree | everything the tree alone decides: ids, parents and each node's fetching slots with the `valueWhile` each waits for (`Renderer`'s `Index`, one for the body and one per popup, a choice's every case included, each node with the container holding it; `Component.fetching`), which nodes an entity wakes, every member a candidate can be in each clause with its nodes and fetches (`MemberGraph`, `Member.fetching`), the sets inside each clause (`MemberGraph.setsIn`), each choice's pick and its cases' node ids (`PickGraph`), node variables and their readers (`VarGraph`), and each node's plan, built on first paint and kept (`nodePlans`) |
+| **Decisions** | state version | the entity states, and the answers to the fetches a decision reads | what they decide, in that version's `Shared`: which members a set holds and in which clause (`MemberGraph.membersOf`, `memberAt`; a set reading a variable, at the viewer's values), which case a pick over state shows, its `by` read once (`PickGraph.decideByState`), and whether each `valueWhile` holds. Each is carried from the version before unless the frame between DIRTIED it (an edge in the index, read off the expression that decides it), or made on demand by the first reader that reaches it; every viewer of one version shares them. What reads a variable is the exception: it is made at the viewer's values (`Shared.viewing`) and kept per values (`Shared.branchAt` for a pick, `Shared.setAt` for a set's members and order and `Shared.holdsAt` for a `valueWhile`, at the values in scope at the set's or slot's node; `ByValues`), so viewers on equal values share one, a dirtying drops every value's at once, and a carry drops the values no live session holds. A pick has one of three levels, found once per renderer from what its `by` reads: state alone (`PickGraph.statePicks`, `decideByState`, shared), computing over a variable, alone or with state (`viewerPicks`, `decideByViewer`, kept per values through the same dirty rule as a state pick, so a viewer pick reading no entity is never dirtied), or the plain variable (`varPicks`, not kept: a lookup of the viewer's value, `decideByVariable`). Beside them, a node's signal values (`Shared.signals`), made by the first session's signal frame and never carried; a node reading a fetch is left out, since its answer is the viewer's (ten clients' signal tick: 341 to 213 µs, `RenderBench.resumeSignalsFanout`). A viewer's own part of a send is its `Viewing`: its slot answers (§6), beside the values its `Shared` is viewed at |
 
 Three rules keep the layers apart, and building on them is how new work stays cheap:
 
@@ -209,7 +206,7 @@ Three rules keep the layers apart, and building on them is how new work stays ch
   the next version exists is offered on to it unless that frame dirtied it.
 - **Work happens only where a dirty mark meets something shown.** A dirty decision is made again
   only when a walk reaches it: a viewer's, a press, the debug route, or the recorder's for what
-  some session has open. One nobody shows stays dirty and costs nothing. A plain tick dirties no
+  some session shows. One nobody shows stays dirty and costs nothing. A plain tick dirties no
   decision and ends as a `touched` entry; a removal (`StateChange.Removed`) is a change like any
   other, so a decision that read the entity goes dirty.
 - **A version decides each thing once**, and the pre-read, the walk, the render key and the
@@ -223,9 +220,9 @@ Three rules keep the layers apart, and building on them is how new work stays ch
   decisions, and a hidden one's fetch is never asked. Outside a run, such a decision raises.
 
 `Decided` keeps the two newest versions: the recorder asks of a frame's "before" and "after" in
-one run. An older version decides afresh, so a session behind its peers (§5) is correct and only unshared. The
-viewer's own choices (an open popup, a selected tab) are not decisions: they are in its
-`Viewing`, and no decision reads them.
+one run. An older version decides afresh, so a session behind its peers (§5) is correct and only unshared. A
+viewer's open popup and a selected tab are its values of a variable, which its `Shared` is viewed
+at; the case is a lookup of it.
 
 ---
 
@@ -252,7 +249,8 @@ evaluate the ONE entrypoint        // site.pkl -> slug -> dashboard (ADR 0021);
       Ready(renderer) when it built, Failed(message) when it did not
       // hot-swapped on edit; a failed dashboard is watched, serves an
       // error page, and rebuilds live when the source is fixed
-  per slug: one FragmentLog with a fresh id, in a Ref, and one doorbell
+  per slug: one FragmentLog with a fresh id and its renderer's stamp, in a Ref,
+      reaching no cursor until the recorder's first frame seeds it, and one doorbell
 create ONE Sessions registry, and ONE LiveSite holding all of the above
   // plus, per slug, what it evaluated to and whether the entrypoint owns it
 recorders follow the registry     // sharedPatchPublishers reconciles toAdd/
@@ -269,7 +267,7 @@ lifecycle — there is no second path that could disagree:
 flowchart LR
   EDIT["a *.pkl changed<br/>(the entrypoint, an import,<br/>or a file APPEARING —<br/>the dir is watched too)"] --> RE
   DUMP["dump swapped in<br/>DumpRefresh"] --> RE
-  RE["ServerApp.reloadSite<br/>re-evaluate the ONE entrypoint"] --> DIFF{"LiveSite.applySite<br/>per slug, vs the content<br/>recorded beside it"}
+  RE["ServerApp.reloadSite<br/>re-evaluate the ONE entrypoint;<br/>validate only a slug that decodes<br/>unlike what it serves"] --> DIFF{"LiveSite.applySite<br/>per slug, vs the content<br/>recorded beside it"}
   DIFF -->|unchanged| NOOP["do nothing<br/>— a write would rotate the log<br/>and repaint every viewer"]
   DIFF -->|new or changed| INS["install<br/>origin = FromSite(content)"]
   DIFF -->|"gone, and the site's<br/>to reclaim"| RM["remove"]
@@ -299,9 +297,10 @@ Four properties worth stating, because each is silent when broken:
   be kept in step to know that.
 - **An unchanged dashboard is not re-installed.** The watcher fires on anything
   in the workspace; writing a `Ready` state anyway emits on the slug's
-  `SignallingRef`, which rotates its log identity and repaints every open
+  `SignallingRef` and rotates its log identity, which repaints every open
   browser. The comparison is per slug, so one author's edit repaints one
-  dashboard.
+  dashboard, and validates one: a slug that decodes equal to what it serves
+  gets the served `Validated` back (`LiveSite.serving`, `DashboardBuild.decode`).
 - **The registry also decides what HA is asked for.** The upstream
   `subscribe_entities` carries the union of the registered slugs'
   `watchedEntities` (ADR 0030), so installing, removing or rebuilding a
@@ -328,7 +327,7 @@ GET /d/:slug
   evaluate each variable's start from the store (once; never followed), under the
     `v.` choices: the render and its selections read both
   render the WHOLE page from the current snapshot
-  mint conn; create Session{slug, open surfaces, vars, initialValues, holds, position} and its owner
+  mint conn; create Session{slug, vars, initialValues, holds, position} and its owner
   holds = the byte-slot values of every node this render painted   // what THIS client's DOM has
           + every seeded signal, structure's included (no values: it has no bytes
           of its own), so the first frame after a load sends only what moved
@@ -357,21 +356,24 @@ GET /sse/dashboard/:slug/patch
   retire the session `?prev=` names, if any, unless a stream is HOLDING it
     // this tab's previous document, from sessionStorage. A reload mints a
     // fresh conn, so without this its predecessor sits in the registry for a
-    // whole linger window holding an old position — and the floor is the
-    // LOWEST position, so a few reloads keep the changelog un-prunable.
+    // whole linger window, its values widening what every frame records.
     // Retiring is all that is wanted: the old holds describes a DOM that no
     // longer exists. The not-Held guard is for a DUPLICATED tab, which
     // inherits sessionStorage and would otherwise evict a live viewer
   adopt the session that URL's conn names (epoch++); mint one under the same id
     if it is gone — a reap, a bookmark, a restart: costs suppression, not correctness
-  opening patches, narrowest that is still correct:
+  opening patches, narrowest that is still correct (`Opening.of`, a pure value):
       resume   if the cursor's logId matches, nothing structural moved, AND the
                cursor is not behind `told` — a client that never acknowledged
                what we announced has `holds` we cannot answer from
-      repaint  if it does not      // claims what it painted, same as the document:
-                                   // the body AND the open popup, whose host is
-                                   // outside #dashboard (Patches.repaint)
-      reload   if the document itself is stale
+      repaint  if it does not, with its `RepaintReason` (logged at debug)
+                                   // claims what it painted, same as the document:
+                                   // one morph of the root, the open popup
+                                   // a case of `popups` (Patches.repaint),
+                                   // plus their signal values as a frame: a
+                                   // seed whose text did not change is not
+                                   // re-applied (ADR 0017)
+      reload   if the document itself is stale, or the slug failed
     ...then position = WHAT THIS CONNECTION CAN PROVE IT SENT: the doorbell's
       value (read BEFORE the log) for a resume, since a resume can only answer
       for versions the changelog describes; the snapshot's version for a
@@ -391,9 +393,9 @@ GET /sse/dashboard/:slug/patch
     // current still what I served you". Reading it off the subscription
     // instead cannot tell "unchanged" from "changed while nobody was looking",
     // and the second leaves a client on a dashboard that no longer exists.
-    // Its repaint takes the popup from `session.open` and the tabs from the
-    // session's variables, not the stream's request: that is what it
-    // CONNECTED with, and would reopen a popup closed since.
+    // Its repaint takes the popup and the tabs from the session's
+    // variables, not the stream's request: that is what it CONNECTED with,
+    // and would reopen a popup closed since.
   the whole response, AFTER untilRevoked wraps it, is interruptWhen'd on this
     stream's tenure: a later stream displaces it by taking the next epoch
     // NEVER on the stream handed to untilRevoked. fs2 interruption is scoped,
@@ -468,10 +470,10 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
   during the commit).
 - **A press is the server's own evaluation of a declared call** (ADR 0023).
   `POST /sse/call/<slug>/<callId>?node=<id>`, its body
-  `{conn, ui_popups, posted, seen}`, which `tapMod.post` spells:
+  `{conn, posted, seen}`, which `tapMod.post` spells:
   `Server.tapCall` looks the id up in `Dashboard.calls`, by its kind. A
   `SetVar` is a choice of a node variable (`Server.choose`, below), which
-  reads only `conn` and the popup. A service call is checked against the call
+  reads only `conn`. A service call is checked against the call
   on the node as it stands now (`Renderer.componentAt`, so a set member is its
   current clause); the server decodes `posted` as each `Posted` source
   types it, runs every field through `decided` (a fetch answered first,
@@ -483,18 +485,20 @@ client-only feedback around the `@post` — see `docs/adr/0019-an-action-in-flig
 - **A refusal is signals on a 200, not a status** (ADR 0024). Every refused
   action — HA rejecting the call, a call this dashboard does not declare or the
   node does not place, a `seen` the server now disagrees with, a posted value of
-  the wrong type, an unknown surface, a `conn` on another slug — goes through `Server.actionRefused`
+  the wrong type, a `conn` on another slug — goes through `Server.actionRefused`
   and answers 200 with a `datastar-patch-signals` body: `_<node>__error` on the
   control that was pressed, `_<group>__pending` cleared, `_toast` carrying HA's
   own message. The two ids ride in the action's query string, read off
   `data-fh-node` at click time. The bundle parses a response body only on
   exactly 200 (`if (M !== 200) { … return }`), which is why a 4xx could never
   have carried any of this.
-- **Nothing is coming, so no ask is outstanding — one rule, in the shell.**
-  `Server.PendingSweep` clears every `*__pending` signal on a dead stream
-  (`_sse > 0`) or a non-200 response, via `@setAll('', {include:/__pending$/})`.
-  Both are page-wide facts, so neither knows nor needs which group asked; a
-  refusal the server SENDS is different and names its own group. Busy signals
+- **Nothing can be read, so no ask is outstanding — one rule, in the shell.**
+  `Server.PendingSweep` clears every `*__pending` signal on a non-200 response,
+  via `@setAll('', {include:/__pending$/})`. It is a page-wide fact, so it
+  neither knows nor needs which group asked; a refusal the server SENDS is
+  different and names its own group. A dead stream clears nothing and only
+  shows the banner: the reconnect's opening block (`openingSignals`) restates
+  the committed choices and empties every declared variable's pending signal. Busy signals
   are not swept — the bundle dispatches `finished` in a `finally` and the
   indicator clears on a counter, so a busy state cannot outlive its fetch.
 - **Failure toast, in the shell.** `<body>`'s signal-patch handler calls
@@ -525,21 +529,28 @@ StateStore.update(frame)                    // one Ref.modify for the whole fram
                                              // only when something changed
 
 every slug's recorder wakes                  // its stream began with the state
-                                             // current when it subscribed
-  sessions.openSets(slug) + floor(slug)
+                                             // current when it subscribed: that
+                                             // first frame records nothing, it
+                                             // SEEDS the log (complete from the
+                                             // version after it) and rings
+  sessions.watching(slug)                     // each session's values, and
+                                              // values revealed since its last step
   advance -> the next Shared: the previous one's decisions minus those the
       frame's changes DIRTY (an index lookup per change, no cascade: a decision
       reads states and answers, never another decision), on the frame's own
       states. BEFORE the gate: the chain tracks the state stream, so a frame
       nobody records still moves it and the next recorded frame diffs from
-      where the stream really is. It makes nothing; a frame costs its CHANGES,
+      where the stream really is. The values the watched sessions hold ride
+      along: values none holds are dropped from what a decision kept per values.
+      It makes nothing; a frame costs its CHANGES,
       not the size of the house
     NO SESSIONS -> record nothing at all, just mark the gap (log.skipped) and
       stop. A dashboard with no browser on it is the normal state of a home
       instance. Safe only because a document registers its session BEFORE
       reading the snapshot it renders from, which makes any version skipped
       one that document already contains
-    visible = surfaces some session can actually SEE  // widens what is considered
+    visible = the cases on each watched viewer's screen: those its values pick
+              (PickGraph.onScreen, one viewer at a time)
   plan    -> in ONE decide run over "before" and "after" (the previous and the
              next Shared): a decision shown in either is made there, dirty or
              never made; one nobody shows is not reached, so its fetch is not
@@ -547,26 +558,22 @@ every slug's recorder wakes                  // its stream began with the state
              staticIds (members included — they are in the reverse index),
              sets (which to ask about PRESENCE/ORDER: those a change dirties,
              under a shown root, a nested one only under an owner present on
-             both sides), and each one's move: the member lists before and
-             after, plus the members whose CLAUSE was replaced in place. A
-             stable set looks only at the changed entities, so a frame that
-             ticks one member costs that member
+             both sides), kept where their keys moved. A stable set looks only
+             at the changed entities, so a frame that ticks one member costs
+             that member
              flips
   record  -> the changelog, and nothing else:
-      flips first    -> evict the departed branch, record Gone/Placed
       static         -> node -> version    // members are in here: they are in
                                            // the reverse index like any node
-      sets           -> the members whose CLAUSE was replaced (no entity edge can
-                        name a card binding nothing live), then Gone/Placed per
-                        membership move, or a filled host
-                        (a fill is recorded as `filled`, which raises the
-                         container's horizon — "any cursor below this gets
-                         this host")
+      sets, flips    -> the host -> version, and each arriving key's root
+                        (a member's clause root, a pick's case)
   ring the doorbell with the version          // AFTER the log is written, or a
                                               // session could set its position
                                               // past changes it never saw
 
 each connection wakes and PULLS
+  a log another renderer stamped, or one that does not reach `position`
+    (its seed is above it) -> repaint, as a swap does
   resume(log, holds, snapshot, position + 1, open, its own ui-state)
       -> send the candidates whose byte-slot values are not what it holds,
          rendered IN THE PATCH FORM
@@ -574,35 +581,43 @@ each connection wakes and PULLS
          is not what this client's record holds. A node whose only movement was
          a signal slot therefore emits no element patch at all — that silence is
          the feature (ADR 0017), which is why the frame is collected from the
-         CANDIDATES rather than from the patches
-  applied  -> forget the hosts those patches re-supplied, claim what they placed
-              and what the frame set (merged per node, never replaced: a morph
-              says nothing about the signals bound inside it, and a frame says
-              nothing about the bytes)
+         CANDIDATES rather than from the patches. A fill's subtree signals ride
+         it whatever is held: the fill morphs onto what the page has, and the
+         morph re-applies a seed only where its text changed
+      -> per host among the candidates: its keys decided now (a set's members,
+         a pick's case by state or by this viewer's variable), planned against
+         the list held (Patches.planHost) — every leave, then each host's fill
+         or places, back to front; a key held and decided goes again whole when
+         its root was logged and it has no rendering of its own (A -> B -> A).
+         Nothing inside a range sent whole or leaving is morphed or planned too
+  applied  -> a fill drops what was under its host and sets its list, a place
+              inserts into the list, a leave drops the key's subtree; then claim
+              what they placed and what the frame set (merged per node, never
+              replaced: a morph says nothing about the signals bound inside it,
+              and a frame says nothing about the bytes)
   position = the version it woke for                // ALWAYS, even when it was
                                                     // owed nothing
   write bytes — but ONLY if there were any: a frame this client was owed
     nothing for is silence on the wire, cursor included. The keepalive carries
     the cursor forward instead, so `position` may run ahead of what the client
-    holds by up to one interval. Safe, and bounded to a container refill —
+    holds by up to one interval. Safe, and bounded to a few nodes re-sent —
     the argument is on Session.position
 ```
 
 ### The log
 
 ```
-keyed by node id: the version it last moved at   // no content: what a CLIENT
+keyed by id: the version it last moved at        // no content: what a CLIENT
                                                  // holds is the session's answer
+  a node whose bytes moved, a host whose decided keys moved, an arriving key's root
   a later write overwrites — latest wins, and a version never goes backwards
-mutations: Gone / Placed per node, latest wins
-pruned by the FLOOR: the lowest `position` any live session holds. A mutation
-  below it cannot appear in any resume any session will ever run — exact, where
-  the rule it replaced was a one-hour wall clock
-  per-container `horizon` records the version at which its history became incomplete
-  -> a cursor below a container's horizon gets a refill instead of a delta
-     (a CLIENT cursor is not bounded by the floor, which is why pruning raises it)
-completeFrom: the whole log going incomplete — see the gap above
-absence means "unknown, send it" — so dropping an entry is ALWAYS safe
+  bounded by the index: nothing is pruned, and a key leaving logs nothing
+completeFrom: the whole log going incomplete — see the gap above — and, on a
+  fresh log, "nothing yet": it reaches no cursor until its recorder's first frame
+  seeds it
+stamp: the renderer whose recorder writes it; it is written, rung for and read
+  only under that renderer, so a swap installs it before the renderer
+absence means "unchanged since the log began", which the client's page already shows
 ```
 
 ### Reconnect
@@ -611,17 +626,37 @@ Same call as a live pull; only the cursor differs.
 
 ```
 client sends back its stored signals: logId, version, headHash, styleHash
-  different logId, version ahead of the store, head moved, or a cursor from
-    before a stretch this slug did not record -> full repaint
+  head moved -> reload
+  no cursor, different logId or a log the serving renderer did not stamp,
+    version ahead of the store, a cursor from before a stretch this slug did not
+    record (or before the log's seed), one behind `told`, or `holds` painted
+    under another renderer -> full repaint (`Opening.of`, one `RepaintReason` each)
   otherwise since(version):
       nodes   whose logged version >= cursor   -> sent, rendered NOW, if their byte-slot
                                                   values are not what this client holds
-      ...AND every node in a surface this client has OPEN — nothing may have
-              rendered it while nobody was viewing it, so the cursor cannot
-              name it and only re-rendering can tell
-      moved   Gone/Placed                      -> replayed as remove + insert
-      refill  containers whose history aged out -> whole host
+      hosts   logged at >= cursor              -> keys decided now, planned against the
+                                                  held list (Patches.planHost): a fill,
+                                                  or leaves then places back to front
+      ...AND, on a reconnect, every node and host on this client's screen —
+              nothing recorded against a screen nobody was viewing, so the
+              cursor cannot name it and only re-rendering can tell
 ```
+
+A live pull takes the log alone (`Patches.Coverage.Logged`). That is a claim about the recorder,
+not a shortcut: a live session is watched from before its page renders, every frame since is
+recorded against its screen, values a write in flight reveals included, and a press renders what
+arrives itself. So the log names everything a watched viewer is owed, and a
+node it misses is a recorder bug. Sweeping the screen on every pull would hide that bug and was
+~86% of `RenderBench.viewerPull`'s allocation; without it a miss shows, and `OracleSuite` is what
+looks. Only a reconnect sweeps (`Coverage.Swept`): its screen may be one no frame was recorded
+against. The sweep is every node of the page's own container and of each case the viewer's
+values show; the page's container is no pick's case, so `PickGraph.chosen` does not hold it.
+
+`Logged` carries the evidence, a `Patches.Watched` minted only by `Watched.of` from the session's
+`position` and `painter`: the log reaches the position, and the session was painted under the
+renderer that numbers the log, which is the test an opening resumes on too
+(`FragmentLog.cannotResume`). The resume starts from that position, so the evidence cannot be
+paired with another cursor; where the mint refuses, the pull repaints (`Server.owed`).
 
 A client's cursor gets `>=` where a session's `position` gets `+ 1`, and the difference is who is
 claiming: a client can hold version V having seen only part of it, where a position is what this
@@ -629,91 +664,83 @@ server itself last sent.
 
 ---
 
-## 3. Inside `Patches.record` — the three kinds, and what each writes
+## 3. Inside `Patches.record` — three kinds of id
 
-Nothing here renders. Everything it needs is state: a flip's selection is `resolveActiveByState`,
-`plan` found the flips from the changed entities (`SurfaceGraph.affectedStateGroups`) and kept a
-surface's nodes only where `SurfaceGraph.visibleSurface` says it is shown, so a hidden branch is never
-asked, and membership arrives already decided — `MemberGraph.deltas` reads each affected set in
-the "before" and "after" `Shared`, and hands `record` its list before and after plus the members
-whose case was replaced.
+Nothing here renders. Everything it needs is state: a flip's selection is `decideByState`,
+`plan` found the flips from the changed entities (`PickGraph.affectedStateGroups`, and for a
+viewer pick `affectedViewerGroups`, per distinct values among the watched viewers, given as
+`PickGraph.Seen`: the values and the containers on screen for them) and kept a
+container's nodes only where `PickGraph.visibleContainer` says it is shown, so a hidden branch is never
+asked, and membership arrives already decided — `MemberGraph.deltas` makes each affected set's
+"after" decision (from the changed entities alone for a stable set) and answers which sets show
+other keys than before.
+
+A set whose guards or order read a variable (`MemberGraph.readsViewer`) is decided at each
+viewer's values, so what is under it is on the page only for those whose `Shared` holds it, and
+`Server.recordFrame` makes one plan per distinct live values, each as that viewer
+(`Shared.viewing`) with the screens of its sessions, and logs the union: the set's host when its
+keys moved for some values, and each arriving member's root. A frame with no such set keeps its
+single plan.
 
 ```mermaid
 flowchart TB
   REQ["DiffRequest from Patches.plan"]
 
-  REQ --> FLIP["FLIPS<br/>a state group's selected branch moved"]
-  REQ --> STAT["STATIC IDS<br/>ordinary bound components"]
-  REQ --> DYN["SETS<br/>a candidate set whose PRESENCE or ORDER may have moved"]
+  REQ --> STAT["STATIC IDS<br/>ordinary bound components,<br/>a ticking MEMBER's nodes included"]
+  REQ --> DYN["SETS<br/>whose keys moved, for some viewer's values:<br/>an arrival, a departure, a reorder, a clause switch"]
+  REQ --> FLIP["FLIPS<br/>a state pick whose case moved,<br/>a viewer pick whose case moved<br/>for some watched viewer"]
 
-  FLIP --> FLIPW["evict the departed branch's entries,<br/>record Gone / Placed<br/>runs FIRST: its prune must precede<br/>anything suppressed against a pre-flip entry"]
+  STAT --> STATW["touched: node -&gt; version"]
+  DYN --> DYNW["touched: the set's host,<br/>and each ARRIVING member's root<br/>(a clause switch arrives too)"]
+  FLIP --> FLIPW["touched: the pick's host,<br/>and the arriving case's root"]
 
-  STAT --> STATW["touched: node -&gt; version<br/>a materialised MEMBER arrives here too"]
-
-  DYN --> REPL["touched, per member whose CLAUSE was REPLACED<br/>— always, whatever membership did.<br/>A member that merely ticked came in as a STATIC ID"]
-  REPL --> SAME{"membership<br/>moved?"}
-  SAME -->|no| OUT
-  SAME -->|yes| SET{"who arrived, left,<br/>or changed PLACE?<br/>(a place can only move in a set<br/>ordered by a live value)"}
-  SET -->|nobody| OUT
-  SET -->|somebody| CHURN{"is the UNCHANGED set empty?<br/>(everything arrived, or everything left)"}
-  CHURN -->|yes, a fill re-sends nothing| FILL["filled: drop what is under the host,<br/>raise its horizon past this version<br/>= any cursor below gets the whole host"]
-  CHURN -->|no| EST{"log.holdsAnyOf the members<br/>is there a base to patch against?"}
-  EST -->|yes, established| DELTA["Gone per departure,<br/>Placed per arrival,<br/>and both for a member that MOVED<br/>— fewest moves, via Patches.reordered"]
-  EST -->|no, fresh log after swap or fill| FILL
-
-  FLIPW --> OUT["the CHANGELOG.<br/>Each session turns it into patches for itself,<br/>in Patches.resume"]
-  STATW --> OUT
-  REPL --> OUT
-  FILL --> OUT
-  DELTA --> OUT
+  STATW --> OUT["the CHANGELOG: where to look.<br/>Each session plans and renders for itself,<br/>in Patches.resume"]
+  DYNW --> OUT
+  FLIPW --> OUT
 
   classDef write fill:#dbeafe,stroke:#1d4ed8,color:#0f172a
-  classDef q fill:#fef3c7,stroke:#b45309,color:#0f172a
-  class FLIPW,STATW,REPL,FILL,DELTA write
-  class SAME,SET,CHURN,EST q
+  class STATW,DYNW,FLIPW write
 ```
 
 **There is no fourth kind.** A node whose markup reads its own viewer's selection is not one: its
 version moves like any other node's, and the render that reads a selection happens where the viewer
 is. Nothing here classifies a node by whether it varies, because `record` never renders.
 
-**Filling had to survive the loss of the render**, or the wire would move. It is recorded as
-`FragmentLog.filled`, which raises the container's `horizon` — already the mechanism for "no delta
-describes this, send the host" — so `resume` reaches the same patch from the other side. A fill
-also `touched`es the members it leaves, because those entries are what keep the group *established*
-for the next membership change.
-
-*What* fills is deliberately narrow: only the two cases where a fill re-sends nothing — everything
-arrived, or everything left — plus the no-baseline fallback. Filling on a churn FRACTION instead
-would re-send every member that did not change.
+**Nothing is logged on a departure.** What a client shows is its session's `holds`, so a pull finds
+a key gone by comparing the decided keys with the held list; the leaving key's own entries stay in
+the log, read only where visible and outside a range the plan sends whole. And the root of an
+arriving key is logged so a pull can tell a key that left and came back while the viewer was away
+(A → B → A) from one that never moved: held and decided both, its root logged, it is sent whole
+unless it is a leaf, whose morph says the same.
 
 ---
 
-## 4. Why the flip records nothing but structure
+## 4. Why a flip is logged as a host and a key
 
 A flip is server truth — the branch every viewer must move to — but *which* branch a given viewer
-has baked, and what belongs inside it, depends on selections below it. So the recorder does the
-part that is identical for everyone (evict the departed branch, record where it went) and each
-session fills the host for its own selection when it pulls. A branch no connected viewer reaches is
-never rendered at all.
+has shown, and what belongs inside it, depends on selections below it. So the recorder does the
+part that is identical for everyone (the host moved, and which case arrived) and each session plans
+the host against its own list and fills it for its own selection when it pulls. A branch no
+connected viewer reaches is never rendered at all.
 
-That is the same mechanism as every other node, not a second path — which is the point. Sharing a
-verdict between viewers who agree would need a deferred render and a memo; rendering where the
-viewer is needs neither.
+A viewer pick (a choice reading a variable and state) is not the same for everyone, so the recorder
+decides it per distinct values among the watched viewers, `prev` against `next`, each by that
+values' own screen. It logs the host and each viewer's arriving case when it moved for any, and
+nothing when it moved for none; the viewers it did not move are planned against their unchanged
+case at their pull and sent nothing. Its flip cuts no one's visibility, since it moved the case for
+only some.
 
-**A branch fill forgets by HOST, not by prefix.** A branch's content ids are `s_<surface>__…`,
-which no prefix of the container's id reaches, so the patch names the surfaces at that host
-(`Patches.hostEvicts`) as what it made unknown. A SET's members are `gid_…`, so there the set's
-own id is the right root — a set has no card and no declared region, so it is the one container
-that is neither.
+That is the same mechanism as a set's, not a second path — which is the point. A pick is a host
+showing at most one key: a switch has nothing to keep, so the plan is one fill; a pick showing
+nothing has its key leave.
 
-**And then it CLAIMS what it put there** (`Renderer.HostContent.claims`). Forgetting alone left the
-arriving branch unknown as well as the departing one, so the next tick that made any node in it a
-candidate re-sent bytes the client had just been handed. The two container kinds claim different
-ids and that is why the renderer decides it rather than the fill site: a set's members are separate
-renders, so each part is itself a claimable node; a state group's branch is ONE walk whose part is a
-composed subtree under a root with no rendering of its own, so it claims the walk's per-node values
-(`Traced.claims`) — which cost nothing, the walk having produced them already.
+**And the fill CLAIMS what it put there** (`Renderer.HostContent.claims`): a fill drops everything
+the session held below the host and establishes what the walk rendered, each inner host's list
+included, so the next tick that makes a node in it a candidate is suppressed against the right
+bytes. A set's members are separate renders, so each part is itself a claimable node; a pick's
+case is ONE walk whose part is a composed subtree under a root with no rendering of its own, so it
+claims the walk's per-node values (`Traced.claims`) — which cost nothing, the walk having produced
+them already.
 
 ---
 
@@ -721,8 +748,9 @@ composed subtree under a root with no rendering of its own, so it claims the wal
 
 Everything above says "a node's patch". This is what decides which nodes have one.
 
-A **card** is a template with named **regions** — the holes something else fills. The card alone
-decides the node's kind, and that is the whole rule:
+A **card** is a template with named **regions** — its nodes slots, the holes something else fills
+(`CardDef.regions` on the wire, which the Pkl card's `slots` list builds). The card alone decides
+the node's kind, and that is the whole rule:
 
 ```mermaid
 flowchart LR
@@ -752,12 +780,13 @@ patch could reach through, because every hole holds nodes with ids and patches o
 that wants its own markup to move puts that markup in a region as a node — a slider's head is a leaf
 card beside the rows for exactly this reason.
 
-A region declares HOW it is filled, and the two are not interchangeable:
+A node's fill decides how a region is filled:
 
-| `fill` | Filled by | Element id | Rendered |
+| Fill | Filled by | Element id | Rendered |
 |---|---|---|---|
-| `eager` | the node's own `regions[name]` children | none — they arrive nested | with the parent, in one pass |
-| `baked` | a SURFACE from the bake group, per viewer | `hostId` = `<nodeId>_<bakeAs>` | only the selected member, lazily |
+| fixed nodes | the node's own nodes in that slot | none — they arrive nested | with the parent, in one pass |
+| a choice (`Fill.Nodes(Chosen)`) | the case its PICK shows, a node at the id a fixed node at its index would have, the otherwise after the cases (`Dashboard.picks`); per viewer over a variable, per version over state | the node's root: the choice is its card's whole template, and one beside other content sits in a `group` | only the picked case, lazily |
+| a set (`Fill.Set`) | the members `MemberGraph` decides (§4b) | the card's root | each member a node of its own |
 
 Laid over one slider and one tabs card:
 
@@ -772,10 +801,10 @@ flowchart TB
   subgraph TB2["node c_1 · card &quot;tabs&quot; · STRUCTURE"]
     direction TB
     BAR["region children → c_1_0, c_1_1<br/>card &quot;tab&quot; · LEAF each"]
-    PANEL["region panel · BAKED<br/>element id c_1_panel<br/>◀ a tab switch is one Inner HERE"]
+    PANEL["region panel → c_1_panel_0<br/>card group · A CHOICE, its whole template<br/>◀ a tab switch is one Inner into its root"]
   end
 
-  SURF[("surfaces registry<br/>bakeInto = c_1, bakeAs = panel<br/>one baked at a time")]
+  SURF[("the pick at c_1_panel_0<br/>cases c_1_panel_0_0, c_1_panel_0_1 …<br/>one shown at a time")]
   SURF -.->|fillHost| PANEL
 
   classDef struct fill:#fee2e2,stroke:#b91c1c,color:#0f172a
@@ -802,23 +831,31 @@ from the `Dashboard`: every authored node, keyed by its location-derived id. The
 container's members. `MemberGraph` holds no state: it decides members into a version's `Shared`,
 which carries them to the next version unless a change dirties them (§1a).
 
-**One kind of container feeds it**: `LayoutNode.SetNode`, via `MemberGraph.MemberSource`.
+**One kind of container feeds it**: a card whose nodes slot holds a `Fill.Set` (its compiled node's `Content.Live(slot, LiveFill.Set(…))`), via `MemberGraph.MemberSource`. The set is its card's whole template, so its root is that card's root (`core/group.pkl`'s `group` for `.build()`), written by the library and walked like any structure card's, its one hole filled with the members.
 
 The two halves are two files, and the seam between them is one sentence: **`MemberGraph` decides
 presence and order, `Renderer` paints.** `MemberGraph` reaches back into the renderer for nothing —
-it is constructed from the `SetNode`s in the static index plus each indexed id's layout root, and
+it is constructed from the sets of the nodes in the static index plus the dashboard's `TreeIndex`, and
 answers membership questions with no template, no mustache context and no document walk. The
 painting stayed behind: a member is walked by the same `tracedInto` as the static tree, from the
 set's case and from `renderMemberTraced`.
 
-**`SurfaceGraph` is the same split, for the other decision.** Which branch of a bake group is
-active, which tab a viewer is on, and which clients a patch at a given node may reach: selection and
-visibility, decided there and painted here. It reads the same `rootOfIndexed`, plus `MemberGraph`
-for the two node kinds the static index cannot place (a materialised member, a nested set
-container).
+**`PickGraph` is the same split, for the other decision.** Which case of a pick is
+shown, which tab a viewer is on, and which clients a patch at a given node may reach: selection and
+visibility, decided there and painted here. What may be hidden is a CONTAINER: a pick's case, a
+popup among them; the page's root never is. Every node is in the innermost one holding it, which
+the `TreeIndex` records, members' nodes included. A node is shown while every case up its chain is
+picked.
+
+**A container is a node, so inside a renderer it is its `Ix`**: a viewer's open set is a `BitSet`
+(`PickGraph.chosen`: the cases its values pick, computed each step from the values and the
+state), and `PickGraph`, `MemberGraph` and the renderer's per-container maps (static nodes, the
+entity reverse index) are keyed by it; the page's root is `PickGraph.pageRoot`, always shown and
+never in an open set. Nothing spelled as a container is kept on a session, so only `VarKey`s
+cross a renderer swap, which `Renderer.recheck` checks.
 
 Both are `private[runtime] val`s on the renderer, reached as `renderer.members.…` and
-`renderer.surfaces.…`. Deliberately NOT re-`export`ed: a delegating wrapper reads as though the
+`renderer.picks.…`. Deliberately NOT re-`export`ed: a delegating wrapper reads as though the
 renderer decided these things, which is what the split exists to stop, so the call site names the
 half it is asking.
 
@@ -826,7 +863,7 @@ half it is asking.
 |---|---|
 | candidates | a STATIC list, decided at build time |
 | what the runtime decides | presence and ORDER — it never invents a member |
-| a member's node | the clause's COMPLETE node, `entity_id` already on it |
+| a member's node | the COMPLETE node of the case that holds (`Choice`, ADR 0033), `entity_id` already on it; a case is a clause, and its index is the clause |
 | woken by | a change to a candidate, **or to an entity a guard names** |
 | placement | the authored candidate order |
 
@@ -844,14 +881,14 @@ other, so a bulb patches its own element and its tile is never re-rendered — w
 nesting rather than composing bytes.
 
 Two rules hold that up, both silent if broken: `Member.entitiesOf` stops AT a nested set (descending
-would wake the tile on every bulb inside it), and container selection reads `MemberGraph.sources` rather
-than the static index (a nested set is not in the index — it hangs off a member, which is the
-live half). The second was a real bug: correct ids, correct HTML, zero patches.
+would wake the tile on every bulb inside it), and every set the recorder decides is in
+`MemberGraph.sources`, a nested one under its owner and clause. The second was a real bug, a
+nested set left out of what the recorder asked: correct ids, correct HTML, zero patches.
 
-The id scheme itself is ONE function, `MemberGraph.innerSetId`, read from both ends —
-`MemberGraph.sources` registers a container under it, `resolveChild` paints an element under it. A
+The id scheme itself is ONE function, `LayoutNode.innerSetId`, and one walk calls it: `TreeIndex`,
+whose ids `MemberGraph.sources` registers a container under and the render walk paints. A
 second spelling of it is the same silent failure again: the recorder maintains a container the
-browser does not have. `SetNodeSuite` pins the property rather than the spelling — every group the
+browser does not have. `SetSuite` pins the property rather than the spelling — every group the
 markup shows is one the graph registered, two levels deep.
 
 **A set with a live `orderBy` or a `limit` is not INCREMENTAL.** One entity moving can reorder its
@@ -862,29 +899,31 @@ rescanned the whole house. Everything downstream is unchanged: a rebuild still r
 departures and now MOVES, and a member that merely ticked still comes through the reverse index.
 
 A member is a real `LayoutNode.Component` — a card, its slots including the entity as a literal
-`entity_id` slot, its cell — stored under the id its `MemberKey` derives. That literal slot is the
-whole trick: `renderCase` already set it on every render, so setting it ONCE, at membership time,
-is all it takes for a member to stop being special. `byteSlotValues` keys it (with its clause),
+`entity_id` slot, its cell — stored under the id its entity derives. That literal slot is the
+whole trick: set ONCE, at membership time, it is all it takes for a member to stop being special.
+The render cache keys it under its clause's `Ix` and its `byteSlotValues`,
 `renderPatch` renders it from those values, `elementId` patches it. There is no reverse `childId -> entityId` lookup,
 because nothing needs to recover an entity from an id — the node carries its own binding, as every
 other node does.
 
-**A member's children are nodes too.** Below a member, the walk mints the ids the static tree
-would (`LayoutNode.childId` from the member's id; a nested set's is `innerSetId`, which names the
-clause), and every `Member` indexes its subtree under them (`Member.nodes`). So the card rule holds
+**A member's children are nodes too.** Every compiled node carries its id, given once by
+`TreeIndex`, the one walk that mints them, so no render builds one. Below a member they are the ids
+the static tree would have (`LayoutNode.childId` from the member's id; a nested set's is
+`innerSetId`, which names the clause), and every `Member` indexes its subtree under them
+(`Member.nodes`). So the card rule holds
 inside a set: a member that is a leaf is its own patch target, and one holding regions is
-structure, patched through its leaves, with baked regions of its own (a slider's main controls).
+structure, patched through its leaves, with choices of its own (a slider's main controls).
 Lookups by id go through the member's current clause (`MemberGraph.nodeAt`), since every clause
 of a candidate mints the same ids below it; a render key names the clause for the same reason, and
-so does a bake group: a surface baked inside a clause is tagged with it (`Surface.clause`), its
-group is `<host>_k<clause>` (`Surface.group`, `SurfaceGraph.groupAt`), so two slider clauses keep
-their own heads, and a write swaps only the group of the member's current clause
-(`SurfaceGraph.groupShown`). A member holding nodes has no one element to send, so its arrival and a
+so does a pick: a choice inside a clause carries it (`Dashboard.Pick.within`), its
+id is `<host>_k<clause>` (`Dashboard.pickId`, the compiled node's `group`), so two slider clauses keep
+their own heads, and a write swaps only the pick of the member's current clause
+(`PickGraph.groupShown`). A member holding nodes has no one element to send, so its arrival and a
 clause switch (a different node, or the same node in another clause) place it whole, rendered per
-viewer (`renderMemberTraced`), with its leaves' claims; a group first shown that way takes its
-selection from the session's variables (`SurfaceGraph.selectionsShown`), and a state group with
-the branch its state picks. So an `If` on live state inside a clause flips only while its member
-is present in that clause, before and after the frame (`SurfaceGraph.groupShown`); the frame
+viewer (`renderMemberTraced`), with its leaves' claims; a pick first shown that way takes its
+case from the viewer's values (`PickGraph.decideByVariable`, or `decideByViewer` for one
+computing over them), and a pick over state the branch its state picks. So an `If` on live state inside a clause flips only while its member
+is present in that clause, before and after the frame (`PickGraph.groupShown`); the frame
 finds it from the changed entities, not by walking every group (ADR 0007).
 
 Three properties hold it up, and each fails silently if broken:
@@ -893,15 +932,14 @@ Three properties hold it up, and each fails silently if broken:
   bind the entity (`MemberGraph.binding`: a static entity-to-sets index, then each shown set's
   decision in `Shared`; a nested set only while its owner is present) to `componentsFor`'s static nodes, so a member's node re-renders because something it binds moved — the group's query is asked
   about MEMBERSHIP alone. Two consequences: a case slot naming a second entity ticks (it never
-  did, silently), and `rootOf` must resolve a member through its group or a member inside a
-  surface reaches clients who do not have it open. The one case the index cannot cover is a
-  switch to a card binding nothing live: no edge names it, so `deltas` reports the members
-  it REPLACED and the recorder touches those by id.
+  did, silently), and a member's container must be placed through the index or a member inside a
+  case reaches clients who are not shown it. A switch to a card binding nothing live has
+  no edge to name it, but needs none: the member's clause root is another key, so `deltas`
+  reports the set's keys as moved and the recorder logs the arriving root.
 - **Ids are key-derived, never positional.** A positional id renames every node below an arrival,
   which is exactly what a per-member delta exists to avoid. Position is the ORDER (the group's
-  member list, which is also what an insert anchor reads); the key is the IDENTITY. `MemberKey` is
-  already a sum (`Entity` today, `Surface` for a state group's branch), so "one member is one
-  entity" stays a property of the predicate engine rather than of the id scheme. A CANDIDATE SET
+  member list, which is also what an insert anchor reads); the key is the IDENTITY, the member's
+  entity. A CANDIDATE SET
   has no arrivals — its candidates are static — so the invariant is not load-bearing there; keyed
   ids stay anyway, because `c_light_taklys` is readable in a patch log and `c_3_7` is not.
 - **A reader reads its own version's decisions, never a newer one's.** A page, pull or resume
@@ -918,9 +956,9 @@ Three properties hold it up, and each fails silently if broken:
 
 The recorder's `Shared` is kept off the renderer on purpose (the renderer's `Decided` only lends
 readers the newest two, and its identity never moves). Three things key on renderer IDENTITY —
-`publisherFor` rotates the changelog on a renderer emission, `reloadRepaints` repaints every
-connection on one (and decides what counts as "one" with `eq`, `Server.sameRenderer`), and
-`RenderCache` compares renderer generations with `eq` and empties on a swap — so a membership
+`install` rotates the changelog and `publisherFor` re-arms on a renderer emission, every session's step compares the
+generation that painted its `holds` with `eq` and repaints on a mismatch (`Server.swapAnswer`),
+and `RenderCache` compares renderer generations with `eq` and empties on a swap — so a membership
 change that produced a new renderer
 would rotate the log, repaint every browser and flush the cache on exactly the case the graph
 exists to make cheap. It lives in the recorder's `evalMapAccumulate` for one renderer arm instead,
@@ -942,9 +980,9 @@ building one (`RenderBench.memberClauseFlip`), and the plans an id holds are bou
 | | Per slug (the recorder) | Per client (the pull) |
 |---|---|---|
 | Runs on | one recorder fiber per slug | that connection's own SSE fiber |
-| Sees | the full entity snapshot + the union of visible surfaces | one session's open set and ui-state |
+| Sees | the full entity snapshot + the cases on each watched viewer's screen (`Sessions.watching`: its values) | one session's values |
 | Renders | **nothing** | everything: opening paint, live pulls, resume |
-| Writes | the changelog (`node -> version`, mutations, horizon) | that session's `holds` (byte-slot values **and** signals) and `position` |
+| Writes | the changelog (`id -> version`: nodes, hosts, arriving keys) | that session's `holds` (byte-slot values, signals, and each host's shown roots) and `position` |
 | Cost of N viewers | ×1 | ×1 per node, via the per-slug render cache |
 
 The last row is about the PULL path, and only the pull path. **A document render and a body repaint
@@ -992,9 +1030,8 @@ flowchart LR
   Q -->|no| REPAINT["full body repaint, and the open popup,<br/>from the current snapshot<br/>— and it CLAIMS what it painted"]
   Q -->|yes, or a session's own position| SINCE["FragmentLog.since v"]
   SINCE --> N["nodes whose version is at least v<br/>RENDERED NOW from the current<br/>snapshot, never from the log —<br/>their fetches answered first (§6, a fetch)"]
-  SINCE --> M["moved: Gone / Placed mutations<br/>replayed as remove + insert"]
-  SINCE --> R["refill: containers whose history<br/>no longer reaches the cursor<br/>last resort"]
-  Q -->|yes, or a session's own position| OPENN["…AND every node in a surface this<br/>client has OPEN — the cursor cannot name<br/>what nothing rendered while nobody looked"]
+  SINCE --> M["hosts logged: keys decided now,<br/>planned against the held list:<br/>a fill, or leaves then places"]
+  Q -->|yes, a reconnect| OPENN["…AND every node on this client's<br/>screen — the cursor cannot name<br/>what nothing recorded while nobody looked"]
   N --> HOLD{"are its byte-slot values<br/>what the client holds?<br/>(a signal slot's value<br/>is not among them)"}
   OPENN --> HOLD
   HOLD -->|yes| SIG{"did a SIGNAL SLOT move?"}
@@ -1006,7 +1043,7 @@ flowchart LR
   classDef ok fill:#dcfce7,stroke:#15803d,color:#0f172a
   classDef bad fill:#fee2e2,stroke:#b91c1c,color:#0f172a
   class N,M,OPENN,SEND,DROP,FRAME ok
-  class REPAINT,R bad
+  class REPAINT bad
 ```
 
 The log stores **versions and structure, never HTML** — a pull renders from the current snapshot,
@@ -1039,9 +1076,8 @@ A slot may also read the NODE's inputs — a literal, or a tally of candidates c
 live. `LayoutNode.Component.bound` binds each slot, once per node, to exactly the inputs its CELs
 read (`BoundSlot`), each CEL keeping its own beside them, so no box downstream knows they exist: a tally's candidates and the
 entities their residuals read join the node's live entities, so a counted light wakes a page node
-through the ordinary reverse index (an open surface's nodes are candidates on every pull anyway,
-`fromOpenIds`), they join the watched set the upstream subscription asks for, and the count is
-the same compiled reading a state condition's `Count` is (`Evaluator`). Only what fires differs: a flipped condition swaps a surface,
+through the ordinary reverse index, they join the watched set the upstream subscription asks for, and the count is
+the same compiled reading a state condition's `Count` is (`Evaluator`). Only what fires differs: a flipped condition swaps a case,
 a moved count patches a slot. The slot's `valueKey` carries the inputs, so the whole evaluated
 expression goes out as one display signal per distinct (subject, expression, inputs), and a
 tick that leaves the count alone sends nothing.
@@ -1067,10 +1103,11 @@ and `WindowChooserSmokeSuite` holds the re-run.
 **A fetch can also be a CEL input** of a state slot, as an input (ADR 0034), at any
 depth: an input's own input, a list item, a guard or an order term inside the slot. The slot
 keeps its entity, its wake and its signal, and its CEL reads the answer by name. That costs the
-pipeline one argument, not a box. A decision outside a render (a set's clause and order, a state
-surface, a `valueWhile`, a press on a set) reads one too, and is made in rounds (§1a,
+pipeline one argument, not a box. A decision outside a render (a set's clause and order, a choice
+over state, a `valueWhile`, a press on a set) reads one too, and is made in rounds (§1a,
 `Renderer.decide`): each decision's reads come off its compiled expression (`SlotAsk.decision`,
-at no viewer's variables, which the build refuses there), only a decision the walk reaches asks,
+at no variable's window, which the build refuses there; a decision reading a variable otherwise
+is made at the viewer's values), only a decision the walk reaches asks,
 and its answers live in the run, not in `Shared`, since the resolver caches them. As for a
 slot's, an answer that moves wakes nothing; the decision is made again when what it depends on
 changes: its entities, and those a fetch names with `updateOnEntityChange()` (`dependsOn`). A value's fetch
@@ -1080,8 +1117,8 @@ the render key carry it already; the patch step's
 and `signalFrame` now hands that snapshot to `signalsFor`. So a countdown tick re-reads its bar's
 whole from the cache and sends it only if it moved.
 
-**The pre-read follows what will render.** `fetchesForPage`, `fetchesForSurface` and
-`readsForPull` walk the index, not the tree: the body and the surfaces shown, and for each set
+**The pre-read follows what will render.** `fetchesForPage` and `readsForPull` walk the index,
+not the tree: the body and the cases shown, and for each set
 only its present members, in the clause each is in, and the sets inside that clause the same way
 (`Renderer.setAsks`). A pull target asks its own; a member target asks its whole subtree, since a
 member is placed whole.
@@ -1092,7 +1129,7 @@ runs; otherwise read the fetches and run the transform. The order reaches back i
 pre-read: each fetching slot carries its `valueWhile` (`Fetching.Gate`), and the pre-read asks
 its fetches only where the version's `Shared` says it holds. So a slot whose `valueWhile` does
 not hold asks for no history, and the pre-read, the render key (`Renderer.asked`) and the paint
-(`Renderer.withheld`) all go through one `gateHolds`, over the gate `Ready.Slot.gate` builds. `readsAt`, which bounds a viewer's variable value, keeps every
+(`Renderer.withheld`) all go through one `gateHolds`, over the gate `Ready.Slot.gate` builds. A gate reading a variable is decided at the viewer's values at the slot's node (`Shared.holdsAt`, kept per values like a viewer pick's case), so the pre-read, which is handed the viewer's env, asks a viewer's fetches only where the gate holds for it. `readsAt`, which bounds a viewer's variable value, keeps every
 ask of every clause: what a node may read does not depend on what it reads now.
 
 Both halves are closed sums matched, not registries — there is no plugin story here, and a
@@ -1166,7 +1203,7 @@ request knowable only after an earlier node resolves means the barrier stalls wh
 proceeded, and then has to gather again. It works here because that case does not arise, and it
 does not arise for three reasons that have to stay true:
 
-- the tree is walked for its fetches before the render (`fetchesForPage`, `fetchesForSurface`);
+- the tree is walked for its fetches before the render (`fetchesForPage`, `readsForPull`);
 - a candidate set carries a STATIC candidate list, and its conditions evaluate against the state
   snapshot already in hand, so which members render is computable before the walk;
 - nothing lets a node's input depend on a value produced DURING the walk.
@@ -1200,9 +1237,11 @@ they are recorded on the session (a pull has no request to read either off again
 survives a refresh), and as a press of a declared `SetVar` call while the page is live
 (`POST /sse/call/:slug/:callId?node=`, `Server.choose`), whose declarer the server resolves at the
 pressed node (`VarGraph.keyAt`), as a read is resolved. Its value is the declaration's, or none:
-a clear drops the viewer's choice, so the variable holds what it opened at again.
-A choice matching no declaration is inert rather than an error — the same treatment
-`SurfaceGraph.openPopup` gives a surface id this dashboard no longer has. A choice that does match
+a clear drops the viewer's choice, so the variable holds what it opened at again. Back and Forward
+are the third (`POST /sse/history/:slug` with the page's query string, `Server.fromHistory`): every
+variable in the URL is read again as the document's params are, one kept out of it left alone,
+and what moved goes through the press's own commit (`Server.reached`, `Server.commitVars`).
+A choice matching no declaration is inert rather than an error. A choice that does match
 one passes the same check either way (`Renderer.refusals`): every declared reader must still parse
 what it would then ask, and read only an entity the dashboard names or a fetch of it names at its
 declared values — ADR 0023's read bound, so a variable fed to `entity` cannot
@@ -1212,11 +1251,13 @@ opens on the declared value rather than dying mid-walk or refusing a link that o
 
 **A declaration may OPEN elsewhere, once.** `Declaration.initialTransform` gives a variable a CEL
 expression over one entity's state, compiled with the slots' transforms. The page route runs it
-from the store as it mints the session (`Renderer.initialValuesFor`), keeps a result only where `Renderer.refusals` takes it, and records it as
+from the store as it mints the session (`Renderer.initialValuesFor`), keeps a result only where `Renderer.adopt` takes it, and records it as
 `SessionState.initialValues`, a layer under the viewer's choices: everything that resolves the
 viewer's values reads `SessionState.values`, a choice over an initial value over the default. Nothing
 re-evaluates it afterwards, so an entity changing does not move an open page (it is not a flip,
-ADR 0007), and a write's own re-render keeps it under the new choice. An initial value is not a
+ADR 0007), and a write's own re-render keeps it under the new choice. Every check of a choice —
+a press, a link, Back, a carry, a renderer swap — runs over the initial values (`Renderer.adopt`'s
+`starts`), since whether one is taken can lean on where another variable opened. An initial value is not a
 choice: it puts no `v.` param on the URL, because such a variable's mirror compares the committed
 value to `_var_<declarer>__<name>__initialValue`, which the shell seeds per document
 (`VarGraph.mirroredInitials`, so only where a mirror reads it), not to the
@@ -1226,8 +1267,8 @@ the store holds it.
 
 **The write re-renders the readers this viewer is shown, and commits last.** `VarGraph.readersOf`
 inverts the declared edge, which the write needs twice over: to check the value against every
-reader, and to decide what to repaint — narrowed there to what `SurfaceGraph.visibleNode` says
-this session shows, the filter a pull uses, since a closed surface renders the value when it opens.
+reader, and to decide what to repaint — narrowed there to what `PickGraph.visibleNode` says
+this session shows, the filter a pull uses, since a hidden case renders the value when it is shown.
 Each reader is re-rendered against a snapshot resolved with the new values, suppressed where the bytes did not
 move, and then the value is COMMITTED as `_var_<declarer>__<name>` — ADR 0025's pair, so a control
 shows the press immediately from its own pending signal and the ask ends only when the server
@@ -1239,26 +1280,30 @@ this viewer's values (`VarGraph.committed`), so a stale control is corrected and
 seeds the declared value over a linked choice. The committed values also ride the SSE GET
 (`Server.SseInclude`), so a session this process forgot (a restart, a reap) adopts them through
 `Renderer.refusals` instead of resetting the bar (`Server.carriedVars`). The control
-mirrors the committed value into the `v.` param with `data-fh-url`, as the popup host mirrors `ui.`, so
+mirrors the committed value into the `v.` param with `data-fh-url`, so
 the URL follows what the server did rather than what was pressed.
 
-**A tab bar's panel is a reader too.** `c.tabs` declares `tab`, and its panel's bake group is
-selected by it (`Activation.Var`); `VarGraph.panelsSelectedBy` is that edge, so a tab press is a
-variable write that swaps the panel this viewer is shown (`swapHost`) before it commits. Every
-path that bakes takes a bar's member from the session's variables: `SurfaceGraph.selections`
-pairs them with the request's popup at each entry (the page, an action, a minted session, a
-connect after adopting the carried values, a renderer swap), narrowing the popup to one this
-dashboard hosts and dropping a value no member of its group is selected at. A pull reads `session.open` instead
-(`SurfaceGraph.selectionsIn`), which the write keeps in step. `Selections` is what all of them
-hand the renderer: the popup's surface id and each chosen bake group's member index, which
-`SurfaceGraph.memberAt` finds from the variable's value, falling back to the group's
-member at every other value (`VarAt.Otherwise`, an If over a variable's `else`).
+**A tab bar's panel is a reader too, and so is the open popup.** `c.tabs` declares `tab`, and its
+panel is a choice picked by it; the page declares `popups`, and its `popups` group is a choice
+picked by that (ADR 0002). `VarGraph.panelsSelectedBy` is that edge, so a tab press or a popup's
+open is a
+variable write that plans the panel's host against what this session holds, as a pull plans
+any host (`Patches.written`, then the same `Patches.patches`; nothing is sent again, since no
+log is read), before it commits, with the session's new values revealed to the recorder first
+(`Session.reveal`). Every path that renders a panel takes the bar's case from the viewer's
+values: the render's `Shared` is viewed at `renderer.vars.env(values)` (`Shared.viewing`) at each
+entry (the page, an action, a minted session, a connect after adopting the carried values, a
+renderer swap, a pull), and `PickGraph.decideByVariable` looks the case up with
+`PickGraph.memberAt` (`Ready.Pick.decide`: the case keyed by the value, else the otherwise, an
+If over a variable's `else`); a value no case takes shows nothing. A session's values are checked against each renderer
+they meet once (`Renderer.recheck`), so a value an edit refuses (a removed tab) falls back to its
+declaration rather than showing nothing.
 
 The authoring side is one component (`c.chooser(c.select(v))`, `c.history.chooser` for the window): it
 declares the variable, and its bar is a `tab` node per option. A button's press names only the
 variable; the renderer fills its pending ask (`{{{tap.pending}}}`) from the declaration at that node,
-and the highlight it reads names the declarer through `@@VAR:window@@`, which the build splices
-with the nearest declarer's id (ADR 0033). Each button is a node with its own busy guard.
+and binds its highlight, `cellClassWhen("fh-chosen", v.valueIs(x))`, to the same declarer's
+pending and committed signals (ADR 0033). Each button is a node with its own busy guard.
 
 Two consequences worth stating, because neither is obvious:
 
@@ -1266,7 +1311,7 @@ Two consequences worth stating, because neither is obvious:
   reader's table — and nothing else.** A viewer's value is untrusted input arriving per session,
   so what keeps every read resolvable is the WRITE, not the build: the boundary that accepts a
   value resolves each declared reader's ask with it (`Renderer.refusals`) and refuses a key the
-  table lacks, so no session ever holds a value that cannot render. That is `SurfaceGraph.resolveActive`'s discipline for an untrusted tab index, one input
+  table lacks, so no session ever holds a value that cannot render. That is a pick's discipline for an untrusted tab value, one input
   over. A declaration carries no list of allowed values for this reason — the reader already
   decides, and a second copy could only disagree with it.
 - **No topological ordering is needed, and none is built.** A variable's value never comes from
@@ -1283,20 +1328,20 @@ that every input this render reads has an answer.
 
 **EVERY render path resolves what it reads**, and `FetchSnapshot` is total over it: a path that reads a
 fetch cannot be handed nothing, because there is no default argument left to hand it. What a render
-owes is read off the STATIC tree — `Renderer.fetchesForPage` for a page, `readsForPull` for a pull,
-`fetchesForSurface` for a surface fill (the surfaces shown inside it included) — because a render is
+owes is read off the STATIC tree — `Renderer.fetchesForPage` for a page, `readsForPull` for a pull
+or a fill (the cases shown inside it included) — because a render is
 a synchronous string build and the set has to be known before it starts. Deciding the set is code
 that is not the walk, so the two can drift; `FetchDriftSuite` renders the fixtures and a dashboard
 with a chart in every position against exactly the decided set, and fails on any miss.
 
-A page's set is what it shows: the body, the viewer's open surfaces (selected tab panels, the
-popup), and the branch each state group picks at the snapshot's states — so a flip in this render is
-answered. An unselected tab is not; switching to it fetches its own (`setVar`, then `swapHost`). A pull asks for
+A page's set is what it shows: the body, the cases its values pick (the popup, the tab panels),
+and the branch each state group picks at the snapshot's states — so a flip in this render is
+answered. An unselected tab is not; switching to it fetches its own (`setVar`, through the fill it plans). A pull asks for
 exactly what it renders: each target's own reads (a placed member's include its whole subtree's,
 at this viewer's values, and the sets above it) and what each host
 it fills shows. A target is a leaf, never structure, a set member's nodes included, so a pull that moves only plain
-cards asks nothing. A chart in an open surface is asked on EVERY pull, since the resume re-checks
-every open-surface node and a chart's key holds its read's version; warm, that is a map lookup.
+cards asks nothing. A chart in a shown case is asked on EVERY pull its node is a target of, and a
+chart's key holds its read's version; warm, that is a map lookup.
 
 **A failed read is its chart's, not the render's.** `Staged.failed` holds the error text, and the
 render fills the dashboard's `failedLabel` with it — an `error`-toned label `entry.pkl` emits from
@@ -1345,9 +1390,9 @@ root also carries the node's cell slots (`Cell`, ADR 0008): its classes, static 
 slots keyed by a `CellKey` instead of a name, so no template sees them, and their binding is their
 key's (`class:<name>`, `style:--…`): the renderer places the bindings on the root in both forms,
 and a live class or `style="--x:…"` itself only in the document form, like any signal value. A
-class decided at render (`cell.atRender`, ADR 0033) is in the document form only too, decided for
-the viewer, with no binding at all, so a node carrying one has two forms and what a session holds
-for it is the patch form's values, the same for every viewer. Every class the renderer emits there, and every `class:`
+class lit by a node variable (`v.valueIs(x)`, ADR 0033) is written there for the viewer, and its
+binding reads the variable's own signals, so it has no signal, seed or frame of its own, and what
+a session holds for the node is the patch form's values, the same for every viewer. Every class the renderer emits there, and every `class:`
 binding, goes through the theme's class rules (`ThemeClasses`, ADR 0020); card templates went
 through them once, when `Templates` compiled them. A themed value (its last step `ThemeClasses`)
 goes through them where it resolves (`Renderer.classed`): a literal once, into a
@@ -1377,7 +1422,7 @@ paint level in `DatastarMorphContractSuite` — the other order paints a blank f
 The second question — *does this client already have these bytes?* — is answered by the **session's
 own `holds`**, and only ever by that. It is seeded by the document that created the session (and by
 a repaint, which paints the same thing), and updated wherever bytes are sent to this client:
-`Patches.applied` for a pull, `Patches.hostFill` for a tab or popup swap. Never from what another
+`Patches.applied` for a pull or a variable write. Never from what another
 client was told.
 
 **`holds` is trusted only as far as the client has ACKNOWLEDGED.** It records what was *sent*, and
@@ -1390,14 +1435,12 @@ what came before it. This does NOT fire on an ordinary tab switch (a closed stre
 `told` cannot move), and the yardstick is `told` rather than `position` precisely because a pull
 owing this client nothing advances the position while announcing nothing — see ADR 0011.
 
-**Mutations are filtered by visibility too.** A `Gone`/`Placed` inside a surface this client does not
-have open would patch an id its DOM lacks — a silent no-op, so it only ever cost bytes, but it is one
-client's worth of another client's tab on every frame. `SurfaceGraph.visibleNode` on the container
-is the test.
+**Hosts are filtered by visibility too.** A plan for a host inside a case this client is not
+shown would patch ids its DOM lacks — a silent no-op, so it only ever cost bytes, but it is one
+client's worth of another client's tab on every frame. `PickGraph.visibleNode` on the host is
+the test, and a pick in a member's clause counts only while the member is in that clause.
 
-Mutations are pruned below the floor (`Sessions.floor`, the lowest position among a slug's live
-sessions); a container whose history has been pruned past a client's cursor yields a `refill` rather
-than a refusal. How long a returning tab still gets the cheap answer is three nested windows —
+How long a returning tab still gets the cheap answer is three nested windows —
 `LingerWindow` (2 min, its own session survives), then the changelog's reach while another viewer
 holds the slug, then nothing, because an unwatched slug records nothing. ADR 0011 has the table and
 why the window is not longer. **Nothing in the log reads a clock** — a version orders everything, and the only
@@ -1418,8 +1461,8 @@ Server.renderPage    fs2.io.readOutputStream(8 kB) -> the response body
   IO.blocking          BufferedWriter(8 kB)          -> collapses the CALLS
                          OutputStreamWriter(os, UTF-8) -> Sink.Streaming
     Server.pageInto      head + banners        -> the wire
-      Renderer.renderPageInto  chrome + body + restored dialog -> the wire
-                               (body and dialog are WRITER HOLES, not values)
+      Renderer.renderPageInto  the page card (chrome its template) -> the wire,
+                               a restored popup walked into `popups` as its case
                                own = per-node byte-slot values, off the paint
     Server.pageInto      scripts + closing tags -> the wire
   onFinalize(Succeeded)  session.holds.set(own)
@@ -1433,7 +1476,7 @@ The walk is push-based — `Renderer.executeInto` takes a `Writer`, a region is 
 through, shell included. The card's root is in its template (`core/node.pkl` writes it, ADR 0008),
 and its two holes are writer holes too: `{{{cellClasses}}}` inside its `class`, `{{{cell}}}` after
 it (style, id, seed, bindings, URL mirror). `NodeContext.writeHole` answers them on every run, so
-no map is built for them; the renderer wraps nothing but a set's root. Three things follow, and all are load-bearing:
+no map is built for them; the renderer wraps nothing, a set's root included. Three things follow, and all are load-bearing:
 
 - **A page records values, not bytes.** What a session holds for a node is the byte-slot values
   its paint resolved anyway, so the walk writes straight through and never re-reads what it wrote
@@ -1535,9 +1578,9 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | per-slug live state | `runtime/Server.scala` · `RendererState` (`Ready`/`Failed`) in `LiveSlug.renderer`; `runtime/ServerApp.scala` · `reloadSite` sets every slug's state on re-eval |
 | which slugs exist, where each came from, and which is `/` | `runtime/Server.scala` · `LiveSite` (`applySite`/`failSite`/`installPushed`/`defaultSlug`), the pure `planSite`, `Origin`, `defaultSlugFor`; `runtime/ServerApp.scala` · `reloadSite` evaluates and reports |
 | what a frame touches | `runtime/Patches.scala` · `plan` |
-| what a frame writes | `runtime/Patches.scala` · `record`, `recordFlip`, `recordSet` |
+| what a frame writes | `runtime/Patches.scala` · `record` |
 | the doorbell | `runtime/Server.scala` · `LiveSlug.doorbell` |
-| the log (the changelog) | `runtime/FragmentLog.scala` · `touched`, `filled`, `removed`, `placed`, `since` |
+| the log (the changelog) | `runtime/FragmentLog.scala` · `touched`, `since`; the planner `runtime/Patches.scala` · `planHost` |
 | a stretch nobody watched | `runtime/FragmentLog.scala` · `skipped`, `reaches`; `runtime/Server.scala` · `recordFrame`'s gate, `openingPatches`' cursor filter |
 | a session's pull | `runtime/Server.scala` · `pull`; `runtime/Patches.scala` · `resume`, `applied`, `encode` |
 | what a client holds | `runtime/Sessions.scala` · `Session.holds` (a `Held`: byte-slot values, signals) / `position` |
@@ -1547,7 +1590,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | SSE stream | `runtime/Server.scala` · `sseStream` (the merged per-connection `Stream[IO, SseFrame]`), served by `Ok(...)` through `SseFrame.frameStreamEncoder` |
 | the wire bytes | `runtime/Datastar.scala` · `SseFrame` (encoded at construction), `SseFrame.frameStreamEncoder` (frames → entity body, `text/event-stream`); `runtime/Patches.scala` · `encode` (merge adjacent, then render) |
 | opening paint | `runtime/Server.scala` · `openingPatches` |
-| sessions + surface actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `sessionFor`, `openSurface`, `swapHost`; `runtime/Patches.scala` · `hostFill`, `hostEvicts`; `runtime/SurfaceGraph.scala` · `committedSelection` |
+| sessions + session actions | `runtime/Sessions.scala`; `runtime/Server.scala` · `withSession`, `inSession`, `fromHistory`; `runtime/Patches.scala` · `written` (a variable write's hosts) |
 | a document establishes a session | `runtime/Server.scala` · `pageResponse`, `adoptOrMint`; `runtime/Sessions.scala` · `Session.adopt` |
 | a session's lifetime | `runtime/Sessions.scala` · `Tenure`, `Session.release`/`relinquish`/`supersede`; `runtime/Server.scala` · `reapAfter`, `retire`, `AdoptionWindow`, `LingerWindow` |
 | a tab handing over its session | `src/js/shell.ts` · `fhConn` (`sessionStorage`); `runtime/Server.scala` · `PrevConnParam`, `prevConnOf`, `retire` |
@@ -1558,15 +1601,15 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the actual rendering | `runtime/Renderer.scala` · `renderNodeById`, `renderHost` |
 | the document render | `runtime/Renderer.scala` · `renderPageInto`, `renderBodyTraced`, `tracedInto`; `runtime/Sink.scala` · the `Writer` the whole document goes through — `Streaming` for a page, `Buffer` for a patch; `runtime/Server.scala` · `renderPage`, `pageInto` (the shell, around a writer hole). Streamed to the client as it is walked — §6a |
 | what a page open COST | `telemetry/Telemetry.scala` · the three providers, no-op together unless an OTLP endpoint is configured; `telemetry/Logging.scala` · the loggers every file takes, each line carrying the span it was written inside; `telemetry/Meters.scala` · the `fh.*` instruments; `runtime/Server.scala` · the `dashboard.page` / `.store` / `.walk` spans. Because the document is walked as the body is pulled, the walk outlives the handler — so its span is started inside the body and re-parented with `childOrContinue`, and a span that merely wrapped `renderPage` would time the setup and miss the render (issue #75) |
-| what keys a render | `runtime/Renderer.scala` · `byteSlotValues`, `activeBakeIndex` |
-| the member graph | `runtime/MemberGraph.scala` · `Member`, `binding`, `deltas`, `dirtied`, `membersOf`, `setsIn`, `innerSetId` |
-| what a version decides, once | `runtime/Shared.scala` · `Shared` (members, state branches, `valueWhile`s; carried + fills; signal values, fills only), `Shared.Run` (one decide run's answers and needs), `Decided` (the two newest versions, `advance`), `Viewing`; `runtime/Renderer.scala` · `decide`, `advance`, `gateHolds`, `withheld` |
-| what a render reads before its walk | `runtime/Renderer.scala` · `fetchesForPage`, `fetchesForSurface`, `readsForPull`, `presentAt`, `setAsks`; `model/Dashboard.scala` · `Component.fetching`, `Fetching` |
-| which branch is showing, and to whom | `runtime/SurfaceGraph.scala` · `Selections` and `selections`/`selectionsIn` (one viewer's popup and panels), `bakeGroup`, `resolveActive` (per viewer) / `resolveActiveByState` (per slug), `selectedSurfaces`, `visibleNode`, `visibleSurface` (the one test of shown: a tick, a flip and page open), `shownSurfaces`, `rootOf` |
-| node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `selectionsOf`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
+| what keys a render | `runtime/Renderer.scala` · `byteSlotValues`, `pickedCase` |
+| the member graph | `runtime/MemberGraph.scala` · `Member`, `binding`, `deltas`, `dirtied`, `membersOf`, `setsIn`, `setContainer` |
+| what a version decides, once | `runtime/Shared.scala` · `Shared` (members, state branches, `valueWhile`s; carried + fills; signal values, fills only), `Shared.viewing` (the viewer's values), `branchAt` / `ByValues` (a decision per values), `Shared.Run` (one decide run's answers and needs), `Decided` (the two newest versions, `advance`), `Viewing`; `runtime/Renderer.scala` · `decide`, `advance`, `gateHolds`, `withheld` |
+| what a render reads before its walk | `runtime/Renderer.scala` · `fetchesForPage`, `readsForPull`, `presentAt`, `setAsks`; `model/Dashboard.scala` · `Component.fetching`, `Fetching` |
+| which branch is showing, and to whom | `runtime/PickGraph.scala` · `cases`, `decideByVariable` (a lookup in the viewer's values) / `decideByViewer` (per values) / `decideByState` (per version), `affectedStateGroups` / `affectedViewerGroups` (the flips), `chosen` (the cases a viewer's values pick; its open set), `visibleNode`, `visibleContainer` (the one test of shown, by `Ix`: a tick, a flip and page open), `onScreen`, `shownCases`, `pageRoot` |
+| node variables: who sees which, and what a write reaches | `runtime/VarGraph.scala` · `VarGraph` (`env`, `readersOf`, `panelsSelectedBy`, `committed`, `initialTransforms`), `VarKey` (every wire spelling); `runtime/Server.scala` · `setVar`, `adoptCarriedVars`; `runtime/Renderer.scala` · `refusals`, `initialValuesFor`; `lib/core/variable.pkl` · `Variable` (the template half), `Declaration` |
 | evaluating any reading: a slot, a guard, an activation condition, an order term, a CEL input | `runtime/Evaluator.scala` · `compile`, `holds`, `inputs`, `Keys` (an ordering's keys, read once per member per sort, used by `MemberGraph`) · `runtime/Steps.scala` · what each simple step makes of its value (`formatWith`, `kleene`); the language is ADR 0035 |
 | the render cache | `runtime/RenderCache.scala`; entered from `Patches.cached` (morphs, placements). STRUCTURE is never cached — a card holding regions has its children in its own bytes, so it has no sound key — and that is decidable from the CARD (`CardDef.isStructure`) |
-| what a cache entry is keyed by | node id -> renderer generation + the byte-slot values it was rendered from (`ByteValues`, from `Renderer.byteSlotValues`: each byte slot's value, and a member's clause). The renderer is in the key because a dashboard edit changes the MARKUP while the values stay put; a swap empties the cache (`LiveSlug.install`), and an entry holds the generation rather than the renderer so a straggler cannot keep a replaced dashboard alive |
+| what a cache entry is keyed by | the node's `Ix` (one per clause of a member) -> renderer generation + the byte-slot values it was rendered from (`ByteValues`, from `Renderer.byteSlotValues`: each byte slot's value). The renderer is in the key because a dashboard edit changes the MARKUP while the values stay put; a swap empties the cache (`LiveSlug.install`), and an entry holds the generation rather than the renderer so a straggler cannot keep a replaced dashboard alive |
 
 ## 8. Known open questions
 
@@ -1657,7 +1700,7 @@ Live list — delete an entry when it is answered, and say where the answer land
   ([issue #224](https://github.com/perok/functional-home-assistant/issues/224), closed). They still
   do — `renderHost` takes no cache and `Patches.resume` runs per session — but the only fill several
   sessions can ever share is a state-group FLIP (a tab switch is one client's own selection, a
-  refill is per reconnect), and `RenderBench.resumeFlip` prices the whole of it at **~730 µs of CPU
+  fill on a missing list is per reconnect), and `RenderBench.resumeFlip` prices the whole of it at **~730 µs of CPU
   per flip at ten clients**, against 93.9 µs for one. A flip is an alarm arming; at one a minute
   that is 0.001% of a core, while `resumeSignalsFanout` spends 424 µs per TICK on the path that runs
   continuously. Reopen only if a profile of a real deployment puts a fill on it.
@@ -1678,7 +1721,7 @@ Live list — delete an entry when it is answered, and say where the answer land
   What it wins, so the work can be judged: a body render is 17 µs a node — 5.7 ms for a 200-card
   page whose HTML is 257 kB, 0.2 ms for the shipped starter. Ten coincident loads of the big one
   cost 57 ms of CPU while shipping 2.5 MB, so the render is ~2 % of the work it feeds. Real, and
-  not urgent. `reloadRepaints` is N × the same body render and fires on a manual dashboard edit.
+  not urgent. The swap's repaint is N × the same body render and fires on a manual dashboard edit.
 
 - ~~**The document does not stream, and the server's target is a Raspberry Pi 4.**~~ *Closed by
   §6a.* The walk writes through a `Sink` straight to the response body; the peak a page open holds
@@ -1686,8 +1729,8 @@ Live list — delete an entry when it is answered, and say where the answer land
   Churn fell 672 kB (19%), not the ~10% the entry projected.
 
 - **A session's backlog is an unbounded `Vector[SseFrame]`, and the bound is incidental.** Nothing
-  in the type stops it growing; what stops it in practice is that only a selection write (a surface
-  tap, a variable) runs while no stream is attached — a pull or a keepalive is a stream's own. So a
+  in the type stops it growing; what stops it in practice is that only a variable write (a tap,
+  Back) runs while no stream is attached — a pull or a keepalive is a stream's own. So a
   session whose stream has dropped accumulates one write's frames per tap the client still manages
   to POST (the fetch works when the SSE does not), for as long as the linger lasts, and the reaper
   drops the backlog with the session. That is small, and it is a property of today's call sites
@@ -1713,7 +1756,7 @@ Live list — delete an entry when it is answered, and say where the answer land
   quoted at tick level — it is what PR #265 aimed at, attaching the memo to `Addressed`, which is
   per-session, so it shared nothing. If it is ever done it is **not** the `RenderCache`: that is
   keyed per NODE, and the common tick is signals-only and has no node. Frames are also not
-  unconditionally identical (`Held.signals` is per-client, different tabs see different surfaces),
+  unconditionally identical (`Held.signals` is per-client, different tabs see different cases),
   so it must be a lookup, never an assumption. Low priority; the other 95% is the target.
 
 - ~~**A signals tick costs MORE than a bytes tick.**~~ *Closed.* The suppressed morph was still

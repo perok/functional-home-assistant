@@ -64,7 +64,7 @@ object Scene {
     new Scene(Vector.empty, Some(dashboard), Vector.empty)
 
   /** Slot `entityId`s, subject `entity_id`s and set candidates, across the
-    * layout and every surface.
+    * layout and every case.
     */
   private def referencedEntityIds(d: Dashboard): List[String] = {
     def fromSlots(
@@ -77,18 +77,13 @@ object Scene {
 
     def walk(n: LayoutNode): List[String] = n match {
       case c: LayoutNode.Component =>
-        fromSlots(c.templateSlots, c.subjectEntity) ++ c.allChildren.flatMap(
+        fromSlots(c.valueSlots, c.subjectEntity) ++ c.allChildren.flatMap(
           walk
-        )
-      case set: LayoutNode.SetNode =>
-        // A clause node is an ordinary component, reached by the same walk.
-        set.candidates ++ set.members.values.toList
-          .flatMap(_.clauses)
-          .flatMap(cl => walk(cl.node))
+        ) ++
+          // A member node is an ordinary component, reached by the same walk.
+          c.set.toList.flatMap((_, s) => s.candidates ++ s.nodes.flatMap(walk))
     }
 
-    (walk(d.card) ++ d.surfaces.values.toList.flatMap(s =>
-      walk(s.content)
-    )).distinct
+    walk(d.card).distinct
   }
 }

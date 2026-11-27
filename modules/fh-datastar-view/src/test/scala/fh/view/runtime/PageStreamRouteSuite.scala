@@ -1,7 +1,7 @@
 package fh.view.runtime
 
 import fh.view.testkit.TestCard
-import fh.view.model.{CardDef, Dashboard, Region, Theme}
+import fh.view.model.{CardDef, Dashboard, Theme}
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
 
 import scala.concurrent.duration.*
@@ -25,7 +25,7 @@ class PageStreamRouteSuite extends ServerHarness {
       "leaf" -> TestCard("""<div class="leaf">{{v}}</div>"""),
       "col" -> TestCard(
         """<div>{{{children}}}</div>""",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       )
     ),
     card = col(

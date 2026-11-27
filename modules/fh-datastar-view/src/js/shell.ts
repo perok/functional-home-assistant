@@ -1,9 +1,9 @@
-// The page shell's own JavaScript: four helpers the server-rendered document
+// The page shell's own JavaScript: five helpers the server-rendered document
 // needs before Datastar (a deferred module) has run. INLINED into the page head
 // by `Server.page` — not linked — because `fhConn` is called from the middle of
 // the body, so it cannot afford a deferred module or a second round trip.
 //
-// These four names, the `prev` query parameter, and the two sessionStorage
+// These five names, the `prev` query parameter, and the sessionStorage
 // keys are protocol shared with the backend; `Server.PrevConnParam` and
 // `ServerRoutesSuite` pin the ones that matter from the other side.
 //
@@ -18,6 +18,7 @@ declare global {
     fhConn: (id: string) => void
     fhScroll: (slug: string) => void
     fhRegisterSw: (url: string) => void
+    fhReload: (notice: string | boolean) => void
   }
 }
 
@@ -190,6 +191,33 @@ function showToast(text: string): void {
 
 window.fhToast = showToast
 
+const noticeKey = "fh.notice"
+
+/**
+ * Reload, and toast `notice` on the page that loads: the server's `_reload` is
+ * `true` or the reason, which only this tab's storage can carry over, since the
+ * new page is a new session and a URL param would land in history and links.
+ */
+window.fhReload = (notice) => {
+  try {
+    if (typeof notice === "string") sessionStorage.setItem(noticeKey, notice)
+  } catch {
+    /* storage unavailable — the reload still happens, unexplained */
+  }
+  location.reload()
+}
+
+addEventListener("DOMContentLoaded", () => {
+  try {
+    const notice = sessionStorage.getItem(noticeKey)
+    if (notice === null) return
+    sessionStorage.removeItem(noticeKey)
+    showToast(notice)
+  } catch {
+    /* storage unavailable */
+  }
+})
+
 /**
  * The action-failure half of this page's Datastar fetch events. Datastar
  * dispatches a `datastar-fetch` CustomEvent on `document` for every fetch its
@@ -203,25 +231,32 @@ window.fhToast = showToast
  * redirect, a route that is gone, a proxy in the way — where the bundle drops
  * the body unread (`if (E !== 200) { … return }`) and `argsRaw` carries only
  * `{status}`. So a status code is all this branch can ever say, which is
- * exactly right for the failures that have no message to give.
+ * exactly right for the failures that have no message to give. A tap that
+ * never reached the server at all is `retries-failed` (a tap is sent once,
+ * `core/tap.pkl`'s `post`), and says so.
  *
  * The filter is the whole point. The persistent SSE stream is ALSO a Datastar
  * fetch (the `@get` on `<body>`), and ITS errors are already the `_sse` /
  * `haDown` banners' job — they arrive with `el` = `<body>`, which sits under no
- * `[data-on:click]`, so this listener toasts only action failures. Without the
+ * `[data-on:click]` and carries no `data-fh-node` (what a slider's commit, on
+ * `change`, has), so this listener toasts only action failures. Without the
  * filter a stream outage would toast "Command failed" over the banner.
  */
 document.addEventListener("datastar-fetch", (e: Event) => {
   const detail = (
     e as CustomEvent<{ type: string; el: Element | null; argsRaw: { status: string } }>
   ).detail
-  if (!detail || detail.type !== "error") return
+  if (!detail || (detail.type !== "error" && detail.type !== "retries-failed")) return
   const el = detail.el
   // The escaped colon is load-bearing: `data-on:click` is not a valid CSS
   // selector as written, and `closest` throws a SyntaxError on it — which
   // killed this listener (and the toast with it) before it ever ran.
-  if (!el || !el.closest("[data-on\\:click]")) return
-  showToast("Command failed (" + detail.argsRaw.status + ")")
+  if (!el || !el.closest("[data-on\\:click],[data-fh-node]")) return
+  showToast(
+    detail.type === "error"
+      ? "Command failed (" + detail.argsRaw.status + ")"
+      : "Could not be sent",
+  )
 })
 
 /**

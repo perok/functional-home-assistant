@@ -4,7 +4,7 @@
 // domain-checked slider.
 //
 // `amends "@fh-dashboard/entry.pkl"` supplies the `cards`/`theme` scaffold; the
-// entry sets only `surfaces` + `card`. `lib/dump.pkl` is GENERATED (by PklDump, from
+// entry sets only `card`. `lib/dump.pkl` is GENERATED (by PklDump, from
 // the live HA registry) when the server or build runs. (Plain `//` comments
 // here: a doc comment would attach to the first import, which Pkl rejects —
 // entries have no `module` clause.)
@@ -15,17 +15,13 @@ import "components.pkl" as c
 import "@fh-dashboard/query.pkl" as q
 import "@fh-home/dump.pkl" as dump
 
-// Registered popup surfaces: opened by an `openPopup("detail")` tap and
-// rendered/streamed only while open. Amending the key into existence builds a
-// `PopupSurface` (the mapping default from lib/entry.pkl), so the `popup`
-// dialog wrap is automatic — the body lists the dialog's cards directly.
-surfaces {
-  ["detail"] {
-    body {
-      c.title("Power detail")
-      c.entityCard(dump.entities.sensor_ams_1a4e_q)
-      c.button("Close", c.view.closePopup())
-    }
+// A popup any number of taps open, each giving the same body: rendered and
+// kept live only while open.
+local powerDetail = new c.Column {
+  children {
+    c.title("Power detail")
+    c.entityCard(dump.entities.sensor_ams_1a4e_q)
+    c.button("Close", c.view.closePopup())
   }
 }
 
@@ -109,14 +105,13 @@ card = (c.grid) {
 
     // POPUPS. A COLUMN inside a grid cell: the three buttons stack vertically
     // in one half-grid cell (a column is just another cell — containers nest
-    // freely in the grid). The first button opens the REGISTERED `detail`
-    // surface; the second opens an INLINE popup whose content the build-phase
-    // hoist lifts into a surface (keyed by this button's derived id + "_self").
+    // freely in the grid). Each opens the popup it names, the page's `popups`
+    // variable holding the id.
     c.title("Popups").fullWidth()
     (c.row) {
       children {
-        c.button("Power detail…", c.view.openPopup("detail"))
-        c.button("Quick info…", c.view.openPopupInline(new c.Column {
+        c.button("Power detail…", c.view.popup("detail", powerDetail))
+        c.button("Quick info…", c.view.popup("quick", new c.Column {
           children {
             c.title("Quick info")
             c.entityCard(dump.entities.sensor_ams_1a4e_u1)

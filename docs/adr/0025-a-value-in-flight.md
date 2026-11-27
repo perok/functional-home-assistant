@@ -2,10 +2,9 @@
 
 - **Status:** Accepted
 - **Date:** 2026-08-22
-- **Scope:** `runtime/SurfaceGraph.scala` (`committedSelection`,
-  `committedSelections`), `runtime/Server.scala` (`swapHost`, `setVar`,
-  `openingSignals`), `runtime/Datastar.scala` (the no-null rule),
-  `lib/core/tap.pkl`, `lib/components/base/surface.pkl`,
+- **Scope:** `runtime/VarGraph.scala` (`committed`), `runtime/Server.scala`
+  (`setVar`, `fromHistory`, `openingSignals`), `runtime/Datastar.scala` (the no-null rule),
+  `lib/core/tap.pkl`, `lib/components/base/tabs.pkl`,
   `lib/components/slider.pkl`
 - **Closes:** ADR 0024's open question. **Uses:** ADR 0005's selection signals
   and URL mirror, which this makes honest.
@@ -27,7 +26,7 @@ halves one fact.
 There is a second, quieter disagreement with nothing to do with failure. **Two
 taps in flight race.** Click tab A, then tab B: the client's signal ends up B,
 because that is the assignment it ran last. The DOM ends up with whichever
-`swapHost` served last, and nothing sequences the two POSTs. So the highlight
+`setVar` served last, and nothing sequences the two POSTs. So the highlight
 could say B while the panel showed A, with every request succeeding.
 
 ## The decision
@@ -39,10 +38,9 @@ could say B while the panel showed A, with every request succeeding.
 | committed | the SERVER only | what this client's DOM *is* showing |
 | `_<group>__pending` | the client, on tap | what it has *asked* to show |
 
-A group is a node variable or the popup host. A variable's committed signal is
-`_var_<declarer>__<name>` and its group `var_<declarer>__<name>`: a tab bar's
-`tab`, a chooser's `window` (ADR 0033). The popup's is `ui_popups`, with no
-pending twin (ADR 0005).
+A group is a node variable. Its committed signal is `_var_<declarer>__<name>`
+and its group `var_<declarer>__<name>`: a tab bar's `tab`, a chooser's
+`window` (ADR 0033), the page's `popups` (`_var_root__popups`, ADR 0002).
 
 Anything that displays a selection reads `$_<group>__pending \|\| $<committed>`,
 so the tap still feels instant — the pending value drives the highlight from the
@@ -51,11 +49,10 @@ written speculatively, which is what makes it incapable of lying. **Nothing is
 ever rolled back, because nothing wrong was ever committed.**
 
 What a write makes true is committed by the one route that made it:
-`Server.setVar` sends the variable's value after its repaints and any panel
-swap, and `SurfaceGraph.committedSelection` says what a popup swap put in the
-host, a surface id (or `""`), in the shape `openPopup` reads back out. It
-answers `None` for a bake group: a variable-selected one commits through its
-variable, and a state-activated one is server truth every viewer shares.
+`Server.setVar` sends the variable's value after its readers and any panel it
+plans, and `Server.fromHistory` does the same for the values Back or Forward
+brings into the URL. A choice over state commits nothing: it is server truth
+every viewer shares.
 
 **Two signals, not three.** An earlier draft added a `_<group>__busy` from
 `data-indicator`. "A request is in flight" is just `pending != ''` — once you
@@ -84,49 +81,50 @@ the runs, drives the overtaken-tap race through a real browser, and asserts the
 count stops growing.
 
 **Failure ends it two ways, and neither is a timeout.** A pending value dies
-when it is *refused*, or when *nothing can answer it*:
+when it is *refused*, or when *nothing can read the answer*:
 
 - **Refused** — the server answered, and the answer was no. It says so in
   signals on a 200 (ADR 0024), clearing the pending value itself: a choice is
   a declared call naming its variable, and the server resolves the same
   declaration at the pressed node that the press wrote the ask for, so it names
   the ask without the client claiming it. This is the only one
-  of the three that ends ONE ask, because it is the only one that knows which.
-- **Unanswerable** — the commit rides the SSE stream, so a stream that is DOWN
-  is the exact statement that no commit is coming. The shell's `_sse` counter,
-  already maintained for the offline banner, is the whole test.
+  of the two that ends ONE ask, because it is the only one that knows which.
 - **Unreadable** — a response arrived that was not 200, so Datastar dropped its
   body unread and nothing in it can clear anything. A proxy, an auth redirect, a
   route that is gone.
 
-**The last two are page-wide facts, so they are one rule on the page**
-(`Server.PendingSweep`), not a copy on every tab bar. Neither knows or needs to
-know which group asked: a dead stream ends every outstanding ask by definition,
-and the per-group version reached for exactly these same two shell-owned signals
-to say so — it was one rule already, spelled once per group. `@setAll('',
-{include:/__pending$/})` states it once. The bundle's `setAll` PEEKS while it
-writes, so the sweep neither takes a dependency on every pending signal nor
-retriggers itself.
+**The second is a page-wide fact, so it is one rule on the page**
+(`Server.PendingSweep`), not a copy on every tab bar: it does not know or need
+to know which group asked. `@setAll('', {include:/__pending$/})` states it once.
+The bundle's `setAll` PEEKS while it writes, so the sweep neither takes a
+dependency on every pending signal nor retriggers itself.
+
+**A dead stream is not a third way.** The commit rides the stream, but the POST
+does not: with the stream down the press is still answered (the server queues
+the commit), so the ask is late, not lost. The page shows the banner and nothing
+else, and the reconnect ENDS every ask: its opening block restates every
+committed choice (below) and empties every declared variable's pending signal in
+the same event. A commit that survived is in that event, so nothing flickers; one
+that did not — the session was forgotten while the stream was down, and its
+queue with it — never will arrive, and an ask left standing would light a tab
+over the panel the page actually shows. The cost is a press made during the
+connect itself, whose ask the block can clear before its commit lands: the old
+tab shows for that moment. Comparing to the commit, the rule above, exists for
+concurrent taps on a live stream; a connect is not one.
 
 Busy signals are deliberately not swept with them. `finished` is dispatched in
 the bundle's `finally` and the indicator plugin clears on a counter, so a busy
 state cannot outlive its fetch — a sweep would be guarding against something
 that cannot happen.
 
-Between them they are total: a request either gets an answer (refused, or the
-commit arrives), or gets a response nothing can read, or gets nothing at all —
-and the last case is a dead transport, which is the same transport the answer
-would have ridden. There is no case where a request vanishes while its stream
-stays healthy, and a deadline, which is what an earlier draft used, would only
-have been a worse-informed guess at exactly this.
+A request either gets an answer (refused, or the commit arrives, on this stream
+or the next one), or gets a response nothing can read. A deadline, which is what
+an earlier draft used, would only have been a worse-informed guess at which.
 
-**So a connect restates the selections.** `SurfaceGraph.committedSelections`
-gives the popup's from a session's open set and `VarGraph.committed` every
-declared variable's, and `openingSignals` carries both with the cursor on every
-connect. Without it, `_sse` clearing pending
-would drop the display back on whatever the last frame it received said — and a
-swap is two writes (the patch, then the signal), so a stream dying between them
-leaves a DOM holding one panel and a signal naming another. It rides *inside*
+**So a connect restates the selections.** `VarGraph.committed` gives every
+declared variable's, the popup's among them, and `openingSignals` carries them with the cursor on every
+connect, beside the emptied asks. A swap is two writes (the patch, then the signal), so a stream dying between
+them would otherwise leave a DOM holding one panel and a signal naming another. It rides *inside*
 the cursor's frame rather than beside it: `SessionLifecycleSuite` states the
 opening block as one event, on purpose, because an opening block that grows is
 how re-sending creeps back in.
@@ -134,7 +132,7 @@ how re-sending creeps back in.
 ### Why not clear on the fetch simply ending
 
 The obvious move — let the fetch's END clear pending, success or not — is worse
-than either. The action POST returns as soon as `swapHost` has QUEUED the patch,
+than either. The action POST returns as soon as `setVar` has QUEUED the patch,
 so the 204 can beat the frame carrying it: the highlight would snap back to the
 old tab and jump forward when the patch landed. A flicker on the HAPPY path is
 worse than the bug being fixed. `data-indicator` cannot rescue it either — it counts
@@ -180,7 +178,7 @@ and `control.pkl` has said so all along. `ui_*` selections were the ONE family
 where the server never wrote back, which is exactly why they were the family with
 the bug. The work was not "invent a mechanism" but "let selections join the one
 the rest of the app already follows", plus a pending VALUE for the case a
-two-way binding cannot express: a tab index or a surface id has no input element
+two-way binding cannot express: a tab index or a popup id has no input element
 to bind to.
 
 ## Why pending and `busy` never share a name
@@ -298,10 +296,20 @@ dependency-tracking subtleties arise:
 - **the server speaks** (`data-on-signal-patch` filtered to `_<id>__value`) —
   adopt it. Confirmation and CORRECTION are the same line; HA clamping a
   brightness is not a failure and needs no case of its own.
-- **refused, or `_sse` down** — adopt it again. That is the rollback, and it is
-  the same statement: "show what the device last said". `fill` and `state` are
+- **refused** — adopt it again. That is the rollback, and it is the same
+  statement: "show what the device last said". `fill` and `state` are
   RECOMPUTED from the restored position rather than shadowed, because they are
-  functions of it — and the formula is the one the drag already uses.
+  functions of it — and the formula is the one the drag already uses. A commit
+  that fails to arrive at all is a refusal too: `failedOn` sets the same error.
+
+**A dead stream rolls nothing back; it shows the banner.** No card reads the
+transport counter (`core/shell.pkl`'s `streamDown`). A dead-stream rollback ran
+the same JS recomputation over the server's display signals while nothing could
+correct it, and the JS is a second copy of the server's formula: for a light
+that had left HA it painted a colour where the server says `transparent`, and
+the reconnect sent nothing back because `holds` matched. What is left uncovered
+is a drag released while the stream is down whose commit HA answers with no
+change: the thumb stays where the finger left it until the light next moves.
 
 `busy_change` is untouched. Its job is the re-commit guard, it is fetch-scoped,
 and a pending signal would duplicate it: for a continuous value the guard is all
@@ -317,7 +325,7 @@ into it, where a selection's pending merely clears.
 They are server-owned signal slots, so the staleness described above is real for
 them: while a gesture is in flight the server's `holds` disagrees with the DOM on
 both. What repairs it is not ownership but `rollbackToCommitted`, which
-RECOMPUTES both from the restored position on either failure path — which is why
+RECOMPUTES both from the restored position on a refusal — which is why
 that handler recomputes rather than merely restoring `_slide`, and why deleting
 it does not just leave the thumb wrong, it leaves the fill wrong too. Giving them
 client-owned halves as `value` has is the consistent finish; it is not done.
@@ -343,33 +351,6 @@ restore makes it fail.
 
 A live list, not a backlog — delete an entry when it is answered.
 
-**Two cards still read the transport counter**, through `core/shell.pkl`'s
-`streamDown`: the slider's and the colour wheel's dead-stream rollback. The tabs
-half is gone — that rule moved to the page shell, where the counter already
-lives — so what is left is the one case that could not follow it, for a reason
-worth stating rather than working around:
-
-- The sweep can only SET a constant, and this fix is arithmetic: recompute the
-  thumb, the fill and the readout from the committed value.
-- "The reconnect will restate truth" is false here, uniquely. `holds` says this
-  DOM already has the correct `_<id>__value`, and it does — what is wrong is
-  `_<id>__slide` (the wheel's local hue and saturation likewise), which is
-  client-owned and the server does not track. So the
-  server correctly sends nothing on reconnect and the thumb keeps lying.
-
-That makes it a genuine exception rather than a pattern, which is the important
-part: it should not be read as licence for a component author to reach for the
-transport counter. However far the in-flight contract is collapsed into one
-splice (ADR 0019), this is the one piece that stays hand-wired, because it is
-intra-node — the state lives on one element INSIDE a node.
-
-**The slider's dead-stream rollback is untested.** `UiSmokeSuite` drives the
-slider's REFUSAL path (a real 404) and the tabs' dead-stream path (a blocked
-`/sse/**`), but not the slider's dead-stream path — the one that fires when a
-phone loses signal mid-drag. Two cards, two ways an ask can end, three of the
-four covered. The gap exists because the mechanism "was already tested" on the
-other card, which is the way this kind of hole always opens.
-
 **The drag GESTURE has never been looked at in a browser.** Every assertion
 about the slider here is functional — a value commits, a refusal rolls back —
 and the `ComponentVisualSuite` baselines render the card AT REST, so they passed
@@ -392,7 +373,7 @@ be told.
 
 **A stale document's tap could self-heal instead of toasting.** ADR 0024's
 refusals are now 200 carrying signals, so the toast at least names what went
-wrong. The STALE DOCUMENT case could do better still — a tap naming a surface id
+wrong. The STALE DOCUMENT case could do better still — a tap naming a popup id
 this build renamed gets a message the user cannot act on. Answered as 200 plus a
 `_reload` frame
 (ADR 0018's mechanism, and `Server.reloadPatch` already exists) the tap would
@@ -404,7 +385,7 @@ themselves:
 
 | case | what it is | how often |
 |---|---|---|
-| unknown surface id | the document predates a rebuild that renamed ids | rare and transient: a live page is REPAINTED with the new ids on the swap (verified — a pushed dashboard updated a pill's `onclick` before it could be clicked), and a page that missed the repaint reloads on reconnect via the head hash. The window is the milliseconds between rebuild and repaint |
+| unknown popup id | the document predates a rebuild that renamed ids | rare and transient: a live page is REPAINTED with the new ids on the swap (verified — a pushed dashboard updated a pill's `onclick` before it could be clicked), and a page that missed the repaint reloads on reconnect via the head hash. The window is the milliseconds between rebuild and repaint |
 | slug nobody serves | the dashboard was deleted, or failed to build, while a page was open | rare, and already owned by ADR 0018: a failed slug gets the error page and a reload repaint |
 | `conn` on another dashboard | no honest client produces it | effectively never |
 
@@ -415,25 +396,19 @@ the whole page on a transient condition is a worse failure than one that says
 ## Consequences
 
 - The wire format changed: a tab's `onclick` assigns pending before its POST,
-  its `active` expression reads both signals, the tabs bar carries the seed +
-  the two clears, and the popup taps carry no client assignment at all. The
+  its highlight reads both signals (`cellClassWhen(cls, v.valueIs(x))`, which the
+  renderer binds to them, ADR 0033), the tabs bar carries the seed +
+  the two clears, and a popup's open is the same write as a tab's. The
   `PklBuildSuite` snapshots record it.
-- `SurfaceGraphSuite` owns the pure half as a ROUND TRIP — whatever
-  `committedSelection` says must read back through `resolveActive`/`openPopup`
-  as the member it named — because the two ends were written apart and a value
-  shape only one understood would restore the original bug.
-- `SurfaceTapSuite` owns the server half: a swap emits the commit, on open AND
-  on close, with the request body carrying no ui-state at all, so the selection
-  can only have come from the swap.
+- `PopupVariableSuite` owns the popup's server half: an open commits `popups`
+  and Back clears it, with the request body carrying no ui-state at all, so the
+  value can only have come from the write.
 - `UiSmokeSuite` owns the property in a browser, once per way an ask can end: a
   tap the server REFUSES (a real 404, the status ADR 0024 created) leaves the
   URL where it was and does not leave the bar highlighting a panel that never
   arrived — with the same tap unblocked doing everything, so it cannot pass
   vacuously; and a tap whose transport dies highlights while the question is
   open and stops when the banner says the connection is gone.
-- The popup host gained a committed signal it did not have. Before, the client
-  set `ui_popups` and a close cleared it; now the swap does both, which is why
-  the close path commits `""` rather than simply sending no frame.
 - A slower link now shows the pending highlight for longer rather than showing a
   committed one that might be wrong. If that reads worse than the old immediate
   assignment, the DISPLAY rule is what to revisit — the state model would still

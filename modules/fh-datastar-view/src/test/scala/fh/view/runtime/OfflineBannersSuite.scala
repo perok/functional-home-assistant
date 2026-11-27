@@ -3,9 +3,8 @@ package fh.view.runtime
 import fh.view.testkit.PklWorkspace
 import org.pkl.core.{EvaluatorBuilder, ModuleSource}
 
-/** The offline banners and the dead-stream rollbacks read the shell's signals
-  * through `core/shell.pkl`; the server spells them as its own, and a drift
-  * freezes a banner silently.
+/** The offline banners read the shell's signals through `core/shell.pkl`; the
+  * server spells them as its own, and a drift freezes a banner silently.
   */
 class OfflineBannersSuite extends munit.FunSuite {
 

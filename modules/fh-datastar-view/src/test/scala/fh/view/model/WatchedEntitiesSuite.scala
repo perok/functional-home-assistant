@@ -1,7 +1,12 @@
 package fh.view.model
 
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
+import fh.view.testkit.{FixtureEntity, PklFixture}
 
 import io.circe.Json
 
@@ -19,9 +24,11 @@ class WatchedEntitiesSuite extends munit.FunSuite {
   private def tileNode(id: String): LayoutNode.Component =
     LayoutNode.Component(
       "tile",
-      Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
-        "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+          "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+        )
       )
     )
 
@@ -36,13 +43,13 @@ class WatchedEntitiesSuite extends munit.FunSuite {
     // candidate and appears in no slot, so nothing that is RENDERED names it.
     val hall = "binary_sensor.hall"
     val dash = Dashboard(
-      cards = tile,
-      card = LayoutNode.SetNode(
+      cards = Sets.cards ++ tile,
+      card = Sets.node(
         candidates = List("light.banner"),
         members = Map(
-          "light.banner" -> LayoutNode.SetMember(
+          "light.banner" -> Sets.Member(
             List(
-              LayoutNode.SetClause(
+              Sets.Clause(
                 Some(onEntity(hall)),
                 tileNode("light.banner")
               )
@@ -66,13 +73,13 @@ class WatchedEntitiesSuite extends munit.FunSuite {
   test("the entities a Count reads are watched") {
     val counted = List("light.x", "light.y", "light.z")
     val dash = Dashboard(
-      cards = tile,
-      card = LayoutNode.SetNode(
+      cards = Sets.cards ++ tile,
+      card = Sets.node(
         candidates = List("light.banner"),
         members = Map(
-          "light.banner" -> LayoutNode.SetMember(
+          "light.banner" -> Sets.Member(
             List(
-              LayoutNode.SetClause(
+              Sets.Clause(
                 Some(
                   Conds.count(
                     candidates = counted,
@@ -94,54 +101,59 @@ class WatchedEntitiesSuite extends munit.FunSuite {
     )
   }
 
-  test("a surface's state activation is watched") {
-    // The flip's deciding entity: it chooses which panel is baked in and is
-    // rendered by nothing at all.
+  /** The shipped `If` showing `shown` while `entity` is on. */
+  private def ifOn(entity: String, shown: LayoutNode) = {
+    val key = entity.replace('.', '_')
+    val shape = PklFixture.shape(
+      s"""card = c.iff(q.entity(dump.entities.$key).stateIs("on")).then(t.hole("shown"))""",
+      FixtureEntity(entity, "on")
+    )
+    shape.cards -> shape.fill("shown" -> shown)
+  }
+
+  test("a choice's deciding entity is watched") {
+    // It chooses which case is shown and is rendered by nothing at all.
     val alarm = "alarm_control_panel.house"
+    val (hostCards, hostNode) = ifOn(alarm, tileNode("light.b"))
     val dash = Dashboard(
-      cards = tile,
-      card = tileNode("light.a"),
-      surfaces = Map(
-        "armed" -> Surface(
-          content = tileNode("light.b"),
-          bakeInto = Some(NodeId.derived("host")),
-          bakeAs = Some("armed"),
-          bakeIndex = Some(0),
-          activation = Activation.State(Some(onEntity(alarm)))
-        )
-      )
+      cards = Sets.cards ++ tile ++ hostCards,
+      card = hostNode
     )
 
     assert(dash.watchedEntities.contains(alarm), clue = dash.watchedEntities)
     assert(!dash.referencedEntities.contains(alarm))
-    // A surface's CONTENT is still watched — this widens the set, it does not
+    // A case's CONTENT is still watched — this widens the set, it does not
     // move it.
     assert(dash.watchedEntities.contains("light.b"))
   }
 
   test("watchedEntities is a superset of referencedEntities") {
+    val (hostCards, hostNode) =
+      ifOn("alarm_control_panel.p", tileNode("light.c"))
     val dash = Dashboard(
-      cards = tile,
-      card = LayoutNode.SetNode(
-        candidates = List("light.a", "light.b"),
-        members = Map(
-          "light.a" -> LayoutNode.SetMember(
-            List(LayoutNode.SetClause(Some(whileOn), tileNode("light.a")))
-          ),
-          "light.b" -> LayoutNode.SetMember(
-            List(
-              LayoutNode.SetClause(
-                Some(onEntity("binary_sensor.h")),
-                tileNode("light.b")
+      cards = Sets.cards ++ tile ++ hostCards ++ Map(
+        "col" -> TestCard("{{{children}}}", Set("children"))
+      ),
+      card = LayoutNode.Component(
+        "col",
+        Slots.kids(
+          Sets.node(
+            candidates = List("light.a", "light.b"),
+            members = Map(
+              "light.a" -> Sets.Member(
+                List(Sets.Clause(Some(whileOn), tileNode("light.a")))
+              ),
+              "light.b" -> Sets.Member(
+                List(
+                  Sets.Clause(
+                    Some(onEntity("binary_sensor.h")),
+                    tileNode("light.b")
+                  )
+                )
               )
             )
-          )
-        )
-      ),
-      surfaces = Map(
-        "s" -> Surface(
-          content = tileNode("light.c"),
-          activation = Activation.State(Some(onEntity("alarm_control_panel.p")))
+          ),
+          hostNode
         )
       )
     )

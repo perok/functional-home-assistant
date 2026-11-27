@@ -5,7 +5,7 @@
 /// Imports no `hass` module, and `BaseComponentsSuite` keeps it that way.
 module components.base.button
 
-import "../../core/node.pkl" as nodes
+import "../../core/node.pkl" as nodeMod
 import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
@@ -48,7 +48,7 @@ const local pressAttrs: String =
 // A navigating button is an `<a href>`, so the browser gives it middle-click and
 // a click that works before Datastar loads. `fh-button` is for a theme that
 // styles a class where it styles `<button>`, so both forms look the same.
-const local buttonLinkDef: nodes.CardDef = new {
+const local buttonLinkDef: nodeMod.CardDef = new {
   tag = "a"
   classes = "fh-button \(roundOrPress) \(tapMod.currentClass)"
   attrs = anchorAttrs
@@ -61,7 +61,7 @@ const local buttonLinkDef: nodes.CardDef = new {
 // that also carries the spinner. Icon-only is `round` (`fh-circle`): a glyph
 // alone in a rectangle reads as a broken label, and there the button itself
 // spins.
-const local buttonDef: nodes.CardDef = new {
+const local buttonDef: nodeMod.CardDef = new {
   tag = "button"
   classes = roundOrPress
   attrs = pressAttrs + tapMod.busyVisual.ifSet(glyphSlot.ifSet(roundSlot.ifSet(" " + tapMod.busyShapeClass)))
@@ -96,7 +96,7 @@ const local pillCss: String = """
   .fh-cell.fh-active.fh-chip:not([aria-busy=true])>i.mdi{color:inherit}
   """
 
-const local pillLinkDef: nodes.CardDef = new {
+const local pillLinkDef: nodeMod.CardDef = new {
   tag = "a"
   classes = "fh-chip \(pillCircle) \(tapMod.currentClass)"
   attrs = anchorAttrs + pillName
@@ -104,7 +104,7 @@ const local pillLinkDef: nodes.CardDef = new {
   css = pillCss
 }
 
-const local pillDef: nodes.CardDef = new {
+const local pillDef: nodeMod.CardDef = new {
   tag = "button"
   classes = "fh-chip \(pillCircle)"
   attrs = pressAttrs + pillName + tapMod.busyVisual.ifSet(glyphSlot.ifTrue(" " + tapMod.busyShapeClass))
@@ -150,7 +150,7 @@ const local pressCss: String = """
   """
 
 /// A label, a glyph and a tap that names its own target.
-open class Button extends nodes.ActiveNode {
+open class Button extends nodeMod.ActiveNode {
   variants = new Mapping { ["button"] = buttonDef; ["buttonLink"] = buttonLinkDef }
   card = if (tapAction.href != null) "buttonLink" else "button"
   cardDef = variants!![card]
@@ -168,11 +168,10 @@ open class Button extends nodes.ActiveNode {
   hidden size: "small"|"medium"|"large" = "large"
   /// Required: a button is what pressing it does (#106).
   hidden tapAction: tapMod.TapAction = throw(noAction("c.button"))
-  inlineSurfaces = tapAction.inlineSurfaces
   /// Disables the button while it holds, ORed with whatever its tap refuses —
   /// for a reason of the button's own (a popup opener has no call to carry
   /// one): `lit.none()`.
-  hidden disabled: nodes.BooleanInput? = null
+  hidden disabled: nodeMod.BooleanInput? = null
   /// The entity a reading that names none reads. The HA layer sets it.
   hidden subject: String? = null
   // A navigating button is a link, which has no inert form, so `disabled` on
@@ -184,7 +183,7 @@ open class Button extends nodes.ActiveNode {
       throw("c.button: `disabled` needs a button, but this one navigates and "
         + "renders as a link — `disabled` is a form-control attribute. Drop "
         + "it, or give it a service tap.")
-    else nodes.disabledSlot(disabled)
+    else nodeMod.disabledSlot(disabled)
   slots {
     slotMod.subject.of(subject)
     labelSlot.of(slotMod.labelSlot(null, label))
@@ -220,9 +219,9 @@ open class Button extends nodes.ActiveNode {
   function size(s: "small"|"medium"|"large"): this = (this) { size = s }
   function tapAction(a: tapMod.TapAction): this = (this) { tapAction = a }
   /// `c.entityButton(l).active(c.isOn(l))`.
-  function active(a: nodes.BooleanInput): this = (this) { active = a }
+  function active(a: nodeMod.BooleanInput): this = (this) { active = a }
   /// `c.entityButton(l).disabled(c.stateIn(l, List("open")))`.
-  function disabled(r: nodes.BooleanInput): this = (this) { disabled = r }
+  function disabled(r: nodeMod.BooleanInput): this = (this) { disabled = r }
 }
 
 /// A small button sized to what it shows: a label (an emoji is text), an MDI
@@ -234,7 +233,7 @@ open class Button extends nodes.ActiveNode {
 ///     c.pill(c.tap.toggle(l))                       // the tap's power icon, round
 ///     c.pill(c.tap.activate(kveld))                 // the scene's name
 ///     c.pill(c.view.navigate("under")).label("⬇️ Under")
-class Pill extends nodes.ActiveNode {
+class Pill extends nodeMod.ActiveNode {
   variants = new Mapping { ["pill"] = pillDef; ["pillLink"] = pillLinkDef }
   card = if (tapAction.href != null) "pillLink" else "pill"
   cardDef = variants!![card]
@@ -250,7 +249,6 @@ class Pill extends nodes.ActiveNode {
   local round: Boolean =
     if (label == null) true else icon == null && label is String && (label as String).length <= 2
   active = tapAction.lit ?? false
-  inlineSurfaces = tapAction.inlineSurfaces
   slots {
     labelSlot.of(
       if (label == null && icon == null)
@@ -274,7 +272,7 @@ class Pill extends nodes.ActiveNode {
   function tapAction(a: tapMod.TapAction): this = (this) { tapAction = a }
   /// `c.pill(c.tap.activate(s)).active(latest.eq(s))`, where
   /// `latest = q.from(scenes).orderBy(q.desc(q.stateProp)).first()`.
-  function active(a: nodes.BooleanInput): this = (this) { active = a }
+  function active(a: nodeMod.BooleanInput): this = (this) { active = a }
 }
 
 /// `c.button("Close", c.view.closePopup())`.

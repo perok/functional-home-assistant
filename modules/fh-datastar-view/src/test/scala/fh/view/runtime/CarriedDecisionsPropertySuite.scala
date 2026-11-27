@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.own
+
 import fh.view.model.Dashboard
 import fh.view.testkit.{FixtureEntries, PklFixture}
 import hedgehog.*
@@ -11,8 +13,8 @@ import java.util.concurrent.atomic.AtomicLong
 /** A decision carried from the version before equals one made from scratch:
   * over random runs of changes to a test dashboard's house, the recorder's
   * [[Renderer.advance]] chain, read in part or not at all along the way and
-  * with a reader at times ahead of it, renders every body, surface and node
-  * patch as a fresh [[Shared]] of the same states does.
+  * with a reader at times ahead of it, renders every body, case and node patch
+  * as a fresh [[Shared]] of the same states does.
   *
   * A failing run names its seed; `HEDGEHOG_SEED=<seed>` replays it exactly.
   */
@@ -27,7 +29,6 @@ class CarriedDecisionsPropertySuite extends HedgehogSuite {
     // nothing.
     val ids: Vector[String] =
       base.keys.filter(r.watchedEntities).toVector.sorted
-    val surfaceIds: List[String] = d.surfaces.keys.toList.sorted
   }
 
   private def fixture(e: FixtureEntries.Entry): Fixture = {
@@ -67,45 +68,35 @@ class CarriedDecisionsPropertySuite extends HedgehogSuite {
     after <- genRead
   } yield Step(i, s, ahead, after)
 
-  private def view(f: Fixture, shared: Shared, read: Read): String =
+  /** `version` read as a viewer at the declared values does. */
+  private def view(f: Fixture, version: Shared, read: Read): String = {
+    val shared = version.viewing(f.r.vars.env(Map.empty))
     read match
       case Read.Nothing => ""
       case Read.Body    =>
         f.r
           .renderBodyTraced(
             shared,
-            Viewing(
-              Selections.none,
-              RenderGoldenSuite.answers(f.r, f.d, shared, Nil)
-            )
+            Viewing(RenderGoldenSuite.answers(f.r, f.d, shared, Nil))
           )
           .html
       case Read.Everything =>
         val body = f.r.renderBodyTraced(
           shared,
-          Viewing(
-            Selections.none,
-            RenderGoldenSuite.answers(f.r, f.d, shared, Nil)
-          )
+          Viewing(RenderGoldenSuite.answers(f.r, f.d, shared, Nil))
         )
-        val nodes = (body.own.keys ++ f.surfaceIds.flatMap(
-          f.r.surfaceNodeIds
-        )).toList.distinct.sorted
+        val nodes = body.own.keys.toList.sorted
         val answers = RenderGoldenSuite.answers(f.r, f.d, shared, nodes)
         (body.html ::
-          f.surfaceIds.flatMap(
-            f.r
-              .renderSurfaceTraced(_, shared, Viewing(Selections.none, answers))
-              .map(_.html)
-          ) ++
           nodes.flatMap(
             f.r.renderNodeById(
               _,
               shared,
-              Viewing(Selections.none, answers),
+              Viewing(answers),
               SlotForm.Patch
             )
           )).mkString("\n")
+  }
 
   private def run(f: Fixture, steps: List[Step]): Result = {
     var states = f.base

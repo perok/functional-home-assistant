@@ -1,30 +1,34 @@
 package fh.view.build
 
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
+import fh.view.testkit.{FixtureEntity, PklFixture}
 
 import fh.view.model.{
   Part,
-  Activation,
   CardDef,
+  Case,
   Cell,
+  Choice,
   Dashboard,
+  Fill,
   IdKind,
   LayoutNode,
   Lit,
   Op,
-  Region,
   SignalBind,
+  Slot,
   SlotType,
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface,
-  VarAt
+  TemplateSlot
 }
-import fh.view.testkit.TestIds.given
-import fh.view.testkit.DashboardBuilders.{classes, declared}
+import fh.view.testkit.DashboardBuilders.classes
 import io.circe.{parser, Json}
 
 import scala.collection.immutable.ListMap
@@ -96,7 +100,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   private def oneCard(
       template: String,
       slots: Map[String, TemplateSlot],
-      regions: Map[String, Region] = Map.empty,
+      regions: Set[String] = Set.empty,
       filled: Map[String, List[LayoutNode]] = Map.empty
   ): List[String] =
     Dashboard(
@@ -104,8 +108,10 @@ class BuildPhaseSuite extends munit.FunSuite {
         "card" -> TestCard(template, regions = regions),
         "leaf" -> TestCard("<i></i>")
       ),
-      card =
-        LayoutNode.Component("card", templateSlots = slots, regions = filled)
+      card = LayoutNode.Component(
+        "card",
+        slots = Slots.values(slots) ++ Slots.nodes(filled)
+      )
     ).validate()
 
   private val text = TemplateSlot(ValueExpr.literal("x"))
@@ -176,7 +182,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     def errs(tpl: String) = oneCard(
       tpl,
       Map.empty,
-      regions = Map("children" -> Region())
+      regions = Set("children")
     )
     assertEquals(errs("<div>{{{children}}}</div>"), Nil)
     for tpl <- List(
@@ -199,7 +205,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     val errs = oneCard(
       "<div>{{{children}}}</div>",
       Map("children" -> text),
-      regions = Map("children" -> Region())
+      regions = Set("children")
     )
     assert(errs.exists(_.contains("named like")), clue = errs)
   }
@@ -283,28 +289,6 @@ class BuildPhaseSuite extends munit.FunSuite {
     do assert(errs(l, t).exists(_.contains("literal, which a")), clue = (l, t))
   }
 
-  test("validate names a surface's node by the id it renders with") {
-    val d = Dashboard(
-      cards = Map("card" -> TestCard("<div>x</div>")),
-      card = LayoutNode.Component(card = "card"),
-      surfaces = Map(
-        "detail" -> Surface(
-          LayoutNode.Component(
-            card = "card",
-            regions = Map(
-              LayoutNode.DefaultRegion -> List(LayoutNode.Component("missing"))
-            )
-          )
-        )
-      )
-    )
-    val id = LayoutNode.surfacePrefix("detail") + "c_0"
-    assertEquals(
-      d.validate().filter(_.contains("missing")),
-      List(s"surface 'detail': $id: references unknown card 'missing'")
-    )
-  }
-
   test("validate rejects a cell class that is not a plain CSS class token") {
     // Interpolated into the wrapper's class attribute, so anything beyond
     // [A-Za-z0-9_-]+ fails the build.
@@ -320,20 +304,78 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(!errs.exists(_.contains("'fh-cols-3'")), clue = errs)
   }
 
-  test("validate takes a set's literal cell classes and refuses any reading") {
-    // A set has no slots to bind a reading with, so the wire alone could ask.
+  test("validate takes a set's cell as any card's: classes, and readings") {
+    // A set is a card's slot, so its root binds a reading as any root does.
     val reading = ValueExpr(Value.Entity(Some("light.a")))
+    val on = ValueExpr(
+      Value.Entity(Some("light.a")),
+      List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("on"))))
+    )
     val cell = Cell(
-      classes = classes("fh-cols-3").classes + ("fh-on" -> reading),
+      classes = classes("fh-cols-3").classes + ("fh-on" -> on),
       styles = ListMap("--x" -> reading)
     )
     val errs = Dashboard(
-      cards = Map("card" -> TestCard("<i></i>")),
-      card = LayoutNode.SetNode(cell = Some(cell))
+      cards = Sets.withCard(Map("card" -> TestCard("<i></i>"))),
+      card = Sets.node(cell = Some(cell))
     ).validate()
-    assert(errs.exists(_.contains("cell class 'fh-on' reads state")), errs)
-    assert(errs.exists(_.contains("cell style '--x' reads state")), errs)
-    assert(!errs.exists(_.contains("fh-cols-3")), errs)
+    assertEquals(errs, Nil)
+  }
+
+  test(
+    "validate refuses a set beside other content, a set as a member, an otherwise"
+  ) {
+    val tile = LayoutNode.Component("card")
+    val beside = Dashboard(
+      cards = Map(
+        Sets.Card -> CardDef(
+          "<div{{{cell}}}>{{{children}}}{{{more}}}</div>",
+          regions = Set(Sets.SlotName, "more")
+        ),
+        "card" -> TestCard("<i></i>")
+      ),
+      card = Sets.node(
+        List("light.a"),
+        Map("light.a" -> Sets.Member(List(Sets.Clause(None, tile))))
+      )
+    ).validate()
+    assert(beside.exists(_.contains("not its card's whole template")), beside)
+
+    val inner = Sets.node(List("light.b"))
+    val nested = Dashboard(
+      cards = Sets.withCard(Map("card" -> TestCard("<i></i>"))),
+      card = Sets.node(
+        List("light.a"),
+        Map("light.a" -> Sets.Member(List(Sets.Clause(None, inner))))
+      )
+    ).validate()
+    assert(nested.exists(_.contains("is itself a set")), nested)
+
+    val on = ValueExpr(
+      Value.Entity(Some("light.a")),
+      List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("on"))))
+    )
+    val otherwise = Dashboard(
+      cards = Sets.withCard(Map("card" -> TestCard("<i></i>"))),
+      card = LayoutNode.Component(
+        Sets.Card,
+        Map(
+          Sets.SlotName -> Slot.Nodes(
+            Fill.Set(
+              List("light.a"),
+              Map(
+                "light.a" -> Choice.Chosen(
+                  on,
+                  List(Case(Lit.Bool(true), tile)),
+                  Some(tile)
+                )
+              )
+            )
+          )
+        )
+      )
+    ).validate()
+    assert(otherwise.exists(_.contains("has an otherwise")), otherwise)
   }
 
   test("validate refuses a literal cell style, which nothing would write") {
@@ -349,598 +391,43 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
   }
 
-  /** `openPopupInline` mints `surfaces["<nodeId>_self"]`, so with a derived id
-    * moving the button renames the popup. Naming the button pins it, and makes
-    * it referenceable at all: `@@NODE_ID@@` resolves only to a node's own id.
-    */
-  test("hoistInlineSurfaces keys an inline surface off an AUTHORED node id") {
-    def hoist(idField: String) = DashboardBuild
-      .hoistInlineSurfaces(
-        parser
-          .parse(s"""
-            { "cards": {}, "card": {
-                "kind": "Component", "card": "fhcol",
-                "regions": { "children": [
-                  { "kind": "Component", "card": "card" },
-                  { "kind": "Component", "card": "button"$idField,
-                    "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
-                    "inlineSurfaces": { "self": {
-                      "content": { "kind": "Component", "card": "card" } } } }
-                ] } } }
-          """)
-          .toOption
-          .get
-      )
+  private val ok = Map(
+    "ok" -> TestCard("<i>{{{branch}}}</i>", regions = Set("branch"))
+  )
 
-    assertEquals(
-      hoist("").hcursor.downField("surfaces").keys.map(_.toList),
-      Some(List("c_1_self"))
+  private def choosing(branch: Slot, vars: List[Dashboard.Declaration] = Nil) =
+    LayoutNode.Component("ok", Map("branch" -> branch), vars = vars)
+
+  test("a choice over a variable needs a case or an otherwise at its default") {
+    // Declared at a value only the otherwise takes.
+    def dash(otherwise: Boolean) = PklFixture.snippet(
+      s"""local window = c.variable("window")
+         |card = (c.column) {
+         |  vars { window.defaultingTo("24h") }
+         |  children {
+         |    groupMod.group("div", "", nodeMod.match(window.value, new Mapping { ["30d"] = t.label("x") })${
+          if (otherwise) """.otherwise(t.label("y"))""" else ""
+        })
+         |  }
+         |}
+         |""".stripMargin
     )
-    val named = hoist(""", "id": "quickInfo"""")
-    assertEquals(
-      named.hcursor.downField("surfaces").keys.map(_.toList),
-      Some(List("quickInfo_self"))
-    )
+    assertEquals(dash(otherwise = true).validate(), Nil)
     assert(
-      named.noSpaces.contains("open quickInfo_self"),
-      clue = named.noSpaces
-    )
-    assertEquals(DashboardBuild.unresolvedTokens(named), Nil)
-  }
-
-  /** A set holds its nodes under `members[…].clauses[…].node`, which this pass
-    * did not walk, so an inline surface in a set kept its `@@NODE_ID@@`. The
-    * shipped starter's "Low battery" section does exactly that (a sensor's
-    * default tap is an inline popup, ADR 0016), so any house with a battery
-    * under 20 % got a refused dashboard.
-    *
-    * A member id has no clause index (only a set nested in a clause needs one),
-    * so both clauses hoist under one id; see the duplicate-key test.
-    */
-  test("hoistInlineSurfaces descends a candidate set's clauses") {
-    val json = parser
-      .parse("""
-        { "cards": {}, "card": {
-            "kind": "Component", "card": "fhcol",
-            "regions": { "children": [
-              { "kind": "SetNode",
-                "candidates": ["sensor.batt"],
-                "members": { "sensor.batt": { "clauses": [
-                  { "node": { "kind": "Component", "card": "tile",
-                      "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
-                      "inlineSurfaces": { "self": {
-                        "content": { "kind": "Component", "card": "card" } } } } }
-                ] } } }
-            ] } } }
-      """)
-      .toOption
-      .get
-    val hoisted = DashboardBuild.hoistInlineSurfaces(json)
-    assertEquals(
-      DashboardBuild.unresolvedTokens(hoisted),
-      Nil,
-      clue = hoisted.noSpaces
-    )
-    // Under the id the renderer gives the member (`MemberGraph.memberId`), or
-    // the popup is registered where no node looks.
-    assertEquals(
-      hoisted.hcursor.downField("surfaces").keys.map(_.toList),
-      Some(List("c_0_sensor_batt_self"))
-    )
-  }
-
-  test("two clauses of one candidate cannot both own a popup") {
-    // Merging keeps the last repeated key, so quietly this is a popup showing
-    // another clause's content.
-    val json = parser
-      .parse("""
-        { "cards": {}, "card": {
-            "kind": "Component", "card": "fhcol",
-            "regions": { "children": [
-              { "kind": "SetNode",
-                "candidates": ["sensor.batt"],
-                "members": { "sensor.batt": { "clauses": [
-                  { "node": { "kind": "Component", "card": "a",
-                      "inlineSurfaces": { "self": {
-                        "content": { "kind": "Component", "card": "card" } } } } },
-                  { "node": { "kind": "Component", "card": "b",
-                      "inlineSurfaces": { "self": {
-                        "content": { "kind": "Component", "card": "card" } } } } }
-                ] } } }
-            ] } } }
-      """)
-      .toOption
-      .get
-    val e = intercept[fh.view.FHError](DashboardBuild.hoistInlineSurfaces(json))
-    assert(
-      e.getMessage.contains("c_0_sensor_batt_self"),
-      clue = e.getMessage
-    )
-  }
-
-  /** This pass once stopped at a region-keyed node, so nothing below a grouped
-    * slider's head or members was hoisted. Asserted as the property, no token
-    * survives anywhere, since the same gap swallows every region a card grows.
-    */
-  test("hoistInlineSurfaces descends every region, at every depth") {
-    val json = parser
-      .parse("""
-        { "cards": {}, "card": {
-            "kind": "Component", "card": "fhcol",
-            "regions": { "children": [
-              { "kind": "Component", "card": "slider",
-                "regions": {
-                  "head": [
-                    { "kind": "Component", "card": "sliderHead",
-                      "regions": {
-                        "actions": [
-                          { "kind": "Component", "card": "sliderAction",
-                            "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
-                            "inlineSurfaces": { "self": {
-                              "content": { "kind": "Component", "card": "card" } } } }
-                        ] } }
-                  ],
-                  "children": [
-                    { "kind": "Component", "card": "slider",
-                      "templateSlots": { "onclick": "open @@NODE_ID@@_self" },
-                      "inlineSurfaces": { "self": {
-                        "content": { "kind": "Component", "card": "card" } } } }
-                  ] } }
-            ] } } }
-      """)
-      .toOption
-      .get
-    val hoisted = DashboardBuild.hoistInlineSurfaces(json)
-    assertEquals(
-      DashboardBuild.unresolvedTokens(hoisted),
-      Nil,
-      clue = hoisted.noSpaces
-    )
-    // Registered under an id no node has is as broken, and as quiet, as an
-    // unspliced token. The default region contributes its index (`_0`), a named
-    // one both (`_head_0`): `LayoutNode.segment`.
-    assertEquals(
-      hoisted.hcursor.downField("surfaces").keys.map(_.toList.sorted),
-      Some(List("c_0_0_self", "c_0_head_0_actions_0_self"))
-    )
-  }
-
-  private def node(fields: String, children: String*): String =
-    s"""{ "kind": "Component", "card": "x"$fields""" +
-      (if (children.isEmpty) ""
-       else s""", "regions": { "children": [${children.mkString(",")}] }""") +
-      " }"
-
-  private def tokenAt(name: String): String =
-    s""", "templateSlots": { "g": "${DashboardBuild.declarerToken(name)}" }"""
-
-  private def hoistCard(card: String, surfaces: String = "{}"): Json =
-    DashboardBuild.hoistInlineSurfaces(
-      parser
-        .parse(s"""{ "cards": {}, "card": $card, "surfaces": $surfaces }""")
-        .toOption
-        .get
-    )
-
-  // Every value of slot `g`, by the node's position in the default regions.
-  private def spliced(j: Json): List[String] =
-    j.findAllByKey("g").flatMap(_.asString)
-
-  test("a declarer token is the nearest declaring ancestor's id") {
-    val window = """, "vars": [{ "name": "window", "default": "24h" }]"""
-    val hoisted = hoistCard(
-      node(
-        window,
-        node(tokenAt("window")),
-        // Shadowing: the inner declaration wins for its own subtree only.
-        node(window, node(tokenAt("window"))),
-        // A node declaring nothing is transparent.
-        node("", node(tokenAt("window")))
-      )
-    )
-    assertEquals(spliced(hoisted), List("c", "c_1", "c"))
-    assertEquals(DashboardBuild.unresolvedTokens(hoisted), Nil)
-  }
-
-  test("a declarer token with no declarer above it fails the build") {
-    // Unspliced it would ship as a literal, and every press would 404.
-    val e = intercept[fh.view.FHError](
-      hoistCard(
-        node(
-          """, "vars": [{ "name": "other", "default": "1" }]""",
-          node(tokenAt("window"))
-        )
-      )
-    )
-    assert(e.getMessage.contains("c_0"), clue = e.getMessage)
-    assert(e.getMessage.contains("'window'"), clue = e.getMessage)
-  }
-
-  test("a surface does not see the declarations of the page that opens it") {
-    // ADR 0033: a surface is its own scope root, since one content can be
-    // shown from more than one place.
-    val opener = node(
-      """, "vars": [{ "name": "window", "default": "24h" }], "inlineSurfaces": { "self": """ +
-        s"""{ "content": ${node(tokenAt("window"))} } }"""
-    )
-    val e = intercept[fh.view.FHError](hoistCard(node("", opener)))
-    assert(e.getMessage.contains("'window'"), clue = e.getMessage)
-    // Its own declaration is in scope, under the surface's ids.
-    val registered = hoistCard(
-      node(""),
-      s"""{ "detail": { "content": ${node(
-          """, "vars": [{ "name": "window", "default": "24h" }]""",
-          node(tokenAt("window"))
-        )} } }"""
-    )
-    assertEquals(
-      spliced(registered),
-      List(LayoutNode.surfacePrefix("detail") + "c")
-    )
-  }
-
-  test("a tab panel sees the declarations above the node it bakes into") {
-    // An owned surface has one host, so it inherits that host's scope, as
-    // `Dashboard.varScopes` resolves a read: a chooser over a tab bar reaches
-    // the panels' charts.
-    val panel =
-      """, "inlineSurfaces": { "t0": { "bakeInto": "@@NODE_ID@@", "content": """ +
-        s"""${node(tokenAt("window"))} } }"""
-    val hoisted =
-      hoistCard(
-        node(
-          """, "vars": [{ "name": "window", "default": "24h" }]""",
-          node(panel)
-        )
-      )
-    assertEquals(spliced(hoisted), List("c"))
-  }
-
-  test("a candidate set's clause names a declarer outside the set") {
-    // A member reads the scope at its set, so a token there names a declarer
-    // above the set by its static id.
-    val set =
-      """{ "kind": "SetNode", "candidates": ["sensor.a"], "members": { "sensor.a": """ +
-        s"""{ "clauses": [ { "node": ${node(tokenAt("window"))} } ] } } }"""
-    val hoisted = hoistCard(
-      node(""", "vars": [{ "name": "window", "default": "24h" }]""", set)
-    )
-    assertEquals(spliced(hoisted), List("c"))
-  }
-
-  test("the hoist names an authored node by the id the renderer gives it") {
-    // A surface keyed, or a token spliced, under an id no node has is broken
-    // and silent, so the expected ids are the renderer's own functions.
-    val popup =
-      """, "inlineSurfaces": { "self": { "content": { "kind": "Component", "card": "x" } } }"""
-    val authoredRoot = hoistCard(node(""", "id": "home"""", node(popup)))
-    val rootId = LayoutNode.rootId(
-      "",
-      LayoutNode.Component("x", id = Some("home"))
-    )
-    assertEquals(
-      authoredRoot.hcursor.downField("surfaces").keys.map(_.toList),
-      Some(List(s"${rootId}_0_self"))
-    )
-    val inSurface = hoistCard(
-      node(""),
-      s"""{ "detail": { "content": ${node(
-          "",
-          node(s""", "id": "named"$popup""")
-        )} } }"""
-    )
-    val prefix = LayoutNode.surfacePrefix("detail")
-    val namedId = LayoutNode.childId(
-      prefix,
-      LayoutNode.rootId(prefix, LayoutNode.Component("x")),
-      LayoutNode.Step(LayoutNode.DefaultRegion, 0),
-      LayoutNode.Component("x", id = Some("named"))
-    )
-    assert(
-      inSurface.hcursor
-        .downField("surfaces")
-        .keys
-        .exists(_.toList.contains(s"${namedId}_self")),
-      clue = inSurface.hcursor.downField("surfaces").keys
-    )
-  }
-
-  test("hoistInlineSurfaces lifts an inline surface and splices the node id") {
-    // The onclick already references the future id via the node token; the
-    // hoist lifts the content and splices the id.
-    val json = parser
-      .parse("""
-        {
-          "cards": {},
-          "card": {
-            "kind": "Component", "card": "fhcol",
-            "regions": { "children": [
-              { "kind": "Component", "card": "button",
-                "params": { "label": "More" },
-                "entities": [],
-                "templateSlots": { "onclick": { "entity": "",
-                  "transform": "\"@post('sse/surface/open/@@NODE_ID@@_self')\"" } },
-                "inlineSurfaces": { "self": {
-                  "content": { "kind": "Component", "card": "card" } } } }
-            ] }
-          }
-        }
-      """)
-      .toOption
-      .get
-    val hoisted = DashboardBuild.hoistInlineSurfaces(json).hcursor
-
-    // idBase = c_0, the render-time `{{id}}` of child 0: the hoist id scheme
-    // equals `LayoutNode.pathId`.
-    val keys = hoisted.downField("surfaces").keys.map(_.toList).getOrElse(Nil)
-    assertEquals(keys, List("c_0_self"), clue = keys)
-
-    val trigger = hoisted
-      .downField("card")
-      .downField("regions")
-      .downField("children")
-      .downN(0)
-    assert(
-      trigger.downField("inlineSurfaces").failed,
-      clue = "marker not removed"
-    )
-    assertEquals(
-      trigger
-        .downField("templateSlots")
-        .downField("onclick")
-        .get[String]("transform")
-        .toOption,
-      Some("\"@post('sse/surface/open/c_0_self')\"")
-    )
-    assertEquals(
-      hoisted
-        .downField("surfaces")
-        .downField("c_0_self")
-        .downField("content")
-        .get[String]("card")
-        .toOption,
-      Some("card")
-    )
-  }
-
-  test(
-    "hoistInlineSurfaces lifts a multi-entry marker and splices ids across the subtree"
-  ) {
-    // As c.tabs emits: a container with inline surfaces and triggers
-    // referencing the future ids. `panelHost` is an arbitrary string param
-    // showing the splice reaches every string leaf; `bakeInto`/`bakeAs` are the
-    // real shared-host fields.
-    val json = parser
-      .parse("""
-        {
-          "cards": {},
-          "card": {
-            "kind": "Component", "card": "tabs", "entities": [], "templateSlots": {},
-            "params": { "initial": "@@NODE_ID@@_0", "panelHost": "panel_@@NODE_ID@@", "sig": "tab_@@NODE_ID@@" },
-            "regions": { "children": [
-              { "kind": "Component", "card": "button", "entities": [],
-                "params": { "active": "$tab_@@NODE_ID@@ == '@@NODE_ID@@_0'" },
-                "templateSlots": { "onclick": { "entity": "",
-                  "transform": "\"@post('sse/surface/open/@@NODE_ID@@_0')\"" } } }
-            ] },
-            "inlineSurfaces": {
-              "0": { "content": { "kind":"Component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" },
-              "1": { "content": { "kind":"Component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" }
-            }
-          }
-        }
-      """)
-      .toOption
-      .get
-    val h = DashboardBuild.hoistInlineSurfaces(json).hcursor
-
-    // One shared bakeInto, so the same hostId.
-    val surfaces = h.downField("surfaces")
-    assertEquals(
-      surfaces.keys.map(_.toSet).getOrElse(Set.empty),
-      Set("c_0", "c_1")
-    )
-    for (k <- Set("c_0", "c_1")) {
-      assertEquals(
-        surfaces.downField(k).get[String]("bakeInto").toOption,
-        Some("c")
-      )
-      assertEquals(
-        surfaces.downField(k).get[String]("bakeAs").toOption,
-        Some("panel")
-      )
-    }
-
-    val node = h.downField("card")
-    assert(node.downField("inlineSurfaces").failed, clue = "marker not removed")
-    assertEquals(
-      node.downField("params").get[String]("initial").toOption,
-      Some("c_0")
-    )
-    assertEquals(
-      node.downField("params").get[String]("panelHost").toOption,
-      Some("panel_c")
-    )
-
-    val first = node.downField("regions").downField("children").downN(0)
-    assertEquals(
-      first.downField("params").get[String]("active").toOption,
-      Some("$tab_c == 'c_0'")
-    )
-    assertEquals(
-      first
-        .downField("templateSlots")
-        .downField("onclick")
-        .get[String]("transform")
-        .toOption,
-      Some("\"@post('sse/surface/open/c_0')\"")
-    )
-  }
-
-  test("Surface.activation decodes: absent key -> User(false)") {
-    val decoded = parser
-      .parse("""{ "content": { "kind": "Component", "card": "x" } }""")
-      .toOption
-      .get
-      .as[Surface]
-    assertEquals(decoded.toOption.get.activation, Activation.User(false))
-    // The retired flat `defaultOpen` is ignored while Pkl still emits it; its
-    // effect survives through resolveActive's index-0 fallback.
-    val flat = parser
-      .parse(
-        """{ "content": { "kind": "Component", "card": "x" }, "defaultOpen": true }"""
-      )
-      .toOption
-      .get
-      .as[Surface]
-    assertEquals(flat.toOption.get.activation, Activation.User(false))
-  }
-
-  test("Surface.activation decodes both kinds") {
-    def surface(activation: String): io.circe.Decoder.Result[Surface] =
-      parser
-        .parse(
-          s"""{ "content": { "kind": "Component", "card": "x" },
-             |  "activation": $activation }""".stripMargin
-        )
-        .toOption
-        .get
-        .as[Surface]
-
-    assertEquals(
-      surface(
-        """{ "kind": "User", "defaultOpen": true }"""
-      ).toOption.get.activation,
-      Activation.User(defaultOpen = true)
-    )
-    // No quantifier: the condition names the entities it reads.
-    val cond =
-      """{ "source": { "kind": "Entity", "of": "light.a" },
-         |  "steps": [{ "kind": "Compare", "op": "eq", "to": "on" }] }""".stripMargin
-    assertEquals(
-      surface(
-        s"""{ "kind": "State", "condition": $cond }"""
-      ).toOption.get.activation,
-      Activation.State(
-        Some(Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a")))
-      )
-    )
-  }
-
-  test(
-    "validate rejects a bake group mixing var- and state-activated members"
-  ) {
-    def member(index: Int, activation: Activation): Surface =
-      Surface(
-        LayoutNode.Component("ok"),
-        bakeInto = Some("c"),
-        bakeAs = Some("branch"),
-        bakeIndex = Some(index),
-        activation = activation
-      )
-    val state = Activation.State(
-      Some(Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a")))
-    )
-    val mixed = Dashboard(
-      // The bake target must declare the region its surfaces name.
-      cards = Map(
-        "ok" -> TestCard(
-          "<i>{{{branch}}}</i>",
-          regions = Map("branch" -> Region(Region.Baked))
-        )
-      ),
-      card = LayoutNode.Component("ok", vars = declared("tab" -> "0")),
-      surfaces = Map(
-        "a" -> member(0, Activation.Var("tab")),
-        "b" -> member(1, state)
-      )
-    )
-    assert(
-      mixed.validate().exists(_.contains("mixes var- and state-activated")),
-      clue = mixed.validate()
-    )
-    val allState = mixed.copy(surfaces =
-      Map("a" -> member(0, state), "b" -> member(1, state))
-    )
-    assertEquals(allState.validate(), Nil)
-    val allVar = mixed.copy(surfaces =
-      Map(
-        "a" -> member(0, Activation.Var("tab")),
-        "b" -> member(1, Activation.Var("tab"))
-      )
-    )
-    assertEquals(allVar.validate(), Nil)
-    // A baked member nothing selects: a host is filled by a choice the server
-    // knows (ADR 0033).
-    val unchosen = mixed.copy(surfaces =
-      Map("a" -> member(0, Activation.User()), "b" -> member(1, state))
-    )
-    assert(
-      unchosen.validate().exists(_.contains("has members nothing selects (a)")),
-      clue = unchosen.validate()
-    )
-  }
-
-  test("a variable's fallback member takes any value, and there is one") {
-    def member(index: Int, activation: Activation): Surface =
-      Surface(
-        LayoutNode.Component("ok"),
-        bakeInto = Some("c"),
-        bakeAs = Some("branch"),
-        bakeIndex = Some(index),
-        activation = activation
-      )
-    val dash = Dashboard(
-      cards = Map(
-        "ok" -> TestCard(
-          "<i>{{{branch}}}</i>",
-          regions = Map("branch" -> Region(Region.Baked))
-        )
-      ),
-      // Declared at a value only the fallback takes.
-      card = LayoutNode.Component("ok", vars = declared("window" -> "24h")),
-      surfaces = Map(
-        "then" -> member(0, Activation.Var("window", VarAt.Value("30d"))),
-        "else" -> member(1, Activation.Var("window", VarAt.Otherwise))
-      )
-    )
-    assertEquals(dash.validate(), Nil)
-    val two = dash.copy(surfaces =
-      dash.surfaces + ("more" -> member(
-        2,
-        Activation.Var("window", VarAt.Otherwise)
-      ))
-    )
-    assert(
-      two
+      dash(otherwise = false)
         .validate()
-        .exists(_.contains("2 members selected at every other value")),
-      clue = two.validate()
+        .exists(_.contains("declared '24h', which no case takes")),
+      clue = dash(otherwise = false).validate()
     )
   }
 
-  test("validate rejects a state condition that names no entity") {
+  test("validate rejects a choice over state that names no entity") {
     def dash(condition: ValueExpr) = Dashboard(
-      // The bake target must declare the region its surfaces name.
-      cards = Map(
-        "ok" -> TestCard(
-          "<i>{{{branch}}}</i>",
-          regions = Map("branch" -> Region(Region.Baked))
-        )
-      ),
-      card = LayoutNode.Component("ok"),
-      surfaces = Map(
-        "a" -> Surface(
-          LayoutNode.Component("ok"),
-          bakeInto = Some("c"),
-          bakeAs = Some("branch"),
-          bakeIndex = Some(0),
-          activation = Activation.State(Some(condition))
-        )
-      )
+      cards = ok,
+      card = choosing(Slots.iff(condition, LayoutNode.Component("ok")))
     )
     val on = Conds.cmp("state", Op.Eq, Json.fromString("on"))
-    // A surface supplies no subject, so this would mean "some entity in the
+    // A choice supplies no subject, so this would mean "some entity in the
     // house is on". Rejected anywhere in the tree.
     for (c <- List(on, Conds.not(on), Conds.and(List(on))))
       assert(
@@ -983,14 +470,14 @@ class BuildPhaseSuite extends munit.FunSuite {
   }
 
   test("validate refuses a set of areas whose guard reads the area itself") {
-    val card = Map("t" -> TestCard("<i>t</i>"))
+    val card = Sets.withCard(Map("t" -> TestCard("<i>t</i>")))
     def rooms(guard: ValueExpr) = Dashboard(
       cards = card,
-      card = LayoutNode.SetNode(
+      card = Sets.node(
         candidates = List("soverom"),
         members = Map(
-          "soverom" -> LayoutNode.SetMember(
-            List(LayoutNode.SetClause(Some(guard), LayoutNode.Component("t")))
+          "soverom" -> Sets.Member(
+            List(Sets.Clause(Some(guard), LayoutNode.Component("t")))
           )
         ),
         of = IdKind.Area
@@ -1005,43 +492,28 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(itself.exists(_.contains("reads its member")), clue = itself)
   }
 
-  test("validate refuses a clause or a state surface that does not decide") {
+  test("validate refuses a clause or a choice's key that does not decide") {
     // A wire Pkl never writes, so only a hand-built one reaches this.
     val text = ValueExpr(Value.Entity(Some("light.a")))
     val viaCel = ValueExpr(Value.Cel("'on'"))
-    val ok = Map(
-      "ok" -> TestCard(
-        "<i>{{{branch}}}</i>",
-        regions = Map("branch" -> Region(Region.Baked))
-      )
-    )
-    val set = Dashboard(
-      cards = ok,
-      card = LayoutNode.SetNode(
+    def clause(when: ValueExpr) = Dashboard(
+      cards = Sets.withCard(ok),
+      card = Sets.node(
         candidates = List("light.a"),
         members = Map(
-          "light.a" -> LayoutNode.SetMember(
-            List(LayoutNode.SetClause(Some(text), LayoutNode.Component("ok")))
+          "light.a" -> Sets.Member(
+            List(Sets.Clause(Some(when), LayoutNode.Component("ok")))
           )
         )
       )
     )
+    val set = clause(text)
     assert(
       set
         .validate()
         .exists(_.contains("a clause of 'light.a' does not decide")),
       clue = set.validate()
     )
-    def clause(when: ValueExpr) = set.copy(card = set.card match
-      case s: LayoutNode.SetNode =>
-        s.copy(members =
-          s.members.view
-            .mapValues(m =>
-              m.copy(clauses = m.clauses.map(_.copy(when = Some(when))))
-            )
-            .toMap
-        )
-      case other => other)
     val celClause =
       ValueExpr(Value.Entity(Some("light.a")), List(Step.Cel("value == 'on'")))
     assertEquals(clause(celClause).validate(), Nil)
@@ -1051,149 +523,42 @@ class BuildPhaseSuite extends munit.FunSuite {
         .exists(_.contains("a clause of 'light.a' does not decide")),
       clue = clause(viaCel).validate()
     )
-    val surface = Dashboard(
+    // An If's case is `true`, which a text `by` never reads.
+    val choice = Dashboard(
       cards = ok,
-      card = LayoutNode.Component("ok"),
-      surfaces = Map(
-        "a" -> Surface(
-          LayoutNode.Component("ok"),
-          bakeInto = Some("c"),
-          bakeAs = Some("branch"),
-          bakeIndex = Some(0),
-          activation = Activation.State(Some(viaCel))
-        )
-      )
+      card = choosing(Slots.iff(viaCel, LayoutNode.Component("ok")))
     )
     assert(
-      surface
-        .validate()
-        .exists(_.contains("a condition is a bool, not text")),
-      clue = surface.validate()
+      choice.validate().exists(_.contains("is chosen by a text")),
+      clue = choice.validate()
     )
   }
 
-  /** A missing region fails as `danglingBakes` describes for a missing node: an
-    * empty hole, indistinguishable from a state group that matched nothing.
-    */
-  test("validate rejects a surface baking into a region its card lacks") {
-    def dash(hostCard: CardDef, as: String) = Dashboard(
-      cards = Map("host" -> hostCard),
-      card = LayoutNode.Component("host", vars = declared("tab" -> "0")),
-      surfaces = Map(
-        "s" -> Surface(
-          LayoutNode.Component("host"),
-          bakeInto = Some("c"),
-          bakeAs = Some(as),
-          bakeIndex = Some(0),
-          activation = Activation.Var("tab")
-        )
+  test("validate rejects a choice in a slot its card does not declare") {
+    val library = PklFixture.snippet(
+      """card = c.iff(q.entity(dump.entities.alarm_h).stateIs("armed")).then(t.label("x"))""",
+      FixtureEntity("alarm.h", "armed")
+    )
+    // The shipped If with its card's regions dropped.
+    def dash(keep: Boolean) = library.copy(
+      cards = library.cards.map((n, d) =>
+        n -> (if (keep || n != "ifhost") d
+              else d.copy(regions = Set.empty))
       )
     )
-    val hasBranch = TestCard(
-      "<i>{{{branch}}}</i>",
-      regions = Map("branch" -> Region(Region.Baked))
-    )
-
     assert(
-      dash(hasBranch, "panel").validate().exists(_.contains("no baked region")),
-      clue = dash(hasBranch, "panel").validate()
-    )
-    assert(
-      dash(TestCard("<i></i>"), "branch")
+      dash(keep = false)
         .validate()
-        .exists(_.contains("it declares none")),
-      clue = dash(TestCard("<i></i>"), "branch").validate()
-    )
-    // A surface fills its hole lazily and an eager region is filled by the
-    // node's children; the fills differ by declared kind, not spelling.
-    assert(
-      dash(
-        TestCard(
-          "<i>{{{branch}}}</i>",
-          regions = Map("branch" -> Region())
-        ),
-        "branch"
-      ).validate().exists(_.contains("no baked region")),
-      clue = "an eager region must not satisfy a bakeAs"
+        .exists(_.contains("fills region 'branch'")),
+      clue = dash(keep = false).validate()
     )
     // Non-vacuous.
-    assertEquals(dash(hasBranch, "branch").validate(), Nil)
+    assertEquals(dash(keep = true).validate(), Nil)
   }
 
   /** A placeholder decodes, validates and renders verbatim; the first symptom
     * is a binding that never matches, so the build says so.
     */
-  test("unresolvedTokens finds a placeholder the build failed to fill in") {
-    def json(s: String) = parser.parse(s).fold(throw _, identity)
-
-    assertEquals(
-      DashboardBuild.unresolvedTokens(
-        json(
-          """{"card":{"templateSlots":{"active":"($_@@NODE_ID@@__pending || $x) == 0"}},
-            | "cards":{"a":{"template":"<i class=\"@@CLASSBIND:busySpin:$b@@\"></i>"}}}""".stripMargin
-        )
-      ),
-      List("@@CLASSBIND:busySpin:$b@@", "@@NODE_ID@@").sorted
-    )
-
-    // Anchored on both sides: an ordinary `@` in an onclick is not a token, nor
-    // a lone `@@` in prose.
-    assertEquals(
-      DashboardBuild.unresolvedTokens(
-        json("""{"a":"@post('sse/x')","b":"see @@ below","c":42,"d":null}""")
-      ),
-      Nil
-    )
-  }
-
-  test("hoistInlineSurfaces lifts the activation object onto the surface") {
-    // `DashboardBuild.surfaceOf` drops the retired flat `defaultOpen`.
-    val json = parser
-      .parse("""
-        {
-          "cards": {},
-          "card": {
-            "kind": "Component", "card": "ifhost",
-            "inlineSurfaces": { "then": {
-              "content": { "kind": "Component", "card": "card" },
-              "bakeInto": "@@NODE_ID@@", "bakeAs": "branch", "bakeIndex": 0,
-              "defaultOpen": true,
-              "activation": { "kind": "State",
-                "condition": { "kind": "Cmp", "property": "state", "op": "eq", "value": "on" } }
-            } }
-          }
-        }
-      """)
-      .toOption
-      .get
-    val hoisted = DashboardBuild.hoistInlineSurfaces(json).hcursor
-    val lifted = hoisted.downField("surfaces").downField("c_then")
-    assertEquals(
-      lifted.downField("activation").get[String]("kind").toOption,
-      Some("State")
-    )
-    assert(
-      lifted.downField("defaultOpen").failed,
-      clue = "flat key not dropped"
-    )
-  }
-
-  test("validate checks card references inside a surface") {
-    val d = Dashboard(
-      cards = Map("ok" -> TestCard("<i>{{label}}</i>")),
-      card = LayoutNode.Component(
-        "ok",
-        templateSlots = Map("label" -> TemplateSlot(ValueExpr.literal("x")))
-      ),
-      surfaces = Map("p" -> Surface(LayoutNode.Component("nope")))
-    )
-    val errs = d.validate()
-    assert(
-      errs.exists(e => e.contains("surface 'p'") && e.contains("unknown card")),
-      clue = errs
-    )
-  }
-
   test(
     "validate reports a slot whose transform fails to compile (blocks load)"
   ) {
@@ -1201,11 +566,13 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map("card" -> TestCard("<span>{{state}}</span>")),
       card = LayoutNode.Component(
         "card",
-        templateSlots = Map(
-          "state" -> TemplateSlot(
-            ValueExpr(
-              Value.Entity(Some("e.x"), Part.Whole),
-              List(Step.Cel("'unclosed"))
+        slots = Slots.values(
+          Map(
+            "state" -> TemplateSlot(
+              ValueExpr(
+                Value.Entity(Some("e.x"), Part.Whole),
+                List(Step.Cel("'unclosed"))
+              )
             )
           )
         )

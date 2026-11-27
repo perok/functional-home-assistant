@@ -66,7 +66,7 @@ unsure of its own bytes can drop the entry instead of recording a wrong one.
 
 The standing constraint over all three: **a complete update is a fallback, never
 a design choice.** Deltas first; wholesale re-send only where the delta genuinely
-cannot be computed, and then at the smallest granularity that works — refill one
+cannot be computed, and then at the smallest granularity that works — fill one
 group, not the body.
 
 ### The cursor: four client-carried values, under one `_` namespace
@@ -121,8 +121,14 @@ log where 500 names nothing. The log carries a UUID minted with it and a cursor
 quoting a different one is rejected outright rather than reasoned about. It also
 subsumes "is this even the same dashboard", which is why `headHash` does *not* gate
 the resume — a dashboard change arrives via a renderer swap, and a swap rotates the
-log id, so the cursor is already rejected before any hash is consulted. `logId`
-decides *is this comparable*; `headHash` decides *does the browser need a reload*.
+log id, so the cursor is already rejected before any hash is consulted. The log also
+carries the stamp of the renderer whose recorder numbers it, and a swap installs the
+log FIRST, then the renderer, so the new recorder always finds its own log. That leaves
+a moment where a reader holds the old renderer and the new log; every reader takes the
+log only under the renderer that stamped it (the opening, the pull, a repaint's cursor),
+and otherwise repaints, and a cursor minted under another renderer quotes no log at all.
+An old recorder still running after the swap neither writes the new log nor rings.
+`logId` decides *is this comparable*; `headHash` decides *does the browser need a reload*.
 Neither can answer the other's question, and `headHash` is stable across restarts
 BY DESIGN — which is precisely why it cannot double as `logId`.
 
@@ -145,36 +151,42 @@ The per-slug log carries a version, turning "what did we last broadcast" into
 "when did each node last change":
 
 ```scala
-enum MemberKey:                                    // what occupies a host, and how to render it
-  case Entity(id: String)                          //   a dynamic group's member
-  case Surface(id: String)                         //   a state group's branch
-
-enum Mutation(val version: Long, val container: NodeId):  // last STRUCTURAL fact about a node
-  case Gone(in: NodeId, at: Long)                         // its element was deleted
-  case Placed(in: NodeId, member: MemberKey, at: Long)    // belongs at its current position
-
 case class FragmentLog(
   id,
-  fragments:    Map[NodeId, Long],                 // node -> the version it last moved at
-  mutations:    Map[NodeId, Mutation],
-  horizon:      Map[NodeId, Long],                 // per container: membership history is
-                                                   //   complete only from here up
+  stamp:        Option[Renderer.Stamp],            // the renderer whose recorder writes it
+  fragments:    Map[Ix, Long],                     // place -> the version it last moved at
   completeFrom: Long                               // the whole log: complete only from here up
 )
-def since(v: Long): Resume                         // TOTAL — see "the horizon is per container"
+def since(v: Long): BitSet                         // the places logged at >= v
 def reaches(v: Long): Boolean                      // false across a stretch nobody watched
-case class Resume(nodes: List[NodeId], moved: …, refill: List[NodeId])
 ```
 
-**There is no content in the changelog at all** — not the bytes, not what they were made from.
-`fragments` holds a version and nothing else, so the log answers only *when did this
-node last move*. What a given client HOLDS is that client's own record (`Session.holds`,
-ADR 0012), which is the only place that question can be answered exactly.
+The recorder logs three kinds of place, each at the frame's version: a **node whose bytes
+changed**, a **host whose decided keys changed** (a set's membership, order or a member's
+clause; a state pick's case), and the **root of each key that arrived**. A key is the
+root of what a host shows: a set member's clause root, or a pick's case. Nothing is logged
+when a key leaves.
 
-`fragments` answers *when did this node's content last change*; `mutations`
-answers *where is this node* — the changes not expressible as a morph of an
-element the client already has. A resume renders every node at `>= V` from the
-CURRENT snapshot and morphs it, then applies every mutation at `>= V`.
+**A place, not an id.** Each is logged at the `Ix` the new version has it at
+(`Renderer.ixAt`), so the two clauses of one member, which share their ids, are logged apart:
+a change in one sends nothing to a viewer shown the other, and a pull reads a logged place only
+where it is the one shown now. Only an id in several clauses needs its member decided for
+that; an id with one place is logged there, the decision costing more than the rest of the
+recorder. An `Ix` means something only to the renderer that numbered it,
+which is what the log's `stamp` says (a reader under another renderer repaints).
+
+**There is no content in the changelog at all** — not the bytes, not what they were made from,
+and not what a host shows. The log answers only *where to look*: what a given client HOLDS is
+that client's own record (`Session.holds`, ADR 0012), each host's keys in the order sent
+included (`Held.shows`), which is the only place that question can be answered exactly.
+
+A pull or a reconnect renders every node logged at `>= V` from the CURRENT snapshot and
+morphs it where its values differ from what the client holds; and for every host among the
+logged places, plus every host in a container the client has open, it decides the keys now and
+plans them against the held list (`Patches.planHost`): a fill when no list is held or no key
+can be kept, else a leave per key gone and a place per key arriving or moved, back to front
+so each anchor is on the page. The moves are everything outside a longest increasing run of
+held positions, searched per session.
 
 **What is a log key.** A fragment is a node's **own** html — never the composed html that
 includes its children. The composed form welds host to children and makes them inseparable, which
@@ -186,8 +198,8 @@ nor morph targets**:
 
 - **structure** (`Column`/`Row`/`Grid`/`If`/`Tabs`/`Slider` — any card declaring a region),
   whose element contains what it holds;
-- a **candidate set root**, which composes its members and whose members are keyed
-  individually.
+- a **candidate set root**, a card whose one region is the set, which composes its members and
+  whose members are keyed individually.
 
 Excluding them loses nothing, because what they hold is addressable in its own right. It is
 also not a separate rule: `validate` rejects a live BYTES slot on structure *because it has
@@ -199,7 +211,7 @@ descendant host has selected — and whichever a shared structure recorded would
 somebody.
 
 **A node whose own html differs between viewers needs no special treatment.** Since the
-session renders what it is owed, it renders with its own `Selections` and records what it sent
+session renders what it is owed, it renders for its own viewer (its values, the open popup among them, through `Shared.viewing`) and records what it sent
 in its own `holds` — no variant key, no second entry, nothing shared to disagree about.
 The rule that makes it safe is statement (1): a node's own rendering contains no region's
 contents, its own or a child's.
@@ -209,11 +221,11 @@ follow. The log cannot go stale against the renderer, because it stores nothing 
 renderer swap could invalidate. The snapshot a resume renders from is by definition at
 least as fresh as anything the log could have kept, so a client that missed five ticks
 gets the fifth and not the first. And — the property worth the most — **a path unsure of
-what it put in a client's DOM can simply drop the entry**, because an absent entry reads
-as "unknown, send it". The worst outcome of dropping is a redundant re-send; the worst
-outcome of a wrong entry is a suppressed change, which is silent and permanent.
-Everything that mutates the DOM without knowing its own bytes exactly (a host fill, a
-branch placement) uses that escape.
+what it put in a client's DOM can simply drop that client's `holds` entry**, because an
+absent entry there reads as "unknown, send it". The worst outcome of dropping is a
+redundant re-send; the worst outcome of a wrong entry is a suppressed change, which is
+silent and permanent. A host's list follows the same rule: one the session cannot vouch
+for is absent, and the planner fills that host the next time it looks at it.
 
 **The version and `holds` answer different questions, and the split survived the flip
 into the sessions.** A node's `fragments` version says *this node moved at V* — the
@@ -231,109 +243,57 @@ whole of V is idempotent and cheap; missing half of it would be silent and
 permanent. A DOCUMENT's cursor is the exception and needs `> V`: the page was
 rendered from one snapshot, so it has all of V by construction, and `>= V` would
 hand it back everything it already contains. The two are told apart by where the
-cursor came from — signals mean a reconnect, plain query params a first load.
+cursor came from — a `_cursor` signal means a reconnect, plain query params a first
+load. Not by whether any signal came: the shell seeds `conn` and every variable's committed value, which
+every first connect carries, and `_cursor` is first set by the opening frame, so a store
+holding it is a page this server has already streamed to (`Server.isReconnect`).
 
 **The invariant that makes absence safe:** an entry's version means "this node
 last changed at store version N", so a node with *no* entry has not changed since
-the log was created — and every client's body, server-rendered from current state
-at page load, already has it. Absence correctly reads as "you are up to date";
-there is no bootstrapping hole.
+the log's recorder subscribed — and every client's body, server-rendered from current
+state at page load, already has it. Absence correctly reads as "you are up to date".
+The one hole is the stretch before that subscription: the recorder's first frame is
+the state it subscribed at, recorded nowhere, so a page painted below it (at boot, or
+in a swap) holds a version the log cannot lead on from. A fresh log therefore reaches
+no cursor until that first frame seeds it, and from then on reaches only the version
+after it (`completeFrom`); a session or cursor below that repaints, and the seed rings
+the doorbell so a waiting session finds out.
 
-**Three levels of collapse.** Per node (both maps are id-keyed, latest-wins, so a
-thousand alternating ticks leave one entry). Across the two maps (a node with a
-current mutation is emitted as that mutation and not *also* as a morph). And
-across the tree — `coveredByMutation` drops anything a mutation or a refill is
-already re-supplying wholesale.
+**Two levels of collapse.** Per id (latest-wins, so a thousand alternating ticks leave one
+entry). And across the tree: nothing inside a range a plan sends whole — a fill's host, a
+placed key, a key leaving — is morphed or planned as well (`TreeIndex.contains`, the fill's
+host itself excluded). A range is every clause of a key's id, since the client may hold
+either.
 
-> Level 3 is the one worth a warning, because getting it wrong is invisible. The
-> predicate must be a STRICT ancestor test: a version that also matches the node
-> itself makes every fragment suppress its own emission, so a resume silently
-> sends nothing, with no error anywhere. There is a test named for that alone.
->
-> It is keyed on MUTATIONS rather than on fragments, and that is not
-> interchangeable. A fragment says the node's content changed; a mutation says
-> its whole element is being re-supplied, which is the only thing that entitles
-> the resume to drop what is under it.
+**A → B → A across the absence is detected.** A key held and decided again is sent whole
+when its root was logged at `>= V` and it has no rendering of its own: it left and came back
+while the viewer was away, so what is inside it may have moved unrecorded (its nodes were
+not visible). A leaf root's entry is just its morph. A root that is also a host is logged as
+a host when its inner keys change, so it is re-sent whole then too: bytes, not staleness, and
+an author who minds places the host below the root.
 
-What cannot collapse: a node that goes A→B→A across the absence yields a morph to
-`A` byte-identical to what the client holds. Detecting that needs per-client DOM
-knowledge — the thing this design refuses to keep — and idiomorph treats it as a
-no-op.
-
-> **FOLLOW-UP — why is structure a separate map at all?** `fragments` and
-> `mutations` are both keyed by node id and together encode one state machine:
-> a node is present with some content, or gone, or placed. The invariant that
-> "gone" and "has content" cannot both hold is maintained BY HAND (`removed`
-> drops the fragment), which is exactly the shape this design collapsed one
-> level down when parallel `tombstones`/`arrivals` maps became a single
-> `Mutation` sum. The same argument applies here and has not been examined.
->
-> What keeps them apart today is pruning: `mutations` are dropped below the floor
-> and `fragments` are not (they describe nodes that currently exist, so there is
-> no history in them to drop), which a single map would need a per-case rule for.
-> Whether that is worse than two maps with a hand-held invariant is the open
-> question.
-
-### Pruning: `fragments` self-limits, `mutations` does not
-
-Keying by node id is what keeps the log small: a node has one latest content and one
-latest structural fact however often it churned, so a hyperactive sensor cannot flood
-it. For `fragments` that is sufficient — they describe nodes that currently EXIST,
-and both `removed` and `invalidateWhere` drop entries.
-
-`mutations` is the exception. A `Gone` for a member that left and never returned has
-nothing to evict it, so the map accumulates one entry per entity that has EVER been a
-member of any group — bounded by entity count rather than dashboard size, and growing
-with elapsed time rather than complexity. A `dynamic` group over "every light that is
-on" will, over a week, name every light in the house.
-
-So mutations are **pruned below the floor** — the lowest `position` any live session
-holds (`Sessions.floor`) — and the log carries a **`horizon`**: the oldest version
-`mutations` is complete for, raised past everything dropped, **per container**, because
-one group being pruned says nothing about any other. A cursor below a container's
-horizon does not repaint the page; it puts that container in `Resume.refill` and the
-client is sent that ONE host's contents wholesale.
-
-The floor is exact where the rule it replaced was a guess. A mutation below it cannot
-appear in any resume any session will ever run, so keeping it buys nothing; a mutation
-above it may still be owed. The rule it replaced was a wall clock (keep an hour), which
-answered "how long might a client be away" with a number rather than with the answer.
-Dropping a mutation still raises the horizon, because a CLIENT cursor is NOT bounded by
-the floor: a client returning after its session was reaped can present anything, and
-must get that host refilled rather than silence.
+**Nothing needs pruning.** `fragments` is keyed by id, and the ids are the index's, so the
+log is bounded by the dashboard, not by elapsed time: a member that left keeps its entry,
+harmless, since a pull reads an id only where it is visible and outside a range sent whole.
 
 **Nothing in the log reads a clock.** A version orders everything and is the only clock
-any correctness argument rests on. The wall clock that used to age mutations out is gone
-with the rule that needed it, which also retired the two-field `Stamp` that existed to
-keep the two apart. The only thing wall time still decides anywhere in the runtime is
-how long a session lingers after its stream ends — and that decides how cheap a
+any correctness argument rests on. The only thing wall time still decides anywhere in the
+runtime is how long a session lingers after its stream ends — and that decides how cheap a
 reconnect is, never what is correct.
 
 **A slug nobody is watching records nothing**, which is the other half of the same
-question. The recorder reads the session set it already reads for visibility; with none,
+question. The recorder reads what each session shows (`Sessions.watching`): its screen under
+its values, and under each value set revealed since its last step, so a write that has chosen
+a tab and not yet published it is already recorded for. The unit of a frame's visibility is one
+such viewer, never a union, since a chain of picked cases is one client's. With no session
 it writes one number (`completeFrom`) and drops the history that number makes
 unreachable. A client returning across such a stretch is answered by `reaches` — false,
 so it repaints. That gate is safe only because a document registers its session BEFORE
 reading the snapshot it renders from: a frame that decided to skip did so before that
 read, so any skipped version is one that page already contains.
 
-Two properties worth keeping. **`since` is TOTAL**: it returns a `Resume` rather
-than an `Option`, because there is no longer a cursor it cannot answer. What used
-to be a refusal is now an entry in `refill`, so incompleteness is expressed as
-data at the smallest granularity that works — one host, not the whole body. That
-is the standing rule this ADR shares with the design it came from: *a complete
-update is a fallback, never a design choice.* The failure mode it replaced was a
-phone foregrounding after an hour and being served its entire dashboard because
-one dynamic group had aged out.
-
-And pruning is per-log and therefore per-slug, and a log dies on renderer swap anyway,
-so there is no reaper and no cross-connection bookkeeping.
-
-The caveat the floor comes with, stated plainly: a session that stops advancing pins the
-log open. What bounds it is the session's own lifetime — a stream that ends starts a
-linger, and a linger that expires drops the session, which releases the floor. So the
-clamp the age bound used to provide is now the reaper, in the one place where "how long
-do we keep this" is genuinely a wall-clock question.
+A log is per slug, and dies on a renderer swap, so there is no reaper and no
+cross-connection bookkeeping.
 
 ### How long a tab may be away, and what each step out costs
 
@@ -354,7 +314,7 @@ always a repaint, however long the log would otherwise have been kept.
 **Why 2 minutes and not 10.** The tempting read is that a longer window is nearly free and
 saves repaints. It is not free, and the reason is that the cost and the benefit are the
 same mechanism: a lingering session keeps its slug RECORDING (it is in the set
-`recordFrame` reads) and pins `Sessions.floor` so nothing can be pruned. That retention is
+`recordFrame` reads), and its values widen what each frame records. That retention is
 exactly what makes the cheap return possible — you cannot keep the window and drop the
 cost, and a version that stopped recording for lingering sessions would hand every
 returner a repaint anyway, which is the thing the window exists to avoid.
@@ -373,76 +333,32 @@ moves with it.
 
 **Cost:** the `version >= V` scan is per pull, over a map bounded by the dashboard's node
 count, and the log is read once OUTSIDE any `Ref.modify` so a pull never serialises
-against the recorder. The record and the prune happen in ONE update, so no reader ever
-sees a state where the frame has landed but the history it makes prunable has not been
-dropped.
+against the recorder. Planning is per session: each logged host, and each host of an open
+container, decides its keys (shared per version for a set or a state pick) and compares them
+with the held list.
 
-### Structural changes: one mutation per node
+### Structural changes: a key leaves, a key is placed
 
-The distinction that matters is not which sites touch the cache — it is **which
-patches can be replayed**.
-
-Most prune sites are cache **invalidations**, not removals: `repaintGroup` and
-`flipStateGroup` drop their children's entries *while morphing an ancestor whose
-fresh HTML re-supplies those children*. The prune only stops a later diff suppressing
-a member fragment against a pre-repaint entry; it says nothing about the DOM. A
-tombstone there would be actively harmful — it would replay as a `remove` of an
-element the ancestor's morph had just legitimately restored.
-
-Every real removal is a dynamic-group child: exactly one site emits `Patch.Remove`,
-and its selector is always `#{gid}_{entity}`.
+Every structural patch names its host and a key, so one value gives the bytes and the change
+to `holds` (ADR 0012): `Fill` (inner, everything under the host, and its list), `Place`
+(before the next decided key, or append) and `Leave` (remove, by the key's id, which every
+clause of a member shares).
 
 - A `remove` is **idempotent** — Datastar resolves selectors with
-  `querySelectorAll`, so removing an absent id matches nothing. It replays verbatim.
-- An `insert` is **position-dependent**: `before` a neighbour that may itself be gone
-  by the time an absent client returns.
+  `querySelectorAll`, so removing an absent id matches nothing.
+- An `insert` is **position-dependent**: `before` a neighbour that may itself be gone.
+  The planner sends every leave first and places back to front, so each anchor is a key the
+  client keeps or one placed a moment ago; a move is a leave and a place, so it needs no
+  patch kind of its own.
 
-So the insert is made **self-repairing** rather than replayable: `Mutation.Placed`
-emits `remove` AND `insert` for its own node, which is correct whatever the client's
-DOM holds — absent, present in the right place, or present in the wrong one. "Put
-this element here" needs no knowledge of where it was. That also collapses two
-records into one for a modelling reason rather than an optimisation: a node cannot be
-both gone and present, so parallel `tombstones`/`arrivals` maps made an invalid state
-representable — and that state is exactly what a leave-then-rejoin produced. One sum
-type with latest-wins makes the rejoin ordinary (`Placed` replaces `Gone`).
-
-**Ordering.** Morphs go first, ascending by version, because a container's cached
-HTML embeds its children's — a parent rendered at v=25 applied after a child at v=30
-would revert it. Placements go last, **descending by current position**, so each
-insert's anchor provably exists: it is either a member the client already had or one
-placed a moment ago. Ascending fails, because a node's anchor can be a later node not
-yet inserted.
-
-**One anchor rule serves both paths.** `Patches.insertInto` computes "before the
-nearest member ordered after this one that the client's DOM can anchor on, else
-append into the group root", and the live add path and the resume replay differ only
-in which siblings qualify (pre-change members / any current member). It reads the
-order out of `Renderer.dynamicMembers` rather than comparing entity ids, so an
-author-chosen member sort works on both paths — the live path used to compare ids
-directly and silently required id-sorted membership.
-
-**The subtree-authority invariant:** a node's fresh HTML is authoritative for
-everything under it, so stamping it supersedes that subtree's mutations. Enforced in
-`invalidateWhere`, which every prune site uses while setting the subtree root in the
-same operation.
+A clause switch is another key: the member's new clause root leaves the old one's place and
+is placed whole. A fill of nothing is a `remove` of the host's children, since an empty
+`Inner` is not a well-formed patch.
 
 Two removals that look like exceptions and are not: an entity vanishing from HA
 triggers a registry re-evaluation and therefore a renderer swap, which mints a new
-`logId`; and a popup close is a per-session patch, sent to that session alone and
-never logged.
-
-> **Note for later — positional changes on the LIVE path.** Member order is
-> ascending by entity id today, so a member cannot change position without a
-> membership change. When sorting becomes author-controlled, a reorder with an
-> unchanged member SET lands in `renderMembershipChange` with empty `added`/`removed`
-> and falls through to a whole-group repaint. Correct, but the heavy path. The
-> optimisation is `n` minus the longest increasing subsequence of target positions,
-> the standard list-reconciliation result; each moved member emits remove + insert and
-> records `Placed`, so **resume needs no change and no new mutation kind**. Watch for
-> a sort key derived from live state (brightness, `last_changed`): it makes reorders
-> fire on ordinary value ticks, so the in-place-morph fast path would have to test
-> position before assuming a content-only update. A STATIC key only reorders on
-> membership change and is much cheaper — worth offering that shape first.
+`logId`; and a popup close is a variable write, its `remove` sent to that session
+alone and never logged.
 
 ### The head splits in two
 
@@ -460,10 +376,9 @@ must not refresh every browser when the theme is byte-identical.
   `Server.headPatches` — two element patches, no reload.
 - **`headHash`** — `<link>`ed stylesheets (the deferred ones too — deferring changes
   when a sheet applies, not that the head names it), the theme's scripts (module
-  `src`s and inline bodies), `theme.chrome`, and the `<meta name="theme-color">` pair.
-  None can be patched honestly: a `<link>` can be added but not un-applied, a script
-  cannot be un-run, the chrome is the frame the body patch lands INSIDE, and a
-  `<meta>` is markup rather than CSS — which is why exactly those two token VALUES sit
+  `src`s and inline bodies), and the `<meta name="theme-color">` pair. None can be
+  patched honestly: a `<link>` can be added but not un-applied, a script cannot be
+  un-run, and a `<meta>` is markup rather than CSS — which is why exactly those two token VALUES sit
   here while every other token patches with `styleHash`.
 
 `headPatches` is orthogonal to the resume/repaint decision, prepended to whichever
@@ -481,12 +396,15 @@ change it never received, and the pull that would have carried it is then skippe
 (`version <= position`), so it is lost until that entity next moves. Erring low is free
 — the next pull re-offers, and `holds` suppresses whatever the client already has.
 
-`Server.openingPatches` picks in this order: **unpatchable head differs** ⇒ full page
-reload and nothing else (the page is about to re-render itself); **cursor comparable**
-⇒ resume; **anything else** ⇒ body repaint. The repaint is the default and every doubt
-falls back to it — no cursor, an unparseable one, one from a log this server no longer
-has, one from the future, or one the log can no longer speak for. A repaint is always
-correct and merely expensive; a wrong resume is silently stale forever.
+`Opening.of`, a pure function `Server.openingPatches` runs, picks in this order:
+**unpatchable head differs**, or the slug failed ⇒ full page reload and nothing else (the
+page is about to re-render itself); **cursor comparable** ⇒ resume; **anything else** ⇒
+body repaint, naming its `RepaintReason`. The repaint is the default and every doubt
+falls back to it — no cursor (an unparseable one reads as none), one from another log or
+a log the serving renderer does not number, one from the future, one from before a
+stretch the log can no longer speak for, one behind `told` (below), or `holds` painted
+under another renderer. A repaint is always correct and merely expensive; a wrong resume
+is silently stale forever.
 
 **...and a session may only be resumed against a record the client has ACKNOWLEDGED.**
 `holds` records what was *sent*, which is not the same claim as what was *applied*. A
@@ -531,10 +449,16 @@ The reload is a **signal** (`_reload`, turned into `window.location.reload()` by
 cursor and keeps client behaviour in the page shell where the rest of it lives.
 
 **The resume rule: one rule, one candidate set, one snapshot.** The candidates are
-the nodes the cursor names (`version >= V`) UNION the nodes of the surfaces this
-client has open — the second set because the cursor alone cannot name them: a
-surface's nodes may not have changed since the client's cursor and still be absent
-from its DOM. Each candidate is rendered once from the current snapshot and sent unless
+the nodes the cursor names (`version >= V`), and on a reconnect the nodes on this
+client's screen as well — the cursor alone cannot name them there: nothing recorded
+against a screen nobody was viewing, so its nodes may be absent from the log and
+from the DOM. A live pull takes the log alone, which is a claim, not a shortcut: the
+recorder covers every watched viewer's screen (a session is watched from before its
+page renders), and a tab press or a popup renders what arrives itself, so a node the
+log misses is a recorder bug. Sweeping the screen would hide it; `OracleSuite` is
+what catches it. A set whose guard or order reads a viewer's variable is decided at each
+viewer's values, so the recorder plans once per distinct values among the watched sessions (each
+with its own screens) and logs the union; `OracleSuite` covers a guard and an order with `viewer-decisions`, in its property and in directed tests. Each candidate is rendered once from the current snapshot and sent unless
 this SESSION's `holds` already names those exact bytes, with a missing entry counting as
 "send" — and with `holds` consulted at all only once the client's cursor has proved it
 applied what we last announced (above). Nothing is special-cased by kind. This is the same call a live tick makes — a
@@ -542,25 +466,27 @@ tick is a resume from `position + 1` — so there is one path to be right about 
 than two that must agree.
 
 That subsumes what used to be three branches. There is no per-session repaint
-step: a tab panel is simply a surface in `open`, so its nodes are candidates like
-any others. And a resumed popup needs no branch either: its nodes are in `open`, so
-they are reconciled on their own ids and the dialog is never disturbed.
+step: a tab panel is simply part of the screen, so on a reconnect its nodes are
+candidates like any others. And a resumed popup needs no branch either: its nodes are
+on the screen, so they are reconciled on their own ids and the dialog is never
+disturbed.
 
 A REPAINT is the one path that has to name the popup. It is not a candidate set: it
-replaces `holds` with what it painted, and the popup host lives in `theme.chrome`,
-outside `#dashboard`. A repaint of the body alone left the dialog showing what it held
-before the disconnect, with its nodes missing from `holds`, until some later pull
-re-sent them. So a repaint fills the host too (`Patches.repaint`), as an `inner` patch,
-which Datastar morphs: the open dialog is reconciled, not replaced. A swap's repaint
-takes the popup from the session's open set (`SurfaceGraph.selectionsIn`) and every tab
-from the session's variables, rather than from the request, which is what the stream
-connected with: a tab clicked since would otherwise snap back on every edit.
+replaces `holds` with what it painted, and a repaint that left the popup out left the
+dialog showing what it held before the disconnect, with its nodes missing from
+`holds`, until some later pull re-sent them. So a repaint morphs the page card's root
+(`selector #root`) with the open popup baked into its `popups` node, the walk a page
+load makes (`Patches.repaint`): one morph, so the open dialog is reconciled, not
+replaced. A popup sent as a second patch would be emptied by the first. A swap's repaint
+takes the popup and every tab from the session's variables, rather than from the
+request, which is what the stream connected with: a tab clicked or a popup opened since
+would otherwise snap back on every edit.
 
 **Why one scalar cursor is enough despite per-client visibility.** A client may be sent nothing at
 all for a change inside a tab it is not looking at, and still have its cursor advanced past that
 change. That is sound because of an invariant every reveal path holds:
 
-> **Every reveal is an unconditional complete fill.** A host swap renders the arriving surface
+> **Every reveal is an unconditional complete fill.** A host swap renders the arriving case
 > whole and inner-patches the host; a flip's placement inserts the whole branch. Neither consults a
 > version, and nothing incremental ever depends on what a client missed while a subtree was hidden.
 
@@ -569,22 +495,20 @@ later reveals arrives in full. If a reveal ever became incremental — "send onl
 this tab since you last looked" — one cursor would stop being sufficient and this design would need
 one per subtree.
 
-**The one thing still worth its own branch** is a popup claim this dashboard
-cannot serve — renamed, removed, or belonging to another dashboard. That dialog is
-in nobody's open set, so no rule reconciles it, and without emptying the host it would
-sit on screen forever. A connect and a swap both send a `remove` of the host's children
-(`#popups > *`, `Server.orphanedPopup`), so the chrome's host element stays.
+**A popup this dashboard cannot serve needs no branch.** A value no popup has —
+renamed, removed, or another dashboard's — is refused where a load or Back reads it
+(ADR 0033), and one a session held across a rebuild matches no case, so the `popups`
+pick shows nothing and the repaint's morph empties the host like any node it holds.
 
-### The first connect carries no signals
+### The first connect carries no view state
 
 `data-init` fires from `<body>` before Datastar has merged the descendants'
-`data-signals`, so that one request arrives signal-less. A signals-only read would
-render the DEFAULT tab and its repaint would morph the correct first paint away,
-dragging the URL mirror down with it. So `Server.Restore` puts the page's view state
-(bake selections, the open popup among them) on the `data-init` URL as ordinary
-query params; every later request carries live signals, which win wherever both
-name the same fact. A tab bar's selection needs neither: it is a node variable
-the page GET recorded on the session (ADR 0033). See ADR 0005 for where
+`data-signals`, so that one request carries only what the shell seeds (`conn`, the
+committed values) and no cursor. A read of those alone would repaint the body the
+document holds, so `Server.Restore` puts the cursor on the `data-init` URL as
+ordinary query params; every later request carries live signals, which win wherever
+both name the same fact. The view state needs neither: a tab's and the popup's are
+node variables the page GET recorded on the session (ADR 0033). See ADR 0005 for where
 per-connection state lives.
 
 ### Nothing may be dropped from a stream that carries a cursor
@@ -602,13 +526,12 @@ patches is safe, and is a live option — a pull that owes a client nothing need
 the signal that says so; it can ride the keepalive instead. The server's `position`
 advances either way, and the two are not the same number.
 
-What bounds the safe direction is what pruning can actually do. `position` feeds the
-floor, so a server running ahead of its client prunes a little more than that client's
-real state warrants — but `FragmentLog.pruned` drops only MUTATIONS and raises
-per-container horizons, `fragments` is untouched, and `completeFrom` (which forces a full
-repaint) moves only in `skipped`, which requires zero sessions on the slug. So a client
-reconnecting on a stale-low cursor gets at worst one container refilled, never staleness
-and never a page repaint. Note what is not claimed: that a client at the older cursor is
+What bounds the safe direction is what a stale-low cursor can cost. The log keeps every
+id's latest version, so a cursor behind `position` still finds every id that moved since
+it, and `completeFrom` (which forces a full repaint) moves only in `skipped`, which
+requires zero sessions on the slug. So a client reconnecting on a stale-low cursor gets
+at worst a few nodes re-sent, never staleness and never a page repaint. Note what is not
+claimed: that a client at the older cursor is
 provably equivalent to one at the newer. A pull owes nothing partly through `holds`
 suppression, and `holds` dies with the session. It is a bound on the damage, not a proof
 of equality — and the bound is what makes it a free choice.
@@ -633,8 +556,8 @@ there is nothing in it worth adopting. What the old id is good for is retirement
 per-browser and make two tabs fight over one session) carries it onto the next
 connect as `?prev=`, and the server drops that session unless a stream is still
 holding it. Without it a superseded session waits out its adoption window holding
-an old `position`, and the changelog floor is the LOWEST position, so a burst of
-reloads keeps the log un-prunable for as long as they last.
+an old `position`, and its values widen what every frame records for as long
+as it lingers.
 
 Never reusing the id is what keeps the rest simple: two tabs can never land on one
 session, so `holds` always describes exactly one DOM and the displacement rule keeps
@@ -754,13 +677,13 @@ is why they are hardening rather than gates:
    change from a pure content change (an attribute crossing a predicate) with nothing
    added or removed anywhere, so testing only entity add/remove would miss it. Both
    paths need it — per-entity churn on an established group AND the wholesale path —
-   because they record the group differently. Rejoins are covered by `FragmentLogSuite`.
+   because they plan the host differently. Rejoins are covered by the resume suites.
 2. **A parent and a child changing at different versions resume in the right order.**
    The silent failure is a stale container reverting a fresh child; only ordering
-   prevents it. Unit-covered in `FragmentLogSuite`.
+   prevents it. Unit-covered by the resume suites.
 3. **A cursor the log can no longer speak for repaints rather than resuming** — a
-   container pruned past it, or a stretch this slug did not record at all. Unit-covered
-   via the horizon and `reaches`; what a browser adds is that the repaint restores a
+   stretch this slug did not record at all, or one before its log was seeded. Unit-covered
+   via `reaches`; what a browser adds is that the repaint restores a
    correct DOM from an arbitrarily stale one.
 
 ## Deferred
@@ -782,8 +705,8 @@ moved since that stream last said so. A quiet night is still comments.
 
 That leaves `position` running ahead of the client by up to one interval, which is
 safe for the reasons set out under "Nothing may be dropped" above: the client's
-cursor is the authority at reconnect, and a stale-low one costs at most a container
-refill. What it removes is a signal per client per frame on a busy dashboard, which
+cursor is the authority at reconnect, and a stale-low one costs at most a few nodes
+re-sent. What it removes is a signal per client per frame on a busy dashboard, which
 is the cost the original note was weighing.
 
 It also cost a test seam, worth recording because the same trap is waiting for the
@@ -809,8 +732,9 @@ are pinned by `DatastarMorphContractSuite`.
 
 It costs one prerequisite. A structural node bakes the viewer's selected panel, so
 every path that renders one has to know the viewer. Every render path therefore takes
-the viewer's selections (`Selections`), which is also what makes any variant machinery
-unnecessary (ADR 0012).
+the viewer: its values, the popup among them, which the render's `Shared` carries
+(`Shared.viewing`) and a tab's case is looked up from, which is also what makes any variant
+machinery unnecessary (ADR 0012).
 
 What it buys: a re-render can no longer overwrite the tab a client actually
 chose, which closes the race between a tab click and a patch already in flight.
@@ -855,9 +779,9 @@ chose, which closes the race between a tab click and a patch already in flight.
   `retry` mode's post-body semantics, `ifmissing`, `datastar-fetch` detail types,
   patching elements inside `<head>` by id) are pinned to **v1.0.4** and were read off
   the bundle rather than the docs. Re-verify on upgrade.
-- A resume is bounded by what live sessions still need: below the floor, or across a
-  stretch this slug did not record, a client repaints.
-- The server holds per-client state — `holds`, `position`, an open set — for as long as
+- A resume is bounded by what the log reaches: across a stretch this slug did not
+  record, or below its log's seed, a client repaints.
+- The server holds per-client state — `holds`, `position`, the viewer's values — for as long as
   a session lives, which is its stream plus a linger. None of it is required for
   correctness (see the rejection above), and none of it survives a restart.
 - Scaling viewers costs one pull each per frame; the renders behind those pulls are

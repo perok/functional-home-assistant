@@ -494,7 +494,7 @@ def targets(
       IO.pure(entries.map(e => Target(Paths.get(e), defaultSlug(e))))
 
 /** Evaluate one entry and hand the result to the instance — as the live
-  * `{cards, card}` JSON (`push`) or, with `--write`, as the Pkl SOURCE.
+  * `{cards, root}` JSON (`push`) or, with `--write`, as the Pkl SOURCE.
   *
   * Both forms evaluate locally first: a broken entry fails HERE (pkl-core
   * raises with the authoring error), so `--write` never overwrites a working

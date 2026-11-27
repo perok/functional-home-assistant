@@ -12,18 +12,35 @@ import scala.collection.immutable.ListMap
 object Ready:
 
   /** Shared with [[LayoutNode]], so one id scheme mints both trees' ids. */
-  sealed trait Node extends LayoutNode.Identified
+  sealed trait Node extends LayoutNode.Identified:
+    def ix: Ix
+    def id: NodeId
 
+  /** `ix`, `id`, `clause` and `group` are its [[TreeIndex]] entry's: the render
+    * walk reads them rather than minting ids per paint.
+    */
   final case class Component(
+      ix: Ix,
+      id: NodeId,
+      clause: Option[Int],
+      group: NodeId,
       card: String,
       slots: Map[SlotKey, Slot],
-      regions: Map[String, List[Node]],
+      content: Content,
       cell: Option[Cell],
       authoredId: Option[String],
       vars: List[fh.view.model.Dashboard.Declaration],
       subjectEntity: Option[String],
       calls: Map[String, Placed] = Map.empty
   ) extends Node:
+
+    /** Every node its nodes slots hold, a pick's every case included; not a
+      * set's members, which are their own.
+      */
+    lazy val regions: Map[String, List[Node]] = content match
+      case Content.Fixed(r)                     => r
+      case Content.Live(slot, p: LiveFill.Pick) => Map(slot -> p.cases)
+      case Content.Live(_, _: LiveFill.Set)     => Map.empty
 
     /** Name order, for a reproducible walk; ids do not come from this. */
     def allChildren: List[Node] = regions.toList.sortBy(_._1).flatMap(_._2)
@@ -38,8 +55,8 @@ object Ready:
 
     /** Per slot, each with the `valueWhile` it waits for. Not in
       * [[liveEntities]]: otherwise a sensor ticking every second would refetch
-      * its history every second. Ungated without an entity to decide over:
-      * asking too much is safe where too little raises.
+      * its history every second. Ungated without an entity or a variable to
+      * decide over: asking too much is safe where too little raises.
       */
     lazy val fetching: List[Fetching] =
       slots.values.toList.flatMap { s =>
@@ -47,7 +64,10 @@ object Ready:
           case SlotShape.State(src) => src.fetches
           case SlotShape.Fetch(q)   => List(q)
         Option.when(asks.nonEmpty)(
-          Fetching(asks, s.gate.filter(_.entity.isDefined))
+          Fetching(
+            asks,
+            s.gate.filter(g => g.entity.isDefined || g.variables.nonEmpty)
+          )
         )
       }
 
@@ -57,36 +77,74 @@ object Ready:
     lazy val fetches: List[SlotAsk] = fetching.flatMap(_.asks).distinct
 
     /** The node variables its slots read: a write re-renders it for that
-      * viewer.
+      * viewer. Not a `chosenSignal`'s, which the browser follows itself.
       */
     lazy val variables: Set[String] =
-      slots.values.flatMap(_.bound.variables).toSet
+      slots.values
+        .filter(_.chosenSignal.isEmpty)
+        .flatMap(_.bound.variables)
+        .toSet
 
-  /** A set: `order` is `None` where the candidates are already in order. Not a
-    * case class: `MemberGraph`'s sources hold it, and hashing one walked every
-    * clause (`publishSet` 11 µs -> 1.4 ms).
+  /** What a node's nodes slots hold: nodes written down, or one live fill,
+    * which is its card's whole template (`validate`).
     */
-  final class SetNode(
+  enum Content:
+    case Fixed(regions: Map[String, List[Node]])
+    case Live(slot: String, fill: LiveFill)
+
+  enum LiveFill:
+    /** Every case, the otherwise last, and what shows one: `by` read once, a
+      * node `variable` per viewer, and its case looked up ([[Ready.Pick]]).
+      */
+    case Pick(
+        cases: List[Node],
+        by: Condition,
+        variable: Option[String],
+        byKey: Map[Any, Int],
+        otherwise: Option[Int]
+    )
+    case Set(fill: SetFill)
+
+  /** A node's set: `order` is `None` where the candidates are already in order.
+    * Not a case class: `MemberGraph`'s sources hold it, and hashing one walked
+    * every member (`publishSet` 11 µs -> 1.4 ms).
+    */
+  final class SetFill(
       val candidates: List[String],
-      val members: Map[String, SetMember],
+      val members: Map[String, MemberChoice],
       val order: Option[Evaluator.Keys],
       val limit: Option[Int],
-      val cell: Option[Cell],
       val of: IdKind = IdKind.Entity
-  ) extends Node:
-    def authoredId: Option[String] = None
+  )
 
-  final case class SetMember(clauses: List[SetClause])
+  /** What renders for one candidate: `guard` read for it, and the case it reads
+    * as, else nothing. `byKey` is each case's key as the evaluator reads it
+    * ([[Lit.raw]]) to its index in `nodes`; an unguarded member is its one
+    * node.
+    */
+  final case class MemberChoice(
+      guard: Option[Condition],
+      nodes: Vector[Component],
+      byKey: Map[Any, Int]
+  ):
+    /** The index of the node `read` picks, else -1. Keyed by the raw value, not
+      * [[Lit.key]]'s string: a member is decided on every change its guard
+      * reads, and the string cost `publishSetNamedGuard` 17% more allocation.
+      */
+    def pick(read: Any): Int = read match
+      case i: java.lang.Integer =>
+        byKey.getOrElse(java.lang.Long.valueOf(i.longValue), -1)
+      case _ => byKey.getOrElse(read, -1)
 
-  final case class SetClause(when: Option[Condition], node: Node)
-
-  /** A guard or a state surface's condition, and the entities and fetches it
-    * reads.
+  /** A guard or a pick's condition, and the entities, fetches and node
+    * variables it reads; `variables` is in a fixed order, which a per-values
+    * memo keys by.
     */
   final case class Condition(
       run: Evaluator.Run,
       entities: List[String],
-      reads: Set[SlotRead]
+      reads: Set[SlotRead],
+      variables: List[String]
   )
 
   /** A slot's run, and its bind pass's facts, each read once: a paint reads
@@ -108,6 +166,7 @@ object Ready:
     val valueKey: String = bound.valueKey
     val signal: Option[SignalBind] = bound.signal
     val isBool: Boolean = bound.isBool
+    val chosenSignal: Option[(String, String)] = bound.chosenSignal
     val isNumber: Boolean = bound.`type` == SlotType.Number
     val bypassUnavailable: Boolean = bound.bypassUnavailable
     val gate: Option[Fetching.Gate] =
@@ -118,29 +177,33 @@ object Ready:
     */
   final case class Cell(
       classSlots: List[fh.view.model.Cell.Entry],
-      styleSlots: List[fh.view.model.Cell.Entry],
-      atRender: List[AtRender] = Nil
+      styleSlots: List[fh.view.model.Cell.Entry]
   )
 
-  /** A class the document form writes while `run` holds for the viewer. */
-  final case class AtRender(name: String, run: Evaluator.Run)
+  /** A pick where it stands: its host `node`, whose id, clause and cases' ids
+    * are the pick's, and what decides it. Its key is the host's `group`.
+    */
+  final case class Pick(node: Component, choice: LiveFill.Pick):
+    def host: NodeId = node.id
+    def clause: Option[Int] = node.clause
+    val cases: Vector[NodeId] = choice.cases.map(_.id).toVector
+    def by: Condition = choice.by
+    def variable: Option[String] = choice.variable
 
-  enum Activation:
-    case User(defaultOpen: Boolean)
-    case Var(name: String, at: VarAt)
-    case State(condition: Option[Condition])
+    /** Decided at the viewer's values and reading state too, or a computed read
+      * of a variable: not a lookup of one, so kept per values.
+      */
+    def readsViewer: Boolean = variable.isEmpty && by.variables.nonEmpty
 
-  final case class Surface(
-      content: Node,
-      bakeInto: Option[NodeId],
-      bakeAs: Option[String],
-      bakeIndex: Option[Int],
-      activation: Activation,
-      clause: Option[Int]
-  ) extends fh.view.model.Surface.Placed:
-    def selects: Option[VarAt] = activation match
-      case Activation.Var(_, at) => Some(at)
-      case _                     => None
+    /** The case `read` picks: the one keyed by it, else the otherwise, else
+      * none. Keyed by the raw value, as [[MemberChoice.pick]] is.
+      */
+    def decide(read: Any): Option[Int] =
+      (read match
+        case i: java.lang.Integer =>
+          choice.byKey.get(java.lang.Long.valueOf(i.longValue))
+        case _ => choice.byKey.get(read)
+      ).orElse(choice.otherwise)
 
   /** A declared call ready to run at the press. */
   sealed trait Call:
@@ -177,9 +240,9 @@ object Ready:
     private type Built[A] = Evaluator.Built[A]
 
     def dashboard(d: fh.view.model.Dashboard): Built[Dashboard] =
+      val i = d.index
       (
-        node(d.card),
-        d.surfaces.toList.traverse((k, s) => surface(s).map(k -> _)),
+        node(i, i.root),
         d.calls.toList.traverse((id, decl) => call(decl).map(id -> _)),
         d.varScopes.values.toList
           .flatMap(_.values.flatMap(_.declaration.initialTransform))
@@ -189,12 +252,13 @@ object Ready:
         d.choiceBys.traverse(by =>
           Evaluator.compile(by, scope).map(by.inputKey -> _.run)
         )
-      ).mapN((card, surfaces, calls, initials, choices) =>
+      ).mapN((card, calls, initials, choices) =>
         Dashboard(
+          i,
           d.cards,
           card,
           d.theme,
-          surfaces.toMap,
+          picksIn(card).toMap,
           d.slug,
           d.title,
           d.css,
@@ -205,38 +269,39 @@ object Ready:
           calls.toMap,
           initials.toMap,
           choices.toMap,
-          d.varScopes,
-          d.warnings
+          d.varScopes
         )
       )
 
-    def node(n: LayoutNode): Built[Node] = n match
-      case c: LayoutNode.Component => component(c)
-      case s: LayoutNode.SetNode   => set(s)
-
-    def component(c: LayoutNode.Component): Built[Component] =
+    def node(i: TreeIndex, at: Ix): Built[Component] =
+      val c = i.node(at)
+      val kids = i.children(at)
+      val byStep = kids.flatMap(k => i.step(k).map(_ -> k)).toMap
       val placed = placedCalls(c)
       val seenSlots = placed.toList.flatMap((name, seen) =>
         seen.map((field, b) => (Ready.seenSlot(name, field): SlotKey) -> b)
       )
       (
         (c.bound.toList ++ seenSlots).traverse((k, b) => slot(b).map(k -> _)),
-        c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _)),
-        c.cell.traverse(cell =>
-          cell.atRender.toList
-            .traverse((n, e) =>
-              Evaluator
-                .compile(e.about(c.subjectEntity), scope)
-                .map(r => AtRender(n, r.run))
-            )
-            .map(at => cell.ready.copy(atRender = at))
+        c.slotNodes.toList.traverse((r, ns) =>
+          ns.indices.toList
+            .traverse(n => node(i, byStep(LayoutNode.Step(r, n))))
+            .map(r -> _)
+        ),
+        c.set.traverse((slot, s) => set(i, i.clauses(at), s).map(slot -> _)),
+        c.chosen.toList.traverse((slot, k) =>
+          condition(k.by).map(slot -> (k, _))
         )
-      ).mapN((slots, regions, cell) =>
+      ).mapN((slots, regions, filled, chosen) =>
         Component(
+          at,
+          i.id(at),
+          i.within(at).map(_._2),
+          i.group(at),
           c.card,
           slots.toMap,
-          regions.toMap,
-          cell,
+          content(regions.toMap, filled, chosen.headOption),
+          c.cell.map(_.ready),
           c.id,
           c.vars,
           c.subjectEntity,
@@ -248,6 +313,38 @@ object Ready:
           )
         )
       )
+
+    /** A set's or a pick's host holds nothing else (`validate`). */
+    private def content(
+        regions: Map[String, List[Node]],
+        set: Option[(String, SetFill)],
+        pick: Option[(String, (Choice.Chosen[List[LayoutNode]], Condition))]
+    ): Content = (set, pick) match
+      case (Some((slot, s)), _)          => Content.Live(slot, LiveFill.Set(s))
+      case (None, Some((slot, (k, by)))) =>
+        Content.Live(
+          slot,
+          LiveFill.Pick(
+            regions(slot),
+            by,
+            Choice.plainVariable(k.by),
+            k.cases.zipWithIndex.map((kc, i) => kc.is.raw -> i).toMap,
+            k.otherwise.map(_ => k.cases.size)
+          )
+        )
+      case (None, None) => Content.Fixed(regions)
+
+    /** Every pick in `n`'s tree, a set member's every clause included, by the
+      * host's `group`.
+      */
+    private def picksIn(n: Node): List[(NodeId, Pick)] = n match
+      case c: Component =>
+        c.content match
+          case Content.Live(_, p: LiveFill.Pick) =>
+            (c.group -> Pick(c, p)) :: p.cases.flatMap(picksIn)
+          case Content.Live(_, LiveFill.Set(s)) =>
+            s.members.values.toList.flatMap(_.nodes).flatMap(picksIn)
+          case Content.Fixed(r) => r.values.toList.flatten.flatMap(picksIn)
 
     /** Per call the node places, each field of what it does that reads live
       * state, as the slot that holds it: the press is held to what the page
@@ -282,41 +379,40 @@ object Ready:
             }
         }
 
-    def set(s: LayoutNode.SetNode): Built[SetNode] =
+    def set(
+        i: TreeIndex,
+        clauses: Map[String, List[Ix]],
+        s: Fill.Set
+    ): Built[SetFill] =
       (
         s.members.toList.traverse((e, m) =>
-          m.clauses
-            .traverse(cl =>
-              (cl.when.traverse(condition), node(cl.node)).mapN(SetClause(_, _))
-            )
-            .map(e -> SetMember(_))
+          member(i, clauses.getOrElse(e, Nil), m).map(e -> _)
         ),
         s.orderBy match
           case Nil   => Right(None)
           case terms => Evaluator.Keys.of(terms, scope).map(Some(_))
       ).mapN((members, order) =>
-        SetNode(
-          s.candidates,
-          members.toMap,
-          order,
-          s.limit,
-          s.cell.map(_.ready),
-          s.of
+        SetFill(s.candidates, members.toMap, order, s.limit, s.of)
+      )
+
+    private def member(
+        i: TreeIndex,
+        clauses: List[Ix],
+        m: Choice[LayoutNode]
+    ): Built[MemberChoice] = m match
+      case Choice.Fixed(_) =>
+        node(i, clauses.head).map(c => MemberChoice(None, Vector(c), Map.empty))
+      case Choice.Chosen(by, cases, _) =>
+        (
+          condition(by),
+          clauses.traverse(node(i, _))
+        ).mapN((guard, nodes) =>
+          MemberChoice(
+            Some(guard),
+            nodes.toVector,
+            cases.zipWithIndex.map((k, i) => k.is.raw -> i).toMap
+          )
         )
-      )
-
-    def surface(s: fh.view.model.Surface): Built[Surface] =
-      (node(s.content), activation(s.activation)).mapN((content, a) =>
-        Surface(content, s.bakeInto, s.bakeAs, s.bakeIndex, a, s.clause)
-      )
-
-    private def activation(a: fh.view.model.Activation): Built[Activation] =
-      a match
-        case fh.view.model.Activation.User(d)    => Right(Activation.User(d))
-        case fh.view.model.Activation.Var(n, at) => Right(Activation.Var(n, at))
-        case fh.view.model.Activation.State(c)   =>
-          c.traverse(condition).map(Activation.State(_))
-
     private def call(decl: CallDecl): Built[Call] = decl match
       case d: CallDecl.Service => service(d)
       case d: CallDecl.SetVar  => Right(SetVarCall(d))
@@ -354,14 +450,17 @@ object Ready:
     private def condition(e: ValueExpr): Built[Condition] =
       Evaluator
         .compile(e, scope)
-        .map(c => Condition(c.run, e.entities, SlotAsk.decision(e.fetches)))
+        .map(c =>
+          Condition(c.run, e.entities, SlotAsk.decision(e.fetches), e.variables)
+        )
 
   /** The wire's whole-dashboard facts, read off it once by the walk. */
   final case class Dashboard(
+      index: TreeIndex,
       cards: Map[String, CardDef],
       card: Node,
       theme: Theme,
-      surfaces: Map[String, Surface],
+      picks: Map[NodeId, Pick],
       slug: String,
       title: Option[String],
       css: String,
@@ -374,8 +473,7 @@ object Ready:
       initials: Map[Cel.Key, Cel.Program],
       // Each chosen window's `by`, by its `inputKey`.
       choices: Map[String, Evaluator.Run],
-      varScopes: Map[NodeId, Map[String, fh.view.model.Dashboard.InScope]],
-      warnings: List[String]
+      varScopes: Map[NodeId, Map[String, fh.view.model.Dashboard.InScope]]
   ):
     /** What a chosen window's `by` reads over `states` and `in`. */
     def answer(

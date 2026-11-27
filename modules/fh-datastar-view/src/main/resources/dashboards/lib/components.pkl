@@ -4,7 +4,7 @@
 ///
 /// A facade: every card lives in a family module beside it
 /// (`components/entity.pkl`, …), which is also importable directly. The
-/// component-author kit (`core/node.pkl`, `core/slot.pkl`, `core/surface.pkl`,
+/// component-author kit (`core/node.pkl`, `core/slot.pkl`,
 /// `core/predicate.pkl`) is deliberately not re-exported. Your own card
 /// classes need no registering: a dashboard registers what it uses.
 ///
@@ -16,12 +16,11 @@ module components
 
 import "pkl:reflect"
 import "hass.pkl"
-import "core/node.pkl" as nodes
+import "core/node.pkl" as nodeMod
 import "core/slot.pkl" as slotMod
 import "core/simple.pkl" as simpleMod
 import "core/text.pkl" as coreTextMod
 import "core/tap.pkl" as tapMod
-import "core/surface.pkl" as surfaceMod
 import "core/predicate.pkl" as pred
 import "core/access.pkl" as accessMod
 import "layout.pkl" as layoutMod
@@ -35,7 +34,9 @@ import "components/base/bar.pkl" as barBaseMod
 import "components/bar.pkl" as barMod
 import "components/base/slider.pkl" as sliderBaseMod
 import "components/slider.pkl" as sliderMod
-import "components/base/surface.pkl" as surfaces
+import "components/base/tabs.pkl" as tabsMod
+import "components/base/iff.pkl" as iffMod
+import "components/base/popup.pkl" as popupBase
 import "components/history.pkl" as historyMod
 import "components/its.pkl" as itsMod
 import "components/light.pkl" as lightMod
@@ -60,7 +61,7 @@ import "components/examples.pkl" as examplesMod
 hidden tap: tapVerbs = tapVerbs
 
 /// What a click shows, touching nothing in Home Assistant: `c.view.moreInfo(l)`,
-/// `c.view.openPopup("detail")`, `c.view.navigate("under")`.
+/// `c.view.popup("detail", body)`, `c.view.navigate("under")`.
 hidden view: viewVerbs = viewVerbs
 
 /// What the card's OWN entity offers, for its buttons: `c.its.toggle`,
@@ -112,18 +113,16 @@ hidden access: accessMod = accessMod
 
 // ---- classes an author names ----
 
-typealias LayoutNode = nodes.LayoutNode
-typealias Node = nodes.Node
+typealias LayoutNode = nodeMod.LayoutNode
+typealias Node = nodeMod.Node
 /// For the rare `cell = new c.Cell { … }` the builders do not cover.
-typealias Cell = nodes.Cell
+typealias Cell = nodeMod.Cell
 typealias Row = layoutMod.Row
 typealias Column = layoutMod.Column
 typealias Grid = layoutMod.Grid
 /// `"top"` or `"bottom"`: where `.stick(…)` keeps a card.
-typealias Edge = nodes.Edge
-typealias SurfaceDef = surfaceMod.SurfaceDef
-typealias PopupSurface = surfaceMod.PopupSurface
-typealias Popup = surfaceMod.Popup
+typealias Edge = nodeMod.Edge
+typealias Popup = popupBase.Popup
 typealias TapAction = tapMod.TapAction
 /// A value expression: a reading, a condition, or CEL (`c.expr`).
 typealias Expr = slotMod.Expr
@@ -138,8 +137,8 @@ typealias Button = buttonMod.Button
 typealias EntityButton = control.EntityButton
 typealias Pill = buttonMod.Pill
 typealias Toggle = control.Toggle
-typealias Tabs = surfaces.Tabs
-typealias If = surfaces.If
+typealias Tabs = tabsMod.Tabs
+typealias If = iffMod.If
 typealias Slider = sliderBaseMod.Slider
 typealias EntitySlider = sliderMod.EntitySlider
 typealias SlideAxis = sliderMod.SlideAxis
@@ -154,11 +153,9 @@ hidden column: layoutMod.Column = layoutMod.column
 /// The 12-column grid, the default top-level container.
 hidden grid: layoutMod.Grid = layoutMod.grid
 /// Space that takes what its row or column leaves: `(c.row) { children { a; c.spacer; b } }`.
-hidden spacer: nodes.LayoutNode = layoutMod.spacer
-/// The popup dialog; rarely written by hand (see `c.view.openPopupInline`).
-hidden popup: surfaceMod.Popup = surfaceMod.popup
+hidden spacer: nodeMod.LayoutNode = layoutMod.spacer
 /// `(c.tabs) { tabs { ["Lights"] { ... } } }`.
-hidden tabs: surfaces.Tabs = surfaces.tabs
+hidden tabs: tabsMod.Tabs = tabsMod.tabs
 
 // ---- mixins ----
 
@@ -215,7 +212,7 @@ function select(t: selectMod.Target): selectMod.Select = selectMod.select(t)
 /// `(c.chooser(c.select(view).options(List("simple", "detail")))) { children { … } }`.
 function chooser(s: selectMod.Select): selectMod.Chooser = selectMod.chooser(s)
 /// A section shown while `p` holds over live state.
-function iff(p: slotMod.Expr|Boolean|varMod.ValueIs): surfaces.If = surfaces.iff(p)
+function iff(p: slotMod.Expr|Boolean|varMod.ValueIs): iffMod.If = iffMod.iff(p)
 /// `c.expr(#"str(math.round(num(value.state) * 10.0) / 10.0) + ' V'"#)`.
 function expr(s: String): slotMod.Reading = slotMod.expr(s)
 /// [[expr]] over another entity than the card's.
@@ -257,8 +254,9 @@ const modules: List<Module> = List(
   control,
   sliderBaseMod,
   sliderMod,
-  surfaces,
-  surfaceMod,
+  tabsMod,
+  iffMod,
+  popupBase,
   moreinfo,
   historyMod,
   examplesMod,
@@ -270,22 +268,22 @@ const modules: List<Module> = List(
 /// `variants` under each of its names. A class that extends a card without
 /// naming its own IS that card (`EntityButton` is a `button`), so it is not
 /// listed twice.
-cards: Mapping<String, nodes.CardDef> = new {
+cards: Mapping<String, nodeMod.CardDef> = new {
   for (m in modules) {
     for (_, cls in reflect.Module(m).classes) {
       when (cls.isSubclassOf(nodeClass) && !cls.modifiers.contains("abstract")
         && cls.properties.containsKey("card")) {
         when (cls.properties.containsKey("variants")) {
-          for (name, d in cls.properties["variants"].defaultValue as Mapping<String, nodes.CardDef>) {
+          for (name, d in cls.properties["variants"].defaultValue as Mapping<String, nodeMod.CardDef>) {
             [name] = d
           }
         } else {
           [cls.properties["card"].defaultValue as String] =
-            cls.properties["cardDef"].defaultValue as nodes.CardDef
+            cls.properties["cardDef"].defaultValue as nodeMod.CardDef
         }
       }
     }
   }
 }
 
-const local nodeClass = reflect.Class(nodes.Node)
+const local nodeClass = reflect.Class(nodeMod.Node)
