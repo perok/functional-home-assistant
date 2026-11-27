@@ -156,10 +156,15 @@ object Steps {
       to: Value.Operand
   ): Boolean =
     to match
-      // `ne` is not `eq`, as in CEL, where values of two types are unequal.
+      // `ne` holds for no number, as in CEL, where values of two types are
+      // unequal. Matched rather than through `number`: its `Some` and box
+      // escaped per guard (`RenderBench.conditionTree`).
       case Value.Literal(Lit.Whole(_) | Lit.Real(_)) =>
-        if (op == Op.Ne) !number(value).exists(_ == dbl(operand))
-        else number(value).exists(onLine(_, dbl(operand), op))
+        value match
+          case n: java.lang.Number => onLine(n.doubleValue, dbl(operand), op)
+          case s: String           =>
+            s.toDoubleOption.fold(op == Op.Ne)(onLine(_, dbl(operand), op))
+          case _ => op == Op.Ne
       case Value.Literal(Lit.Bool(_)) =>
         op match
           case Op.Eq => text(value) == text(operand)
