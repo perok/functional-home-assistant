@@ -179,6 +179,17 @@ private[runtime] final class Shared private (
   /** Linked first, so a fill landing while the carry is taken is offered on
     * rather than lost.
     */
+  /** Forgets the version after this one: see [[Decided]]. */
+  private[runtime] def release(): Unit = {
+    tables.sets.release()
+    tables.members.release()
+    tables.branches.release()
+    tables.gates.release()
+    tables.viewerBranches.release()
+    tables.viewerSets.release()
+    tables.viewerGates.release()
+  }
+
   private[runtime] def carryInto(
       next: Shared,
       dirty: Shared.Dirty,
@@ -312,6 +323,8 @@ private[runtime] object Shared {
       if (n != null && !dropped(k)) n.nn.offer(k, v)
     }
 
+    def release(): Unit = next = null
+
     /** What this version holds now, carried and filled. */
     def entries: Iterator[V] =
       carried.valuesIterator ++ fills.values.asScala.iterator
@@ -354,6 +367,8 @@ private[runtime] final class ByValues[K, V] {
     val held = e.answers.putIfAbsent(values, v)
     if (held != null) held.nn else v
   }
+
+  def release(): Unit = table.release()
 
   def carryInto(
       to: ByValues[K, V],
@@ -399,13 +414,25 @@ private[runtime] final class Decided(
   // one first cost each of them a version's tables (`RenderBench.sharedHeld`).
   private def make(store: StoreState): Shared = {
     val made = Shared.of(store.entities, store.version)
-    val now = kept.updateAndGet { held =>
-      if (held.exists(_.states eq store.entities)) held
-      else if (held.sizeIs < 2 || held.exists(_.version < store.version))
-        (made :: held).sortBy(-_.version).take(2)
-      else held
-    }.nn
-    now.find(_.states eq store.entities).getOrElse(made)
+    @annotation.tailrec
+    def keep(): Shared = {
+      val held = kept.get.nn
+      held.find(_.states eq store.entities) match
+        case Some(s) => s
+        case None
+            if held.sizeIs < 2 || held.exists(_.version < store.version) =>
+          val now = (made :: held).sortBy(-_.version).take(2)
+          if (!kept.compareAndSet(held, now)) keep()
+          else {
+            // A version links to the one after it, so one that died in the old
+            // generation kept every later one alive through young collections:
+            // `publishIdleSet`'s heap grew to 1.2 GB, 77% of its cpu in G1.
+            held.foreach(s => if (!now.exists(_ eq s)) s.release())
+            made
+          }
+        case None => made
+    }
+    keep()
   }
 
   /** `frame`'s version, carrying what `prev` decided that `dirty` leaves. A
