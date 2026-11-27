@@ -154,6 +154,19 @@ class VarWriteBench {
     } yield patches).unsafeRunSync()
   }
 
+  /** What `Server.commitVars` sends for `patches`: encoded, then the committed
+    * choice.
+    */
+  private def frames(key: VarKey, value: String)(
+      patches: List[Addressed]
+  ): List[SseFrame] =
+    Patches.encode(patches) :+ Datastar.patchSignals(
+      VarKey.signalsJson(renderer.vars.committed(Map(key -> value))).noSpaces
+    )
+
+  private def consume(bh: Blackhole, frames: List[SseFrame]): Unit =
+    frames.foreach(f => bh.consume(f.bytes))
+
   private def next(values: Vector[String]): String = {
     rot += 1
     values(rot % values.size)
@@ -161,15 +174,18 @@ class VarWriteBench {
 
   @Benchmark
   def tabFlip(bh: Blackhole): Unit =
-    bh.consume(panelWrite(TabKey, next(Tabs)))
+    val tab = next(Tabs)
+    consume(bh, frames(TabKey, tab)(panelWrite(TabKey, tab)))
 
   @Benchmark
   def selectChange(bh: Blackhole): Unit =
-    bh.consume(panelWrite(ViewKey, next(Views)))
+    val view = next(Views)
+    consume(bh, frames(ViewKey, view)(panelWrite(ViewKey, view)))
 
   @Benchmark
   def chartWindow(bh: Blackhole): Unit =
-    bh.consume(chartWrite(next(WindowValues)))
+    val window = next(WindowValues)
+    consume(bh, frames(WindowKey, window)(chartWrite(window)))
 }
 
 object VarWriteBench {
