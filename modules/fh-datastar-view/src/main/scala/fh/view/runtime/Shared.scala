@@ -392,7 +392,12 @@ private[runtime] final class Decided(
   /** `store`'s version, the same value for every reader of it. A version older
     * than both kept is decided apart: correct, and only unshared.
     */
-  def at(store: StoreState): Shared = {
+  def at(store: StoreState): Shared =
+    kept.get.nn.find(_.states eq store.entities).getOrElse(make(store))
+
+  // Every resume and send asks, and the version is almost always kept: making
+  // one first cost each of them a version's tables (`RenderBench.sharedHeld`).
+  private def make(store: StoreState): Shared = {
     val made = Shared.of(store.entities, store.version)
     val now = kept.updateAndGet { held =>
       if (held.exists(_.states eq store.entities)) held
