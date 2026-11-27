@@ -54,7 +54,7 @@ facts {
     // A field Node gains must be named here: carried by `style`, or computed by
     // the card. Otherwise it is dropped by `.style(…)` without a word.
     local carried = Set("cellClasses", "layoutClasses", "stateClasses", "liveClasses", "liveStyles", "id", "vars", "inputs")
-    local cards = Set("kind", "cell", "card", "cardDef", "variants", "slots", "wireSlots", "valueSlots", "nodesSlots", "nodesDeclared", "slotsByName", "declared", "calls", "children", "regions", "wireInputs", "carries")
+    local cards = Set("kind", "cell", "card", "cardDef", "variants", "slots", "wireSlots", "valueSlots", "nodesSlots", "nodesDeclared", "slotsByName", "declared", "calls", "children", "regions", "wireInputs")
     reflect.Class(nodeMod.LayoutNode).properties.keys + reflect.Class(nodeMod.Node).properties.keys == carried + cards
   }
 

@@ -37,9 +37,11 @@ import java.util.concurrent.TimeUnit
   * sbt 'benchmarks/Jmh/run -f 1 -wi 5 -i 5 .*FetchBench.*'
   * }}}
   *
-  *   - `pullPlain` — a pull that moves one card, nothing open: asks nothing.
-  *   - `pullPlainTabOpen` — the same with the chart tab open: the tab's four
-  *     charts are asked, since a resume re-checks every shown node.
+  *   - `pullPlain` — a live pull that moves one card, nothing open: asks
+  *     nothing.
+  *   - `reconnectTabOpen` — that card's resume on a reconnect, the chart tab
+  *     open and nothing held: the sweep re-checks every shown node, so the
+  *     tab's four charts are asked.
   *   - `pullChart` — a pull that renders one body chart.
   *   - `pagePrepass` — resolving a page's eight reads.
   *   - `pageWithCharts` — that, plus the page walk.
@@ -106,7 +108,11 @@ class FetchBench {
         FetchIdentity.Instance
       )
 
-  private def pull(node: NodeId, at: (Shared, VarEnv)): List[Addressed] = {
+  private def pull(
+      node: NodeId,
+      at: (Shared, VarEnv),
+      coverage: Patches.Coverage = Patches.Coverage.Logged
+  ): List[Addressed] = {
     rot += 1
     Patches
       .resume(
@@ -120,7 +126,8 @@ class FetchBench {
         reads => answer(reads.toList),
         answer,
         at._2,
-        rot
+        rot,
+        coverage
       )
       .unsafeRunSync()
   }
@@ -130,8 +137,8 @@ class FetchBench {
     bh.consume(pull(PlainId, (st, Map.empty)))
 
   @Benchmark
-  def pullPlainTabOpen(bh: Blackhole): Unit =
-    bh.consume(pull(PlainId, tabOpen))
+  def reconnectTabOpen(bh: Blackhole): Unit =
+    bh.consume(pull(PlainId, tabOpen, Patches.Coverage.Swept))
 
   @Benchmark
   def pullChart(bh: Blackhole): Unit =

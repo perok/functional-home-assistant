@@ -166,6 +166,44 @@ class ChosenWindowSuite extends munit.FunSuite {
     assertEquals(dash(chart(byState())).validate(), Nil)
   }
 
+  test("a renderer checks a session's values together, the start beneath") {
+    // `b` = 1 is taken only while `a` is not at its declared `y`.
+    val both = ValueExpr(
+      Value.Var("a"),
+      List(Step.Cel("value + '_' + b", Map("b" -> ValueExpr(Value.Var("b")))))
+    )
+    val r = Renderer.create(
+      dash(
+        LayoutNode.Component(
+          "box",
+          slots = Slots.kids(
+            chosenBy(
+              both,
+              Case(Lit.Text("y_2"), Windows.day),
+              Case(Lit.Text("x_2"), Windows.hour),
+              Case(Lit.Text("x_1"), Windows.month)
+            )
+          ),
+          vars = declared("a" -> "y", "b" -> "2")
+        )
+      )
+    )
+    def key(name: String) =
+      r.vars.defaults.keys.find(_.name == name).getOrElse(fail(name))
+    val s = SessionState.initial.copy(
+      initialValues = Map(key("a") -> "x"),
+      vars = Map(key("b") -> "1")
+    )
+    val (checked, refusals) = r.recheck(s)
+    assertEquals(refusals, Nil)
+    assertEquals(checked.initialValues, s.initialValues)
+    assertEquals(checked.vars, s.vars)
+    // A start no longer taken takes the choice that leaned on it with it.
+    val (gone, why) = r.recheck(s.copy(initialValues = Map(key("a") -> "z")))
+    assertEquals((gone.initialValues, gone.vars), (Map.empty, Map.empty))
+    assertEquals(why.size, 2, why)
+  }
+
   test(
     "a `by` that reads a fetch is refused, not thrown at its declared value"
   ) {

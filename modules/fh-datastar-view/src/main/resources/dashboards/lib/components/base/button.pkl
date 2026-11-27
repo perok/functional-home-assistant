@@ -168,7 +168,6 @@ open class Button extends nodeMod.ActiveNode {
   hidden size: "small"|"medium"|"large" = "large"
   /// Required: a button is what pressing it does (#106).
   hidden tapAction: tapMod.TapAction = throw(noAction("c.button"))
-  carries = tapAction.carries
   /// Disables the button while it holds, ORed with whatever its tap refuses —
   /// for a reason of the button's own (a popup opener has no call to carry
   /// one): `lit.none()`.
@@ -250,7 +249,6 @@ class Pill extends nodeMod.ActiveNode {
   local round: Boolean =
     if (label == null) true else icon == null && label is String && (label as String).length <= 2
   active = tapAction.lit ?? false
-  carries = tapAction.carries
   slots {
     labelSlot.of(
       if (label == null && icon == null)

@@ -7,7 +7,9 @@ import fh.view.runtime.{Cel, Steps, Templates}
   */
 private[model] object Validate:
 
-  private val PopupsVar = "popups"
+  // A node's slots in label order, so messages read the same on every build.
+  // Built once per node: every slot check reads it.
+  private type Labelled = List[(SlotKey, String, BoundSlot)]
 
   def errors(
       d: Dashboard,
@@ -98,10 +100,10 @@ private[model] object Validate:
     def slotErrors(
         nodeId: String,
         cardName: String,
-        slots: Map[SlotKey, BoundSlot],
+        slots: Labelled,
         scope: Dashboard.Declared
     ): List[String] =
-      labelled(slots).flatMap { case (key, name, src) =>
+      slots.flatMap { case (key, name, src) =>
         val stepErrors =
           // A fetch slot's steps are `fetchErrors`' to check.
           if (src.fetch.isDefined) Nil
@@ -381,7 +383,12 @@ private[model] object Validate:
       */
     // Bound to every slot that reads one, so "read by no slot" is the
     // binding's absence.
-    def valueErrors(nodeId: String, c: LayoutNode.Component): List[String] =
+    def valueErrors(
+        nodeId: String,
+        c: LayoutNode.Component,
+        bound: Labelled,
+        checked: Labelled
+    ): List[String] =
       val read = c.bound.values.flatMap(_.inputs.keySet).toSet
       c.inputs.keys.toList.sorted.flatMap { name =>
         if (!Dashboard.InputName.matches(name))
@@ -409,7 +416,7 @@ private[model] object Validate:
             List(_)
           )
       } ++ (
-        labelled(c.bound).map((_, n, s) =>
+        checked.map((_, n, s) =>
           (s"slot '$n'", s.expr, ValueExpr.env(c.inputs))
         ) ++ c.inputs.toList
           .sortBy(_._1)
@@ -445,7 +452,7 @@ private[model] object Validate:
             }
           }
         }
-      } ++ labelled(c.bound).map((_, n, s) => (n, s)).collect {
+      } ++ bound.map((_, n, s) => (n, s)).collect {
         // The once-cache keys by what a value IS, not by what it counts now.
         case (slot, src)
             if src.reads == Reads.Once && src.allInputs.exists(_.isLive) =>
@@ -463,7 +470,7 @@ private[model] object Validate:
           s"$nodeId: slot '${Dashboard.SubjectSlot}' must be a literal — it " +
             "names the entity the card's other slots read, which is a " +
             "build-time fact"
-      } ++ labelled(c.bound).flatMap((_, n, s) =>
+      } ++ bound.flatMap((_, n, s) =>
         s.expr.unnamedComparison(s"$nodeId: slot '$n'", s.typed)
       )
 
@@ -478,11 +485,11 @@ private[model] object Validate:
     def slotVarErrors(
         nodeId: String,
         cardName: String,
-        slots: Map[SlotKey, BoundSlot],
+        slots: Labelled,
         scope: Dashboard.Declared
     ): List[String] =
       val structural = cards.get(cardName).exists(_.isStructure)
-      labelled(slots).flatMap { (_, name, s) =>
+      slots.flatMap { (_, name, s) =>
         val read = s.variables.sorted
         val where = read.map(v => s"'$v'").mkString(", ")
         read
@@ -510,9 +517,9 @@ private[model] object Validate:
 
     def valueWhileErrors(
         nodeId: String,
-        slots: Map[SlotKey, BoundSlot]
+        slots: Labelled
     ): List[String] =
-      labelled(slots).flatMap { (_, name, src) =>
+      slots.flatMap { (_, name, src) =>
         src.valueWhile.toList.flatMap { w =>
           Option
             .when(src.reads == Reads.Once)(
@@ -529,7 +536,7 @@ private[model] object Validate:
 
     def typeErrors(
         nodeId: String,
-        slots: Map[SlotKey, BoundSlot]
+        slots: Labelled
     ): List[String] =
       // An attribute is `dyn` to CEL, but read bare it is text or a number far
       // more often than a bool.
@@ -544,7 +551,7 @@ private[model] object Validate:
         case o if o == ValueType.Series =>
           "give it a stage: json then jsonText, or a chart"
         case _ => "make it text, `str(…)` or `string(…)`"
-      labelled(slots).flatMap { case (_, name, src) =>
+      slots.flatMap { case (_, name, src) =>
         src.typed match
           case Left(ValueExpr.Mistyped(err, Some(t))) =>
             val at = locateTransform(t).fold("")(loc => s" (at $loc)")
@@ -572,7 +579,7 @@ private[model] object Validate:
                   s"${src.`type`.wire} slot does not take — ${hint(t.out, src.`type`)}"
             )
           case _ => Nil
-      } ++ labelled(slots).collect {
+      } ++ slots.collect {
         case (_, name, src)
             if src.signal.exists(_.isInstanceOf[SignalBind.Class]) &&
               !src.isBool =>
@@ -591,10 +598,22 @@ private[model] object Validate:
             s"slot's (${src.`type`.wire})"
       }
 
+    // What `notShadowed()` keeps: a name declared above, which no node below
+    // may declare again, by its declarer.
+    def unshadowable(ix: Ix): Map[String, NodeId] =
+      Iterator
+        .unfold(index.parent(ix))(_.map(a => (a, index.parent(a))))
+        .flatMap(a =>
+          index.node(a).vars.filterNot(_.shadowable).map(_.name -> index.id(a))
+        )
+        .toMap
+
     def varErrors(
+        ix: Ix,
         nodeId: String,
         vars: List[Dashboard.Declaration]
     ): List[String] =
+      lazy val above = unshadowable(ix)
       vars
         .groupBy(_.name)
         .collect {
@@ -603,14 +622,12 @@ private[model] object Validate:
         }
         .toList
         .sorted ++ vars.sortBy(_.name).flatMap { d =>
-        // The page's own (`components/popup.pkl`): one below it would hide the
-        // page's from every opener under it.
-        Option
-          .when(
-            d.name == PopupsVar && nodeId != Dashboard.PageRootId.toString
-          )(
-            s"$nodeId: the variable name '$PopupsVar' is the page's, which " +
-              "holds the open popup — name it something else"
+        above
+          .get(d.name)
+          .map(declarer =>
+            s"$nodeId: the variable '${d.name}' is declared by '$declarer' " +
+              "above, which no node below may declare again — name it " +
+              "something else"
           )
           .toList ++ Option
           .when(!d.name.matches("[A-Za-z][A-Za-z0-9_]*"))(
@@ -817,10 +834,7 @@ private[model] object Validate:
           )
           .toList
 
-    // In label order, for messages that read the same on every build.
-    def labelled(
-        slots: Map[SlotKey, BoundSlot]
-    ): List[(SlotKey, String, BoundSlot)] =
+    def labelled(slots: Map[SlotKey, BoundSlot]): Labelled =
       slots.toList.map((k, s) => (k, SlotKey.label(k), s)).sortBy(_._2)
 
     def walk(ix: Ix, scope: Dashboard.Declared): List[String] =
@@ -839,8 +853,11 @@ private[model] object Validate:
             .toList
           val here = scope ++ c.defaults
           // Each `valueWhile` is checked as the slot it is, under its own name.
-          val checked = c.bound ++ c.bound.flatMap((k, s) =>
-            s.valueWhile.map((SlotKey.label(k) + ".valueWhile": SlotKey) -> _)
+          val bound = labelled(c.bound)
+          val checked = labelled(
+            c.bound ++ c.bound.flatMap((k, s) =>
+              s.valueWhile.map((SlotKey.label(k) + ".valueWhile": SlotKey) -> _)
+            )
           )
           templateErrors(
             nodeId,
@@ -851,10 +868,10 @@ private[model] object Validate:
             choiceFillErrors(nodeId, c, here) ++
             choiceErrors(nodeId, c, here) ++
             slotErrors(nodeId, card, checked, here) ++
-            varErrors(nodeId, vars) ++
-            slotVarErrors(nodeId, card, c.bound, here) ++
-            valueErrors(nodeId, c) ++
-            valueWhileErrors(nodeId, c.bound) ++
+            varErrors(ix, nodeId, vars) ++
+            slotVarErrors(nodeId, card, bound, here) ++
+            valueErrors(nodeId, c, bound, checked) ++
+            valueWhileErrors(nodeId, bound) ++
             typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++
             layoutErrors ++ childErrors(ix, here) ++ setErrors(ix, c, scope)
@@ -1086,8 +1103,9 @@ private[model] object Validate:
         }
       }
 
-    /** What an authored `id` has to satisfy: a plain token, used once, not
-      * inside a candidate set's clause, and not one of the page card's.
+    /** What an authored `id` has to satisfy: a plain token, used once, and not
+      * inside a candidate set's clause. Used once is what keeps the page card's
+      * own (`root`, `popups`) theirs, since every page has both.
       *
       * Deliberately NOT a rule: that an id must not read as another node's
       * descendant. Containment is the index's ([[TreeIndex.contains]]), which
@@ -1105,20 +1123,12 @@ private[model] object Validate:
       val authored = all.collect { case (ix, id, inSet, Some(name)) =>
         (ix, id, inSet, name)
       }
-      val ids = all.map(_._2)
+      // `core/page.pkl`'s node and those its slots hold: `root`, `c`, `popups`.
+      def pageOwn(ix: Ix) = ix == Ix(0) || index.parent(ix).contains(Ix(0))
 
       val shape = authored.flatMap { case (ix, id, inSet, name) =>
-        // The page card's own (`core/page.pkl`): the root, and its popup host.
-        val reserved = name match
-          case "root"   => ix != Ix(0)
-          case "popups" => !index.parent(ix).contains(Ix(0))
-          case _        => false
-        if (reserved)
-          List(
-            s"node id '$name' is reserved for the page card's own node — " +
-              "name it something else"
-          )
-        else if (inSet)
+        lazy val holders = all.collect { case (o, `id`, _, _) => o }
+        if (inSet)
           List(
             s"node id '$name' is inside a candidate set's clause, which is " +
               "rendered once per member — every member would claim the name"
@@ -1128,8 +1138,16 @@ private[model] object Validate:
             s"node id '$name' is not a plain token ([A-Za-z0-9_]+) — ids are " +
               "interpolated into `id` attributes and signal names"
           )
-        else if (ids.count(_ == id) > 1)
-          List(s"node id '$name' is used more than once")
+        else if (holders.sizeIs > 1)
+          // Reported from the author's side, naming the page's.
+          val others = holders.filterNot(_ == ix)
+          if (pageOwn(ix) && others.exists(o => !pageOwn(o))) Nil
+          else if (!pageOwn(ix) && others.exists(pageOwn))
+            List(
+              s"node id '$name' is used more than once, also by the page " +
+                "card's own node — name it something else"
+            )
+          else List(s"node id '$name' is used more than once")
         else Nil
       }
 

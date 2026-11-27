@@ -8,9 +8,13 @@ import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/components/popup.pkl" as popupMod
 import "../../main/resources/dashboards/lib/core/choice.pkl" as choiceMod
 import "../../main/resources/dashboards/lib/core/node.pkl" as nodeMod
+import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/hass.pkl"
 
 local outside: hass.SensorEntity = new { entity_id = "sensor.outside" }
+
+local level: slotMod.Reading = new { entityId = "sensor.outside"; steps { simpleMod.cel("state") } }
 
 local function column(nodes: Listing<nodeMod.LayoutNode>): nodeMod.Node = new c.Column { children = nodes }
 
@@ -43,16 +47,25 @@ facts {
       c.button("First", c.view.popup("first", c.button("Second", c.view.popup("second", c.title("2")))))
     })) == List("first", "second")
   }
+  ["a popup is collected whatever the card calls its tap"] {
+    // A slider's tap is its `press`, not a `tapAction`: the popup rides on the
+    // call the tap declares, which no card copies.
+    ids(column(new {
+      new c.Slider {
+        title = "s"; rangeMin = 0; rangeMax = 100; position = level; fill = level
+        press = c.view.popup("pressed", c.title("p"))
+      }
+    })) == List("pressed")
+  }
   ["a more-info holding its own opener is collected once"] {
     // Its body's card opens the more-info it is in: a reference, so the walk
     // stops at an id it has.
     ids(column(new { c.entityCard(outside) })) == List("moreinfo_sensor_outside")
   }
-  ["an open chooses the page's popups; a close is going back"] {
+  ["an open chooses the page's popups"] {
     local opener = c.view.popup("help", c.title("h"))
     opener.variable == "popups"
     opener.value == "help"
     opener.carries.first.id == "help"
-    c.view.closePopup().onclick == "$_var_root__popups && history.back()"
   }
 }

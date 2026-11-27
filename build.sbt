@@ -634,7 +634,15 @@ lazy val benchmarks = project
       // Dev-tooling only: the shipped runtime is `fh-datastar-view`.
       // Bundles the extension libraries (strings/lists/math/
       // bindings/comprehensions) in the same jar.
-      "dev.cel" % "cel" % "0.15.0"
+      "dev.cel" % "cel" % "0.15.0",
+      // Retained size of one session's `holds` (HoldsSize).
+      "org.openjdk.jol" % "jol-core" % "0.17"
+    ),
+    // JOL on JDK 25 cannot read a lambda's fields without attaching to itself.
+    javaOptions ++= Seq(
+      "-Djdk.attach.allowAttachSelf=true",
+      "-XX:+EnableDynamicAgentLoading",
+      "-Djol.magicFieldOffset=true"
     )
   )
 

@@ -41,8 +41,8 @@ abstract class TapAction {
   /// The dashboard a navigate goes to, so a card can mark the one already open
   /// ([[currentSlots]]).
   hidden page: String? = null
-  /// Nodes this tap brings onto the page from elsewhere: the popup it opens. The
-  /// card copies them onto its node ([[nodeMod.Node.carries]]).
+  /// Nodes this tap brings onto the page from elsewhere: the popup it opens.
+  /// [[tapRoute]] puts them on the call it declares ([[slotMod.CallSlot.carries]]).
   hidden carries: List<nodeMod.Node> = List()
   /// While this tap's POST is in flight a second click is a no-op (ADR 0019).
   /// Set by the KIND of tap, never by a card: a navigate is a document load and
@@ -365,7 +365,7 @@ const function tapRoute(t: TapAction): Listing<slotMod.Slot> =
   let (states = refusedStates(t, target))
     new {
       when (t is Press) {
-        (tapCall) { declares = (t as Press).decl }
+        (tapCall) { declares = (t as Press).decl; carries = t.carries }
       } else {
         onclick.of((t as Click).onclick)
       }

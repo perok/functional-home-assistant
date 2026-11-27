@@ -38,8 +38,9 @@ nothing in `core/`, on the wire or in Scala says "popup":
 
 - **The page declares `popups`**, a node variable holding the id of the open
   popup, with no value while none is open (ADR 0033), in history (ADR 0005). Its
-  URL parameter is `v.popups`. `validate` refuses the name on any other node,
-  where it would hide the page's from every opener below.
+  URL parameter is `v.popups`. The declaration is `notShadowed()`, so `validate`
+  refuses the name on any node below, where it would hide the page's from every
+  opener under it. Scala knows no variable by name: the flag is generic.
 - **A popup is a node with an id**: `c.view.popup("help", body)` opens the node
   `help`, a `popup` card around `body`; the library derives its own
   (`moreinfo_<domain>_<object id>`, the lock's `confirm_open_…`, the colour
@@ -56,7 +57,11 @@ nothing in `core/`, on the wire or in Scala says "popup":
   `.fh-popup` as a class contract.
 - **A close is going back**: every choice is a history entry, so the ✕ is
   `history.back()`, and Back's popstate post clears or restores the variable
-  (ADR 0005).
+  (ADR 0005). It is guarded by the popup itself — `el.closest()` of the
+  `data-fh-popup-marker` attribute on the card's root — so a close outside
+  every popup does nothing, rather than leave the dashboard. The guard knows
+  neither the variable's signal name (the server's spelling, `VarKey`) nor the
+  `fh-popup-backdrop` class, which a theme may replace.
 
 So a popup is decided as any pick over a variable is (ADR 0033, the pipeline
 doc): a case no viewer shows costs nothing, opening one is a variable write
@@ -227,7 +232,9 @@ its own, so no id below it moved. `popups` holds the node `popups`, the group
 whose match shows the open popup (above). `Theme.chrome` is the card's template: a frame
 placing `{{{body}}}` and `{{{popups}}}`, inlined in the theme (a theme imports
 no component library — it is presentation, a leaf). A frame missing either hole
-fails the build, and `root` and `popups` are refused as an author's ids.
+fails the build. Every page holds the nodes `root` and `popups`, so an author's
+node under either id is refused as an id used more than once, the error naming
+the page card's node as the other holder; no id is reserved by name.
 
 Because the host is a node, a **restored** popup is flash-free: a refresh
 carrying `?v.popups=<id>` (ADR 0005) renders the dialog into `popups` in the

@@ -205,13 +205,19 @@ private[runtime] object Patches {
       // len(i): longest increasing run ending at i. prev(i): its predecessor.
       val len = Array.fill(n)(1)
       val prev = Array.fill(n)(-1)
-      for {
-        i <- 1 until n
-        j <- 0 until i
-        if positions(j) < positions(i) && len(j) + 1 > len(i)
-      } {
-        len(i) = len(j) + 1
-        prev(i) = j
+      // Loops, not a guarded `for`: its closure per step was over a third of
+      // a reorder's plan (RenderBench.publishSetOrderedFanout).
+      var i = 1
+      while (i < n) {
+        var j = 0
+        while (j < i) {
+          if (positions(j) < positions(i) && len(j) + 1 > len(i)) {
+            len(i) = len(j) + 1
+            prev(i) = j
+          }
+          j += 1
+        }
+        i += 1
       }
       Iterator
         .iterate((0 until n).maxBy(len))(prev(_))
@@ -233,7 +239,10 @@ private[runtime] object Patches {
   ): List[HostStep] = held match
     case None                         => List(HostStep.Fill(decided))
     case Some(was) if decided.isEmpty => was.toList.map(HostStep.Leave(_))
-    case Some(was)                    =>
+    // Most hosts on a pull, where the search below builds its maps to say so.
+    case Some(was) if was.sameElements(decided) && !decided.exists(again) =>
+      Nil
+    case Some(was) =>
       val heldAt = was.indices.map(i => was(i) -> i).toMap
       val keepable = decided.toList.filter(k => heldAt.contains(k) && !again(k))
       if keepable.isEmpty then List(HostStep.Fill(decided))
@@ -320,7 +329,7 @@ private[runtime] object Patches {
       answers: List[SlotRead] => IO[FetchSnapshot],
       env: VarEnv,
       v: Long,
-      coverage: Coverage = Coverage.Swept
+      coverage: Coverage
   ): IO[List[Addressed]] =
     renderer
       .decide(decisions) { run =>
@@ -386,10 +395,11 @@ private[runtime] object Patches {
     val fromOpen = coverage match
       case Coverage.Logged => Iterator.empty
       case Coverage.Swept  =>
-        open.iterator
+        // The page's own container is no pick's case, so not in `open`.
+        (Iterator.single(index.root) ++ open.iterator
           .map(Ix(_))
           // `open` includes a tab panel inside a hidden `If`.
-          .filter(renderer.picks.visibleContainer(_, open, shared))
+          .filter(renderer.picks.visibleContainer(_, open, shared)))
           .flatMap(renderer.containerNodeIds)
     // Only what this client can see; the rest would cost only bytes.
     // A logged place of another clause is not what this viewer is shown; an
@@ -750,10 +760,11 @@ private[runtime] object Patches {
         showing(holds, host)(_.flatMap(placedIn(_, shown, before)))
       case Patch.Leave(host, key) =>
         val keys = index.ixsOf(key)
-        showing(
-          holds.filterNot((ix, _) => keys.exists(index.contains(_, ix))),
-          host
-        )(_.map(_.filterNot(ix => keys.contains(ix))))
+        // A member's range, not a scan of every hold: a reorder sends one
+        // leave per moved member.
+        showing(holds -- keys.iterator.flatMap(index.subtree), host)(
+          _.map(_.filterNot(ix => keys.contains(ix)))
+        )
       case _ => holds
     // Merged per node: a morph says nothing about signals and a signal frame
     // nothing about bytes ([[Held.merge]]).

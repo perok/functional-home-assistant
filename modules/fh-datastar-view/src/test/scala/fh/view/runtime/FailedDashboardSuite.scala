@@ -3,8 +3,8 @@ package fh.view.runtime
 import cats.effect.{IO, Ref, Resource}
 import cats.syntax.all.*
 import cats.effect.std.Supervisor
-import fh.view.build.{PklDump, Site}
-import fh.view.model.Dashboard
+import fh.view.build.{DashboardBuild, PklDump, Site}
+import fh.view.model.{Access, Dashboard}
 import fh.view.testkit.{HouseFixture, PklWorkspace}
 import fs2.concurrent.SignallingRef
 import org.http4s.*
@@ -357,7 +357,9 @@ class FailedDashboardSuite extends ServerHarness {
         )
         site <- Server.LiveSite.of(
           Map("dash" -> ref),
-          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
+          Map(
+            "dash" -> (Left("seeded broken"): Either[String, Server.Content])
+          ),
           "dash"
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
@@ -388,6 +390,67 @@ class FailedDashboardSuite extends ServerHarness {
     }
   }
 
+  test("a reload applies a changed site access rule to unchanged dashboards") {
+    staged(Broken).use { ws =>
+      for {
+        _ <- IO.blocking(
+          os.write.over(ws / Site.EntryFile, kitchenSite(access = "admin"))
+        )
+        ref <- SignallingRef[IO].of(Server.RendererState.Failed("seeded"))
+        site <- Server.LiveSite.of(
+          Map("dash" -> ref),
+          Map("dash" -> (Left("seeded"): Either[String, Server.Content])),
+          "dash"
+        )
+        imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
+        _ <- ServerApp.reloadSite(ws, site, imports)
+        before <- site.permissionFor(Some("dash"))
+        _ <- IO.blocking(
+          os.write.over(ws / Site.EntryFile, kitchenSite(access = "public"))
+        )
+        _ <- ServerApp.reloadSite(ws, site, imports)
+        after <- site.permissionFor(Some("dash"))
+      } yield {
+        assertEquals(before.access, Access.Admin)
+        assertEquals(after.access, Access.Public)
+      }
+    }
+  }
+
+  test("a reload validates only the dashboards it changed") {
+    // A slug that decodes equal to what it serves is handed back as served,
+    // so `planSite` drops it without its validate having run.
+    staged(Broken).use { ws =>
+      def eval(live: Map[String, Dashboard.Validated]) =
+        DashboardBuild
+          .evalSite(ws, live = live)
+          .map(
+            _._1.dashboards.collect { case (slug, Right(v)) => slug -> v }.toMap
+          )
+      for {
+        _ <- IO.blocking(
+          os.write.over(ws / Site.EntryFile, kitchenSite(secondKey))
+        )
+        first <- eval(Map.empty)
+        same <- eval(first)
+        _ <- IO.blocking(
+          os.write.over(
+            ws / Site.EntryFile,
+            kitchenSite(secondKey, title = "Renamed")
+          )
+        )
+        edited <- eval(first)
+      } yield {
+        assertEquals(first.keySet, Set("dash", "second"))
+        first.foreach((slug, v) =>
+          assert(same(slug).ready eq v.ready, clue = slug)
+        )
+        assert(!(edited("dash").ready eq first("dash").ready))
+        assert(edited("second").ready eq first("second").ready)
+      }
+    }
+  }
+
   test("the default slug falls back when the site drops it") {
     staged(Broken).use { ws =>
       for {
@@ -400,7 +463,9 @@ class FailedDashboardSuite extends ServerHarness {
         // Seeded as broken, so the first reload is a real change.
         site <- Server.LiveSite.of(
           Map("dash" -> ref),
-          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
+          Map(
+            "dash" -> (Left("seeded broken"): Either[String, Server.Content])
+          ),
           "dash"
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
@@ -426,7 +491,9 @@ class FailedDashboardSuite extends ServerHarness {
         )
         site <- Server.LiveSite.of(
           Map("dash" -> ref),
-          Map("dash" -> (Left("seeded broken"): Either[String, Dashboard])),
+          Map(
+            "dash" -> (Left("seeded broken"): Either[String, Server.Content])
+          ),
           "dash"
         )
         imports <- SignallingRef[IO].of(Set.empty[fs2.io.file.Path])
@@ -462,14 +529,15 @@ class FailedDashboardSuite extends ServerHarness {
     def validated(d: Dashboard) =
       Right(d.validated().fold(e => fail(e.mkString("\n")), identity))
     val renamed = dash.copy(title = Some("Renamed"))
+    val content = Server.Content(dash, Access.default)
     for {
       live <- Server.LiveSlug.of(Server.RendererState.Failed("x"))
       current = Map(
-        "same" -> Server.Entry(live, Server.Origin.FromSite(Right(dash))),
-        "edited" -> Server.Entry(live, Server.Origin.FromSite(Right(dash))),
-        "broken" -> Server.Entry(live, Server.Origin.FromSite(Right(dash))),
+        "same" -> Server.Entry(live, Server.Origin.FromSite(Right(content))),
+        "edited" -> Server.Entry(live, Server.Origin.FromSite(Right(content))),
+        "broken" -> Server.Entry(live, Server.Origin.FromSite(Right(content))),
         "fixed" -> Server.Entry(live, Server.Origin.FromSite(Left("was bad"))),
-        "dropped" -> Server.Entry(live, Server.Origin.FromSite(Right(dash))),
+        "dropped" -> Server.Entry(live, Server.Origin.FromSite(Right(content))),
         "pushed" -> Server.Entry(live, Server.Origin.Pushed)
       )
       plan = Server.planSite(
@@ -538,12 +606,14 @@ class FailedDashboardSuite extends ServerHarness {
   private def kitchenSite(
       extra: String = "",
       default: String = "",
-      title: String = "Kitchen"
+      title: String = "Kitchen",
+      access: String = ""
   ) =
     s"""amends "@fh-dashboard/site.pkl"
        |import "@fh-dashboard/components.pkl" as c
        |import "@fh-home/dump.pkl" as dump
        |${if (default.isEmpty) "" else s"""default = "$default""""}
+       |${if (access.isEmpty) "" else s"access = c.access.$access"}
        |dashboards {
        |  ["dash"] {
        |    title = "$title"

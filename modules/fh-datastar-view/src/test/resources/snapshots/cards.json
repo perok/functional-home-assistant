@@ -47,7 +47,7 @@
       "regions" : [
         "children"
       ],
-      "template" : "<div class=\"fh-cell fh-popup-backdrop{{{cellClasses}}}\"{{{cell}}} data-on:click=\"evt.target === el && $_var_root__popups && history.back()\"><dialog open class=\"fh-popup\"><button class=\"fh-popup-close\" data-on:click=\"$_var_root__popups && history.back()\" data-on:keydown__window=\"evt.key === 'Escape' && $_var_root__popups && history.back()\">✕</button>{{{children}}}</dialog></div>"
+      "template" : "<div class=\"fh-cell fh-popup-backdrop{{{cellClasses}}}\"{{{cell}}} data-fh-popup-marker data-on:click=\"evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()\"><dialog open class=\"fh-popup\"><button class=\"fh-popup-close\" data-on:click=\"el.closest('[data-fh-popup-marker]') && history.back()\" data-on:keydown__window=\"evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()\">✕</button>{{{children}}}</dialog></div>"
     },
     "sectionTitle" : {
       "template" : "<h2 class=\"fh-cell fh-section fh-text{{{cellClasses}}}\"{{{cell}}}><span class=\"fh-text-run\">{{label}}</span></h2>"
@@ -83,8 +83,8 @@
           
         },
         "inHistory" : true,
-        "inUrl" : true,
-        "name" : "popups"
+        "name" : "popups",
+        "shadowable" : false
       }
     ],
     "wireSlots" : {
@@ -1633,8 +1633,6 @@
                                                   "vars" : [
                                                     {
                                                       "default" : "24h",
-                                                      "inHistory" : false,
-                                                      "inUrl" : true,
                                                       "name" : "window"
                                                     }
                                                   ],
@@ -1971,7 +1969,7 @@
                                                     },
                                                     "onclick" : {
                                                       "kind" : "Value",
-                                                      "source" : "$_var_root__popups && history.back()",
+                                                      "source" : "el.closest('[data-fh-popup-marker]') && history.back()",
                                                       "type" : "textRaw"
                                                     },
                                                     "size" : {
@@ -2157,7 +2155,7 @@
                                                     },
                                                     "onclick" : {
                                                       "kind" : "Value",
-                                                      "source" : "$_var_root__popups && history.back()",
+                                                      "source" : "el.closest('[data-fh-popup-marker]') && history.back()",
                                                       "type" : "textRaw"
                                                     },
                                                     "size" : {
@@ -2594,7 +2592,7 @@
                                                     },
                                                     "onclick" : {
                                                       "kind" : "Value",
-                                                      "source" : "$_var_root__popups && history.back()",
+                                                      "source" : "el.closest('[data-fh-popup-marker]') && history.back()",
                                                       "type" : "textRaw"
                                                     },
                                                     "size" : {
@@ -2890,7 +2888,7 @@
                                                     },
                                                     "onclick" : {
                                                       "kind" : "Value",
-                                                      "source" : "$_var_root__popups && history.back()",
+                                                      "source" : "el.closest('[data-fh-popup-marker]') && history.back()",
                                                       "type" : "textRaw"
                                                     },
                                                     "size" : {

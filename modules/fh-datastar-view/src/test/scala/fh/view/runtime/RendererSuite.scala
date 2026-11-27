@@ -1449,8 +1449,15 @@ class RendererSuite extends munit.FunSuite {
         id = Some(id)
       )
     for id <- List("root", "popups") do
-      val errs = Dashboard(cards, col(col(named(id)))).validate()
-      assert(errs.exists(_.contains(s"node id '$id' is reserved")), clue = errs)
+      val errs =
+        TestPage.around(Dashboard(cards, col(col(named(id))))).validate()
+      assertEquals(
+        errs,
+        List(
+          s"node id '$id' is used more than once, also by the page card's " +
+            "own node — name it something else"
+        )
+      )
     // Its own are not refused.
     assertEquals(TestPage.around(Dashboard(cards, col())).validate(), Nil)
   }

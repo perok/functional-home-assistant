@@ -34,15 +34,19 @@ been found by reading the code, because the code looks correct.
 ## The decision
 
 **An id's type says what kind of node it names, and the compiler enforces it at
-every consumer.** Six opaque types over `String` in `model/Ids.scala`:
+every consumer.** Five opaque types over `String` in `model/Ids.scala`:
 
 | type | names | derived by |
 |---|---|---|
-| `NodeId` | an addressable node — the log's key space | `LayoutNode.pathId`, `MemberGraph.memberIdOf` |
-| `SetId <: NodeId` | a candidate-set container, at any nesting depth | `MemberGraph.setContainer` / `innerSetId` |
-| `MemberId <: NodeId` | a materialised set member | `MemberGraph.memberIdOf` |
+| `NodeId` | an addressable node, as it crosses a swap, a URL or the wire | `TreeIndex`, the one walk that mints them, through `LayoutNode`'s id functions (`pathId`, `childId`, `memberSegment`, `innerSetId`) |
+| `SetId <: NodeId` | a candidate-set container, at any nesting depth | `MemberGraph.setContainer` (the parse, below) |
+| `MemberId <: NodeId` | a materialised set member | `MemberGraph`, from its sources (`memberIdOf`) |
 | `DomId` | an element a patch TARGETS (`c_2`, `popups`) | `Renderer.elementId`, `Renderer.hostId` |
 | `SignalId` | a slot's value in the client's signal store (ADR 0017) | `Renderer.signalName` |
+
+Inside one renderer a node is also its `Ix` (`model/TreeIndex.scala`), its position in the index:
+the log, `holds` and the render cache key by it (ADR 0011). An `Ix` belongs to the renderer that
+numbered it, so what crosses a dashboard swap keeps the `NodeId`.
 
 A choice's case is an ordinary node: its id is the one a fixed node at its index of the slot would
 have, the otherwise after the cases (`LayoutNode.Component.slotNodes`), and the nodes in it take
@@ -66,7 +70,7 @@ forbids is the direction that matters: a bare `String`, or a `DomId`, where a
 from somewhere else — a log key, a host a session holds — into a `SetId` is
 `MemberGraph.setContainer`, whose `Some` is the answer and the proof together.
 A map keyed by the WIDE type is how that parse is implemented, which is why
-`MemberGraph.sources` and `MemberIndex.byId` are `Map[NodeId, _]` while
+`MemberGraph.sources` is a `Map[NodeId, _]` while
 everything they hand back is narrow. That is not a lie about their contents; a
 parse function's input is the wide type by definition.
 
@@ -81,7 +85,7 @@ it is a genuine impossibility rather than a convention.
 
 **The mint is a guardrail, not a proof.** `SetId.of` asks for the
 `Fill.Set` (or its compiled `Ready.SetFill`) the id names as evidence, which narrows
-minting to callers that have a real reason to be minting — all four production
+minting to callers that have a real reason to be minting — both production
 sites hold one already, so it costs nothing. But `Fill.Set` is an ordinary case
 class with all-default parameters, so anything in `fh.view` can fabricate one; `TestIds`
 does, deliberately. Closing that would mean no public constructor here at all,
@@ -90,10 +94,10 @@ actually happens.
 
 ## Consequences
 
-- Signatures carry the story. `memberIdOf(setId: SetId, entityId: String):
-  MemberId` and `innerSetId(member: MemberId, …): SetId` state the nested-set id
-  scheme — `<member>_<clause>_<child path>` is only meaningful under a member —
-  where a comment used to ask two ends to agree.
+- Signatures carry the story: `memberIdOf(setId: SetId, entityId: String):
+  MemberId`. The nested-set id scheme, `<member>_<clause>_<child path>`, is
+  `LayoutNode.innerSetId`, and only the index's walk calls it, so the two ends
+  a comment once asked to agree are one walk.
 - `isSetContainer: Boolean` is gone. The parse replaced it, which is one
   mechanism instead of a predicate plus a separate lookup that could disagree.
 - Suites mint through named helpers (`TestIds.setId`), never an implicit
@@ -111,11 +115,10 @@ actually happens.
   refinement types buy the same errors for a fraction of the churn.
 - **Typing `DomId`/`SignalId` further.** They are already separated and already
   carry a one-way derivation; there is no second kind of either to confuse.
-- **Narrowing the parse maps' key types.** `MemberIndex.byId` cannot be
-  `Map[MemberId, Member]`: all three readers arrive with an arbitrary id and are
-  asking whether it is a member AT ALL, so narrowing needs a parse that could
-  only be implemented as this very lookup. `byGroup` had no such excuse and IS
-  `Map[SetId, _]`.
+- **Narrowing the parse map's key type.** `MemberGraph.sources` cannot be
+  `Map[SetId, _]`: its readers arrive with an arbitrary id and are asking
+  whether it is a set AT ALL, so narrowing needs a parse that could only be
+  implemented as this very lookup.
 - **A validation helper (`require(isMember(id))`) instead of types.** This is
   the shape the bugs above already had: a check each caller must remember to
   perform, against the right index. Parse, don't validate.

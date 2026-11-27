@@ -22,6 +22,7 @@ import fh.view.auth.{AuthGate, Requirement}
 import fh.view.history.{ChartRenderer, History, SeriesSource}
 import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.model.{
+  Access,
   Ready,
   CallDecl,
   CallField,
@@ -973,7 +974,10 @@ class Server(
                 decisionAnswers,
                 answer(_, env),
                 env,
-                Server.resumeFrom(req, c)
+                Server.resumeFrom(req, c),
+                // A reconnect: this screen may be one no frame was recorded
+                // against.
+                Patches.Coverage.Swept
               )
             )
           // Traced, so the repaint claims what it painted; clearing `holds`
@@ -2123,8 +2127,17 @@ object Server {
     * renderers.
     */
   private[runtime] enum Origin {
-    case FromSite(content: Either[String, Dashboard])
+    case FromSite(content: Either[String, Content])
     case Pushed
+  }
+
+  /** What a reload compares: the model AND its resolved rule, since the site's
+    * rule is outside the model and can change on its own.
+    */
+  private[runtime] case class Content(dashboard: Dashboard, access: Access)
+  private[runtime] object Content {
+    def of(validated: Dashboard.Validated): Content =
+      Content(validated.dashboard, validated.access)
   }
 
   private[runtime] case class Entry(live: LiveSlug, origin: Origin)
@@ -2188,6 +2201,16 @@ object Server {
 
     def names: IO[List[String]] = entries.get.map(_.keys.toList.sorted)
 
+    /** What each slug serves now, so a reload validates only what changed. */
+    def serving: IO[Map[String, Dashboard.Validated]] =
+      entries.get.flatMap(
+        _.toList
+          .traverse((slug, e) =>
+            e.live.renderer.get.map(_.rendererOf.map(slug -> _.validated))
+          )
+          .map(_.flatten.toMap)
+      )
+
     def changes: Stream[IO, Map[String, LiveSlug]] =
       entries.discrete.map(_.view.mapValues(_.live).toMap)
 
@@ -2241,7 +2264,7 @@ object Server {
         plan = planSite(current, dashboards)
         installs <- plan.installs.traverse { case (slug, result, change) =>
           val state = stateOf(result)
-          val entry = Entry(_, Origin.FromSite(result.map(_.dashboard)))
+          val entry = Entry(_, Origin.FromSite(result.map(Content.of)))
           current.get(slug) match {
             case Some(existing) =>
               IO.pure((slug, entry(existing.live), state, change))
@@ -2309,7 +2332,7 @@ object Server {
       dashboards: List[(String, Either[String, Dashboard.Validated])]
   ): SitePlan = {
     val installs = dashboards.sortBy(_._1).flatMap { case (slug, result) =>
-      val content = result.map(_.dashboard)
+      val content = result.map(Content.of)
       current.get(slug) match {
         case Some(Entry(_, Origin.FromSite(was))) if was == content => None
         case Some(Entry(_, Origin.FromSite(was)))                   =>
@@ -2348,7 +2371,7 @@ object Server {
   private[runtime] object LiveSite {
     def of(
         renderers: Map[String, SignallingRef[IO, RendererState]],
-        content: Map[String, Either[String, Dashboard]],
+        content: Map[String, Either[String, Content]],
         defaultSlug: String
     ): IO[LiveSite] =
       for {

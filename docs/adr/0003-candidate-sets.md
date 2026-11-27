@@ -146,7 +146,7 @@ order per distinct values among the live viewers.
 
 The frame boundary is still where the question is asked, because two entities
 can move in opposite directions in one tick and each single-entity view of that
-reports a change the frame did not make (`MemberGraph.syncMembers`, and
+reports a change the frame did not make (`MemberGraph.deltas`, and
 `architecture-rendering-pipeline.md` §4b).
 
 **What a membership change costs.** The recorder logs the host and each arriving
@@ -157,7 +157,7 @@ session holds no list for it). Nothing is rendered while
 recording; each session renders what it is owed when it pulls (ADR 0012),
 through the per-slug render cache, so N viewers of one set cost one render of
 each changed leaf member. A member holding nodes (a slider) arrives rendered
-per viewer instead, since what its baked regions show is each viewer's own;
+per viewer instead, since what its picks show is each viewer's own;
 after that its leaves patch through the cache like any others. A set inside a case no session is shown is not recorded
 at all, and one inside an inactive state branch (ADR 0007) is structurally
 silent.
@@ -165,13 +165,13 @@ silent.
 Three silent failure modes are worth naming, because all three were real bugs:
 
 - **A clause switch whose arriving card binds nothing live** contributes no
-  reverse-index edge, so nothing would name it while its bytes moved. The
-  member's ID is the sound handle — it exists whatever the card renders, since
-  every card's root carries its id (ADR 0008) — so `syncMembers` reports the members it REPLACED
-  and the recorder touches those by id.
-- **Container selection reads `MemberGraph.sources`, not the static index.** A nested
-  set is not in the static index — it hangs off a member — so selecting from the
-  index meant the inner set synced, its members moved, and nothing recorded it:
+  reverse-index edge, so nothing would name it while its bytes moved. A key is
+  a member's clause root (an `Ix`, ADR 0011), which exists whatever the card
+  renders, so a switch is one key leaving and another arriving: `deltas`
+  reports the set, and the recorder logs the arriving key's root.
+- **Every set the recorder decides is in `MemberGraph.sources`, a nested one
+  under its owner and clause.** Selected from anywhere that left a nested set
+  out, the inner set synced, its members moved, and nothing recorded it:
   correct ids, correct HTML, zero patches.
 - **Where a nested set LIVES is its host's container in the dashboard's
   `TreeIndex` — for the members AND for the container.** That container decides

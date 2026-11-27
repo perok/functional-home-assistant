@@ -76,7 +76,8 @@ private[runtime] case class Member(
   */
 private[runtime] final case class GroupMembers(
     members: Vector[Member],
-    entities: List[String]
+    entities: List[String],
+    presence: Presence
 ) {
 
   /** Each member's root in its clause: what the host shows, one array per
@@ -84,7 +85,25 @@ private[runtime] final case class GroupMembers(
     */
   lazy val keys: IArray[Ix] = IArray.from(members.iterator.map(_.node.ix))
 
-  /** entity -> the members binding it, built once per decision. Scanning the
+  def binding: Map[String, Vector[Member]] = presence.binding
+}
+
+private object GroupMembers {
+  val empty: GroupMembers = of(Vector.empty)
+
+  def of(members: Vector[Member]): GroupMembers =
+    arranged(members, Presence(members))
+
+  def arranged(members: Vector[Member], presence: Presence): GroupMembers =
+    GroupMembers(members, members.toList.map(_.entity), presence)
+}
+
+/** Who is present, in no particular order: all [[binding]] reads, so a decision
+  * that only reorders keeps its predecessor's.
+  */
+private[runtime] final class Presence(val members: Vector[Member]) {
+
+  /** entity -> the members binding it, built once per presence. Scanning the
     * members per change instead cost a set's frame 134 µs against 17
     * (`RenderBench.publishSet`).
     */
@@ -92,16 +111,12 @@ private[runtime] final case class GroupMembers(
     members
       .flatMap(m => m.byEntity.keysIterator.map(_ -> m))
       .groupMap(_._1)(_._2)
-}
 
-private object GroupMembers {
-  val empty: GroupMembers = GroupMembers(Vector.empty, Nil)
-
-  def of(members: Vector[Member]): GroupMembers =
-    GroupMembers(
-      members,
-      members.toList.map(_.entity)
-    )
+  /** The same members, by reference: `memberOf` hands out each clause's one
+    * [[Member]], and a structural `==` would walk their nodes.
+    */
+  def same(others: Vector[Member]): Boolean =
+    members.corresponds(others)(_ eq _)
 }
 
 /** Who is in every candidate set, and in what order: the graph decides presence
@@ -237,17 +252,23 @@ private[runtime] final class MemberGraph(
       }
     }
 
+    /** `was`'s presence kept when the same members are present: a limit cuts by
+      * order, so there it is the arranged members'.
+      */
     def materialise(
         states: Map[String, EntityState],
-        fetched: Shared.Fetched
-    ): GroupMembers =
-      GroupMembers.of(
-        src.arrange(
-          src.candidates.flatMap(memberOf(_, states, fetched)),
-          states,
-          fetched
+        fetched: Shared.Fetched,
+        was: GroupMembers = GroupMembers.empty
+    ): GroupMembers = {
+      val present = src.candidates.flatMap(memberOf(_, states, fetched))
+      val members = src.arrange(present, states, fetched)
+      if (src.s.limit.nonEmpty) GroupMembers.of(members)
+      else
+        GroupMembers.arranged(
+          members,
+          if (was.presence.same(present)) was.presence else Presence(present)
         )
-      )
+    }
   }
 
   /** Its node's: from the candidate, never the position, since a positional id
@@ -601,14 +622,13 @@ private[runtime] final class MemberGraph(
     val now = decided(s, next) { f =>
       if (s.src.stable)
         touched.foldLeft(was)(applyOne(s, _, _, next.states, f))
-      else s.materialise(next.states, f)
+      else s.materialise(next.states, f, was)
     }
     !(now eq was) && !now.keys.sameElements(was.keys)
   }
 
-  /** By clause, which fixes the node; not by node, since hoisting lifts a
-    * slider's heads out of it and two slider clauses can leave equal nodes over
-    * different surfaces.
+  /** By clause, not by node: two clauses may hold equal nodes, and a switch
+    * between them is still another key.
     */
   private def applyOne(
       s: Source,

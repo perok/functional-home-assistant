@@ -82,8 +82,8 @@
           
         },
         "inHistory" : true,
-        "inUrl" : true,
-        "name" : "popups"
+        "name" : "popups",
+        "shadowable" : false
       }
     ],
     "wireSlots" : {
@@ -111,8 +111,6 @@
                         "vars" : [
                           {
                             "default" : "0",
-                            "inHistory" : false,
-                            "inUrl" : true,
                             "name" : "tab"
                           }
                         ],
@@ -661,8 +659,6 @@
                         "vars" : [
                           {
                             "default" : "simple",
-                            "inHistory" : false,
-                            "inUrl" : true,
                             "name" : "view"
                           }
                         ],

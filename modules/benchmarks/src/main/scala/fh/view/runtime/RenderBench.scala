@@ -257,6 +257,7 @@ class RenderBench {
   private var flat: Renderer = null
   private var set: Renderer = null
   private var setOrdered: Renderer = null
+  private var heldOrdered: Vector[Map[Ix, Held]] = null
   private var setPlain: Renderer = null
   private var setGuarded: Renderer = null
   private var setNamedGuard: Renderer = null
@@ -345,6 +346,11 @@ class RenderBench {
   private var clauseFlips: Vector[Map[String, EntityState]] = null
   private var clauseSteady: Vector[Map[String, EntityState]] = null
   private var clauseRot = 0
+  // [[publishClauseSwitches]] and [[publishClauseSwitch]]: their own renderers,
+  // since [[publishPass]] carries each one's previous version.
+  private var clauseSetMany: Renderer = null
+  private var clauseSetOne: Renderer = null
+  private var oneSwitchFrames: Vector[Frame] = null
   // [[viewerPull]]: a tab bar over a node variable, one session per client.
   private var viewers: Renderer = null
   private var viewerStates: Map[String, EntityState] = null
@@ -379,6 +385,8 @@ class RenderBench {
     set = Renderer.create(Dashboard(cards, setTree(Leaves)))
     setOrdered =
       Renderer.create(Dashboard(cards, setTree(Leaves, orderBy = LitBrightest)))
+    heldOrdered =
+      Vector.fill(WireClients)(setOrdered.renderPageTraced(st).claims)
     setPlain =
       Renderer.create(Dashboard(cards, setTree(Leaves, signals = false)))
     setGuarded = Renderer.create(
@@ -451,18 +459,14 @@ class RenderBench {
     // same seed `Server.renderPage` sets, so a pull below starts from a real
     // client's record rather than an empty one. An empty `holds` reads as
     // "unknown, send it" and would make every pull a morph, which is exactly
-    // the case the suppression exists to avoid measuring.
-    val paint = signalled.renderPageTraced(st)
-    heldAfterPaint = paint.painted.map { case (ix, p) =>
-      ix -> p.held
-    }
+    // the case the suppression exists to avoid measuring. `claims`, not
+    // `painted`: only it carries each host's list, and without one every
+    // set's first structural change was a whole fill.
+    heldAfterPaint = signalled.renderPageTraced(st).claims
     tickEntities = Vector.tabulate(TickEntities)(entityId)
     tickNodeIds = tickEntities.flatMap(signalled.componentsFor(_).toList)
     pure = Renderer.create(Dashboard(cards, tree(Leaves, 4, signalOnly = true)))
-    val purePaint = pure.renderPageTraced(st)
-    heldPure = purePaint.painted.map { case (ix, p) =>
-      ix -> p.held
-    }
+    heldPure = pure.renderPageTraced(st).claims
     pureNodeIds = tickEntities.flatMap(pure.componentsFor(_).toList)
     liveCache = RenderCache.create.unsafeRunSync()
     flipped = Renderer.create(flipDash())
@@ -501,9 +505,7 @@ class RenderBench {
       sys.error("publishSetIfsFlip flips no member's If")
     checkFillShape()
     checkPublishShape()
-    heldAfterSetPaint = set.renderPageTraced(st).painted.map { case (ix, p) =>
-      ix -> p.held
-    }
+    heldAfterSetPaint = set.renderPageTraced(st).claims
     // After `checkPublishShape`, whose frame left `set`'s membership held.
     tickMemberIds = tickEntities.flatMap(
       set.members
@@ -537,6 +539,13 @@ class RenderBench {
       sys.error("memberClauseFlip switches no clause")
     if (clauseSteady.map(clauseAt).distinct.sizeIs != 1)
       sys.error("memberClauseSteady switches a clause")
+    clauseSetMany = Renderer.create(Dashboard(cards, clauseSetTree(Leaves)))
+    clauseSetOne = Renderer.create(Dashboard(cards, clauseSetTree(Leaves)))
+    oneSwitchFrames = Vector.tabulate(4)(i =>
+      publishFrame(st, i % 2, tickEntities.take(1).toList)
+    )
+    checkClauseSwitchShape(clauseSetMany, pubFrames, TickEntities)
+    checkClauseSwitchShape(clauseSetOne, oneSwitchFrames, 1)
     viewers = Renderer.create(viewerDash())
     viewerPaint = states(ViewerEntities)
     viewerStates = viewerPaint
@@ -549,9 +558,7 @@ class RenderBench {
     popups = Renderer.create(popupsDash(Leaves))
     popupShared = popups.shared(StoreState(st, 0L))
     popupCache = RenderCache.create.unsafeRunSync()
-    heldPopupPage = popups.renderPageTraced(st).painted.map { case (ix, p) =>
-      ix -> p.held
-    }
+    heldPopupPage = popups.renderPageTraced(st).claims
     heldPopupOpen = popupWrite(Some(popupId(0)), heldPopupPage)
     if (heldPopupOpen.sizeIs <= heldPopupPage.size)
       sys.error("popupOpen fills nothing")
@@ -1503,6 +1510,79 @@ class RenderBench {
     bh.consume(publishPass(setOrdered, pubFrames(pubRot % 4)))
   }
 
+  /** [[publish]]'s frame against [[clauseSetTree]]: all [[TickEntities]]
+    * members switch clause together, as a scene does to the lights a "lit
+    * first" set lists. Against [[publishClauseSwitch]] the gap per extra switch
+    * is what one membership update costs inside a frame that has others.
+    */
+  @Benchmark
+  def publishClauseSwitches(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(clauseSetMany, pubFrames(pubRot % 4)))
+  }
+
+  /** The same set, one member switching per frame. */
+  @Benchmark
+  def publishClauseSwitch(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(clauseSetOne, oneSwitchFrames(pubRot % 4)))
+  }
+
+  /** Each frame must switch exactly `switches` members' clause, or the pair
+    * prices something else.
+    */
+  private def checkClauseSwitchShape(
+      renderer: Renderer,
+      frames: Vector[Frame],
+      switches: Int
+  ): Unit = {
+    val gid = renderer.members.memberIds
+      .flatMap(renderer.members.memberAt(_, stShared))
+      .head
+      .gid
+    def clauses(states: Map[String, EntityState]) = {
+      val shared = Shared.of(states)
+      frames.head.changes.map(c =>
+        renderer.members
+          .memberAt(renderer.members.memberIdOf(gid, c.entityId), shared)
+          .map(_.clause)
+      )
+    }
+    val switched = clauses(frames(0).states)
+      .zip(clauses(frames(1).states))
+      .count(_ != _)
+    if (switched != switches)
+      sys.error(s"$switched clause switches a frame, not $switches")
+  }
+
+  /** [[publishSetOrdered]] and then its pull for [[WireClients]] sessions, each
+    * holding what its previous pulls sent it, as `Server` folds them.
+    */
+  @Benchmark
+  def publishSetOrderedFanout(bh: Blackhole): Unit = {
+    pubRot += 1
+    val log = publishPass(setOrdered, pubFrames(pubRot % 4))
+    val shared = heldBy(setOrdered)
+    heldOrdered = heldOrdered.map { holds =>
+      val patches = Patches
+        .resume(
+          setOrdered,
+          liveCache,
+          log,
+          holds,
+          shared,
+          _ => IO.pure(FetchSnapshot.empty),
+          _ => IO.pure(FetchSnapshot.empty),
+          Map.empty,
+          pubRot.toLong,
+          Patches.Coverage.Logged
+        )
+        .unsafeRunSync()
+      bh.consume(patches)
+      patches.foldLeft(holds)(Patches.applied(setOrdered.index, _, _))
+    }
+  }
+
   /** [[publishSet]] with one guard on every candidate, reading the member: one
     * compiled guard, run per candidate.
     */
@@ -1668,9 +1748,10 @@ class RenderBench {
     */
   private def publishFrame(
       base: Map[String, EntityState],
-      rot: Int
+      rot: Int,
+      ids: List[String] = tickEntities.toList
   ): Frame = {
-    val moved = tickEntities.toList.map { id =>
+    val moved = ids.map { id =>
       val prev = base(id)
       val next = prev.copy(
         state = if (rot % 2 == 0) "on" else "off",

@@ -56,10 +56,14 @@ class Cell {
 
 /// How `site.pkl` and `entry.pkl` render the wire: a [[Cell]]'s empty fields are
 /// left out. They stay non-null for the author, since a null default cannot be
-/// amended (`new c.Cell { classes { … } }`).
+/// amended (`new c.Cell { classes { … } }`). A declaration's flags are left out
+/// at their defaults, which Scala decodes them as.
 const wireRenderer: JsonRenderer = new {
   converters {
     [Cell] = (cell) -> cell.toMap().filter((_, v) -> !((v is Listing || v is Mapping) && v.isEmpty))
+    [varMod.Declaration] = (d) ->
+      let (unset = new varMod.Declaration { variable = d.variable; default = d.default }.toMap())
+        d.toMap().filter((k, v) -> v != null && (k == "name" || k == "default" || v != unset[k]))
   }
 }
 
@@ -286,10 +290,6 @@ abstract class Node extends LayoutNode {
   wireInputs: Map<String, Any>? =
     if (inputs.isEmpty) null
     else inputs.toMap().mapValues((_, v) -> slotMod.wireInput(v))
-  /// Nodes a tap on this one brings onto the page from elsewhere, off the wire:
-  /// the card copies its tap's [[tapMod.TapAction.carries]], and the entry
-  /// collects them (`components/popup.pkl`).
-  hidden carries: List<Node> = List()
 
   /// [[inputs]] as a chain step:
   ///
@@ -511,8 +511,8 @@ const function cardsIn(roots: List<LayoutNode>): Mapping<String, WireCard> =
     .toMapping()
 
 /// `n` and every node under it, in every place a node can hold another; a new
-/// one belongs here, or its cards are "unknown card" at validate. What a node
-/// [[Node.carries]] is not under it.
+/// one belongs here, or its cards are "unknown card" at validate. What a node's
+/// tap opens ([[slotMod.CallSlot.carries]]) is not under it.
 const function nodesUnder(n: LayoutNode): List<Node> =
   if (n is Node)
     List(n)

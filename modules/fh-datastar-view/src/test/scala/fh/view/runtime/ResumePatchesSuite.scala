@@ -105,7 +105,8 @@ class ResumePatchesSuite extends munit.FunSuite {
             noDecisionFetches,
             _ => IO.pure(FetchSnapshot.empty),
             Map.empty,
-            v
+            v,
+            Patches.Coverage.Logged
           )
       )
       .unsafeRunSync()

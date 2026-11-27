@@ -3,7 +3,7 @@
 A `ValueExpr` is an s-expression written as a pipeline: `source |> f |> g` is `(g (f source))`,
 Clojure's `->`. `state |> Compare(eq, 21)` is `(compare = (state x) 21)`, and `List[a, b] |>
 AllOf` is `(and a b)`. Every reading in a dashboard is one — a slot, a condition (a clause, a
-guard, a state surface, `c.iff`), an order term, a CEL source's named input — and **one
+guard, a pick's `by`, `c.iff`), an order term, a CEL source's named input — and **one
 evaluator** runs them all (`fh.view.runtime.Evaluator`), so a reading means the same thing
 wherever it stands.
 
@@ -177,7 +177,7 @@ unavailable switch.
   whose work lives in shared helpers, so a faster dispatch only shortens the gaps between them,
   2–4% of a render as profiled. The measurement, and what would reopen it, is in
   `docs/experiments.md` ("A faster dispatch for the value-language evaluator").
-- **CEL is allowed wherever a value is read:** a clause, a guard, a state surface, an order term
+- **CEL is allowed wherever a value is read:** a clause, a guard, a pick's `by`, an order term
   and a list's item compile it as a slot does, and a bool is the one rule where a bool is
   required (`ValueExpr.boolError`). The library's builders still write simple steps (ADR 0028);
   CEL in a guard is the author's choice, at about three times the allocation

@@ -37,9 +37,9 @@
   data-style:width="$_c_0_features_0_branch_0_0__fill + '%'"></div></div></div>
 <!-- ==== as fixtured · case moreinfo_sensor_washer_remaining ==== -->
 <div class="fh-cell fh-popup-backdrop" id="moreinfo_sensor_washer_remaining"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-col" id="moreinfo_sensor_washer_remaining_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="moreinfo_sensor_washer_remaining_0_0"
   data-signals="{_e: {sensor: {washer_remaining: {t#3: '47 min'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_moreinfo_sensor_washer_remaining_0_0__busy ? '' : $_var_root__popups__pending = 'moreinfo_sensor_washer_remaining'; @post('sse/call/progress/call_1?node=moreinfo_sensor_washer_remaining_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
@@ -109,7 +109,7 @@
   data-class:fh-busy-after="$_moreinfo_sensor_washer_remaining_0_1_bar_0_3__busy_slow">30d</a></div>
 <div class="fh-cell fh-card fh-chart" id="moreinfo_sensor_washer_remaining_0_1_0"><svg/></div></div>
 <div class="fh-cell fh-card fh-entity-info" id="moreinfo_sensor_washer_remaining_0_2">  <code class="fh-entity-info-id">sensor.washer_remaining</code>  <pre class="fh-entity-info-attrs">device_class: duration&#10;friendly_name: Washing Machine&#10;unit_of_measurement: min</pre></div><button class="fh-cell fh-press fh-size-large " id="moreinfo_sensor_washer_remaining_0_3"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== as fixtured · patch c_0_features_0_branch_0_0 ==== -->
 <div class="fh-cell fh-bar" id="c_0_features_0_branch_0_0" role="progressbar" aria-valuemin="0" aria-valuemax="100"
   data-show="$_e.sensor.washer_remaining.state !== '' && !isNaN($_e.sensor.washer_remaining.state) && $_e.sensor.washer_program_duration.state !== '' && !isNaN($_e.sensor.washer_program_duration.state)"
@@ -178,7 +178,7 @@
 <div class="fh-cell fh-card fh-entity-info" id="moreinfo_sensor_washer_remaining_0_2">  <code class="fh-entity-info-id">sensor.washer_remaining</code>  <pre class="fh-entity-info-attrs">device_class: duration&#10;friendly_name: Washing Machine&#10;unit_of_measurement: min</pre></div>
 <!-- ==== as fixtured · patch moreinfo_sensor_washer_remaining_0_3 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="moreinfo_sensor_washer_remaining_0_3"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button>
 <!-- ==== flipped · body: as fixtured ==== -->
 <!-- ==== flipped · case c_0_features_0_branch_0: as fixtured ==== -->
 <!-- ==== flipped · case moreinfo_sensor_washer_remaining: as fixtured ==== -->
@@ -222,9 +222,9 @@
   data-style:width="$_c_0_features_0_branch_0_0__fill + '%'"></div></div></div>
 <!-- ==== unavailable · case moreinfo_sensor_washer_remaining ==== -->
 <div class="fh-cell fh-popup-backdrop" id="moreinfo_sensor_washer_remaining"
-  data-on:click="evt.target === el && $_var_root__popups && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
-  data-on:click="$_var_root__popups && history.back()"
-  data-on:keydown__window="evt.key === 'Escape' && $_var_root__popups && history.back()">✕</button>
+  data-fh-popup-marker data-on:click="evt.target === el && el.closest('[data-fh-popup-marker]') && history.back()"><dialog open class="fh-popup"><button class="fh-popup-close"
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"
+  data-on:keydown__window="evt.key === 'Escape' && el.closest('[data-fh-popup-marker]') && history.back()">✕</button>
 <div class="fh-cell fh-col" id="moreinfo_sensor_washer_remaining_0">
 <article class="fh-cell fh-card fh-entity fh-tile-card" id="moreinfo_sensor_washer_remaining_0_0"
   data-signals="{_e: {sensor: {washer_remaining: {t#3: 'unavailable'}}}}">  <div class="fh-tile fh-tappable "  data-on:click="$_moreinfo_sensor_washer_remaining_0_0__busy ? '' : $_var_root__popups__pending = 'moreinfo_sensor_washer_remaining'; @post('sse/call/progress/call_1?node=moreinfo_sensor_washer_remaining_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
@@ -294,7 +294,7 @@
   data-class:fh-busy-after="$_moreinfo_sensor_washer_remaining_0_1_bar_0_3__busy_slow">30d</a></div>
 <div class="fh-cell fh-card fh-chart" id="moreinfo_sensor_washer_remaining_0_1_0"><svg/></div></div>
 <div class="fh-cell fh-card fh-entity-info" id="moreinfo_sensor_washer_remaining_0_2">  <code class="fh-entity-info-id">sensor.washer_remaining</code>  <pre class="fh-entity-info-attrs">device_class: duration&#10;friendly_name: Washing Machine&#10;unit_of_measurement: min</pre></div><button class="fh-cell fh-press fh-size-large " id="moreinfo_sensor_washer_remaining_0_3"
-  data-on:click="$_var_root__popups && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
+  data-on:click="el.closest('[data-fh-popup-marker]') && history.back()"><span class="fh-text"><span class="fh-text-run">Close</span></span></button></div></dialog></div>
 <!-- ==== unavailable · patch c_0_features_0_branch_0_0: as fixtured ==== -->
 <!-- ==== unavailable · patch moreinfo_sensor_washer_remaining_0_1_0: as fixtured ==== -->
 <!-- ==== unavailable · patch moreinfo_sensor_washer_remaining_0_1_bar_0_0: as fixtured ==== -->

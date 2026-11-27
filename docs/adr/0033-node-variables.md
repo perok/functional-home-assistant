@@ -36,7 +36,8 @@ not be enumerated there. A declared reference can.
    opens.
 2. A read resolves by name to the nearest node above it declaring that name, once, at build time.
 3. A node that declares nothing is transparent.
-4. A nested declaration of the same name shadows the outer one, for its own subtree only.
+4. A nested declaration of the same name shadows the outer one, for its own subtree only, unless
+   the outer one is `notShadowed()`: then the nested one is a build error.
 5. A node sees its own declarations.
 6. The page starts with an empty scope. A case of a choice — a tab panel, an `If` branch, a popup
    — starts with the scope of the one node whose choice it is a case of; a popup's is the page's.
@@ -392,6 +393,7 @@ instead.
 - **Naming the root's declaration from below a nearer one** (`root.popups`). Resolution is
   nearest-first, so a nested declaration hides an outer one of the same name. An author who hides
   their own variable can rename it, and a name the library declares on the author's behalf is
-  reserved instead, so nothing can hide it. A reference resolved at the root is for the day an
+  declared `notShadowed()` instead (`Declaration.shadowable`, off the wire at its default), which
+  `validate` holds every node below to, so nothing can hide it. A reference resolved at the root is for the day an
   author must reach past a nearer declaration they cannot rename: Pkl sugar spelling the root's
   id, like the global namespace above, not a second resolution rule.

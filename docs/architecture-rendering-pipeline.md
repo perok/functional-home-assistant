@@ -267,7 +267,7 @@ lifecycle — there is no second path that could disagree:
 flowchart LR
   EDIT["a *.pkl changed<br/>(the entrypoint, an import,<br/>or a file APPEARING —<br/>the dir is watched too)"] --> RE
   DUMP["dump swapped in<br/>DumpRefresh"] --> RE
-  RE["ServerApp.reloadSite<br/>re-evaluate the ONE entrypoint"] --> DIFF{"LiveSite.applySite<br/>per slug, vs the content<br/>recorded beside it"}
+  RE["ServerApp.reloadSite<br/>re-evaluate the ONE entrypoint;<br/>validate only a slug that decodes<br/>unlike what it serves"] --> DIFF{"LiveSite.applySite<br/>per slug, vs the content<br/>recorded beside it"}
   DIFF -->|unchanged| NOOP["do nothing<br/>— a write would rotate the log<br/>and repaint every viewer"]
   DIFF -->|new or changed| INS["install<br/>origin = FromSite(content)"]
   DIFF -->|"gone, and the site's<br/>to reclaim"| RM["remove"]
@@ -299,7 +299,8 @@ Four properties worth stating, because each is silent when broken:
   in the workspace; writing a `Ready` state anyway emits on the slug's
   `SignallingRef` and rotates its log identity, which repaints every open
   browser. The comparison is per slug, so one author's edit repaints one
-  dashboard.
+  dashboard, and validates one: a slug that decodes equal to what it serves
+  gets the served `Validated` back (`LiveSite.serving`, `DashboardBuild.decode`).
 - **The registry also decides what HA is asked for.** The upstream
   `subscribe_entities` carries the union of the registered slugs'
   `watchedEntities` (ADR 0030), so installing, removing or rebuilding a
@@ -645,7 +646,8 @@ arrives itself. So the log names everything a watched viewer is owed, and a
 node it misses is a recorder bug. Sweeping the screen on every pull would hide that bug and was
 ~86% of `RenderBench.viewerPull`'s allocation; without it a miss shows, and `OracleSuite` is what
 looks. Only a reconnect sweeps (`Coverage.Swept`): its screen may be one no frame was recorded
-against.
+against. The sweep is every node of the page's own container and of each case the viewer's
+values show; the page's container is no pick's case, so `PickGraph.chosen` does not hold it.
 
 A client's cursor gets `>=` where a session's `position` gets `+ 1`, and the difference is who is
 claiming: a client can hold version V having seen only part of it, where a position is what this
@@ -870,12 +872,12 @@ other, so a bulb patches its own element and its tile is never re-rendered — w
 nesting rather than composing bytes.
 
 Two rules hold that up, both silent if broken: `Member.entitiesOf` stops AT a nested set (descending
-would wake the tile on every bulb inside it), and container selection reads `MemberGraph.sources` rather
-than the static index (a nested set is not in the index — it hangs off a member, which is the
-live half). The second was a real bug: correct ids, correct HTML, zero patches.
+would wake the tile on every bulb inside it), and every set the recorder decides is in
+`MemberGraph.sources`, a nested one under its owner and clause. The second was a real bug, a
+nested set left out of what the recorder asked: correct ids, correct HTML, zero patches.
 
-The id scheme itself is ONE function, `MemberGraph.innerSetId`, read from both ends —
-`MemberGraph.sources` registers a container under it, `resolveChild` paints an element under it. A
+The id scheme itself is ONE function, `LayoutNode.innerSetId`, and one walk calls it: `TreeIndex`,
+whose ids `MemberGraph.sources` registers a container under and the render walk paints. A
 second spelling of it is the same silent failure again: the recorder maintains a container the
 browser does not have. `SetSuite` pins the property rather than the spelling — every group the
 markup shows is one the graph registered, two levels deep.
@@ -889,8 +891,8 @@ departures and now MOVES, and a member that merely ticked still comes through th
 
 A member is a real `LayoutNode.Component` — a card, its slots including the entity as a literal
 `entity_id` slot, its cell — stored under the id its entity derives. That literal slot is the
-whole trick: `renderCase` already set it on every render, so setting it ONCE, at membership time,
-is all it takes for a member to stop being special. `byteSlotValues` keys it (with its clause),
+whole trick: set ONCE, at membership time, it is all it takes for a member to stop being special.
+The render cache keys it under its clause's `Ix` and its `byteSlotValues`,
 `renderPatch` renders it from those values, `elementId` patches it. There is no reverse `childId -> entityId` lookup,
 because nothing needs to recover an entity from an id — the node carries its own binding, as every
 other node does.
@@ -1589,7 +1591,7 @@ Paths are under `modules/fh-datastar-view/src/main/scala/fh/view/`.
 | the document render | `runtime/Renderer.scala` · `renderPageInto`, `renderBodyTraced`, `tracedInto`; `runtime/Sink.scala` · the `Writer` the whole document goes through — `Streaming` for a page, `Buffer` for a patch; `runtime/Server.scala` · `renderPage`, `pageInto` (the shell, around a writer hole). Streamed to the client as it is walked — §6a |
 | what a page open COST | `telemetry/Telemetry.scala` · the three providers, no-op together unless an OTLP endpoint is configured; `telemetry/Logging.scala` · the loggers every file takes, each line carrying the span it was written inside; `telemetry/Meters.scala` · the `fh.*` instruments; `runtime/Server.scala` · the `dashboard.page` / `.store` / `.walk` spans. Because the document is walked as the body is pulled, the walk outlives the handler — so its span is started inside the body and re-parented with `childOrContinue`, and a span that merely wrapped `renderPage` would time the setup and miss the render (issue #75) |
 | what keys a render | `runtime/Renderer.scala` · `byteSlotValues`, `pickedCase` |
-| the member graph | `runtime/MemberGraph.scala` · `Member`, `binding`, `deltas`, `dirtied`, `membersOf`, `setsIn`, `innerSetId` |
+| the member graph | `runtime/MemberGraph.scala` · `Member`, `binding`, `deltas`, `dirtied`, `membersOf`, `setsIn`, `setContainer` |
 | what a version decides, once | `runtime/Shared.scala` · `Shared` (members, state branches, `valueWhile`s; carried + fills; signal values, fills only), `Shared.viewing` (the viewer's values), `branchAt` / `ByValues` (a decision per values), `Shared.Run` (one decide run's answers and needs), `Decided` (the two newest versions, `advance`), `Viewing`; `runtime/Renderer.scala` · `decide`, `advance`, `gateHolds`, `withheld` |
 | what a render reads before its walk | `runtime/Renderer.scala` · `fetchesForPage`, `readsForPull`, `presentAt`, `setAsks`; `model/Dashboard.scala` · `Component.fetching`, `Fetching` |
 | which branch is showing, and to whom | `runtime/PickGraph.scala` · `cases`, `decideByVariable` (a lookup in the viewer's values) / `decideByViewer` (per values) / `decideByState` (per version), `affectedStateGroups` / `affectedViewerGroups` (the flips), `chosen` (the cases a viewer's values pick; its open set), `visibleNode`, `visibleContainer` (the one test of shown, by `Ix`: a tick, a flip and page open), `onScreen`, `shownCases`, `pageRoot` |

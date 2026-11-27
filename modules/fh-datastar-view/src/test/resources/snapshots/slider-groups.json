@@ -95,8 +95,8 @@
           
         },
         "inHistory" : true,
-        "inUrl" : true,
-        "name" : "popups"
+        "name" : "popups",
+        "shadowable" : false
       }
     ],
     "wireSlots" : {
@@ -119,8 +119,6 @@
                         "vars" : [
                           {
                             "default" : "brightness",
-                            "inHistory" : false,
-                            "inUrl" : true,
                             "name" : "control"
                           }
                         ],
@@ -2645,8 +2643,6 @@
                                   "vars" : [
                                     {
                                       "default" : "brightness",
-                                      "inHistory" : false,
-                                      "inUrl" : true,
                                       "name" : "control"
                                     }
                                   ],
@@ -3628,8 +3624,6 @@
                                   "vars" : [
                                     {
                                       "default" : "brightness",
-                                      "inHistory" : false,
-                                      "inUrl" : true,
                                       "name" : "control"
                                     }
                                   ],

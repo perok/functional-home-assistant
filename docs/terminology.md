@@ -167,7 +167,8 @@ Three words go with it, and they are not interchangeable:
   of one, as opposed to a value written down (`Choice.Fixed`). The distinction is the access story rather than a convenience:
   only a declared variable is writable, so a value written down has nowhere for a write to land.
 - **Shadow** — a nested declaration of a name an ancestor also declares, winning for its own
-  subtree and nothing else. What "one control over three charts, except this one" is made of.
+  subtree and nothing else. What "one control over three charts, except this one" is made of. A
+  declaration that is `notShadowed()` (the page's `popups`) has none: one below it fails the build.
 - **Variable** vs **declaration** — a variable (`varMod.Variable`) is only the name, which a
   reader holds without knowing who declares it. A declaration (`varMod.Declaration`, an entry in
   `Component.vars`) is one node owning a value for that name, and holds the variable.
@@ -310,6 +311,84 @@ the top chooses none. A name only narrows the shape a role requires. ADR 0013.
 **Entry** — the top-level Pkl module for one dashboard. `site.pkl` names every entry the instance
 serves; an entry's key in it is that dashboard's **slug** (its URL segment). ADR 0021.
 
+---
+
+## Card structure — what a card's markup holds
+
+**Template** — the whole card's markup, holes included. There is one per card.
+
+**Chrome** — two senses, and they are unrelated, so always say which:
+
+- **The dashboard's chrome** (`Theme.chrome`) — the frame: the page card's template, placing the
+  dashboard's card and the popup host. Ours, and made of HTML.
+- **The browser's chrome** (`ChromeColors`) — the UI the *device* paints around our page: the URL
+  bar, an installed app's status bar and splash. Not ours, and made of one colour per scheme,
+  which we can only ask for (`<meta name="theme-color">`, the manifest's themeable members).
+  ADR 0014.
+
+The vendor is a third thing again, and the reason the sentence "Chrome ignores the chrome colour
+in an installed app" needs writing out rather than shortening.
+
+**Nodes slot** — a slot whose value is nodes, where a value slot's is a reading or a literal. A card
+module declares the handle (`const local features = slotMod.nodes("features")`), its template
+places it as a raw hole, `\(features)` printing `{{{features}}}`, once and outside every section,
+and each node fills it (`slots { features.of(nodes) }`). The handle is a `NodesSlot`, which has
+only what its kind needs, so `features.bind` is a Pkl error at the line. A value slot and a nodes
+slot share one namespace, as a template's names do, and one wire map, `slots`, each entry
+carrying its `kind`.
+
+**Fill** — what a nodes slot holds on one node: nodes written down (`Fill.Nodes` with a fixed
+choice), a choice (`Fill.Nodes` with a `Chosen`, decided by a **pick**) or a set (`Fill.Set`). A
+node's fills are the nodes slots it sets, and the card's own list of them is `WireCard.regions`.
+
+**Region** — a nodes slot, in the words the runtime and the ids still use (`c_1_head_0`, the
+`regions` of a wire card, which lists each nodes slot's name).
+
+`children` is the default nodes slot (`slotMod.childrenSlot`). `Grid { children { … } }` is the
+sugar for filling it, and a card whose template places `{{{children}}}` needs nothing in its
+`slots` for it. Every other nodes slot is named in the card's `slots` and filled there.
+
+**Leaf card** — a card with no nodes slot. Its template *is* what a live patch renders, so a leaf is
+the only kind of node a patch ever targets.
+
+**Structural card** — a card with a nodes slot. Its element contains what it holds, so a patch aimed at
+it would carry that content back with it — which is why **structure is never a patch target**. A
+structural card therefore has only what it holds to show: a live slot on one is a build error
+*unless the value travels as a signal*, which never becomes bytes in the element. ADR 0012, ADR
+0017.
+
+A card wanting its OWN markup to move puts that markup in a nodes slot, as a node — a slider's head is
+a leaf card beside the rows for exactly this reason. So the guarantee needs no rule to police it:
+every hole in a template is filled by a node with an id of its own, and a patch at one node can
+never reach another's content.
+
+**Host** — the element a choice's case or a set's members are filled through: the root of the node
+whose nodes slot the live fill is, that slot being its card's whole template (`Renderer.hostId`).
+The word the runtime uses, not the author's; not to be confused with a **region**, which is the
+declaration.
+
+**Pick** — deciding a nodes slot's choice: its `by` is read once and its case looked up, else the
+otherwise, else nothing (`Ready.Pick`, `PickGraph`). A `by` that is a node variable (a tab bar,
+a `c.select`, an If over a variable, the page's `popups`, ADR 0033) is decided per viewer, a lookup of the
+viewer's value (`Shared.viewing`, `PickGraph.decideByVariable`) that nothing keeps; one that
+computes over a variable, alone or with state (an If chain mixing `valueIs` and a light), is a
+**viewer pick**, decided per viewer and kept per values (`PickGraph.decideByViewer`); any
+other reads state alone and is decided once per version, in `Shared`. Each case is a node
+with the id a fixed node at its index of the slot would have, the otherwise after the cases, and
+the index records which case holds each node below it. Inside a candidate set's clause, a pick is
+that clause's: every clause of a member shares its nodes' ids, so the clause is part of the pick's
+id (`<host>_k<clause>`), not of the cases'.
+
+**Flip** — a pick changing which case is shown because *entity state* moved, not because a user
+clicked. Over state alone it is server truth, so every viewer gets it; a viewer pick flips per
+values, for the viewers whose case the change moves and no others. Only a pick shown before
+and after flips: one inside a set member whose arrival or clause switch places it, or below
+another pick that flips, is in that placement instead. ADR 0007.
+
+---
+
+## Runtime — how a change reaches a browser
+
 **Node id** — a node's address, derived from its position in the tree (`c_2_0`). Not authored. ADR
 0022.
 
@@ -327,7 +406,8 @@ The second of three layers (build, index, decisions; the pipeline doc's §1a). N
 **Container** — what may be hidden: the page's root, which never is, and a pick's case, a popup
 among them. Every node is in the innermost one holding it, and is shown while each container up its
 chain is. A container is a node of the tree **index**: inside a renderer it is that node's `Ix` and
-a viewer's open set (`PickGraph.chosen`) is a `BitSet` of them, the cases its values pick.
+a viewer's open set (`PickGraph.chosen`) is a `BitSet` of them, the cases its values pick; the
+page's root, in no pick, is never in it, so a walk over a screen's nodes adds it itself.
 
 **Decisions** — what one state version decides: which members a set holds and in which clause,
 which branch a state group shows, whether each `valueWhile` holds. Held in that version's

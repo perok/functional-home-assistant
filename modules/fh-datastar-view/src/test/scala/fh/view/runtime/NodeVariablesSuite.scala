@@ -121,6 +121,38 @@ class NodeVariablesSuite extends munit.FunSuite {
     assertEquals(windowOf(d.fetchesIn(d.card)).sorted, List("1h", "24h"))
   }
 
+  test(
+    "a declaration that is not shadowed keeps its name for every node below"
+  ) {
+    val kept = Dashboard.Declaration("window", Some("24h"), shadowable = false)
+    def under(inner: LayoutNode) = dash(
+      LayoutNode.Component(
+        "box",
+        slots = Slots.kids(inner, box(Map("window" -> "1h"))),
+        vars = List(kept),
+        id = Some("top")
+      )
+    )
+    assertEquals(
+      under(box(Map.empty, box(Map("window" -> "1h")))).validate(),
+      List
+        .fill(2)(
+          "the variable 'window' is declared by 'top' above, which no node " +
+            "below may declare again — name it something else"
+        )
+        .zip(List("top_0_0", "top_1"))
+        .map((m, at) => s"$at: $m")
+    )
+    // The page's `popups` is one, so a card cannot hide it from its openers.
+    val errs = PklFixture
+      .snippet(
+        """card = (c.column) { vars { c.variable("popups").defaultingTo("x") } }
+          |""".stripMargin
+      )
+      .validate()
+    assert(errs.exists(_.contains("'popups' is declared by 'root'")), errs)
+  }
+
   test("a node's own declaration is in scope for its own slots") {
     val d = dash(
       LayoutNode.Component(

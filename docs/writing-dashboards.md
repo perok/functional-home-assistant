@@ -368,6 +368,9 @@ Each is a *variable*:
 - **A choice can start empty**, `vars { view.startingEmpty() }`: until a viewer
   chooses, `view.value` reads nothing and a `match` over it shows its otherwise,
   or nothing.
+- **A choice can keep its name for everything inside**, `view.defaultingTo("simple").notShadowed()`:
+  a card inside that declares `view` again fails the build, so every card in it
+  reads this one.
 
 ## Popups
 

@@ -1,6 +1,6 @@
 package fh.view.runtime
 
-import fh.view.model.NodeId
+import fh.view.model.{Dashboard, NodeId}
 import fh.view.testkit.HouseFixture
 import munit.CatsEffectSuite
 
@@ -131,6 +131,45 @@ class VarSignalNamesSuite extends CatsEffectSuite {
         }
         // Both on the one cell: the mirrors are keyed, so neither drops.
         assertEquals(keys.map(_._1.declarer).distinct.size, 1)
+      }
+  }
+
+  /** The library's popup is Pkl written around a variable, so every variable
+    * signal a page with a popup open reads is held to the ones the server
+    * writes.
+    */
+  test("an open popup reads only the signals the server writes") {
+    val popups = VarKey(Dashboard.PageRootId, "popups")
+    val withPopup =
+      s"""amends "@fh-dashboard/entry.pkl"
+         |
+         |import "@fh-dashboard/components.pkl" as c
+         |
+         |card = (c.column) {
+         |  children {
+         |    c.button("Help", c.view.popup("help", new c.Column {
+         |      children { c.button("Close", c.view.closePopup()) }
+         |    }))
+         |  }
+         |}
+         |""".stripMargin
+    val reads = s"""\\$$(${VarKey.SignalPrefix}[A-Za-z0-9_]+)""".r
+    TestServer
+      .fromWorkspace("var-popups", withPopup, Nil)
+      .use(_.page("?v.popups=help"))
+      .timeout(60.seconds)
+      .map { html =>
+        assert(html.contains("""<dialog open class="fh-popup">"""), html)
+        val written = Set(
+          popups.committedSignal,
+          popups.pendingSignal,
+          popups.initialValueSignal
+        )
+        assertEquals(
+          reads.findAllMatchIn(html).map(_.group(1)).toSet -- written,
+          Set.empty[String],
+          html
+        )
       }
   }
 }

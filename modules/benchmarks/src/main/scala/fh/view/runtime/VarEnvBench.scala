@@ -84,7 +84,8 @@ class VarEnvBench {
           _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.of(Map.empty)),
           renderer.vars.env(Map(window -> "7d")),
-          rot
+          rot,
+          Patches.Coverage.Logged
         )
         .unsafeRunSync()
     )

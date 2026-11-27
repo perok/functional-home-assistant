@@ -12,8 +12,8 @@ opaque type NodeId <: String = String
 
 object NodeId {
 
-  /** The derivations are [[LayoutNode.pathId]] and
-    * [[fh.view.runtime.MemberGraph.memberIdOf]]; any other source is a bug.
+  /** Minted by [[TreeIndex]]'s walk through `LayoutNode`'s id functions;
+    * everywhere else it only re-reads an id one of those minted.
     */
   private[view] def derived(s: String): NodeId = s
 }
@@ -36,9 +36,8 @@ object SetId {
   ): SetId = id
 }
 
-/** A materialised member; minted only by
-  * [[fh.view.runtime.MemberGraph.memberIdOf]], so
-  * [[fh.view.runtime.MemberGraph.innerSetId]] can require one.
+/** A materialised member; minted only by [[fh.view.runtime.MemberGraph]], from
+  * a member's node.
   */
 opaque type MemberId <: NodeId = String
 

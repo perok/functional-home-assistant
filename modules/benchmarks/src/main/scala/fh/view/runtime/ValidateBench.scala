@@ -7,12 +7,12 @@ import org.openjdk.jmh.infra.Blackhole
 
 import java.util.concurrent.TimeUnit
 
-/** `Dashboard.validated` over each checked-in wire snapshot: what every reload
-  * and dump refresh pays per dashboard. Read from the branch's own snapshots,
-  * so the same file measures a wire change before and after it. Each call
-  * validates a freshly decoded dashboard, as a reload does: a node caches its
-  * slots' typing, so validating one dashboard twice would time a second pass
-  * that no reload makes.
+/** `Dashboard.validated` over each checked-in wire snapshot: what a boot, and a
+  * reload or dump refresh that changes it, pays per dashboard. Read from the
+  * branch's own snapshots, so the same file measures a wire change before and
+  * after it. Each call validates a freshly decoded dashboard, as a reload does:
+  * a node caches its slots' typing, so validating one dashboard twice would
+  * time a second pass that no reload makes.
   */
 @State(Scope.Benchmark)
 @BenchmarkMode(Array(Mode.AverageTime))
