@@ -503,3 +503,28 @@ With that fixed the benches are back at main's, and the trims buy nothing measur
 **Worth asking again if** a cpu profile of the recorder, with `gc.time` small, shows these
 lookups. Check `gc.time` before reading a time regression with equal B/op as cpu work.
 
+## A per-node fragment folded and encoded as it is written
+
+2026-11-27, `perf-later` at 60b0dc2a. **Not built.**
+
+**Question.** `plan-after-regions-perf.md` 12 wanted one path for every `elements` line: the
+fragment through `Sink.Folding` into a frame writer that encodes UTF-8 itself, so the regex
+`collapse` and `getBytes` leave the frame path and a fragment is never copied on its way to bytes.
+
+**How.** Built that way (every frame kind, the writer hand-encoding a character at a time, an ASCII
+run in one loop), `-f 3 -prof gc` against 60b0dc2a; then a cpu profile of `RenderBench.wire`
+(async-profiler, collapsed).
+
+**Numbers.** B/op fell (`wire` 200,876 → 42,107, `tabFlip` 253,532 → 141,134) and time doubled:
+`wire` 43.7 → 91.9 µs, `chartWindow` 65.9 → 162.1, `tabFlip` 126.2 → 189.3, `resumeFlip`
+1224 → 1753. The profile: 73% of `wire` in `Folding.write` and the writer's loop, `String.charAt`
+and its bounds check a third of it. Two Java loops per character lose to the regex and
+`getBytes`'s intrinsics. The ASCII loop moved nothing.
+
+**Verdict.** A fragment in hand is collapsed and encoded whole, its bytes a piece of the frame's
+chunk, uncopied; only a walk folds as it writes. That keeps two copies of a fragment where the
+per-character path had none, and is still under the old writer in both B/op and time.
+
+**Worth asking again if** a JDK gives a public bulk encode into a caller's array (a
+`String.getBytes` into an offset, for UTF-8), which would remove `getBytes`'s array too.
+

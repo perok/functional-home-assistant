@@ -1370,7 +1370,9 @@ questions moved, and the recorder records a frame at a version the store mints f
 in §6a: it consults no cache, shares nothing, and streams straight to the client.
 
 **The render is shared per slug; the WIRE is not.** A batch's events are `SseFrame`s — the SSE text
-already encoded to bytes (`Datastar`), served by `SseFrame.frameStreamEncoder` instead of http4s's
+written into the frame's chunk by `Datastar`'s one frame writer, a fragment in hand collapsed and
+encoded whole as a piece of it, a repaint's folded as the walk writes it (`Sink.Folding`), and a
+signals frame's JSON printed from its sorted paths with no `Json` built — served by `SseFrame.frameStreamEncoder` instead of http4s's
 `ServerSentEvent.encoder`. That moves the encode from the socket to where the event is built, which
 makes the process-wide constants (keepalive, recover marker, reload patch) encode once instead of
 once per emission per connection — but it shares nothing on the live path, because `Patches.resume`

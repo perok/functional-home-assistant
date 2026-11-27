@@ -5,7 +5,8 @@ import hedgehog.munit.HedgehogSuite
 
 /** A repaint's fragment is folded as the walk writes it ([[Sink.Folding]]), a
   * per-node patch's by `Datastar.collapse` over the whole string; the two must
-  * agree on every text, however the walk splits it into writes.
+  * agree on every text, however the walk splits it into writes. And every frame
+  * [[Datastar]] writes must be the bytes http4s's `ServerSentEvent` renders.
   *
   * A failing run names its seed; `HEDGEHOG_SEED=<seed>` replays it exactly.
   */
@@ -69,15 +70,57 @@ class FoldingSinkPropertySuite extends HedgehogSuite {
     } yield folded(text, plan) ==== Datastar.collapse(text)
   }
 
-  // Past one chunk too: the frame is the encoder's flushes.
-  property("a written morph is the frame patch builds") {
+  // Surrogates paired and lone, for the frame's own UTF-8 encoder.
+  private val genFrameChar: Gen[Char] =
+    Gen.choice1(genChar, Gen.element1('\uD83D', '\uDE00', '߿', '￿'))
+
+  // Past one chunk too: the frame is its buffers as they filled.
+  property("every frame is the event http4s renders") {
     for {
-      text <- Gen.string(genChar, Range.linear(0, 40)).forAll
+      text <- Gen.string(genFrameChar, Range.linear(0, 40)).forAll
+      more <- Gen.string(genFrameChar, Range.linear(0, 40)).forAll
       times <- Gen.element1(1, 2000).forAll
     } yield {
       val html = text * times
       val (written, ()) = Datastar.patchWritten("#root")(_.write(html))
-      written ==== Datastar.patch(html, selector = Some("#root"))
+      Result.all(
+        List(
+          written ==== rendered(
+            Elements,
+            "selector #root",
+            "elements " + Datastar.collapse(html)
+          ),
+          Datastar.patch(html, PatchMode.Inner, Some("#h")) ==== rendered(
+            Elements,
+            "selector #h",
+            "mode inner",
+            "elements " + Datastar.collapse(html)
+          ),
+          Datastar.patchElements(List(html, more)) ==== rendered(
+            Elements,
+            "elements " + Datastar.collapse(html + more)
+          ),
+          Datastar.remove(s"#$text") ==== rendered(
+            Elements,
+            "mode remove",
+            s"selector #$text"
+          ),
+          Datastar.patchSignals(html) ==== rendered(
+            "datastar-patch-signals",
+            s"signals $html"
+          )
+        )
+      )
     }
   }
+
+  private val Elements = "datastar-patch-elements"
+
+  private def rendered(eventType: String, lines: String*): SseFrame =
+    SseFrame.of(
+      org.http4s.ServerSentEvent(
+        data = Some(lines.mkString("\ndata: ")),
+        eventType = Some(eventType)
+      )
+    )
 }

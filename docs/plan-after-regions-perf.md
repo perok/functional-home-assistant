@@ -4,7 +4,7 @@ A full bench comparison of `after-regions` (9baea638) against main (574f062c), c
 `-f 3` and then profiled (async-profiler, alloc and cpu), found five regressions. Each one below
 names its cause, measured; the fixes keep behaviour byte-identical.
 
-**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10, 11 and 8 built; 12, the reconnect
+**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10, 11, 8 and 12 built; the reconnect
 question and 9 open, in the order at the end.
 
 ## Working this plan
@@ -139,19 +139,39 @@ order the walk met them.
     a sharing question (one encode per slug), which is a separate one: this is what one encode
     costs, shared or not.
 
-    **Shape.** One writer, `data:` lines straight into the frame's chunk, an `elements` line
-    through `Folding`, the event line and the blank line last; `patch`, `remove`,
-    `patchSignals` and the repaint are calls of it, and `collapse`, `sse` and
-    `ServerSentEvent` leave the frame path. A signals frame writes its nested JSON from the
-    sorted paths as `nestJsInto` writes a seed, instead of building a `Json` to print it. The
-    fold's oracle stays the regex, in the suite only. Byte-identical frames: the goldens and
-    the frame suites hold every kind.
+    **Shape.** One writer (`Datastar.FrameWriter`), `data:` lines straight into the frame's
+    chunk, the event line and the blank line last; `patch`, `remove`, `patchSignals` and the
+    repaint are calls of it, and `sse` and `ServerSentEvent` leave the frame path. A run of
+    morphs is one fragment. A fragment in hand is `collapse`d and encoded whole, its bytes a
+    piece of the chunk, uncopied; only the repaint's walk goes through `Folding`, which
+    `FoldingSinkPropertySuite` still pins against `collapse` — the plan was the fold for every
+    `elements` line, and that doubled the per-node benches' time (`docs/experiments.md`, "A
+    per-node fragment folded and encoded as it is written"). A signals frame prints its nested
+    JSON from the sorted paths, each key and leaf through circe's printer, instead of building
+    a `Json` to print it. Byte-identical frames: the goldens, and the suite's property that
+    every kind is the event http4s renders.
 
-    **Benches encode.** `tabFlip`, `selectChange`, `chartWindow` and `resumeFlip(One)` stop at
-    `List[Addressed]`, so no write or pull bench has ever priced its frames; each ends through
-    `Patches.encode` as `Server` does. First, on its own commit, so their new baselines
-    are taken on the current writer. Gate: those benches, `wire`, `wireCommon` and `HouseBench.repaint`
-    B/op down (the repaint's signals frame is ~350 KB of its 1.29 MB), times within error.
+    **Benches encode** (60b0dc2a). `tabFlip`, `selectChange`, `chartWindow` and
+    `resumeFlip(One)` stopped at `List[Addressed]`, so no write or pull bench priced its frames;
+    each ends as `Server` sends. Gate: those benches, `wire`, `wireCommon` and
+    `HouseBench.repaint` B/op down, times within error.
+
+    Built, `-f 3` against 60b0dc2a:
+
+    | bench | B/op | µs |
+    |---|---|---|
+    | `tabFlip` | 253,532 → 141,538 | 126.2 ± 10.4 → 112.4 ± 12.0 |
+    | `selectChange` | 257,658 → 142,908 | 121.1 ± 9.3 → 112.4 ± 10.7 |
+    | `chartWindow` | 242,838 → 111,121 | 65.9 ± 5.2 → 51.7 ± 1.8 |
+    | `resumeFlip` | 2,737,026 → 1,580,138 | 1224 ± 181 → 1087 ± 109 |
+    | `resumeFlipOne` | 275,359 → 160,175 | 165.9 ± 41.3 → 134.3 ± 20.8 |
+    | `wire` | 200,876 → 99,724 | 43.7 ± 3.4 → 31.7 ± 1.9 |
+    | `wireCommon` | 56,505 → 28,399 | 18.0 ± 1.8 → 10.7 ± 0.8 |
+    | `HouseBench.repaint` | 1,337,832 → 1,099,386 | 3024 ± 918 → 1855 ± 134 |
+
+    The gate is met. `repaint` is still 2.2× `pageWalk`'s bytes: the frame's own (8's
+    extension) and the signals frame's leaves, each a `Json` made from a `SlotValue` to be
+    printed once.
 
 Order: 10, 11, 8, 12, then the reconnect question (a tab switch of a few seconds repaints
 wholesale; why, with the browser test setup: it decides how often 8's path runs), then 9.

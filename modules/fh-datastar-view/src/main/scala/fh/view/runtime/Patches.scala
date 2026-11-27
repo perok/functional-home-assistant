@@ -59,8 +59,7 @@ private[runtime] enum Patch:
 
   def toSse: SseFrame = this match
     case Patch.Morph(html)     => Datastar.patchElements(html)
-    case Patch.Signals(values) =>
-      Datastar.patchSignals(Datastar.signalsJson(values))
+    case Patch.Signals(values) => Datastar.patchSignals(values)
     // An empty `Inner` is not a well-formed patch.
     case Patch.Fill(_, target, "", _) =>
       Datastar.remove(s"${target.selector} > *")
@@ -822,16 +821,21 @@ private[runtime] object Patches {
   def encode(patches: List[Addressed]): List[SseFrame] =
     patches
       .map(_.patch)
-      .foldLeft(List.empty[Patch]) {
-        case (Patch.Morph(before) :: rest, Patch.Morph(next)) =>
-          Patch.Morph(before + next) :: rest
+      // A run of morphs, newest first, is written as one event unjoined.
+      .foldLeft(List.empty[Either[List[String], Patch]]) {
+        case (Left(morphs) :: rest, Patch.Morph(next)) =>
+          Left(next :: morphs) :: rest
+        case (acc, Patch.Morph(html)) => Left(List(html)) :: acc
         // Adjacent only, which keeps the trailing cursor an ack: past an
         // element patch it stays its own event (ADR 0011).
-        case (Patch.Signals(before) :: rest, Patch.Signals(next)) =>
-          Patch.Signals(before ++ next) :: rest
-        case (acc, one) => one :: acc
+        case (Right(Patch.Signals(before)) :: rest, Patch.Signals(next)) =>
+          Right(Patch.Signals(before ++ next)) :: rest
+        case (acc, one) => Right(one) :: acc
       }
       .reverse
-      .map(_.toSse)
+      .map {
+        case Left(morphs) => Datastar.patchElements(morphs.reverse)
+        case Right(one)   => one.toSse
+      }
 
 }
