@@ -156,7 +156,7 @@ object ByteValuesShapePropertySuite {
       slots: List[SlotSpec],
       liveClass: Boolean,
       liveStyle: Boolean,
-      atRender: Boolean,
+      chosenClass: Boolean,
       member: Boolean
   ) {
     private def names = slots.indices.map(i => s"s$i")
@@ -168,11 +168,14 @@ object ByteValuesShapePropertySuite {
     def leaf(card: String): LayoutNode.Component = LayoutNode.Component(
       card,
       templateSlots = names.zip(slots.map(_.slot)).toMap,
-      cell = Option.when(liveClass || liveStyle || atRender)(
+      cell = Option.when(liveClass || liveStyle || chosenClass)(
         Cell(
           classes =
-            if liveClass then ListMap("fh-on" -> isOn(Some("sensor.a")))
-            else ListMap.empty,
+            (if liveClass then ListMap("fh-on" -> isOn(Some("sensor.a")))
+             else ListMap.empty) ++
+              (if chosenClass then
+                 ListMap("fh-chosen" -> is(Value.Var("window"), "7d"))
+               else ListMap.empty),
           styles =
             if liveStyle then
               ListMap(
@@ -180,10 +183,6 @@ object ByteValuesShapePropertySuite {
                   Value.Entity(Some("sensor.b"), Part.Attr("x"))
                 )
               )
-            else ListMap.empty,
-          atRender =
-            if atRender then
-              ListMap("fh-chosen" -> is(Value.Var("window"), "7d"))
             else ListMap.empty
         )
       )
@@ -363,8 +362,8 @@ object ByteValuesShapePropertySuite {
     slots <- genSlot(member).list(Range.linear(1, 4))
     liveClass <- Gen.boolean
     liveStyle <- Gen.boolean
-    atRender <- if member then Gen.constant(false) else Gen.boolean
-  } yield Shape(slots, liveClass, liveStyle, atRender, member)
+    chosenClass <- if member then Gen.constant(false) else Gen.boolean
+  } yield Shape(slots, liveClass, liveStyle, chosenClass, member)
 
   val genSample: Gen[Sample] = for {
     shape <- genShape

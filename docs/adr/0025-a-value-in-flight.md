@@ -415,7 +415,8 @@ the whole page on a transient condition is a worse failure than one that says
 ## Consequences
 
 - The wire format changed: a tab's `onclick` assigns pending before its POST,
-  its `active` expression reads both signals, the tabs bar carries the seed +
+  its highlight reads both signals (`cellClassWhen(cls, v.valueIs(x))`, which the
+  renderer binds to them, ADR 0033), the tabs bar carries the seed +
   the two clears, and the popup taps carry no client assignment at all. The
   `PklBuildSuite` snapshots record it.
 - `SurfaceGraphSuite` owns the pure half as a ROUND TRIP — whatever

@@ -6,11 +6,11 @@ import munit.CatsEffectSuite
 
 import scala.concurrent.duration.*
 
-/** '''A variable's names are spelled twice and must agree''': by
-  * `core/variable.pkl`'s `Spelling` in a component's markup, and by [[VarKey]]
-  * where the server commits, seeds, adopts and reads a link. Disagreement is
-  * silent — the server commits a signal no highlight reads — so the declarers
-  * come off a real page and every name is checked against the server's.
+/** '''A variable's names are spelled in several places on one page and must
+  * agree''': the URL mirror, the shell's seeds and clear, each button's ask and
+  * each tab's highlight, all from [[VarKey]]. Disagreement is silent — the
+  * server commits a signal no highlight reads — so the declarers come off a
+  * real page and every name is checked against the server's.
   */
 class VarSignalNamesSuite extends CatsEffectSuite {
 
@@ -74,6 +74,14 @@ class VarSignalNamesSuite extends CatsEffectSuite {
             clue = key
           )
         }
+        // The open tab's highlight reads the tab bar's own signals.
+        val tab = keys.find(_.name == "tab").get
+        assert(
+          html.contains(
+            s"String(($$${tab.pendingSignal} || $$${tab.committedSignal})) === '0'"
+          ),
+          html
+        )
       }
   }
 

@@ -135,15 +135,9 @@ yields the declared edge and its inverse, `VarGraph.readersOf` — the exact set
   when its element leaves the page.
 
 **Naming the declarer.** A choice names only the variable: the server resolves its declarer at
-the pressing node, as a read of it is resolved, and the renderer spells the pending ask from the
-same lookup. A highlight reading the committed signal from below still needs the declarer's ID
-in a slot's string, which the renderer never parses, so `Variable.declarer` is a token,
-`@@VAR:<name>@@`, that the hoist splices by the same rule (nearest declarer, a popup its own root,
-none is a build error naming the node). It is spliced into each node's OWN fields with the scope at
-that node, never across a subtree as `@@NODE_ID@@` is, or a shadow would hand its children the
-outer declarer. A candidate set's clause may use one to name a declarer above the set. The check
-for unresolved tokens stays behind it, so a missed splice fails the build instead of reaching the
-DOM.
+the pressing node, as a read of it is resolved, and the renderer spells the pending ask and a
+highlight's signals from the same lookup (`VarGraph.keyAt`). Pkl spells no signal name, so there
+is one resolver, `Dashboard.varScopes`.
 
 **One typed value on each side, never a bare name.** A component holds a variable as a
 `varMod.Variable`: its `ref` for a chosen window's `by`, `declarer` for a node below, its signals and URL
@@ -225,18 +219,18 @@ and `User` is a popup's. Several bars, and a bar nested in another's panel, are 
 being different declarers. Every path that bakes takes a bar's member from the session's
 variables, so a stale `ui.<id>` param cannot pick a tab.
 
-A highlight reads the committed `_var_<declarer>__<name>`, which the server writes for every
-declaration whoever reads it. So a SIGNAL reader needs no slot kind of its own: it is a name the
-token supplies, and a press re-renders the variable's readers and never the bar.
-
-**The open tab is lit in the first page.** `cellClassAtRender(cls, expr)` writes `cell.atRender`:
-evaluated for the viewer in the document form and written into `class`, with no signal, no frame
-and no binding, so patches are the same for every viewer. It is not a reader of a write and not
-in the render key. The tab and select buttons use it,
-`.cellClassAtRender("fh-chosen", v.valueIs(choice))`, so a page's raw HTML lights the open tab
-without scripts. Their live highlight stays the browser's own `data-class:fh-chosen` over the
-pending-or-committed value, instant on a press with the spinner until the commit (ADRs 0019,
-0025): a patch carrying the class could arrive after a second press and light two tabs.
+**A highlight is `v.valueIs(x)` in a bool signal slot**, the one variable read a signal may
+hold: `cellClassWhen("fh-chosen", v.valueIs(choice))` on the tab and select buttons. The
+variable's committed `_var_<declarer>__<name>` and its pending ask are signals every page already
+has (the server writes the commit for every declaration whoever reads it, the shell seeds both),
+so the renderer binds the slot to them, `String(($<pending> || $<committed>)) === 'x'`, and the
+slot has no signal of its own, no frame and no seed. It reads the ask while one is out, instant
+on a press with the spinner until the commit (ADRs 0019, 0025): a patch carrying the class could
+arrive after a second press and light two tabs. The document form writes the class for the
+viewer, so a page's raw HTML lights the open tab without scripts; the patch form leaves it to the
+binding, so patches are the same for every viewer. It is not a reader a write re-renders and not
+in the render key. Any other variable read in a signal is refused: a plain `v.value` could bind
+the same way and is left until a card needs it.
 
 ### A variable is a source
 
@@ -353,8 +347,9 @@ instead.
 - **A child that spells a parent's id OUTSIDE a variable.** `@@NODE_ID@@` means "the id of the
   node whose class wrote this token", and `DashboardBuild.hoistInlineSurfaces` splices it only for a
   node carrying `inlineSurfaces`. It cannot become unconditional — a `TabButton` inside `Tabs`
-  writes it meaning the tabs' id. A child naming its DECLARER is `Variable.declarer`; an explicit "I
-  own the tokens in my subtree" marker is wanted only by a parent that declares nothing.
+  writes it meaning the tabs' id. A child naming its DECLARER needs no token, since the renderer
+  resolves the declarer itself (`VarGraph.keyAt`); an explicit "I own the tokens in my subtree"
+  marker is wanted only by a parent that declares nothing.
 - **Declaring on the tree ROOT, so a control need not contain its readers.** Today a bar in a
   header cannot steer charts in a sibling column. A root declaration would, addressed through a
   reserved segment the server resolves to "this tree's root" (the root is `c` only until an author

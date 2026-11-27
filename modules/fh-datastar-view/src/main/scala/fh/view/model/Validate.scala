@@ -452,8 +452,10 @@ private[model] object Validate:
 
     /** A variable's value is the viewer's, so it is read only where bytes are
       * rendered per viewer: a leaf's value slot. A signal is named by what it
-      * reads and shared by every viewer, and structure is never re-rendered. A
-      * decision's are [[decisionVarErrors]]'.
+      * reads and shared by every viewer, and structure is never re-rendered.
+      * The exception is `v.valueIs(x)` in a bool signal, on any card, which the
+      * browser reads off the variable's own signals. A decision's are
+      * [[decisionVarErrors]]'.
       */
     def slotVarErrors(
         nodeId: String,
@@ -473,7 +475,7 @@ private[model] object Validate:
             s"$nodeId: slot '$name' reads the variable '$v', which no " +
               "ancestor declares — declare it on the node that owns the choice"
           ) ++ (
-          if (read.isEmpty) None
+          if (read.isEmpty || s.chosenSignal.isDefined) None
           else if (structural)
             Some(
               s"$nodeId: slot '$name' reads the variable $where, but card " +
@@ -484,7 +486,7 @@ private[model] object Validate:
             Some(
               s"$nodeId: slot '$name' reads the variable $where, but it is a " +
                 "signal, which every viewer shares — read it in a slot that " +
-                "is not a signal"
+                "is not a signal, or as `v.valueIs(x)` in a bool one"
             )
           else None
         )
@@ -728,7 +730,7 @@ private[model] object Validate:
           c.live.map {
             case (CellKey.Class(cls), _) => s"cell class '$cls'"
             case (CellKey.Style(p), _)   => s"cell style '$p'"
-          } ++ c.atRender.keys.map(cls => s"cell class '$cls' at render")
+          }
         )
         .map(what =>
           s"$setId: a set's $what reads state, which only a card node can " +
@@ -773,40 +775,6 @@ private[model] object Validate:
           )
           .toList
 
-    /** A class decided at render is a plain token, by a bool over what the
-      * document has in hand: the state, and the variables declared above. A
-      * fetch is never pre-read for it.
-      */
-    def atRenderErrors(
-        nodeId: String,
-        c: LayoutNode.Component,
-        scope: Map[String, String]
-    ): List[String] =
-      c.cell.toList.flatMap(_.atRender.toList).flatMap { (cls, raw) =>
-        val e = raw.about(c.subjectEntity)
-        val at = s"$nodeId: cell class '$cls' at render"
-        classTokenErrors(nodeId, cls) ++
-          (e.boolError orElse e.bypassError(ownMay = false))
-            .map(m => s"$at: $m")
-            .toList ++
-          e.variables.sorted
-            .filterNot(scope.contains)
-            .map(v =>
-              s"$at reads the variable '$v', which no ancestor declares — " +
-                "declare it on the node that owns the choice"
-            ) ++
-          Option
-            .when(e.readsMissingSubject)(
-              s"$at reads the card's entity, and the card has none"
-            )
-            .toList ++
-          Option
-            .when(e.fetches.nonEmpty)(
-              s"$at reads a fetch, which nothing answers for it"
-            )
-            .toList
-      }
-
     // In label order, for messages that read the same on every build.
     def labelled(
         slots: Map[SlotKey, BoundSlot]
@@ -850,7 +818,6 @@ private[model] object Validate:
             valueWhileErrors(nodeId, c.bound) ++
             typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++
-            atRenderErrors(nodeId, c, here) ++
             layoutErrors ++ childErrors(c.regions, prefix, nodeId, here)
         // Clauses carry complete nodes, validated as ordinary ones.
         case s: LayoutNode.SetNode =>

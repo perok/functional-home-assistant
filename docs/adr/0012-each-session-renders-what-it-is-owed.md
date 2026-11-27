@@ -173,13 +173,14 @@ anyone else's DOM.
 ## Why the no-JS path is worth its cost
 
 A selection is visible without scripts two ways: `{{bakeIndex}}` in a bake owner's own markup,
-and a class decided at render on a leaf (`cellClassAtRender`, ADR 0033), which is how a tab bar's
-buttons light the open tab in the first HTML — a tab click is then an
+and a cell class lit by a node variable (`cellClassWhen(cls, v.valueIs(x))`, ADR 0033), which
+is how a tab bar's buttons light the open tab in the first HTML — a tab click is then an
 `<a href="?v.<host>.tab=N">` and the answer is a fresh document. Supporting it used to cost four
 concepts and a branch in the diff path. It now costs nothing: the renderer already takes the
 viewer's `Selections`, a node whose markup reads the selection is structure, which is never
-cached, and a class decided at render is written in the document form only, so a leaf's patch
-is the same for every viewer and no key has to carry one. **The `validate` rule that would reject `{{bakeIndex}}` on a structural card is
+cached, and such a class is written for the viewer in the document form only, its binding
+reading the variable's own signals, so a leaf's patch is the same for every viewer and no key
+has to carry one. **The `validate` rule that would reject `{{bakeIndex}}` on a structural card is
 still the thing to restore if the no-JS goal is ever dropped** — but there is no longer a
 pipeline to simplify by dropping it.
 

@@ -1257,8 +1257,8 @@ member at every other value (`VarAt.Otherwise`, an If over a variable's `else`).
 The authoring side is one component (`c.chooser(c.select(v))`, `c.history.chooser` for the window): it
 declares the variable, and its bar is a `tab` node per option. A button's press names only the
 variable; the renderer fills its pending ask (`{{{tap.pending}}}`) from the declaration at that node,
-and the highlight it reads names the declarer through `@@VAR:window@@`, which the build splices
-with the nearest declarer's id (ADR 0033). Each button is a node with its own busy guard.
+and binds its highlight, `cellClassWhen("fh-chosen", v.valueIs(x))`, to the same declarer's
+pending and committed signals (ADR 0033). Each button is a node with its own busy guard.
 
 Two consequences worth stating, because neither is obvious:
 
@@ -1345,9 +1345,9 @@ root also carries the node's cell slots (`Cell`, ADR 0008): its classes, static 
 slots keyed by a `CellKey` instead of a name, so no template sees them, and their binding is their
 key's (`class:<name>`, `style:--…`): the renderer places the bindings on the root in both forms,
 and a live class or `style="--x:…"` itself only in the document form, like any signal value. A
-class decided at render (`cell.atRender`, ADR 0033) is in the document form only too, decided for
-the viewer, with no binding at all, so a node carrying one has two forms and what a session holds
-for it is the patch form's values, the same for every viewer. Every class the renderer emits there, and every `class:`
+class lit by a node variable (`v.valueIs(x)`, ADR 0033) is written there for the viewer, and its
+binding reads the variable's own signals, so it has no signal, seed or frame of its own, and what
+a session holds for the node is the patch form's values, the same for every viewer. Every class the renderer emits there, and every `class:`
 binding, goes through the theme's class rules (`ThemeClasses`, ADR 0020); card templates went
 through them once, when `Templates` compiled them. A themed value (its last step `ThemeClasses`)
 goes through them where it resolves (`Renderer.classed`): a literal once, into a

@@ -35,24 +35,10 @@ typealias Name = String(matches(Regex("[A-Za-z][A-Za-z0-9_]*")))
 /// segment and a JS string.
 typealias Value = String(matches(Regex("[A-Za-z0-9_.:-]+")))
 
-/// A node variable as one typed value: its name, and every spelling of it a
-/// reader below its declarer needs.
+/// A node variable as one typed value: its name, and what a reader below its
+/// declarer reads and writes.
 class Variable {
   name: Name
-
-  /// The declaring node's id, written from a node below it: a token the build
-  /// splices (`DashboardBuild.declarerToken`) and refuses where nothing above
-  /// declares the name.
-  fixed declarer: String = "@@VAR:\(name)@@"
-
-  /// Its signals and URL param, written from a node below the declarer: a
-  /// highlight. A [[choose]] needs none: it names only the variable.
-  fixed below: Spelling =
-    let (n = name) let (d = declarer) new Spelling { variable = n; declarerId = d }
-
-  /// The same, written in the declarer's own template, where `{{id}}` is its
-  /// id.
-  fixed own: Spelling = let (n = name) new Spelling { variable = n; declarerId = "{{id}}" }
 
   /// The activation of a bake group whose member this variable chooses by
   /// index: a tab bar's panel.
@@ -70,7 +56,8 @@ class Variable {
   /// Its value as this viewer holds it, a text reading: `label.of(window.value)`.
   /// The viewer's own, so only a leaf's value slot reads it; the build refuses it
   /// in a signal, on a card holding regions, and in anything decided once for
-  /// every viewer (a clause, a condition, a `valueWhile`, an order).
+  /// every viewer (a clause, a condition, a `valueWhile`, an order). [[valueIs]]
+  /// may also light a class (`cellClassWhen`).
   fixed value: slotMod.Reading =
     let (n = name) new slotMod.Reading { source = new slotMod.VarRead { name = n } }
 
@@ -131,22 +118,4 @@ class ValueIs extends slotMod.Expr {
 class InitialTransform {
   entityId: String
   transform: String
-}
-
-/// One variable's signals and URL param, from wherever its declarer's id is
-/// written. The server's spelling is `fh.view.runtime.VarKey`, and
-/// `VarSignalNamesSuite` holds the two equal.
-class Spelling {
-  hidden variable: Name
-  hidden declarerId: String
-
-  /// The selection group, which also names the pending ask.
-  fixed group: String = "var_\(declarerId)__\(variable)"
-  /// What the server says is in effect; only it writes this.
-  fixed committed: String = "_\(group)"
-  /// What this client has asked for.
-  fixed pending: String = tapMod.pendingSignal(group)
-  fixed urlParam: String = "v.\(declarerId).\(variable)"
-  /// What a highlight compares: the ask while one is out, else the commit.
-  fixed chosen: String = tapMod.pendingOrCommittedOf(group, committed)
 }

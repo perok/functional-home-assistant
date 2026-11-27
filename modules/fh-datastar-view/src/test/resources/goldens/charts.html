@@ -4,6 +4,7 @@
 <div class="fh-cell fh-col fh-cols-full" id="c_1"
   data-fh-url:window="['v.c_1.window', $_var_c_1__window, '24h']">
 <div class="fh-cell fh-tabs fh-select" id="c_1_bar_0"><a class="" id="c_1_bar_0_0"
+  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '1h'"
   data-on:click="$_c_1_bar_0_0__busy ? '' : $_var_c_1__window__pending = '1h'; @post('sse/call/charts/call_1?node=c_1_bar_0_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_1_bar_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_bar_0_0__error = ''))"
@@ -14,8 +15,8 @@
   data-signals__ifmissing="{_c_1_bar_0_0__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_1_bar_0_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_bar_0_0__busy_slow = $_c_1_bar_0_0__busy"
-  data-class:fh-busy-after="$_c_1_bar_0_0__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '1h'">1h</a><a class=" fh-chosen" id="c_1_bar_0_1"
+  data-class:fh-busy-after="$_c_1_bar_0_0__busy_slow">1h</a><a class=" fh-chosen" id="c_1_bar_0_1"
+  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '24h'"
   data-on:click="$_c_1_bar_0_1__busy ? '' : $_var_c_1__window__pending = '24h'; @post('sse/call/charts/call_2?node=c_1_bar_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_1_bar_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_bar_0_1__error = ''))"
@@ -26,8 +27,8 @@
   data-signals__ifmissing="{_c_1_bar_0_1__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_1_bar_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_bar_0_1__busy_slow = $_c_1_bar_0_1__busy"
-  data-class:fh-busy-after="$_c_1_bar_0_1__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '24h'">24h</a><a class="" id="c_1_bar_0_2"
+  data-class:fh-busy-after="$_c_1_bar_0_1__busy_slow">24h</a><a class="" id="c_1_bar_0_2"
+  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '7d'"
   data-on:click="$_c_1_bar_0_2__busy ? '' : $_var_c_1__window__pending = '7d'; @post('sse/call/charts/call_3?node=c_1_bar_0_2', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_1_bar_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_bar_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_bar_0_2__error = ''))"
@@ -38,8 +39,8 @@
   data-signals__ifmissing="{_c_1_bar_0_2__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_1_bar_0_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_bar_0_2__busy_slow = $_c_1_bar_0_2__busy"
-  data-class:fh-busy-after="$_c_1_bar_0_2__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '7d'">7d</a><a class="" id="c_1_bar_0_3"
+  data-class:fh-busy-after="$_c_1_bar_0_2__busy_slow">7d</a><a class="" id="c_1_bar_0_3"
+  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '30d'"
   data-on:click="$_c_1_bar_0_3__busy ? '' : $_var_c_1__window__pending = '30d'; @post('sse/call/charts/call_4?node=c_1_bar_0_3', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_1_bar_0_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_bar_0_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_bar_0_3__error = ''))"
@@ -50,8 +51,7 @@
   data-signals__ifmissing="{_c_1_bar_0_3__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_1_bar_0_3__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_bar_0_3__busy_slow = $_c_1_bar_0_3__busy"
-  data-class:fh-busy-after="$_c_1_bar_0_3__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '30d'">30d</a></div>
+  data-class:fh-busy-after="$_c_1_bar_0_3__busy_slow">30d</a></div>
 <div class="fh-cell fh-card fh-chart" id="c_1_0"><svg/></div></div>
 <div class="fh-cell" id="c_2">
 <article class="fh-card fh-readings"
@@ -71,6 +71,7 @@
 <div class="fh-cell fh-card fh-chart" id="c_1_0"><svg/></div>
 <!-- ==== as fixtured · patch c_1_bar_0_0 ==== -->
 <a class="" id="c_1_bar_0_0"
+  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '1h'"
   data-on:click="$_c_1_bar_0_0__busy ? '' : $_var_c_1__window__pending = '1h'; @post('sse/call/charts/call_1?node=c_1_bar_0_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_1_bar_0_0__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_bar_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_bar_0_0__error = ''))"
@@ -81,10 +82,10 @@
   data-signals__ifmissing="{_c_1_bar_0_0__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_1_bar_0_0__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_bar_0_0__busy_slow = $_c_1_bar_0_0__busy"
-  data-class:fh-busy-after="$_c_1_bar_0_0__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '1h'">1h</a>
+  data-class:fh-busy-after="$_c_1_bar_0_0__busy_slow">1h</a>
 <!-- ==== as fixtured · patch c_1_bar_0_1 ==== -->
 <a class="" id="c_1_bar_0_1"
+  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '24h'"
   data-on:click="$_c_1_bar_0_1__busy ? '' : $_var_c_1__window__pending = '24h'; @post('sse/call/charts/call_2?node=c_1_bar_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_1_bar_0_1__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_bar_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_bar_0_1__error = ''))"
@@ -95,10 +96,10 @@
   data-signals__ifmissing="{_c_1_bar_0_1__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_1_bar_0_1__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_bar_0_1__busy_slow = $_c_1_bar_0_1__busy"
-  data-class:fh-busy-after="$_c_1_bar_0_1__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '24h'">24h</a>
+  data-class:fh-busy-after="$_c_1_bar_0_1__busy_slow">24h</a>
 <!-- ==== as fixtured · patch c_1_bar_0_2 ==== -->
 <a class="" id="c_1_bar_0_2"
+  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '7d'"
   data-on:click="$_c_1_bar_0_2__busy ? '' : $_var_c_1__window__pending = '7d'; @post('sse/call/charts/call_3?node=c_1_bar_0_2', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_1_bar_0_2__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_bar_0_2__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_bar_0_2__error = ''))"
@@ -109,10 +110,10 @@
   data-signals__ifmissing="{_c_1_bar_0_2__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_1_bar_0_2__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_bar_0_2__busy_slow = $_c_1_bar_0_2__busy"
-  data-class:fh-busy-after="$_c_1_bar_0_2__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '7d'">7d</a>
+  data-class:fh-busy-after="$_c_1_bar_0_2__busy_slow">7d</a>
 <!-- ==== as fixtured · patch c_1_bar_0_3 ==== -->
 <a class="" id="c_1_bar_0_3"
+  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '30d'"
   data-on:click="$_c_1_bar_0_3__busy ? '' : $_var_c_1__window__pending = '30d'; @post('sse/call/charts/call_4?node=c_1_bar_0_3', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
   data-indicator="_c_1_bar_0_3__busy"
   data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_bar_0_3__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_bar_0_3__error = ''))"
@@ -123,8 +124,7 @@
   data-signals__ifmissing="{_c_1_bar_0_3__busy_slow:false}"
   data-on-signal-patch-filter="{include:/^_c_1_bar_0_3__busy$/}"
   data-on-signal-patch__delay.300ms="$_c_1_bar_0_3__busy_slow = $_c_1_bar_0_3__busy"
-  data-class:fh-busy-after="$_c_1_bar_0_3__busy_slow"
-  data-class:fh-chosen="String(($_var_c_1__window__pending || $_var_c_1__window)) === '30d'">30d</a>
+  data-class:fh-busy-after="$_c_1_bar_0_3__busy_slow">30d</a>
 <!-- ==== as fixtured · patch c_2 ==== -->
 <div class="fh-cell" id="c_2">
 <article class="fh-card fh-readings"

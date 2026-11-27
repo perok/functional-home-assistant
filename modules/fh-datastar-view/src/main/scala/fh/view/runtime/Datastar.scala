@@ -343,18 +343,25 @@ object Datastar {
       kind: SignalBind,
       classes: ThemeClasses
   ): String = kind match
-    case SignalBind.Text            => s"""data-text="$$$signal""""
-    case SignalBind.Bind            => s"""data-bind="$signal""""
-    case SignalBind.Style(property) =>
-      s"""data-style:$property="$$$signal""""
-    case SignalBind.Attr(name) => s"""data-attr:$name="$$$signal""""
-    // The bundle kebab-cases a `data-class` key, so write the CSS name.
-    case SignalBind.Class(name) =>
-      classes
-        .expand(name)
-        .map(c => s"""data-class:$c="$$$signal"""")
-        .mkString(" ")
-    case SignalBind.Handler => ""
+    case SignalBind.Bind => s"""data-bind="$signal""""
+    case paints          => painting(s"$$$signal", paints, classes)
+
+  /** A binding that only paints, over any expression: a signal, or a variable's
+    * own signals (`BoundSlot.chosenSignal`). `Bind` writes back to a name, so
+    * it has none.
+    */
+  def painting(read: String, kind: SignalBind, classes: ThemeClasses): String =
+    kind match
+      case SignalBind.Text            => s"""data-text="$read""""
+      case SignalBind.Style(property) => s"""data-style:$property="$read""""
+      case SignalBind.Attr(name)      => s"""data-attr:$name="$read""""
+      // The bundle kebab-cases a `data-class` key, so write the CSS name.
+      case SignalBind.Class(name) =>
+        classes
+          .expand(name)
+          .map(c => s"""data-class:$c="$read"""")
+          .mkString(" ")
+      case SignalBind.Handler | SignalBind.Bind => ""
 
   /** [[jsLiteral]], but a boolean reads back as one: `'false'` is truthy. */
   def jsValue(value: SlotValue): String = value match

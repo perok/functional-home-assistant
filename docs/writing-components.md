@@ -313,22 +313,19 @@ alone. A node above the card must declare the variable, or the build fails.
 
 Because the value is the viewer's, only a plain value slot of a card that holds
 no other cards may read one. The build refuses it in a signal slot (and so in
-`cellClassWhen` and `cellStyle`), in a `valueWhile`, and in a set's `where` or
-`orderBy`: those are worked out once for everyone. To show a different branch
-per viewer, use `c.iff(v.valueIs(x))`.
+`cellStyle`), in a `valueWhile`, and in a set's `where` or `orderBy`: those are
+worked out once for everyone. To show a different branch per viewer, use
+`c.iff(v.valueIs(x))`.
 
-To put a class on a node for the viewer when the page is drawn, use
-`cellClassAtRender`. It is how a tab bar lights the open tab before any script
-runs:
+The one exception is a class: `cellClassWhen` takes `v.valueIs(x)` on any card.
+It is how a tab bar lights the open tab:
 
 ```pkl
-myTab.cellClassAtRender("fh-chosen", v.valueIs("1"))
+myTab.cellClassWhen("fh-chosen", v.valueIs("1"))
 ```
 
-It is written once, into the page as it loads, and never sent again: when the
-viewer picks something else, nothing changes it. Pair it with the card's own
-`data-class` binding where the class has to follow a press, as the tab button
-does.
+The class is in the page as it loads, so it shows before any script runs, and
+it follows a press at once, before the server has answered.
 
 ### A value only while something holds
 

@@ -64,13 +64,12 @@ All on main:
   **pkl-lsp** support is recorded in `docs/pkl-editor-support.md` with `PklEditorSupportSuite`
   (#698, #701).
 
-Below R1, its own PR stacked on this one (branch `var-signal-reads`,
-`docs/plan-var-signal-reads.md`):
-- **A variable read in a bool signal slot**: `v.valueIs(x)` binds the variable's own
-  pending-or-committed signals at the node, and the document form writes it for the viewer.
-  `TabButton.active`, `cellClassAtRender`, `Variable.below`/`own`/`declarer`/`Spelling` and the
-  `@@VAR` splice go with it, so a declarer is resolved in one place (`Dashboard.scopeOf`), the
-  one R5 changes.
+Below R1, its own PR stacked on this one (branch `var-signal-reads`):
+- **A variable read in a bool signal slot**: `cellClassWhen(cls, v.valueIs(x))` binds the
+  variable's own pending-or-committed signals at the node, on any card, and the document form
+  writes it for the viewer (ADR 0033). `TabButton.active`, `cellClassAtRender`,
+  `Variable.below`/`own`/`declarer`/`Spelling` and the `@@VAR` splice are gone, so a declarer is
+  resolved in one place (`Dashboard.varScopes`), the one R5 changes.
 
 ## The idea
 

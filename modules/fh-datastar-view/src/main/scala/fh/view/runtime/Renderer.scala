@@ -1564,9 +1564,7 @@ class Renderer(validated: Dashboard.Validated) {
       plan: NodePlan,
       paint: Map[SlotKey, SlotValue],
       bake: Map[String, String],
-      signals: Map[SignalId, SlotValue],
-      // The document form's classes decided for this viewer, each spaced.
-      atRender: String = ""
+      signals: Map[SignalId, SlotValue]
   ) {
     def structural: Map[String, String] = plan.structural
     def constants: Map[SlotKey, SlotValue] = plan.constants
@@ -1581,30 +1579,43 @@ class Renderer(validated: Dashboard.Validated) {
     */
   private final case class Signalled(
       bind: String,
-      signal: SignalId,
+      signal: Option[SignalId],
       jsValue: String
   )
 
   private def signalledOf(signal: SignalId, kind: SignalBind): Signalled =
     Signalled(
       Datastar.binding(signal, kind, themeClasses),
-      signal,
+      Some(signal),
       // The value as a JS expression whatever the tier, so one template serves
       // a static tap and a state-dependent one (issue #133).
       s"$$$signal"
     )
 
+  /** `v.valueIs(at)` on the variable's own signals: the ask while one is out,
+    * else the commit, as every selection display reads (ADR 0025). Compared as
+    * strings, since `'' == 0` and `Number('')` is 0, and a token needs no
+    * escaping.
+    */
+  private def chosenSignalled(
+      key: VarKey,
+      at: String,
+      kind: SignalBind
+  ): Signalled = {
+    val read =
+      s"String(($$${key.pendingSignal} || $$${key.committedSignal})) === '$at'"
+    Signalled(Datastar.painting(read, kind, themeClasses), None, read)
+  }
+
   /** The root's `{{{cellClasses}}}` hole, and a set's: each with its leading
     * space; `validate` checks they are plain class tokens. A live class only
     * where `paint` is given (the document form) and holds it truthy; its
-    * binding is [[cellBindingsInto]]. `atRender` is the document form's classes
-    * decided for the viewer, after the rest.
+    * binding is [[cellBindingsInto]].
     */
   private def cellClassesInto(
       buf: Sink,
       cell: Option[Ready.Cell],
-      paint: Map[SlotKey, SlotValue] | Null,
-      atRender: String = ""
+      paint: Map[SlotKey, SlotValue] | Null
   ): Unit = cell match
     case Some(c) =>
       c.classSlots.foreach { e =>
@@ -1616,7 +1627,6 @@ class Renderer(validated: Dashboard.Validated) {
           val _ = buf.append(cellClassTexts.computeIfAbsent(e.name, expandCell))
         }
       }
-      val _ = buf.append(atRender)
     case None => ()
 
   /** In both forms, and AFTER the root's own `data-signals`: the bundle applies
@@ -1660,14 +1670,11 @@ class Renderer(validated: Dashboard.Validated) {
 
     override def writeHole(name: String, writer: java.io.Writer): Boolean =
       if (name == CardDef.CellClassesHole) {
-        if (form.isPatch) cellClassesInto(out, resolved.plan.node.cell, null)
-        else
-          cellClassesInto(
-            out,
-            resolved.plan.node.cell,
-            resolved.paint,
-            resolved.atRender
-          )
+        cellClassesInto(
+          out,
+          resolved.plan.node.cell,
+          if (form.isPatch) null else resolved.paint
+        )
         true
       } else if (name == CardDef.CellHole) {
         cellInto(out, resolved, form)
@@ -1712,7 +1719,7 @@ class Renderer(validated: Dashboard.Validated) {
           if (s == null) null else s.bind
         case Templates.View.Signal =>
           val s: Signalled | Null = resolved.signalled.getOrElse(slot, null)
-          if (s == null) null else s.signal
+          if (s == null) null else s.signal.orNull
         case Templates.View.JsValue =>
           val s: Signalled | Null = resolved.signalled.getOrElse(slot, null)
           if (s != null) s.jsValue
@@ -1837,23 +1844,42 @@ class Renderer(validated: Dashboard.Validated) {
     // A signal slot is always `live` and non-literal, so its name is constant
     // per node.
     val named = c.slots.toList.flatMap { case (slot, src) =>
-      Renderer.signalBind(src).map { kind =>
-        (
-          slot,
-          kind,
-          Renderer.signalName(
-            id,
-            SlotKey.label(slot),
-            src.entityId,
-            src.valueKey,
-            kind
+      Renderer.signalBind(src).filter(_ => src.chosenSignal.isEmpty).map {
+        kind =>
+          (
+            slot,
+            kind,
+            Renderer.signalName(
+              id,
+              SlotKey.label(slot),
+              src.entityId,
+              src.valueKey,
+              kind
+            )
           )
-        )
       }
+    }
+    // No signal of its own to seed or send: it reads its declarer's. Missed,
+    // it would fall into the byte slots and read the variable in a patch.
+    val chosen = c.slots.toList.flatMap { case (slot, src) =>
+      for {
+        kind <- Renderer.signalBind(src)
+        (name, at) <- src.chosenSignal
+      } yield slot -> chosenSignalled(
+        vars
+          .keyAt(id, name)
+          .getOrElse(
+            throw fh.view.FHError.internal(
+              s"$id reads the variable '$name', which validate found declared"
+            )
+          ),
+        at,
+        kind
+      )
     }
     val signalled = named.map { case (slot, kind, signal) =>
       slot -> signalledOf(signal, kind)
-    }.toMap
+    }.toMap ++ chosen
     NodePlan(
       node = c,
       tpl = templateOf(c.card),
@@ -1865,12 +1891,9 @@ class Renderer(validated: Dashboard.Validated) {
         (k, l.source.entityId, l)
       },
       // A live cell slot is always a signal, so only names are left.
-      byteSlots = {
-        val signalled = named.map(_._1).toSet
-        slots.toList.collect {
-          case (k, l: Planned.Live) if !signalled.contains(k) =>
-            ByteSlot(k, l.source.entityId, l)
-        }
+      byteSlots = slots.toList.collect {
+        case (k, l: Planned.Live) if !signalled.contains(k) =>
+          ByteSlot(k, l.source.entityId, l)
       },
       slots = slots,
       signalled = signalled,
@@ -1948,25 +1971,9 @@ class Renderer(validated: Dashboard.Validated) {
       plan,
       paint = paintB.result(),
       bake = bakeIndex,
-      signalB.fold(Map.empty[SignalId, SlotValue])(_.result()),
-      atRenderOf(plan, shared, fragments)
+      signalB.fold(Map.empty[SignalId, SlotValue])(_.result())
     )
   }
-
-  private def atRenderOf(
-      plan: NodePlan,
-      shared: Shared,
-      fragments: FetchSnapshot
-  ): String = plan.node.cell match
-    case Some(c) if c.atRender.nonEmpty =>
-      val in = lookupAt(fragments, plan.id, shared.states)
-      val subject: EntityState | Null =
-        plan.node.subjectEntity.fold(null)(shared.states.getOrElse(_, null))
-      c.atRender.iterator
-        .filter(a => Evaluator.holds(a.run(subject, shared.states, in)))
-        .map(a => cellClassTexts.computeIfAbsent(a.name, expandCell))
-        .mkString
-    case _ => ""
 
   /** The signal values one node carries (ADR 0017), never its children's:
     * descending would name a child's signal under its parent and leave the
