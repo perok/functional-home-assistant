@@ -2866,7 +2866,7 @@ object Server {
         Opened(
           sent,
           step.frames.size,
-          step.frames.map(_.bytes.length.toLong).sum
+          step.frames.map(_.bytes.size.toLong).sum
         )
       )
   }

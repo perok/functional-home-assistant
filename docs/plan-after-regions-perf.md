@@ -4,8 +4,8 @@ A full bench comparison of `after-regions` (9baea638) against main (574f062c), c
 `-f 3` and then profiled (async-profiler, alloc and cpu), found five regressions. Each one below
 names its cause, measured; the fixes keep behaviour byte-identical.
 
-**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10 and 11 built; 8 and 9 open,
-in the order at the end.
+**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10, 11 and 8 built; the reconnect
+question and 9 open, in the order at the end.
 
 ## Working this plan
 
@@ -94,11 +94,26 @@ order the walk met them.
    per-node frame is small, but a repaint (`Patches.repaint`) walks the whole body into one
    `String` (`tracedHtml`) and then copies the document five times, the regex over all of it,
    where a page load streams the same walk (`tracedInto`) holding one node. The repaint frame is
-   written into the stream instead: its `data: … elements ` prefix, the walk through the page's
-   writer chain behind a filter that folds a whitespace run holding a newline into one space,
-   then its end; the session's holds commit after the walk, as a page load's do. No hand-written
-   UTF-8: the writer's encoder does it in a fixed buffer. Gate: 10's `repaint` B/op near
-   `pageWalk`'s.
+   written as it is walked (`Datastar.patchWritten`): its `data: … elements ` prefix, the walk
+   through the page's writer chain behind `Sink.Folding` (`collapse` as it is written, pinned
+   against it by `FoldingSinkPropertySuite`), then its end. The frame is the encoder's 8 KB
+   flushes as one `fs2.Chunk` (`SseFrame` holds a chunk), so the page is never joined or grown.
+   Eagerly, inside the step: the next step diffs against the `holds` the repaint leaves, and a
+   tap or a swap runs on the owner without waiting on `drained`. Gate: 10's `repaint` B/op near
+   `pageWalk`'s. Built: `repaint` 9.82 MB → 1.29 MB/op (pageWalk 508 KB), 7191 → 2533 µs.
+
+   Left above `pageWalk`, profiled: the frame's own bytes (~250 KB, the eager shape's floor) and
+   the repaint's signals frame (~350 KB: `signalsJson`'s `Json`, its `noSpaces`, `"signals " +`,
+   `renderString`, `getBytes`, and `SignalId.segments` re-split per call), which could be written
+   the same way.
+
+   **Extension, if the Pi says the rest matters:** the same writer into the stream instead of a
+   chunk, which saves the frame's bytes (≈ the page). It needs a frame kind the
+   stream walks as it writes, the repaint step holding the owner until the stream hands back the
+   `holds` (a tap pressed meanwhile waits on the client's read, where it waits on the walk
+   today), an eager walk when no outlet is attached (a swap during a reconnect), empty `holds`
+   when the write breaks, and `Opened.bytes` taken after the write. It buys no latency: the
+   morph applies only once the whole event has arrived.
 10. **A bench of a real dashboard** (built: `HouseBench`). Every `RenderBench` page is synthetic
     (`TestCard`), and no bench priced a repaint. The starter site over `HouseShape`, a house with
     the maintainer's shape and no names (1116 entities in its per-domain counts, 3 floors of 16

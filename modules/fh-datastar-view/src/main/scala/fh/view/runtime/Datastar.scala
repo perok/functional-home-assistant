@@ -20,11 +20,13 @@ enum PatchMode(val wire: String):
 /** One SSE event, encoded to bytes at construction. That shares only the
   * constant frames (keep-alive, recover marker, reload); live frames are still
   * encoded per session, since each is built by [[Patches.resume]]. Byte- and
-  * header-identical to http4s's own encoder.
+  * header-identical to http4s's own encoder. A chunk, not an array: a repaint's
+  * frame is the pieces its walk was encoded in ([[Datastar.patchWritten]]),
+  * which joining would copy the page again. Equal by content.
   */
-private[view] final case class SseFrame(bytes: Array[Byte]):
+private[view] final case class SseFrame(bytes: fs2.Chunk[Byte]):
 
-  def render: String = new String(bytes, UTF_8)
+  def render: String = new String(bytes.toArray, UTF_8)
 
   // For tests and diagnostics; the hot path touches only `bytes`.
   private lazy val parsed: (Option[String], Option[String], Option[String]) = {
@@ -48,26 +50,19 @@ private[view] final case class SseFrame(bytes: Array[Byte]):
   def eventType: Option[String] = parsed._2
   def comment: Option[String] = parsed._3
 
-  // By content: arrays compare by reference.
-  override def equals(that: Any): Boolean = that match
-    case f: SseFrame => java.util.Arrays.equals(bytes, f.bytes)
-    case _           => false
-
-  override def hashCode: Int = java.util.Arrays.hashCode(bytes)
-
 private[view] object SseFrame:
 
   def of(event: ServerSentEvent): SseFrame =
-    SseFrame(event.renderString.getBytes(UTF_8))
+    SseFrame(fs2.Chunk.array(event.renderString.getBytes(UTF_8)))
 
   def comment(text: String): SseFrame =
-    SseFrame(s": $text\n\n".getBytes(UTF_8))
+    SseFrame(fs2.Chunk.array(s": $text\n\n".getBytes(UTF_8)))
 
   given frameStreamEncoder[F[_]]: EntityEncoder[F, fs2.Stream[F, SseFrame]] =
     EntityEncoder
       .entityBodyEncoder[F]
       .contramap[fs2.Stream[F, SseFrame]](
-        _.flatMap(f => fs2.Stream.chunk(fs2.Chunk.array(f.bytes)))
+        _.flatMap(f => fs2.Stream.chunk(f.bytes))
       )
       .withContentType(`Content-Type`(MediaType.`text/event-stream`))
 
@@ -88,6 +83,41 @@ object Datastar {
         Option.when(mode != PatchMode.Outer)(s"mode ${mode.wire}").toList ++
         List("elements " + collapse(fragment))
     )
+
+  /** [[patch]] over `selector` whose fragment `fill` writes, encoded as it is
+    * written, with the same bytes: through [[patch]] a whole page is a `String`
+    * copied five times on its way to bytes (`HouseBench.repaint`).
+    */
+  def patchWritten[A](selector: String)(fill: Sink => A): (SseFrame, A) = {
+    val pieces = new Pieces
+    // Buffered: `OutputStreamWriter`'s every write is a `synchronized` call.
+    val w = new java.io.BufferedWriter(
+      new java.io.OutputStreamWriter(pieces, UTF_8),
+      Server.PageChunkBytes
+    )
+    w.write(s"data: selector $selector\ndata: elements ")
+    val folding = new Sink.Folding(w)
+    val a = fill(folding)
+    folding.finish()
+    w.write("\nevent: datastar-patch-elements\n\n")
+    w.flush()
+    (SseFrame(pieces.written), a)
+  }
+
+  /** Each of the encoder's flushes as a chunk of its own: one buffer grown to
+    * the page and copied out is the page twice more.
+    */
+  private final class Pieces extends java.io.OutputStream {
+    var written: fs2.Chunk[Byte] = fs2.Chunk.empty
+
+    override def write(b: Array[Byte], off: Int, len: Int): Unit =
+      written = written ++ fs2.Chunk.array(
+        java.util.Arrays.copyOfRange(b, off, off + len)
+      )
+
+    override def write(b: Int): Unit =
+      written = written ++ fs2.Chunk.singleton(b.toByte)
+  }
 
   /** Removing an absent id is a no-op, which set member removal relies on. */
   def remove(selector: String): SseFrame =
@@ -113,7 +143,7 @@ object Datastar {
     */
   private val LineRun = java.util.regex.Pattern.compile("\\s*\\r?\\n\\s*")
 
-  private def collapse(html: String): String =
+  private[runtime] def collapse(html: String): String =
     if (html.indexOf('\n') < 0) html.trim
     else LineRun.matcher(html).replaceAll(" ").trim
 

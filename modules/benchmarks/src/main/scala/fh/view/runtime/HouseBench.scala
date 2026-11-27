@@ -80,7 +80,7 @@ class HouseBench {
   @Benchmark
   def repaint(bh: Blackhole): Unit = {
     val (frames, held) = repaintFrames()
-    bh.consume(frames.foldLeft(0)(_ + _.bytes.length))
+    bh.consume(frames.foldLeft(0)(_ + _.bytes.size))
     bh.consume(held.size)
   }
 

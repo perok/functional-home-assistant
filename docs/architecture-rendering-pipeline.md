@@ -989,7 +989,8 @@ building one (`RenderBench.memberClauseFlip`), and the plans an id holds are bou
 
 The last row is about the PULL path, and only the pull path. **A document render and a body repaint
 go through no cache at all** — `Patches.cached` is the `RenderCache`'s only entry point, and the page
-walk renders directly — so two viewers loading the same dashboard simultaneously each render the
+walk renders directly, into the response for a page and into its frame's bytes for a repaint
+(`Datastar.patchWritten`) — so two viewers loading the same dashboard simultaneously each render the
 whole page. That is
 [issue #130](https://github.com/perok/functional-home-assistant/issues/130): measured, deferred, and
 worth ~5.7 ms on a 200-card page. Nothing here relies on it.

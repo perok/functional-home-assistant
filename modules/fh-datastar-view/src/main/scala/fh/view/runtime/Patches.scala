@@ -731,8 +731,10 @@ private[runtime] object Patches {
       shared: Shared,
       viewing: Viewing
   ): (List[SseFrame], Map[Ix, Held]) = {
-    val body = renderer.renderBodyTraced(shared, viewing)
-    val held = body.claims
+    val (morph, held) =
+      Datastar.patchWritten(s"#${renderer.rootId}")(
+        renderer.renderBodyInto(_, shared, viewing)
+      )
     // The seeds alone are not enough: the morph re-applies a seed only when
     // its text changed, so on a page that missed frames (a forgotten session,
     // a restart) a value that moved and came back stayed where the frames
@@ -742,7 +744,7 @@ private[runtime] object Patches {
       .map((name, v) => name -> SlotValue.json(v))
       .toMap
     (
-      Datastar.patch(body.html, selector = Some(s"#${renderer.rootId}")) ::
+      morph ::
         Option.when(values.nonEmpty)(Patch.Signals(values).toSse).toList,
       held
     )
