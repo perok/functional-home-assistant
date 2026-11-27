@@ -7,6 +7,7 @@ import fh.view.model.{
   Cell,
   Choice,
   Dashboard,
+  Fill,
   LayoutNode,
   Lit,
   TemplateSlot,
@@ -32,14 +33,13 @@ object DashboardBuilders {
   extension (node: LayoutNode) {
     def asComponent: LayoutNode.Component = node match {
       case c: LayoutNode.Component => c
-      case other                   =>
-        throw new AssertionError(s"expected a Component, got: $other")
     }
 
-    def asSetNode: LayoutNode.SetNode = node match {
-      case s: LayoutNode.SetNode => s
-      case other => throw new AssertionError(s"expected a SetNode, got: $other")
-    }
+    def asSet: Fill.Set = Sets
+      .of(node)
+      .getOrElse(
+        throw new AssertionError(s"expected a node holding a set, got: $node")
+      )
   }
 
   /** A table chosen by the variable `name`, as `p.history.chosen` writes one:
@@ -62,7 +62,7 @@ object DashboardBuilders {
     * else.
     */
   def declared(defaults: (String, String)*): List[Dashboard.Declaration] =
-    defaults.toList.map(Dashboard.Declaration(_, _))
+    defaults.toList.map((name, d) => Dashboard.Declaration(name, Some(d)))
 
   /** The card [[choices]] places, under [[ChoiceCard]]. */
   val choiceCard: CardDef =
@@ -100,15 +100,15 @@ object DashboardBuilders {
       card: String,
       slots: (String, TemplateSlot)*
   ): LayoutNode.Component =
-    LayoutNode.Component(card, slots.toMap)
+    LayoutNode.Component(card, Slots.values(slots.toMap))
 
   /** A `col` container over `kids` (the card name each suite's `cards`
     * defines).
     */
   def col(kids: LayoutNode*): LayoutNode.Component =
-    LayoutNode.Component("col", regions = LayoutNode.kids(kids*))
+    LayoutNode.Component("col", slots = Slots.kids(kids*))
 
   /** A `row` container over `kids`. */
   def row(kids: LayoutNode*): LayoutNode.Component =
-    LayoutNode.Component("row", regions = LayoutNode.kids(kids*))
+    LayoutNode.Component("row", slots = Slots.kids(kids*))
 }

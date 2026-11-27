@@ -1,5 +1,9 @@
 package fh.view.functional
 
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import api.homeassistant.ws.domain.HistoryPoint
 import cats.effect.IO
@@ -20,22 +24,22 @@ class DecisionFetchServedSuite extends CatsEffectSuite {
 
   // A member while the washer has any history in the last hour.
   private val dashboard = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "item" -> TestCard("<i>{{label}}</i>"),
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map(LayoutNode.DefaultRegion -> Region())
+        regions = Set(LayoutNode.DefaultRegion)
       )
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
-        LayoutNode.SetNode(
+      slots = Slots.kids(
+        Sets.node(
           candidates = List(left.entityId),
           members = Map(
-            left.entityId -> LayoutNode.SetMember(
+            left.entityId -> Sets.Member(
               List(
-                LayoutNode.SetClause(
+                Sets.Clause(
                   Some(
                     ValueExpr(
                       Value.Cel(
@@ -55,7 +59,9 @@ class DecisionFetchServedSuite extends CatsEffectSuite {
                   ),
                   LayoutNode.Component(
                     "item",
-                    Map("label" -> TemplateSlot(ValueExpr.literal("washing")))
+                    Slots.values(
+                      Map("label" -> TemplateSlot(ValueExpr.literal("washing")))
+                    )
                   )
                 )
               )

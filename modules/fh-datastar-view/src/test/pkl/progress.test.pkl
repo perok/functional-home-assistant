@@ -6,7 +6,7 @@ amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseMod
-import "../../main/resources/dashboards/lib/components/base/surface.pkl" as surfacesMod
+import "../../main/resources/dashboards/lib/components/base/iff.pkl" as iffMod
 import "../../main/resources/dashboards/lib/components/defaults.pkl" as defaultsMod
 import "../../main/resources/dashboards/lib/providers.pkl" as p
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
@@ -47,7 +47,7 @@ local function using(rules: defaultsMod.ProgressRules, given: hass.SensorEntity,
 /// The bar a progress card shows, inside the `c.iff` that shows it only while
 /// it runs.
 local function barOf(card: c.ProgressCard): barBaseMod.ProgressBar =
-  let (f = card.features[0]) (if (f is surfacesMod.If) f.`then`[0] else f) as barBaseMod.ProgressBar
+  let (f = card.features[0]) (if (f is iffMod.If) f.`then`[0] else f) as barBaseMod.ProgressBar
 
 local function inHouse(key: String, id: String): hass.SensorEntity =
   dev(house.devices[key].device_name, house.devices[key].entities).entities
@@ -194,7 +194,7 @@ facts {
     local washer = c.progress(onDevice(left, List(total, words("st", "status"))))
     washer.running == cmp("sensor.rem", "gt", 0)
     // The bar is structure, gone while idle; the countdown is a value, empty.
-    (washer.features[0] as surfacesMod.If).condition == washer.running
+    (washer.features[0] as iffMod.If).condition == washer.running
     (washer.slotsByName["value"].value as slotMod.Reading).valueWhile == washer.running
     // An author hides the whole card on the same rule.
     c.iff(washer.running).then(washer).condition == washer.running

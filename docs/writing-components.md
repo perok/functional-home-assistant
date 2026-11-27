@@ -26,14 +26,14 @@ Here is the smallest component that works:
 ```pkl
 module mycards
 
-import "@fh-dashboard/core/node.pkl" as nodes
+import "@fh-dashboard/core/node.pkl" as nodeMod
 import "@fh-dashboard/core/slot.pkl" as slotMod
 
 const local message = slotMod.slot("message")
 
-class Banner extends nodes.Node {
+class Banner extends nodeMod.Node {
   card = "banner"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     template = """
       <div class="banner">\(message)</div>
       """
@@ -107,7 +107,7 @@ your template, so the banner above is two elements. To make your own element
 the outer one, say what it is instead of writing it in the template:
 
 ```pkl
-cardDef = new nodes.CardDef {
+cardDef = new nodeMod.CardDef {
   tag = "article"
   classes = "banner"
   attrs = #"data-on:click="$open = true""#
@@ -313,22 +313,20 @@ alone. A node above the card must declare the variable, or the build fails.
 
 Because the value is the viewer's, only a plain value slot of a card that holds
 no other cards may read one. The build refuses it in a signal slot (and so in
-`cellClassWhen` and `cellStyle`), in a `valueWhile`, and in a set's `where` or
-`orderBy`: those are worked out once for everyone. To show a different branch
-per viewer, use `c.iff(v.valueIs(x))`.
+`cellStyle`), which every viewer shares. To show a different branch per viewer,
+use `c.iff(v.valueIs(x))`; to show a different set of members, or the same ones
+in another order, read it in the set (below); to give a slot a value only for
+some viewers, read it in its `valueWhile`.
 
-To put a class on a node for the viewer when the page is drawn, use
-`cellClassAtRender`. It is how a tab bar lights the open tab before any script
-runs:
+The one exception is a class: `cellClassWhen` takes `v.valueIs(x)` on any card.
+It is how a tab bar lights the open tab:
 
 ```pkl
-myTab.cellClassAtRender("fh-chosen", v.valueIs("1"))
+myTab.cellClassWhen("fh-chosen", v.valueIs("1"))
 ```
 
-It is written once, into the page as it loads, and never sent again: when the
-viewer picks something else, nothing changes it. Pair it with the card's own
-`data-class` binding where the class has to follow a press, as the tab button
-does.
+The class is in the page as it loads, so it shows before any script runs, and
+it follows a press at once, before the server has answered.
 
 ### A value only while something holds
 
@@ -353,9 +351,15 @@ It takes what `active` and `disabled` take: `true`/`false`, a condition
 `bool` (`slotMod.expr("int(value.state) > 0")`). A condition is the fast choice, and
 one that names no entity reads the slot's. A reading here can read history as
 above, and so can one in a set's `where` or `orderBy` or in a `c.iff`, but not
-through `p.history.chosen`: these are decided once for every viewer, so the
-build refuses a window a viewer picks.
+through `p.history.chosen`: a decision asks for its history on every change, not
+for one viewer's window, so the build refuses a window a viewer picks.
 Your template decides what `""` looks like; the progress bar hides.
+
+It can read a node variable too, `valueWhile = mode.valueIs("detail")`: the
+slot then has a value for the viewers on `detail` and `""` for the rest, and its
+history is read only for the first. A slot that reads a variable is for the
+viewer alone, so it is not a signal, and the variable must be declared at or
+above the node.
 
 Such a decision is kept until an entity it reads changes, and the history's own
 sensor is not one of them: a `where` over `size(past) > 0` alone keeps its first
@@ -386,7 +390,8 @@ slots {
 </button>
 ```
 
-That is the whole thing. You do not write any signal names, and you do not need
+That is the whole thing, a `c.view.popup(…)` tap included: the popup comes
+along with the tap. You do not write any signal names, and you do not need
 a `tapMod.busy.ifSet(…)` section around anything — the pieces bring their own, so you
 place them whether or not this particular card guards its tap.
 
@@ -460,23 +465,97 @@ it: `.postingChecked("brightness", dragged, simpleMod.within(0, 255))`, or
 
 ## Cards that hold other cards
 
-A container declares **regions** instead of slots:
+A container has a slot whose value is nodes, a **nodes slot**, where a
+plain slot holds text. The default one is `children`, and a template that
+places it needs nothing else:
 
 ```pkl
-cardDef = new nodes.CardDef {
+cardDef = new nodeMod.CardDef {
   template = """
-    <div class="panel">{{{children}}}</div>
+    <div class="panel">\(slotMod.childrenSlot)</div>
     """
-  regions = new Mapping {
-    ["children"] = new nodes.Region {}
-  }
 }
 ```
 
 Anything the author puts in `children` is rendered and dropped in at
-`{{{children}}}`. Place each region exactly once, with three braces, and not
-inside a `{{#…}}` section; the build says so if you don't. A slot cannot share
-a region's name.
+`{{{children}}}`. For a second place to put cards, declare a handle with
+`slotMod.nodes("name")`, place it in the template, and fill it in `slots`:
+
+```pkl
+const local features = slotMod.nodes("features")
+
+class Panel extends nodeMod.Node {
+  card = "panel"
+  hidden extras: Listing<nodeMod.LayoutNode> = new {}
+  cardDef = new nodeMod.CardDef {
+    template = "<div class=\"panel\">\(slotMod.childrenSlot)</div>\(features)"
+  }
+  slots { features.of(extras) }
+}
+```
+
+Place each nodes slot exactly once, outside any `{{#…}}` section; the build
+says so if you don't, and it names a slot a card lists but its template never
+places. A nodes slot has no `.bind` or `.raw`: those belong to the plain
+slots. A plain slot cannot share a nodes slot's name.
+
+A nodes slot can hold a candidate set instead of cards you list:
+`features.of(q.from(…).where(…).render(…))`, the chain as it is. The members
+are placed straight into your card's root, which is why a set must be its
+card's **whole** template (`template = features.toString()`; the root, a `ul`
+if you set `tag = "ul"`, is the card's own, and `li` members are then valid
+HTML). A set beside other content in the template is a build error. When it
+sits among other content, put it in a `group` (`core/group.pkl`), a card that
+is just such a slot: `groupMod.group("ul", "list", set)`. `.build()` on a set
+is a `group` of its own.
+
+When a card that holds a set is itself a member of another set, a change to
+its own members re-sends that whole card. Put the inner set in a `group`
+below the card's root if that card is large.
+
+A set's `where` and `orderBy` may read a node variable, alone or mixed with state
+in one condition: `.where(q.any(List(mode.valueIs("all"), q.eq(q.stateProp, "on"))))`
+keeps every member for a viewer on `all` and the lit ones for the rest, and each
+viewer's list follows their own value. The variable must be declared at or above
+the node holding the set. What is inside such a set depends on the viewer, so
+a viewer's page holds only the members that viewer is shown.
+
+A nodes slot can also hold a **choice**: one of several branches, picked live.
+Over live state, for every viewer:
+
+```pkl
+branch.of(nodeMod.iff(c.isOn(lamp)).then(a).elif(c.isOn(fan)).then(b).`else`(x))
+```
+
+and over a node variable, for each viewer, with one key per value the viewer can
+hold and `.otherwise(…)` for the rest (a key can hold several nodes as a
+`Listing`, which sit in a row):
+
+```pkl
+panel.of(nodeMod.match(mode.value, new Mapping { ["heat"] = h; ["cool"] = k }).otherwise(off))
+```
+
+A chain can mix the two, one condition per branch, and each viewer gets the
+first branch that holds for them (an `else` left empty shows nothing):
+
+```pkl
+branch.of(nodeMod.iff(mode.valueIs("away")).then(a).elif(c.isOn(lamp)).then(b))
+```
+
+or over an entity's state, the same for every viewer (a text reading, keys are the
+states):
+
+```pkl
+panel.of(nodeMod.match(simpleMod.state(), new Mapping { ["heat"] = h; ["cool"] = k }).otherwise(off))
+```
+
+Only the branch showing is rendered and kept live. A choice is patched into
+your card's root, so it must be the card's whole template (`template =
+"\(panel)"`); the build refuses one beside anything else. To put it among other
+content, place a group holding it, which is a card of its own:
+`panel.of(new Listing { groupMod.inner("div", "my-panel", nodeMod.match(…)) })`
+(`core/group.pkl`; `groupMod.group` for one that is a layout cell). So a card
+holds at most one choice or set; for two, give each its own group.
 
 ---
 
@@ -485,7 +564,7 @@ a region's name.
 Put your card's CSS on the card itself:
 
 ```pkl
-cardDef = new nodes.CardDef {
+cardDef = new nodeMod.CardDef {
   template = "..."
   css = """
     .banner { padding: 8px; background: var(--fh-surface); }
@@ -516,7 +595,7 @@ you place inside `class="…"`, and put a whole class name in it
   meant to be markup or code, such as a click expression, and
   declare that slot with `slotMod.textRaw("name")` instead of
   `slotMod.slot(…)`: the build refuses a plain slot in a raw hole, and a raw
-  one in an escaped hole. A region is always placed this way.
+  one in an escaped hole. A nodes slot is always placed this way.
 
 A number or a yes/no value shows as text in either hole (`true` or `false`).
 A history answer does not: give its reading the steps

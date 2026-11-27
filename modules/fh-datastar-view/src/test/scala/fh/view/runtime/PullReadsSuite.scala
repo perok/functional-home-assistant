@@ -1,29 +1,28 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.history.Windows
 import cats.effect.{IO, Ref}
 import cats.effect.unsafe.implicits.global
 import fh.view.model.{
   SlotType,
-  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
-  NodeId,
   FetchTemplate,
   Choice,
-  Region,
   SlotRead,
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.testkit.TestIds.given
-import fh.view.testkit.DashboardBuilders.declared
+import fh.view.testkit.PklFixture
+import fh.view.runtime.RendererTestOps.ixOf
 
 /** A pull asks for the reads of what it renders, and nothing else — most pulls
   * move a plain card and ask none.
@@ -32,9 +31,11 @@ class PullReadsSuite extends munit.FunSuite {
 
   private def plain(id: String) = LayoutNode.Component(
     "dot",
-    Map(
-      "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
-      "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+    Slots.values(
+      Map(
+        "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
+        "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+      )
     ),
     id = Some(id)
   )
@@ -42,60 +43,65 @@ class PullReadsSuite extends munit.FunSuite {
   private def chart(entity: String, id: Option[String]) =
     LayoutNode.Component(
       "chart",
-      Map(
-        "chart" -> TemplateSlot(
-          ValueExpr(
-            Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day))),
-            List(Step.Chart())
-          ),
-          `type` = SlotType.TextRaw
+      Slots.values(
+        Map(
+          "chart" -> TemplateSlot(
+            ValueExpr(
+              Value.Fetch(FetchTemplate(entity, Choice.Fixed(Windows.day))),
+              List(Step.Chart())
+            ),
+            `type` = SlotType.TextRaw
+          )
         )
       ),
       id = id
     )
 
-  private def host(id: String) =
-    LayoutNode.Component("tabs", id = Some(id), vars = declared("tab" -> "0"))
+  private val tabs = PklFixture.shape(
+    """card = (c.tabs) { id = "charted"; tabs { ["A"] { t.hole("p") } } }"""
+  )
 
   private val renderer = Renderer.create(
     Dashboard(
-      cards = Map(
+      cards = tabs.cards ++ Map(
         "dot" -> TestCard("<span>{{state}}</span>"),
         "chart" -> TestCard("<div>{{{chart}}}</div>"),
         "col" -> TestCard(
           "<div>{{{children}}}</div>",
-          regions = Map("children" -> Region())
-        ),
-        "tabs" -> TestCard(
-          """<div id="{{hostId}}">{{{panel}}}</div>""",
-          regions = Map("panel" -> Region(Region.Baked))
+          regions = Set("children")
         )
       ),
       card = LayoutNode.Component(
         "col",
-        regions = LayoutNode.kids(
+        slots = Slots.kids(
           plain("plain"),
           chart("sensor.main", Some("chart")),
-          host("charted")
-        )
-      ),
-      surfaces = Map(
-        "withChart" -> Surface(
-          chart("sensor.tab", None),
-          bakeInto = Some(NodeId.derived("charted")),
-          bakeAs = Some("panel"),
-          bakeIndex = Some(0),
-          activation = Activation.Var("tab")
+          tabs.fill("p" -> chart("sensor.tab", None))
         )
       )
     )
   )
 
-  /** The entities of every read the pull asked for. */
-  private def asked(log: FragmentLog, open: Set[String] = Set.empty) = {
+  /** The viewer who has the tab bar's only tab chosen. */
+  private val onTab =
+    choosing(renderer, "charted", "tab", "0")
+
+  /** The entities of every read the pull asked for, for a viewer whose values
+    * are `env`: none chosen unless given. A live pull's unless `coverage` says
+    * a reconnect's.
+    */
+  private def asked(
+      log: FragmentLog,
+      env: VarEnv = Map.empty,
+      coverage: (FragmentLog, Long) => Patches.Coverage =
+        Pulled.from(renderer, _, _)
+  ) = {
     val snapshot = FetchSnapshot.of(
       renderer
-        .fetchesForPage(Set("withChart"), Shared.of(Map.empty), Map.empty)
+        .fetchesForPage(
+          Shared.of(Map.empty).viewing(onTab),
+          onTab
+        )
         .map(_ -> Staged(1L, "<svg/>"))
         .toMap
     )
@@ -110,9 +116,8 @@ class PullReadsSuite extends munit.FunSuite {
         Shared.of(Map("light.a" -> EntityState("light.a", "on", Map.empty))),
         noDecisionFetches,
         reads => seen.update(_ ++ reads).as(snapshot),
-        Map.empty,
-        0L,
-        open
+        env,
+        coverage(log, 0L)
       )
       reads <- seen.get
     } yield reads.map { case SlotRead(FetchRequest.History(e, _), _) =>
@@ -121,23 +126,31 @@ class PullReadsSuite extends munit.FunSuite {
   }
 
   test("a pull that moves only a plain card asks for nothing") {
-    assertEquals(asked(FragmentLog("test").touched("plain", 1L)), Set.empty)
+    assertEquals(
+      asked(Pulled.log(renderer).touched(renderer.ixOf("plain"), 1L)),
+      Set.empty
+    )
   }
 
   test("a pull that renders a chart asks for that chart") {
     assertEquals(
-      asked(FragmentLog("test").touched("chart", 1L)),
+      asked(Pulled.log(renderer).touched(renderer.ixOf("chart"), 1L)),
       Set("sensor.main")
     )
   }
 
-  test("an open tab's chart is asked on every pull, and only that one") {
-    // A pull re-checks every node of an open surface, and a chart's key holds
-    // its read's version — so the tab's chart is asked even when only a light
-    // moved, and the body's is not.
+  test(
+    "a reconnect asks for every chart on its screen, the body's and the tab's"
+  ) {
+    // A reconnect re-checks every node it shows, and a chart's key holds its
+    // read's version, so both are asked though only a light moved.
     assertEquals(
-      asked(FragmentLog("test").touched("plain", 1L), open = Set("withChart")),
-      Set("sensor.tab")
+      asked(
+        Pulled.log(renderer).touched(renderer.ixOf("plain"), 1L),
+        env = onTab,
+        coverage = (_, v) => Patches.Coverage.Swept(v)
+      ),
+      Set("sensor.main", "sensor.tab")
     )
   }
 }

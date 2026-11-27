@@ -1,9 +1,13 @@
 package fh.view.runtime
 
+import fh.view.testkit.{Conds, Sets}
+
+import fh.view.testkit.Slots
+
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.history.{ChartStyle, Window, Windows}
 import fh.view.model.*
-import fh.view.testkit.DashboardBuilders.{asComponent, declared, st}
+import fh.view.testkit.DashboardBuilders.{declared, st}
 import fh.view.testkit.TestCard
 import io.github.iltotore.iron.autoRefine
 
@@ -29,25 +33,27 @@ class ChosenWindowSuite extends munit.FunSuite {
   private def chart(window: Choice[Window]) =
     LayoutNode.Component(
       "chart",
-      templateSlots = Map(
-        "chart" -> TemplateSlot(
-          ValueExpr(
-            Value.Fetch(FetchTemplate("sensor.t", window)),
-            List(style),
-            default = Some(Lit.Text("no window"))
-          ),
-          `type` = SlotType.TextRaw
+      slots = Slots.values(
+        Map(
+          "chart" -> TemplateSlot(
+            ValueExpr(
+              Value.Fetch(FetchTemplate("sensor.t", window)),
+              List(style),
+              default = Some(Lit.Text("no window"))
+            ),
+            `type` = SlotType.TextRaw
+          )
         )
       )
     )
 
   private def dash(root: LayoutNode) =
     Dashboard(
-      cards = Map(
+      cards = Sets.cards ++ Map(
         "chart" -> TestCard("<div>{{{chart}}}</div>"),
         "box" -> TestCard(
           "<div>{{{children}}}</div>",
-          regions = Map("children" -> Region())
+          regions = Set("children")
         )
       ),
       card = root
@@ -61,11 +67,11 @@ class ChosenWindowSuite extends munit.FunSuite {
 
   /** The pre-read at `shared`, then the body over what it answered. */
   private def paint(r: Renderer, shared: Shared): (List[SlotRead], String) =
-    val reads = r.fetchesForPage(Set.empty, shared, Map.empty)
+    val reads = r.fetchesForPage(shared, Map.empty)
     val snapshot =
       FetchSnapshot.of(reads.map(q => q -> Staged(1L, s"<svg>$q</svg>")).toMap)
     reads -> r
-      .renderBodyTraced(shared, Viewing(Selections.none, snapshot))
+      .renderBodyTraced(shared, Viewing(snapshot))
       .html
 
   test("an entity's state picks the window, per version") {
@@ -76,10 +82,7 @@ class ChosenWindowSuite extends munit.FunSuite {
 
   test("what picks the window wakes the chart and keys its bytes") {
     val d = dash(chart(byState()))
-    val node = Ready
-      .Compile(Evaluator.Scope(""))
-      .component(d.card.asComponent)
-      .fold(e => fail(e.message), identity)
+    val node = Conds.compiledAlone(d.card)
     assertEquals(node.liveEntities, List(span))
     assertEquals(node.liveEntitiesAsBytes, List(span))
   }
@@ -132,12 +135,12 @@ class ChosenWindowSuite extends munit.FunSuite {
   test("a decision's window is written down, even one state would pick") {
     val past = ValueExpr(Value.Fetch(FetchTemplate("sensor.t", byState())))
     val guard = ValueExpr(Value.Cel("size(past) > 0", Map("past" -> past)))
-    val set = LayoutNode.SetNode(
+    val set = Sets.node(
       candidates = List("sensor.t"),
       members = Map(
-        "sensor.t" -> LayoutNode.SetMember(
+        "sensor.t" -> Sets.Member(
           List(
-            LayoutNode.SetClause(Some(guard), chart(Choice.Fixed(Windows.day)))
+            Sets.Clause(Some(guard), chart(Choice.Fixed(Windows.day)))
           )
         )
       )
@@ -153,7 +156,7 @@ class ChosenWindowSuite extends munit.FunSuite {
     val box = (default: String, kid: LayoutNode) =>
       LayoutNode.Component(
         "box",
-        regions = LayoutNode.kids(kid),
+        slots = Slots.kids(kid),
         vars = declared("window" -> default)
       )
     val one = chosenBy(window, Case(Lit.Text("24h"), Windows.day))
@@ -161,6 +164,44 @@ class ChosenWindowSuite extends munit.FunSuite {
     refused(dash(box("4h", one)), "'4h' is not one of 24h")
     // Over state the build cannot know: the choice decides at render.
     assertEquals(dash(chart(byState())).validate(), Nil)
+  }
+
+  test("a renderer checks a session's values together, the start beneath") {
+    // `b` = 1 is taken only while `a` is not at its declared `y`.
+    val both = ValueExpr(
+      Value.Var("a"),
+      List(Step.Cel("value + '_' + b", Map("b" -> ValueExpr(Value.Var("b")))))
+    )
+    val r = Renderer.create(
+      dash(
+        LayoutNode.Component(
+          "box",
+          slots = Slots.kids(
+            chosenBy(
+              both,
+              Case(Lit.Text("y_2"), Windows.day),
+              Case(Lit.Text("x_2"), Windows.hour),
+              Case(Lit.Text("x_1"), Windows.month)
+            )
+          ),
+          vars = declared("a" -> "y", "b" -> "2")
+        )
+      )
+    )
+    def key(name: String) =
+      r.vars.defaults.keys.find(_.name == name).getOrElse(fail(name))
+    val s = SessionState.initial.copy(
+      initialValues = Map(key("a") -> "x"),
+      vars = Map(key("b") -> "1")
+    )
+    val (checked, refusals) = r.recheck(s)
+    assertEquals(refusals, Nil)
+    assertEquals(checked.initialValues, s.initialValues)
+    assertEquals(checked.vars, s.vars)
+    // A start no longer taken takes the choice that leaned on it with it.
+    val (gone, why) = r.recheck(s.copy(initialValues = Map(key("a") -> "z")))
+    assertEquals((gone.initialValues, gone.vars), (Map.empty, Map.empty))
+    assertEquals(why.size, 2, why)
   }
 
   test(

@@ -30,7 +30,7 @@ owns the shape). It is also where a proposal should point: say which box moves. 
 questions" section is a live list, not a backlog — delete an entry when it is answered.
 
 [`docs/terminology.md`](docs/terminology.md) defines the words this project uses in a specific way
-— region, leaf/structure, host, bake, surface, clause, holds, floor, horizon, doorbell, linger.
+— region, leaf/structure, host, bake, popup, clause, holds, floor, horizon, doorbell, linger.
 **Read it before writing an ADR, a plan or a comment that leans on one**, and use the term as
 defined rather than a near-synonym: the vocabulary is load-bearing (a "region" is a declaration, a
 "host" is the element it is filled through, and prose that blurs them has already produced a wrong

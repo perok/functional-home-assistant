@@ -4,12 +4,13 @@ amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
-import "../../main/resources/dashboards/lib/core/surface.pkl" as surfaceMod
+import "../../main/resources/dashboards/lib/core/choice.pkl" as choiceMod
+import "../../main/resources/dashboards/lib/core/group.pkl" as groupMod
 import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
 import "../../main/resources/dashboards/lib/components/base/button.pkl" as buttonMod
-import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
+import "../../main/resources/dashboards/lib/core/node.pkl" as nodeMod
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as predMod
 import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
 import "pkl:reflect"
@@ -31,13 +32,19 @@ local lamp: hass.LightEntity = new {
 local function route(n: Any): String =
   let (d = n.declared["tap"] as slotMod.SetVarCall) "\(d.variable)=\(d.value)"
 
-// A baked select's members in order: what each shows, and the value showing it.
+// A baked select's cases in order: what each shows, and the value showing it.
 local function members(s: selectMod.Select): List<Pair<Any, String?>> =
-  s.inlineSurfaces.toMap().values.toList()
-    .sortBy((m) -> m.bakeIndex!!)
-    .map((m) -> Pair(m.content, let (at = m.activation.at) if (at is surfaceMod.AtValue) at.value else null))
+  let (g = s.nodesSlots.flatMap((x) -> x.nodes.toList()).find((n) -> n is groupMod.Group) as groupMod.Group)
+  let (w = (g.nodesSlots.findOrNull((x) -> x.choice != null)!!.fill as slotMod.NodesFill).choice as choiceMod.ChosenNodes)
+    w.cases.toList().map((k) -> Pair(k.value[0], k.`is` as String?))
 
 facts {
+  ["a variable in history is in the URL: kept out of it, it is refused"] {
+    shade.defaultingTo("a").inHistory().inHistory
+    !shade.defaultingTo("a").inHistory
+    module.catch(() -> shade.defaultingTo("a").notInUrl().inHistory().inHistory).contains("!this || inUrl")
+  }
+
   ["style keeps what was set on the select before it; every node field is carried or the card's"] {
     local before = c.select(shade).options(List("a", "b")).columns(6).cellStyle("--x", new slotMod.Reading { entityId = "sensor.x"; steps { simpleMod.cel("state") } }) as selectMod.Select
     local after = before.style("dropdown")
@@ -46,9 +53,9 @@ facts {
     after.card == "selectVarDropdown"
     // A field Node gains must be named here: carried by `style`, or computed by
     // the card. Otherwise it is dropped by `.style(…)` without a word.
-    local carried = Set("cellClasses", "layoutClasses", "stateClasses", "liveClasses", "liveStyles", "renderClasses", "id", "vars", "inputs")
-    local cards = Set("kind", "cell", "card", "cardDef", "variants", "slots", "templateSlots", "slotsByName", "declared", "calls", "children", "regions", "wireInputs", "inlineSurfaces")
-    reflect.Class(nodes.LayoutNode).properties.keys + reflect.Class(nodes.Node).properties.keys == carried + cards
+    local carried = Set("cellClasses", "layoutClasses", "stateClasses", "liveClasses", "liveStyles", "id", "vars", "inputs")
+    local cards = Set("kind", "cell", "card", "cardDef", "variants", "slots", "wireSlots", "valueSlots", "nodesSlots", "nodesDeclared", "slotsByName", "declared", "calls", "children", "regions", "wireInputs")
+    reflect.Class(nodeMod.LayoutNode).properties.keys + reflect.Class(nodeMod.Node).properties.keys == carried + cards
   }
 
   ["over a variable: buttons by default, one per option, each choosing its own"] {
@@ -57,9 +64,8 @@ facts {
     local opts = s.children.toList()
     opts.length == 2
     route(opts[0]) == "shade=pale" && route(opts[1]) == "shade=deep"
-    // Lit by the ask while one is out, else the commit.
-    (opts[1].slotsByName["active"].value as String).endsWith("=== 'deep'")
-    (opts[1].slotsByName["active"].value as String).contains("__pending")
+    // Lit while `shade` holds it; the renderer reads the ask while one is out.
+    opts[1].liveClasses["fh-chosen"] == nodeMod.booleanReading(shade.valueIs("deep"))
   }
 
   ["a style is the same choice in another card, a variable's baked"] {

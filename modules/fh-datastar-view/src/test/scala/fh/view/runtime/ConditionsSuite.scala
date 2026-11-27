@@ -17,7 +17,7 @@ import fh.view.testkit.DashboardBuilders.{noSubject, st}
 import io.circe.Json
 
 /** A condition compiled and decided against live state, for a set clause's
-  * guard, a state surface's condition and a `Count` inside either; none needs a
+  * guard, a state pick's condition and a `Count` inside either; none needs a
   * renderer.
   */
 class ConditionsSuite extends munit.FunSuite {
@@ -338,6 +338,54 @@ class ConditionsSuite extends munit.FunSuite {
     assert(holds(of(Step.AllOf), s, snapshot(s)))
     assert(!holds(of(Step.AnyOf), s, snapshot(s)))
     assertEquals(run(of(Step.Count, on, off), s, snapshot(s)), 2L)
+  }
+
+  test("IndexOfTrue is the first item that holds, and no value for none") {
+    val s = st("light.a", "on")
+    val on = isOn("light.a")
+    val off = isOn("light.missing")
+    def of(items: ValueExpr*) =
+      ValueExpr(
+        Value.List(ValueType.Bool, items.toList),
+        List(Step.IndexOfTrue)
+      )
+    assertEquals(run(of(on, off), s, snapshot(s)), 0L)
+    assertEquals(run(of(off, on, on), s, snapshot(s)), 1L)
+    assertEquals(run(of(off, off), s, snapshot(s)), null)
+    assertEquals(run(of(), s, snapshot(s)), null)
+    // An attribute the entity does not report reads no value, which does not
+    // hold, and the chain goes on.
+    val unreported = cmp("brightness", Op.Gt, Json.fromInt(10), Some("light.a"))
+    assertEquals(run(of(unreported, on), s, snapshot(s)), 1L)
+  }
+
+  test(
+    "IndexOfTrue stops at the first item that holds, and takes a bool list"
+  ) {
+    // A read of a variable where none is in hand raises: an item after the
+    // one that holds is never run.
+    val unread = ValueExpr(
+      Value.Var("never"),
+      List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("a"))))
+    )
+    val on = isOn("light.a")
+    val s = st("light.a", "on")
+    assertEquals(
+      run(
+        ValueExpr(
+          Value.List(ValueType.Bool, List(on, unread)),
+          List(Step.IndexOfTrue)
+        ),
+        s,
+        snapshot(s)
+      ),
+      0L
+    )
+    assertEquals(
+      ValueType.after(Step.IndexOfTrue, ValueType.List(ValueType.Bool)),
+      Right(ValueType.Int)
+    )
+    assert(ValueType.after(Step.IndexOfTrue, ValueType.Bool).isLeft)
   }
 
   test("CEL decides a guard, a list's item and an order term as steps do") {

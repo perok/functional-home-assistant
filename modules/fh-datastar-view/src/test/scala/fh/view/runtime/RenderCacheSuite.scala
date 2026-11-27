@@ -2,8 +2,7 @@ package fh.view.runtime
 
 import fh.view.testkit.TestCard
 import cats.effect.unsafe.implicits.global
-import fh.view.model.{Dashboard, LayoutNode, NodeId, SlotKey, SlotValue}
-import fh.view.testkit.TestIds.given
+import fh.view.model.{Dashboard, Ix, LayoutNode, SlotKey, SlotValue}
 
 import java.util.concurrent.atomic.AtomicInteger
 import scala.util.Try
@@ -24,8 +23,8 @@ class RenderCacheSuite extends munit.FunSuite {
 
   private val r = aRenderer
 
-  private val id: NodeId = "c_0"
-  private def of(slots: (SlotKey, SlotValue)*) = ByteValues(slots.toMap, None)
+  private val ix: Ix = Ix(0)
+  private def of(slots: (SlotKey, SlotValue)*) = ByteValues(slots.toMap)
   private val v1 = of("v" -> "1")
   private val v2 = of("v" -> "2")
 
@@ -34,8 +33,8 @@ class RenderCacheSuite extends munit.FunSuite {
   test("a second call for the same key does not render again") {
     val cache = fresh
     val runs = new AtomicInteger(0)
-    val a = cache(id, r, v1) { runs.incrementAndGet(); "<i>1</i>" }
-    val b = cache(id, r, v1) { runs.incrementAndGet(); "<i>2</i>" }
+    val a = cache(ix, r, v1) { runs.incrementAndGet(); "<i>1</i>" }
+    val b = cache(ix, r, v1) { runs.incrementAndGet(); "<i>2</i>" }
 
     assertEquals(runs.get(), 1)
     // The second call's bytes never ran.
@@ -48,9 +47,9 @@ class RenderCacheSuite extends munit.FunSuite {
     // Keyed by (node, values), the map would grow with every value a node
     // ever showed.
     val cache = fresh
-    val a = cache(id, r, v1)("<i>1</i>")
+    val a = cache(ix, r, v1)("<i>1</i>")
     val n1 = cache.size.unsafeRunSync()
-    val b = cache(id, r, v2)("<i>2</i>")
+    val b = cache(ix, r, v2)("<i>2</i>")
 
     assertEquals(a, "<i>1</i>")
     assertEquals(b, "<i>2</i>")
@@ -62,8 +61,8 @@ class RenderCacheSuite extends munit.FunSuite {
     // stay put, so values alone would serve the old dashboard's bytes after a
     // push.
     val cache = fresh
-    val before = cache(id, r, v1)("<i>old</i>")
-    val after = cache(id, aRenderer, v1)("<i>new</i>")
+    val before = cache(ix, r, v1)("<i>old</i>")
+    val after = cache(ix, aRenderer, v1)("<i>new</i>")
 
     assertEquals(before, "<i>old</i>")
     assertEquals(after, "<i>new</i>")
@@ -72,9 +71,9 @@ class RenderCacheSuite extends munit.FunSuite {
 
   test("a failed render leaves the entry that is there") {
     val cache = fresh
-    val _ = cache(id, r, v2)("<i>current</i>")
-    val failed = Try(cache(id, r, v1)(throw new RuntimeException("late")))
-    val still = cache(id, r, v2)("never runs")
+    val _ = cache(ix, r, v2)("<i>current</i>")
+    val failed = Try(cache(ix, r, v1)(throw new RuntimeException("late")))
+    val still = cache(ix, r, v2)("never runs")
 
     assert(failed.isFailure)
     assertEquals(still, "<i>current</i>")
@@ -83,8 +82,8 @@ class RenderCacheSuite extends munit.FunSuite {
 
   test("the next caller after a failure renders again and succeeds") {
     val cache = fresh
-    val failed = Try(cache(id, r, v1)(throw new RuntimeException("transient")))
-    val good = cache(id, r, v1)("<b>recovered</b>")
+    val failed = Try(cache(ix, r, v1)(throw new RuntimeException("transient")))
+    val good = cache(ix, r, v1)("<b>recovered</b>")
 
     assert(failed.isFailure)
     assertEquals(good, "<b>recovered</b>")
@@ -103,7 +102,7 @@ class RenderCacheSuite extends munit.FunSuite {
     val renders = new AtomicInteger(0)
     val served = List(day, week, day, week).map { inputs =>
       val html = if (inputs == day) "<i>24h</i>" else "<i>7d</i>"
-      cache(id, r, inputs) { renders.incrementAndGet(); html }
+      cache(ix, r, inputs) { renders.incrementAndGet(); html }
     }
 
     assertEquals(
@@ -120,7 +119,7 @@ class RenderCacheSuite extends munit.FunSuite {
     val cache = fresh
     val renders = new AtomicInteger(0)
     val served = List(day, day, day).map { inputs =>
-      cache(id, r, inputs) { renders.incrementAndGet(); "<i>24h</i>" }
+      cache(ix, r, inputs) { renders.incrementAndGet(); "<i>24h</i>" }
     }
 
     assertEquals(served.distinct, List("<i>24h</i>"))
@@ -133,8 +132,8 @@ class RenderCacheSuite extends munit.FunSuite {
   test("a swap empties the cache, and no entry holds its renderer") {
     val live =
       Server.LiveSlug.of(Server.RendererState.Ready(r)).unsafeRunSync()
-    val _ = live.cache(id, r, v1)("<i>1</i>")
-    val _ = live.cache("c_gone", r, v1)("<i>gone</i>")
+    val _ = live.cache(ix, r, v1)("<i>1</i>")
+    val _ = live.cache(Ix(1), r, v1)("<i>gone</i>")
     live.install(Server.RendererState.Ready(aRenderer)).unsafeRunSync()
     assertEquals(live.cache.size.unsafeRunSync(), 0)
 

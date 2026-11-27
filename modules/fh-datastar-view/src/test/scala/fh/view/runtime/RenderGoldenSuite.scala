@@ -1,15 +1,18 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.own
+
 import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.model.{Dashboard, NodeId, SlotRead}
 import fh.view.testkit.{FixtureEntries, PklFixture, TextSnapshot}
 
-/** What the test dashboards render, checked in: each one's body, every surface,
-  * and every node's patch, at the house as fixtured, with every on/off flipped,
-  * and unavailable. The wire snapshots say what Pkl built; these say what a
-  * viewer is sent, so a change to how a slot's value is modelled can be shown
-  * to leave the bytes alone, or name the ones it moves. A section the other
-  * houses render as the fixtured one does is named, not repeated.
+/** What the test dashboards render, checked in: each one's body, every popup,
+  * every choice's every case (shown or not, so none goes untested), and every
+  * node's patch, at the house as fixtured, with every on/off flipped, and
+  * unavailable. The wire snapshots say what Pkl built; these say what a viewer
+  * is sent, so a change to how a slot's value is modelled can be shown to leave
+  * the bytes alone, or name the ones it moves. A section the other houses
+  * render as the fixtured one does is named, not repeated.
   *
   * A display signal's name carries a hash of its transform's key, so each hash
   * is replaced by its order of first appearance: the goldens hold the sharing,
@@ -50,7 +53,7 @@ class RenderGoldenSuite extends munit.FunSuite {
     val r = Renderer(
       d.validated().fold(errs => fail(errs.mkString("; ")), identity)
     )
-    val surfaceIds = d.surfaces.keys.toList.sorted
+    val caseIds = d.picks.values.toList.flatMap(_.cases).distinct.sorted
     val out = new StringBuilder
     val fixtured = scala.collection.mutable.Map.empty[String, String]
     def section(house: String, part: String, body: String): Unit =
@@ -62,30 +65,29 @@ class RenderGoldenSuite extends munit.FunSuite {
         if (!body.endsWith("\n")) { val _ = out.append('\n') }
       }
     for ((houseName, states) <- houses(e)) {
-      val shared = Shared.of(states)
+      val shared = RenderGoldenSuite.declaredViewer(r, states)
       val body =
         r.renderBodyTraced(
           shared,
-          Viewing(
-            Selections.none,
-            RenderGoldenSuite.answers(r, d, shared, Nil)
-          )
+          Viewing(RenderGoldenSuite.answers(r, d, shared, Nil))
         )
       val nodes =
-        (body.own.keys ++ surfaceIds.flatMap(
-          r.surfaceNodeIds
+        (body.own.keys ++ caseIds.flatMap(
+          r.caseNodeIds
         )).toList.distinct.sorted
       val f = RenderGoldenSuite.answers(r, d, shared, nodes)
       section(houseName, "body", body.html)
-      surfaceIds.foreach { sid =>
-        r.renderSurfaceTraced(sid, shared, Viewing(Selections.none, f))
-          .foreach(t => section(houseName, s"surface $sid", t.html))
+      caseIds.foreach { id =>
+        r.picks
+          .pickShowing(id, shared)
+          .flatMap((gid, i) => r.renderCaseTraced(gid, i, shared, Viewing(f)))
+          .foreach((_, t) => section(houseName, s"case $id", t.html))
       }
       nodes.foreach { id =>
         r.renderNodeById(
           id,
           shared,
-          Viewing(Selections.none, f),
+          Viewing(f),
           SlotForm.Patch
         ).foreach(html => section(houseName, s"patch $id", html))
       }
@@ -128,12 +130,12 @@ class RenderGoldenSuite extends munit.FunSuite {
     )
   }
 
-  test("normaliseIds numbers every shape of node id by first appearance") {
+  test("normaliseIds numbers every derived node id by first appearance") {
     val page =
       """<div id="c_0" data-fh-node="c_0_light_kitchen"></div>""" +
         """<div id="c_0_light_kitchen" data-signals="{_c_0__x: 1, _var_c_0__tab: 'a'}">""" +
-        """<span data-text="$_s_c_1_self__c__busy $v.c_0.tab"></span>""" +
-        """<div id="s_c_1_self"></div>patch c_1 #c_1 fh-cell"""
+        """<span data-text="$_c_1_0__busy $v.c_0.tab"></span>""" +
+        """<div id="c_1_0_0"></div>patch c_1 #c_1 fh-cell"""
     assertEquals(
       RenderGoldenSuite.normaliseIds(page),
       """<div id="n#1" data-fh-node="n#2"></div>""" +
@@ -152,14 +154,30 @@ class RenderGoldenSuite extends munit.FunSuite {
     )
   }
 
+  test("every action a test dashboard renders is sent once") {
+    val sentOnce =
+      """@post\('[^']*'(?:\s*\+\s*\$\w+)?,\s*\{retryMaxCount: 0""".r
+    FixtureEntries.all.foreach { e =>
+      val golden =
+        os.read(TextSnapshot.resources / "goldens" / s"${e.slug}.html")
+      val posts = "@post\\(".r.findAllMatchIn(golden).size
+      assert(posts > 0 || e.slug == "layout", e.slug)
+      assertEquals(sentOnce.findAllMatchIn(golden).size, posts, e.slug)
+    }
+  }
+
   // On demand: `sbt dashboardGoldensVs <rev>` (defaults to HEAD).
-  test("goldens equal a revision's once ids are numbered by first appearance") {
-    sys.props.get(RenderGoldenSuite.AgainstProp) match {
-      case None      => ()
-      case Some(rev) =>
-        def norm(s: String) =
-          RenderGoldenSuite.normaliseIds(RenderGoldenSuite.normaliseHashes(s))
-        for (e <- FixtureEntries.all) {
+  for (e <- FixtureEntries.all) {
+    test(
+      s"goldens equal a revision's once ids are numbered by first appearance: ${e.slug}"
+    ) {
+      sys.props.get(RenderGoldenSuite.AgainstProp) match {
+        case None      => ()
+        case Some(rev) =>
+          def norm(s: String) =
+            RenderGoldenSuite.normaliseIds(
+              RenderGoldenSuite.normaliseHashes(s)
+            )
           val rel =
             (TextSnapshot.resources / "goldens" / s"${e.slug}.html")
               .relativeTo(os.pwd)
@@ -174,16 +192,15 @@ class RenderGoldenSuite extends munit.FunSuite {
               .getOrElse(("", ""))
             fail(s"${e.slug}: first differing line\n  $rev: $a\n  now: $b")
           }
-        }
+      }
     }
-  }
 
-  test("every test dashboard renders as its golden") {
-    for (e <- FixtureEntries.all)
+    test(s"a test dashboard renders as its golden: ${e.slug}") {
       TextSnapshot.check(
         TextSnapshot.resources / "goldens" / s"${e.slug}.html",
         golden(e)
       )
+    }
   }
 }
 
@@ -201,14 +218,19 @@ object RenderGoldenSuite {
       nodes: List[NodeId]
   ): FetchSnapshot = {
     val env = r.vars.env(Map.empty)
+    // Every case's nodes too: a golden renders each case, shown or not.
+    val cases = d.picks.values.flatMap(_.cases).flatMap(r.caseNodeIds)
     val reads: List[SlotRead] =
-      r.fetchesForPage(r.surfaces.selectedSurfaces(), shared, env) ++
-        d.surfaces.keys.toList.flatMap(
-          r.fetchesForSurface(_, shared, Selections.none, env)
-        ) ++
-        r.readsForPull(nodes, Nil, shared, Selections.none, env)
+      r.fetchesForPage(shared, env) ++
+        r.readsForPull((nodes ++ cases).distinct, Nil, shared, env)
     FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap, env)
   }
+
+  /** `states` as a viewer who has chosen nothing reads them, as a page load
+    * decides it: every variable at its declared value.
+    */
+  def declaredViewer(r: Renderer, states: Map[String, EntityState]): Shared =
+    Shared.of(states).viewing(r.vars.env(Map.empty))
 
   /** What HA keeps on an entity whose integration it lost. */
   val RegistryAttributes: Set[String] = Set(
@@ -222,12 +244,11 @@ object RenderGoldenSuite {
 
   val AgainstProp = "FH_GOLDENS_AGAINST"
 
-  /** A node id in any of its spellings: a path id (`c_0_light_kitchen`), or a
-    * surface's (`s_<id>` alone or `s_<id>__c_0`). Joined by single underscores,
-    * so a signal's `__name` ends it.
+  /** A derived node id (`c_0_light_kitchen`). Joined by single underscores, so
+    * a signal's `__name` ends it.
     */
   private val NodeIdToken =
-    """(?<![A-Za-z0-9])(?:s_[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*(?:__c(?:_[A-Za-z0-9]+)*)?|c(?:_[A-Za-z0-9]+)*)(?![A-Za-z0-9])""".r
+    """(?<![A-Za-z0-9])c(?:_[A-Za-z0-9]+)*(?![A-Za-z0-9])""".r
 
   /** Every node id becomes `n#<k>`, `k` counting distinct ids by first
     * appearance, so a change that only moves ids compares equal.

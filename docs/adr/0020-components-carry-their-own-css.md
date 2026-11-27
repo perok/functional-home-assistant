@@ -165,8 +165,8 @@ font-family restatement. The icon font itself is every theme's: `Theme`'s defaul
 `deferredStylesheets` loads MDI, since the cards emit its classes.
 
 **A page carries the CSS of the cards its dashboard uses, and no others.** The
-registry is read off the nodes (`nodes.cardsIn` over the tree and every surface's
-content, `entry.pkl`), so a card no dashboard places costs that dashboard nothing.
+registry is read off the nodes (`nodeMod.cardsIn` over the page card, its popups
+included, `entry.pkl`), so a card no dashboard places costs that dashboard nothing.
 
 **A card's JavaScript rides with it too: `cardDef.script`.** The same argument
 as its CSS — the slider's touch rules leave the range input inert and its
@@ -179,7 +179,8 @@ to import.
 
 **Every `Theme` property has a working default**, so a theme states only what it
 changes and `new Theme {}` is a complete one: the shared HA tokens, no framework,
-and a frame holding exactly the `#dashboard` and `#popups` hosts. That is what
+and a frame placing exactly the page card's two holes, `{{{body}}}` and
+`{{{popups}}}` (ADR 0002). That is what
 makes "the core kit renders under any theme" checkable rather than aspirational
 (`PklBuildSuite`, "a bare `new Theme {}`").
 

@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.effect.kernel.Ref
@@ -9,13 +11,12 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   NodeId,
-  Region,
   Value,
   ValueExpr,
   TemplateSlot
 }
 import fh.view.testkit.TestIds.given
-import RendererTestOps.heldFor
+import RendererTestOps.{heldFor, ixOf}
 
 import scala.concurrent.duration.*
 
@@ -30,18 +31,20 @@ class SharedPassSuite extends ServerHarness {
     cards = Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       ),
       "card" -> TestCard("<span>{{state}}</span>")
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         List("sensor.a", "sensor.b").map(e =>
           LayoutNode.Component(
             "card",
-            templateSlots = Map(
-              "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e))))
+            slots = Slots.values(
+              Map(
+                "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e))))
+              )
             )
           )
         )*
@@ -66,14 +69,14 @@ class SharedPassSuite extends ServerHarness {
         held <- session.state.map(_.holds)
         now <- ts.store.current
       } yield {
-        def rendered(id: NodeId) =
-          Renderer.create(twoLeafDash).heldFor(id, now.entities)
+        val r = Renderer.create(twoLeafDash)
+        def rendered(id: NodeId) = r.heldFor(id, now.entities)
         // The repaint claimed everything it painted, and the tick re-claimed
         // the one node that moved at its new bytes: a record of what this
         // connection was sent.
-        assertEquals(held.get("c_0"), rendered("c_0"), clue = held)
+        assertEquals(held.get(r.ixOf("c_0")), rendered("c_0"), clue = held)
         // So the claim above is not "everything, re-derived".
-        assertEquals(held.get("c_1"), rendered("c_1"), clue = held)
+        assertEquals(held.get(r.ixOf("c_1")), rendered("c_1"), clue = held)
         assertEquals(at, now.version)
       }
     }
@@ -119,7 +122,7 @@ class SharedPassSuite extends ServerHarness {
     // subscription would let one stalled browser freeze the HA feed for
     // everyone.
     //
-    // A per-session node (the tabs host bakes the client's panel), so the
+    // A per-session node (the tabs host shows the client's panel), so the
     // per-connection pass really emits.
     live(tabsDash, Map("sensor.a" -> es("sensor.a", "a0"))) { ts =>
       ts.sse().flatMap { resp =>

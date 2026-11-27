@@ -37,6 +37,8 @@ case at once.
 | go to a component's definition | definition | `card = c.entity‸Card(light)` | works |  |
 | a value outside a union, flagged before the build | diagnostic | `card = c.entityCard(light).stick("le‸ft")` | works |  |
 | a number outside a constraint, flagged before the build | diagnostic | `card = c.entityCard(light).columns(1‸3)` | works |  |
+| a nodes slot's handle | completion | `card = let (h = panel.‸) new Probe { slots { h } }` | works |  |
+| a value slot's builder on a nodes slot, flagged before the build | diagnostic | `card = new Probe { slots { panel.bi‸nd } }` | works |  |
 | the dump's entities | completion | `card = c.entityCard(dump.entities.‸)` | works |  |
 | an entity's kind on hover | hover | `card = c.entityCard(dump.entities.lig‸ht_kitchen)` | **gap** | the hover names the dump's class per entity (`E_light_kitchen`), not the kind it extends |
 | an entity's fields inside a CEL string | completion | `card = c.entityCard(light).secondary(c.expr("value.‸"))` | **gap** | CEL is a string to Pkl: nothing inside it completes |
@@ -44,4 +46,6 @@ case at once.
 <!-- end of cases -->
 
 The module every case is pasted into imports `@fh-dashboard/components.pkl` as `c`,
-`query.pkl` as `q`, the dump as `dump`, and names `local light` a dump light.
+`core/node.pkl` as `nodeMod`, `core/slot.pkl` as `slotMod`, `query.pkl` as `q`, the dump as
+`dump`, and names `local light` a dump light, `local panel` a nodes slot and `local class Probe`
+a card placing it.

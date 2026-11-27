@@ -1,5 +1,9 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -48,29 +52,30 @@ class ValueWhileSuite extends munit.FunSuite {
 
   private def node(of: TemplateSlot) = LayoutNode.Component(
     card = "bar",
-    templateSlots = Map(
-      "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
-      "of" -> of
+    slots = Slots.values(
+      Map(
+        "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
+        "of" -> of
+      )
     )
   )
 
   private def dashboard(nodes: LayoutNode.Component*) = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "bar" -> bar,
       "col" -> TestCard(
         """<div>{{{children}}}</div>""",
-        regions = Map(LayoutNode.DefaultRegion -> Region())
+        regions = Set(LayoutNode.DefaultRegion)
       )
     ),
     card = LayoutNode.Component(
       card = "col",
-      regions = Map(LayoutNode.DefaultRegion -> nodes.toList)
+      slots = Slots.nodes(Map(LayoutNode.DefaultRegion -> nodes.toList))
     )
   )
 
   private def idOf(d: Dashboard, i: Int) = LayoutNode.childId(
-    "",
-    LayoutNode.rootId("", d.card),
+    LayoutNode.rootId(d.card),
     LayoutNode.Step(LayoutNode.DefaultRegion, i),
     node(peak(None))
   )
@@ -85,7 +90,7 @@ class ValueWhileSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
     assertEquals(
-      r.fetchesForPage(Set.empty, Shared.of(states("0")), Map.empty),
+      r.fetchesForPage(Shared.of(states("0")), Map.empty),
       Nil
     )
     // Unanswered, and still renders: the transform never ran.
@@ -96,7 +101,7 @@ class ValueWhileSuite extends munit.FunSuite {
       List("")
     )
     assertEquals(
-      r.fetchesForPage(Set.empty, Shared.of(states("46")), Map.empty),
+      r.fetchesForPage(Shared.of(states("46")), Map.empty),
       List(read)
     )
     assertEquals(
@@ -121,36 +126,36 @@ class ValueWhileSuite extends munit.FunSuite {
   test("a set asks only for its present members, in the clause they are in") {
     def chart(e: String) = LayoutNode.Component(
       "chart",
-      Map(
-        "chart" -> TemplateSlot(
-          ValueExpr(
-            Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day))),
-            List(Step.Json, Step.JsonText)
+      Slots.values(
+        Map(
+          "chart" -> TemplateSlot(
+            ValueExpr(
+              Value.Fetch(FetchTemplate(e, Choice.Fixed(Windows.day))),
+              List(Step.Json, Step.JsonText)
+            )
           )
         )
       )
     )
     val on = Some(Conds.cmp("state", Op.Eq, Json.fromString("on")))
-    def clauses(cs: LayoutNode.SetClause*) = LayoutNode.SetMember(cs.toList)
+    def clauses(cs: Sets.Clause*) = Sets.Member(cs.toList)
     val d = Dashboard(
-      cards = Map("chart" -> TestCard("<div>{{chart}}</div>")),
-      card = LayoutNode.SetNode(
+      cards = Sets.cards ++ Map("chart" -> TestCard("<div>{{chart}}</div>")),
+      card = Sets.node(
         candidates = List("light.a", "light.b"),
-        members =
-          Map(
-            "light.a" -> clauses(
-              LayoutNode.SetClause(on, chart("sensor.a_on")),
-              LayoutNode.SetClause(None, chart("sensor.a_off"))
-            ),
-            // No clause matches while it is off: not a member.
-            "light.b" -> clauses(LayoutNode.SetClause(on, chart("sensor.b_on")))
-          )
+        members = Map(
+          "light.a" -> clauses(
+            Sets.Clause(on, chart("sensor.a_on")),
+            Sets.Clause(None, chart("sensor.a_off"))
+          ),
+          // No clause matches while it is off: not a member.
+          "light.b" -> clauses(Sets.Clause(on, chart("sensor.b_on")))
+        )
       )
     )
     val r = Renderer.create(d)
     def asked(a: String, b: String) =
       r.fetchesForPage(
-        Set.empty,
         Shared.of(
           Map(
             "light.a" -> EntityState("light.a", a, Map.empty),
@@ -177,11 +182,11 @@ class ValueWhileSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
     assertEquals(
-      r.fetchesForPage(Set.empty, Shared.of(states("0")), Map.empty),
+      r.fetchesForPage(Shared.of(states("0")), Map.empty),
       Nil
     )
     assertEquals(
-      r.fetchesForPage(Set.empty, Shared.of(states("46")), Map.empty),
+      r.fetchesForPage(Shared.of(states("46")), Map.empty),
       List(read)
     )
   }
@@ -260,6 +265,25 @@ class ValueWhileSuite extends munit.FunSuite {
           valueWhile = Some(above0(None))
         )
       ).contains("has a valueWhile — it would keep its first answer")
+    )
+  }
+
+  test("its own CEL inputs are checked as a slot's are") {
+    def gate(own: Map[String, ValueExpr]) = Some(
+      ValueExpr(
+        Value.Entity(Some("sensor.left"), Part.Whole),
+        List(Step.Cel("double(value.state) > n", own))
+      )
+    )
+    val one = ValueExpr(Value.Literal(Lit.Whole(1)))
+    assertEquals(dashboard(node(peak(gate(Map("n" -> one))))).validate(), Nil)
+    assert(
+      dashboard(node(peak(gate(Map("n" -> one, "unread" -> one)))))
+        .validate()
+        .mkString("\n")
+        .contains(
+          "'of.valueWhile' has an input 'unread' its expression does not read"
+        )
     )
   }
 

@@ -1,14 +1,18 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.testkit.DashboardBuilders
 
 import fh.view.testkit.TestCard
+import fh.view.testkit.PklFixture
 import io.github.iltotore.iron.autoRefine
 import fh.view.model.*
 import fh.view.history.{ChartStyle, Window, Windows}
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import io.circe.parser.decode
-import fh.view.testkit.TestIds.given
 import fh.view.testkit.DashboardBuilders.declared
 
 /** Node variables (issue #209): a node declares a named choice, a descendant
@@ -25,7 +29,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   private val plainCard = TestCard("<span>{{name}}</span>")
   private val boxCard = TestCard(
     "<div>{{{children}}}</div>",
-    regions = Map("children" -> Region())
+    regions = Set("children")
   )
 
   private val chosen: Choice[Window] =
@@ -43,7 +47,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   private def chartNode(param: Choice[Window] = chosen) =
     LayoutNode.Component(
       "chart",
-      templateSlots = Map("chart" -> chartSlot(param))
+      slots = Slots.values(Map("chart" -> chartSlot(param)))
     )
 
   private def box(
@@ -52,7 +56,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   ): LayoutNode.Component =
     LayoutNode.Component(
       "box",
-      regions = LayoutNode.kids(kids*),
+      slots = Slots.kids(kids*),
       vars = declared(vars.toList*)
     )
 
@@ -64,14 +68,14 @@ class NodeVariablesSuite extends munit.FunSuite {
   ): LayoutNode.Component =
     box(vars, kids*).copy(id = Some(id))
 
-  private def dash(
-      root: LayoutNode,
-      surfaces: Map[String, Surface] = Map.empty
-  ) =
+  private def dash(root: LayoutNode) =
     Dashboard(
-      cards = Map("chart" -> chartCard, "plain" -> plainCard, "box" -> boxCard),
-      card = root,
-      surfaces = surfaces
+      cards = Sets.cards ++ Map(
+        "chart" -> chartCard,
+        "plain" -> plainCard,
+        "box" -> boxCard
+      ),
+      card = root
     )
 
   /** Each read's preset key, so a test reads as the values a viewer picks. */
@@ -117,11 +121,43 @@ class NodeVariablesSuite extends munit.FunSuite {
     assertEquals(windowOf(d.fetchesIn(d.card)).sorted, List("1h", "24h"))
   }
 
+  test(
+    "a declaration that is not shadowed keeps its name for every node below"
+  ) {
+    val kept = Dashboard.Declaration("window", Some("24h"), shadowable = false)
+    def under(inner: LayoutNode) = dash(
+      LayoutNode.Component(
+        "box",
+        slots = Slots.kids(inner, box(Map("window" -> "1h"))),
+        vars = List(kept),
+        id = Some("top")
+      )
+    )
+    assertEquals(
+      under(box(Map.empty, box(Map("window" -> "1h")))).validate(),
+      List
+        .fill(2)(
+          "the variable 'window' is declared by 'top' above, which no node " +
+            "below may declare again — name it something else"
+        )
+        .zip(List("top_0_0", "top_1"))
+        .map((m, at) => s"$at: $m")
+    )
+    // The page's `popups` is one, so a card cannot hide it from its openers.
+    val errs = PklFixture
+      .snippet(
+        """card = (c.column) { vars { c.variable("popups").defaultingTo("x") } }
+          |""".stripMargin
+      )
+      .validate()
+    assert(errs.exists(_.contains("'popups' is declared by 'root'")), errs)
+  }
+
   test("a node's own declaration is in scope for its own slots") {
     val d = dash(
       LayoutNode.Component(
         "chart",
-        templateSlots = Map("chart" -> chartSlot()),
+        slots = Slots.values(Map("chart" -> chartSlot())),
         vars = declared("window" -> "7d")
       )
     )
@@ -136,7 +172,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     }.get
     assertEquals(t.variables, Nil)
     assertEquals(
-      t.resolve(FetchTemplate.atDeclared(Map("window" -> "7d"))),
+      t.resolve(FetchTemplate.atDeclared(Map("window" -> Some("7d")))),
       Some(FetchRequest.History("sensor.t", Windows.day))
     )
   }
@@ -179,11 +215,11 @@ class NodeVariablesSuite extends munit.FunSuite {
     assert(errs.exists(_.contains("'4h' is not one of")), clue = errs)
   }
 
-  private def setOf(clause: LayoutNode) = LayoutNode.SetNode(
+  private def setOf(clause: LayoutNode) = Sets.node(
     candidates = List("sensor.t"),
     members = Map(
-      "sensor.t" -> LayoutNode.SetMember(
-        List(LayoutNode.SetClause(node = clause))
+      "sensor.t" -> Sets.Member(
+        List(Sets.Clause(node = clause))
       )
     )
   )
@@ -223,47 +259,55 @@ class NodeVariablesSuite extends munit.FunSuite {
       .getOrElse(fail("no set at c_0"))
     val member: NodeId = r.members.memberIdOf(set, "sensor.t")
     val window = VarKey(member, "window")
-    assertEquals(r.vars.defaults.get(window), Some("24h"))
+    assertEquals(r.vars.defaults.get(window), Some(Some("24h")))
     assert(r.vars.readersOf(window).nonEmpty, clue = r.vars.readersOf(window))
   }
 
-  test("a SURFACE is its own scope root") {
-    // A baked surface can be swapped into different hosts, so inheriting would
-    // resolve one content differently per host; it declares what it needs.
-    val errs = dash(
-      box(Map("window" -> "24h"), LayoutNode.Component("plain")),
-      surfaces = Map("popup" -> Surface(chartNode()))
-    ).validate()
-    assert(
-      errs.exists(e =>
-        e.startsWith("surface 'popup'") && e.contains("no ancestor declares")
-      ),
-      clue = errs
+  test("a popup starts with the root's scope") {
+    // A case of the page's `popups`, so the page's variables reach it and its
+    // opener's do not: one popup may be opened from many places.
+    def dashboard(inPopup: String) = PklFixture.snippet(
+      s"""local window = c.variable("window")
+         |card = (c.column) {
+         |  vars { window.defaultingTo("24h") }
+         |  children { c.button("Open", c.view.popup("help", $inPopup)) }
+         |}
+         |""".stripMargin
     )
+    val d = dashboard("""c.button("Close", c.view.closePopup())""")
+    assertEquals(d.validate(), Nil)
+    assertEquals(
+      d.varScopes
+        .get(NodeId.derived("help"))
+        .flatMap(_.get("popups"))
+        .map(_.declarer),
+      Some(Dashboard.PageRootId)
+    )
+    val errs = dashboard("""c.button("Week", window.choose("7d"))""").validate()
+    assert(errs.exists(_.contains("'window'")), clue = errs)
   }
 
-  test("an OWNED surface starts with the scope of the node it bakes into") {
-    // A tab panel or an `If` branch has exactly one host, so the reason a popup
-    // is a scope root does not apply: a chooser above a tab bar reaches the
-    // charts in its panels.
-    val d = dash(
-      box(Map("window" -> "7d"), box(Map("tab" -> "0"))),
-      surfaces = Map(
-        "t0" -> Surface(
-          chartNode(),
-          bakeInto = Some("c_0"),
-          bakeAs = Some("children"),
-          bakeIndex = Some(0),
-          activation = Activation.Var("tab")
-        )
-      )
+  test("a choice's case starts with the scope of the node it fills") {
+    // A tab panel or an `If` branch has exactly one host, so a chooser above a
+    // tab bar reaches the charts in its panels.
+    val library = PklFixture.shape(
+      """local window = c.variable("window")
+        |card = (c.column) {
+        |  vars { window.defaultingTo("7d") }
+        |  children { (c.tabs) { tabs { ["A"] { t.hole("chart") } } } }
+        |}
+        |""".stripMargin
+    )
+    val d = Dashboard(
+      cards = library.cards + ("chart" -> chartCard),
+      card = library.fill("chart" -> chartNode())
     )
     val errs = d.validate()
     assert(!errs.exists(_.contains("no ancestor declares")), clue = errs)
     assertEquals(windowOf(d.allFetches), List("7d"))
     assertEquals(
       d.varScopes
-        .get(NodeId.derived(LayoutNode.surfacePrefix("t0") + "c"))
+        .get(NodeId.derived("c_0_panel_0_0_0"))
         .flatMap(_.get("window"))
         .map(_.declarer),
       Some(NodeId.derived("c"))
@@ -290,7 +334,6 @@ class NodeVariablesSuite extends munit.FunSuite {
     r.renderBodyTraced(
       Shared.of(states),
       Viewing(
-        Selections.none,
         FetchSnapshot.of(
           drawn.map((w, svg) => readAt(w) -> Staged(100L, svg)).toMap,
           env
@@ -311,7 +354,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     val chose7d =
       r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "7d"))
     assertEquals(
-      r.fetchesForPage(Set.empty, Shared.of(Map.empty), chose7d),
+      r.fetchesForPage(Shared.of(Map.empty), chose7d),
       List(readAt("7d"))
     )
     assert(
@@ -326,11 +369,11 @@ class NodeVariablesSuite extends munit.FunSuite {
     val b = r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "30d"))
 
     assertEquals(
-      r.fetchesForPage(Set.empty, Shared.of(Map.empty), a),
+      r.fetchesForPage(Shared.of(Map.empty), a),
       List(readAt("1h"))
     )
     assertEquals(
-      r.fetchesForPage(Set.empty, Shared.of(Map.empty), b),
+      r.fetchesForPage(Shared.of(Map.empty), b),
       List(readAt("30d"))
     )
     assert(paint(r, a, "1h" -> "<svg id='hour'/>").contains("hour"))
@@ -340,8 +383,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     // another's span. Asked of the chart: the panel is structure and has no
     // key.
     val chartId = LayoutNode.childId(
-      "",
-      LayoutNode.rootId("", d.card),
+      LayoutNode.rootId(d.card),
       LayoutNode.Step(LayoutNode.DefaultRegion, 0),
       chartNode()
     )
@@ -366,7 +408,7 @@ class NodeVariablesSuite extends munit.FunSuite {
     val env =
       r.vars.env(Map(VarKey(NodeId.derived("panel"), "window") -> "30d"))
     assertEquals(
-      r.fetchesForPage(Set.empty, Shared.of(Map.empty), env).toSet,
+      r.fetchesForPage(Shared.of(Map.empty), env).toSet,
       Set(readAt("30d"), readAt("1h"))
     )
   }
@@ -386,9 +428,11 @@ class NodeVariablesSuite extends munit.FunSuite {
     scoped.foreach { (id, scope) =>
       assertEquals(
         env.get(id),
-        Some(scope.map { case (name, in) =>
-          name -> chosen
-            .getOrElse(VarKey(in.declarer, name), in.declaration.default)
+        Some(scope.flatMap { case (name, in) =>
+          chosen
+            .get(VarKey(in.declarer, name))
+            .orElse(in.declaration.default)
+            .map(name -> _)
         }),
         clue = id
       )
@@ -401,8 +445,7 @@ class NodeVariablesSuite extends munit.FunSuite {
   }
 
   test("a choice naming a variable nothing declares is inert, not an error") {
-    // A stale URL naming a lost node matches no scope and is never read, as
-    // `SurfaceGraph.openPopup` treats a lost surface id.
+    // A stale URL naming a lost node matches no scope and is never read.
     val d = dash(named("panel", Map("window" -> "24h"), chartNode()))
     val r = Renderer.create(d)
     val env = r.vars.env(
@@ -412,7 +455,7 @@ class NodeVariablesSuite extends munit.FunSuite {
       )
     )
     assertEquals(
-      r.fetchesForPage(Set.empty, Shared.of(Map.empty), env),
+      r.fetchesForPage(Shared.of(Map.empty), env),
       List(readAt("24h"))
     )
   }
@@ -463,9 +506,8 @@ class NodeVariablesSuite extends munit.FunSuite {
 
   test("a node with no declaration carries none on the wire") {
     val d = decode[LayoutNode]("""{"kind":"Component","card":"plain"}""")
-      .map {
-        case c: LayoutNode.Component => c.vars
-        case other                   => fail(s"expected a component: $other")
+      .map { case c: LayoutNode.Component =>
+        c.vars
       }
     assertEquals(d, Right(Nil), clue = d)
   }

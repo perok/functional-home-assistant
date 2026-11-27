@@ -17,10 +17,11 @@
 /// Not here yet: a set nested inside a member, and `min`/`max` over a property.
 module query
 
+import "core/group.pkl" as groupMod
 import "core/predicate.pkl" as pred
 import "core/simple.pkl" as simpleMod
 import "core/slot.pkl" as slotMod
-import "core/node.pkl" as nodes
+import "core/node.pkl" as nodeMod
 import "hass.pkl"
 
 typealias Scalar = String|Int|Float|Boolean
@@ -368,7 +369,7 @@ const local function liveTerm(
 
 class Branch {
   key: (Member) -> Boolean|slotMod.Expr
-  render: (Member) -> nodes.Node
+  render: (Member) -> nodeMod.Node
 }
 
 /// What a set holds: entities, areas or floors ([[from]]).
@@ -408,7 +409,7 @@ class EntitySet extends pred.TallyOf {
   function limit(n: Int(this > 0)): this = let (l = this) (l) { cap = n }
 
   /// One guarded rendering; the guard folds like [[where]]'s.
-  function caseOf(g: Filter, r: (Member) -> nodes.Node): this =
+  function caseOf(g: Filter, r: (Member) -> nodeMod.Node): this =
     let (l = this)
       let (prepared = ready(l.items, g))
         (l) {
@@ -419,7 +420,7 @@ class EntitySet extends pred.TallyOf {
         }
 
   /// Several guarded renderings, in match order.
-  function cases(m: Mapping<Filter, (Member) -> nodes.Node>): this =
+  function cases(m: Mapping<Filter, (Member) -> nodeMod.Node>): this =
     let (l = this)
       (l) {
         branches = l.branches + m.toMap().entries.map((p) ->
@@ -429,9 +430,9 @@ class EntitySet extends pred.TallyOf {
 
   /// The unconditional last clause. Optional: a candidate matching no clause is
   /// not rendered, which is how "show it only while on" is written.
-  function `else`(r: (Member) -> nodes.Node): this = caseOf(true, r)
+  function `else`(r: (Member) -> nodeMod.Node): this = caseOf(true, r)
 
-  function render(r: (Member) -> nodes.Node): this = caseOf(true, r)
+  function render(r: (Member) -> nodeMod.Node): this = caseOf(true, r)
 
   /// How many candidates are present: `.count().gt(2)`. Reads only `where`, so
   /// a set can be counted without a card.
@@ -477,8 +478,10 @@ class EntitySet extends pred.TallyOf {
             of = l.kind
           }
 
-  /// The layout node. Pkl has no implicit conversion, so a chain ends here.
-  function build(): pred.SetNode =
+  /// What fills a nodes slot: `slot.of(q.from(…).render(…))` takes the chain
+  /// as it is. The slot must be its card's whole template, since the members
+  /// are placed relative to each other.
+  function fill(): pred.SetFill =
     let (l = this)
       let (ordering = foldOrder(l.items, l.specs))
         let (prepared = l.filters.map((f) -> ready(l.items, f)))
@@ -488,6 +491,12 @@ class EntitySet extends pred.TallyOf {
             l.branches,
             l.cap,
             (e) -> foldAll(prepared.map((r) -> decide(r, l.items, e))))) { of = l.kind }
+
+  /// The layout node, for a set among other content: an element of its own
+  /// (`.fh-group`, which lays its members out as the surrounding box's own
+  /// children) holding the set. Pkl has no implicit conversion, so a chain
+  /// placed as a node ends here.
+  function build(): groupMod.Group = groupMod.group("div", "fh-group", fill())
 }
 
 /// A set of entities, areas or floors, one kind per set. A set of areas or
@@ -678,7 +687,7 @@ const local function buildSet(
   branches: List<Branch>,
   cap: Int?,
   presence: (Member) -> Boolean|slotMod.Expr
-): pred.SetNode =
+): pred.SetFill =
   let (kept = ordering.entities
         .map((e) -> Pair(e, presence.apply(e)))
         .filter((p) -> !(p.second is Boolean && p.second == false)))
@@ -690,19 +699,13 @@ const local function buildSet(
         Pair(p.first, p.second.map((b) ->
           Pair(b.first.render.apply(p.first),
                conjoin(presenceOf[pred.idOf(p.first)], b.second))))))
-    new pred.SetNode {
+    new pred.SetFill {
       candidates = new Listing { for (p in dispatched) { pred.idOf(p.first) } }
       orderBy = new Listing { for (t in ordering.terms) { t } }
       limit = cap
       members = new Mapping {
         for (p in rendered) {
-          [pred.idOf(p.first)] = new pred.SetMember {
-            clauses = new Listing {
-              for (q in p.second) {
-                new pred.SetClause { `when` = q.second; node = q.first }
-              }
-            }
-          }
+          [pred.idOf(p.first)] = pred.memberOf(p.second.map((q) -> Pair(q.second, q.first)))
         }
       }
     }

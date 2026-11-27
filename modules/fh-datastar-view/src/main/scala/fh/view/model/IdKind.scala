@@ -3,8 +3,8 @@ package fh.view.model
 import io.circe.{Decoder, KeyDecoder}
 
 /** What an id names, by HA's target key: a call's target and exclude keys, and
-  * a set's candidates ([[Value.Present]], [[LayoutNode.SetNode]]). `word` is
-  * how a set spells it on the wire, absent for entities.
+  * a set's candidates ([[Value.Present]], [[Fill.Set]]). `word` is how a set
+  * spells it on the wire, absent for entities.
   */
 enum IdKind(val key: String, val word: String) derives CanEqual:
   case Entity extends IdKind("entity_id", "entity")

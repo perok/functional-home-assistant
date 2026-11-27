@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.DashboardBuilders
 
 import fh.view.testkit.TestCard
@@ -50,15 +52,17 @@ class FetchValueSuite extends munit.FunSuite {
     ),
     card = LayoutNode.Component(
       card = "bar",
-      templateSlots = Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
-        "value" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some("sensor.left"), Part.Whole),
-            List(Step.Cel("value.state"))
-          )
-        ),
-        "of" -> ofSlot
+      slots = Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
+          "value" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("sensor.left"), Part.Whole),
+              List(Step.Cel("value.state"))
+            )
+          ),
+          "of" -> ofSlot
+        )
       ),
       inputs = nodeInputs
     )
@@ -70,7 +74,7 @@ class FetchValueSuite extends munit.FunSuite {
   private def answered(json: String = answer) =
     FetchSnapshot.of(Map(read -> Staged(7L, json)))
 
-  private def rootId(d: Dashboard) = LayoutNode.rootId("", d.card)
+  private def rootId(d: Dashboard) = LayoutNode.rootId(d.card)
 
   test("a slot's CEL reads a fetch value as its points") {
     val d = dashboard()
@@ -79,7 +83,7 @@ class FetchValueSuite extends munit.FunSuite {
       .create(d)
       .renderBodyTraced(
         Shared.of(states("47")),
-        Viewing(Selections.none, answered())
+        Viewing(answered())
       )
       .html
     assert(html.contains("101"), clue = html)
@@ -180,9 +184,11 @@ class FetchValueSuite extends munit.FunSuite {
     cards = Map("bar" -> TestCard("<div>{{value}}</div>")),
     card = LayoutNode.Component(
       card = "bar",
-      templateSlots = Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
-        "value" -> TemplateSlot(value)
+      slots = Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.left")),
+          "value" -> TemplateSlot(value)
+        )
       ),
       inputs = nodeInputs
     )
@@ -268,7 +274,7 @@ class FetchValueSuite extends munit.FunSuite {
       assertEquals(d.validate(), Nil, clue = where)
       val html = Renderer
         .create(d)
-        .renderBodyTraced(Shared.of(both), Viewing(Selections.none, answered()))
+        .renderBodyTraced(Shared.of(both), Viewing(answered()))
         .html
       assert(html.contains(shown), clue = s"$where: $html")
     }
@@ -338,7 +344,7 @@ class FetchValueSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val html = Renderer
       .create(d)
-      .renderBodyTraced(Shared.of(both), Viewing(Selections.none, answered()))
+      .renderBodyTraced(Shared.of(both), Viewing(answered()))
       .html
     assert(html.contains("k=3"), clue = html)
   }

@@ -7,23 +7,22 @@ import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
 import fh.view.history.{History, SeriesSource}
 import fh.view.model.{
-  Activation,
   Dashboard,
   FetchTemplate,
   LayoutNode,
   NodeId,
-  Region,
   SlotRead,
   SlotType,
   Step,
-  Surface,
+
   TemplateSlot,
   Value,
   ValueExpr,
-  VarAt
+  Slot
 }
 import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.testkit.DashboardBuilders.{chosenBy, declared}
+import fh.view.testkit.Slots
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -31,7 +30,7 @@ import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 /** What one variable write costs the server, `Server.setVar`'s pure core: the
-  * check, the viewer's environment, then either the panel it selects rendered
+  * check, the viewer's environment, then either the panel it selects planned
   * into its host or its readers re-rendered through the slug's cache.
   *
   *   - `tabFlip` — a tab bar's `tab` alternating between two panels of
@@ -103,34 +102,31 @@ class VarWriteBench {
     if (reads.isEmpty) IO.pure(FetchSnapshot.of(Map.empty, env))
     else FetchSnapshot.resolve(resolver, reads, env, FetchIdentity.Instance)
 
-  /** The swap `Server.setVar` makes for a panel group. */
-  private def panelWrite(key: VarKey, value: String): Option[String] = {
+  /** The fill `Server.setVar` plans for a panel group, onto a host holding no
+    * list.
+    */
+  private def panelWrite(key: VarKey, value: String): List[Addressed] = {
     val proposed = Map(key -> value)
     require(renderer.refusals(proposed).isEmpty)
     val env = renderer.vars.env(proposed)
-    val after = renderer.surfaces.selections(None, env)
-    renderer.vars
-      .panelsSelectedBy(key)
-      .flatMap { gid =>
-        renderer.surfaces
-          .memberAt(gid, value)
-          .map(renderer.surfaces.bakeGroup(gid))
-          .flatMap(sid =>
-            renderer
-              .surface(sid)
-              .flatMap(surf =>
-                Patches.hostFill(
-                  renderer,
-                  surf.hostId,
-                  Some(sid),
-                  st,
-                  Viewing(after, FetchSnapshot.of(Map.empty, env))
-                )
-              )
-              .map(_._2)
-          )
-      }
-      .headOption
+    val at = st.viewing(env)
+    val owing = Patches.written(
+      renderer,
+      Map.empty,
+      at,
+      Nil,
+      renderer.vars.panelsSelectedBy(key)
+    )
+    Patches
+      .patches(
+        renderer,
+        cache,
+        Map.empty,
+        at,
+        Viewing(FetchSnapshot.of(Map.empty, env)),
+        owing
+      )
+      .unsafeRunSync()
   }
 
   /** The readers `Server.setVar` re-renders, through the slug's cache. */
@@ -138,11 +134,11 @@ class VarWriteBench {
     val proposed = Map(WindowKey -> value)
     require(renderer.refusals(proposed).isEmpty)
     val env = renderer.vars.env(proposed)
-    val after = renderer.surfaces.selections(None, env)
+    val at = st.viewing(env)
     val readers = renderer.vars.readersOf(WindowKey)
     (for {
       snapshot <- answer(
-        renderer.readsForPull(readers, Nil, st, after, env),
+        renderer.readsForPull(readers, Nil, at, env),
         env
       )
       patches <- readers.traverseFilter(
@@ -150,8 +146,8 @@ class VarWriteBench {
           renderer,
           cache,
           Map.empty,
-          st,
-          Viewing(after, snapshot),
+          at,
+          Viewing(snapshot),
           _
         )
       )
@@ -194,18 +190,20 @@ object VarWriteBench {
   private def chart(entity: String) =
     LayoutNode.Component(
       "chart",
-      Map(
-        "chart" -> TemplateSlot(
-          ValueExpr(
-            Value.Fetch(
-              FetchTemplate(
-                entity,
-                chosenBy("window", fh.view.history.Windows.presets)
-              )
+      Slots.values(
+        Map(
+          "chart" -> TemplateSlot(
+            ValueExpr(
+              Value.Fetch(
+                FetchTemplate(
+                  entity,
+                  chosenBy("window", fh.view.history.Windows.presets)
+                )
+              ),
+              List(Step.Chart())
             ),
-            List(Step.Chart())
-          ),
-          `type` = SlotType.TextRaw
+            `type` = SlotType.TextRaw
+          )
         )
       )
     )
@@ -213,16 +211,17 @@ object VarWriteBench {
   private def panel(from: Int) =
     LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         List.tabulate(PanelLeaves)(i =>
           RenderBench.leaf(signals = true)(from + i)
         )*
       )
     )
 
-  private def host(id: String, name: String, default: String) =
+  private def host(id: String, name: String, default: String, panel: Slot) =
     LayoutNode.Component(
       "host",
+      Map("panel" -> panel),
       id = Some(id),
       vars = declared(name -> default)
     )
@@ -231,41 +230,39 @@ object VarWriteBench {
     cards = RenderBench.cards ++ Map(
       "chart" -> TestCard("<div>{{{chart}}}</div>"),
       "host" -> TestCard(
-        """<div id="{{hostId}}">{{{panel}}}</div>""",
-        regions = Map("panel" -> Region(Region.Baked))
+        """{{{panel}}}""",
+        regions = Set("panel")
       )
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
-        host("tabs", "tab", "0"),
-        host("view", "view", "a"),
+      slots = Slots.kids(
+        host(
+          "tabs",
+          "tab",
+          "0",
+          Slots.tabs("tab", List.tabulate(2)(i => panel(i * PanelLeaves))*)
+        ),
+        host(
+          "view",
+          "view",
+          "a",
+          Slots.byVar(
+            "view",
+            ViewValues.zipWithIndex.map((v, i) =>
+              v -> panel(100 + i * PanelLeaves)
+            )
+          )
+        ),
         LayoutNode.Component(
           "col",
-          regions = LayoutNode.kids(
+          slots = Slots.kids(
             List.tabulate(4)(i => chart(s"sensor.main_$i"))*
           ),
           id = Some("charts"),
           vars = declared("window" -> "24h")
         )
       )
-    ),
-    surfaces = (List.tabulate(2)(i =>
-      s"t$i" -> Surface(
-        panel(i * PanelLeaves),
-        bakeInto = Some(NodeId.derived("tabs")),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(i),
-        activation = Activation.Var("tab")
-      )
-    ) ++ ViewValues.zipWithIndex.map((v, i) =>
-      s"v_$v" -> Surface(
-        panel(100 + i * PanelLeaves),
-        bakeInto = Some(NodeId.derived("view")),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(i),
-        activation = Activation.Var("view", VarAt.Value(v))
-      )
-    )).toMap
+    )
   )
 }
