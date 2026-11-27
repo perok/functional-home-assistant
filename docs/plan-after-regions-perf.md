@@ -4,7 +4,9 @@ A full bench comparison of `after-regions` (9baea638) against main (574f062c), c
 `-f 3` and then profiled (async-profiler, alloc and cpu), found five regressions. Each one below
 names its cause, measured; the fixes keep behaviour byte-identical.
 
-**State:** planned 2026-11-27. Branch `perf-after-regions`, stacked on `after-regions` (#736).
+**State:** 1–4 and 6 built 2026-11-27, one commit each with its numbers; 5 measured and not
+built (its two lookups were not the cost); Later (5's profile, 7, 8) is open. Branch
+`perf-after-regions`, stacked on `after-regions` (#736).
 
 ## Working this plan
 
@@ -39,8 +41,8 @@ diffed values (a seed wins, as `++` had it), walking each claim's signals with `
 ## 3. Every send makes a `Shared` it throws away
 
 **Why.** `Decided.at` builds `Shared.of` before looking in `kept`, and `renderer.shared(store)` runs
-per resume and per send (`Server`), so each connection's send allocates a version's tables (~3 KB
-since the viewer tables) and drops them when the version is held, which is the usual case. No
+per resume and per send (`Server`), so each connection's send allocates a version's tables (784 B,
+`sharedHeld`) and drops them when the version is held, which is the usual case. No
 bench prices it: `wireTick` calls `Shared.of` itself.
 
 **Shape.** `at` returns a held version before making one. New bench `RenderBench.sharedHeld`: a
@@ -57,15 +59,16 @@ scalar-replaced them and this build's does not. `Double | Null` would keep the b
 already is; text still parses; `ne` is `onLine`'s `!=`, which a NaN keeps. `number` is unchanged
 (`ConditionsSuite` is its oracle).
 
-## 5. An unread entity costs more lookups per change
+## 5. An unread entity costs more lookups per change (measured: not these)
 
 **Why.** `publishIdleSet` +1.7 µs per frame per slug (`publishIdle` the same at `-f 3`), spread
-over per-change lookups the new graphs added. Two are cheap: `componentsFor` goes through
-`Map[Ix, Map[String, Set[NodeId]]]` where main read one map, and `PickGraph.dirtied` concatenates
-two lists per change.
+over per-change lookups the new graphs added.
 
-**Shape.** `componentsFor` reads the page root's map, taken once; `PickGraph.dirtied` reads one
-entity → picks map built from the two.
+**Measured.** The two cheap ones, built together — `componentsFor` reading the page root's map
+taken once, and `PickGraph.dirtied` one merged entity → picks map — moved neither bench
+(`publishIdle` 3.75 → 3.80 µs, `publishIdleSet` 4.52 → 4.57, both within error), so they were
+not built. The cost is elsewhere in `advance`/`plan`/`record`; a cpu profile per frame of the two
+sides is the next step (Later).
 
 ## 6. A write scans every scope for its readers
 
@@ -78,6 +81,8 @@ order the walk met them.
 
 ## Later
 
+5. **`publishIdle(Set)` +1.7 µs**: profile cpu per frame on both sides, below `advance`, `plan`
+   and `record`; a single entity → dirt index or a pre-filter wants that profile first.
 7. **`wireTick` +24% B/op**: each version's `Shared` builds three more tables (the viewer branches,
    sets and gates), each with an eager `ConcurrentHashMap`, ~1.2 KB per version. Making them on
    first use puts a check on every table read.

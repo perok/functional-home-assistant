@@ -176,13 +176,16 @@ private[runtime] final class VarGraph(
     scopes.get(node).flatMap(_.get(name)).map(in => VarKey(in.declarer, name))
 
   /** Exact: a write both checks every reader and re-renders them. */
-  def readersOf(key: VarKey): List[NodeId] =
-    scopes.toList.collect {
-      case (id, scope)
-          if scope.get(key.name).exists(_.declarer == key.declarer) &&
-            readsAt(id).contains(key.name) =>
-        id
-    }
+  def readersOf(key: VarKey): List[NodeId] = readers.getOrElse(key, Nil)
+
+  private lazy val readers: Map[VarKey, List[NodeId]] =
+    scopes.toList
+      .flatMap((id, scope) =>
+        readsAt(id).toList.flatMap(name =>
+          scope.get(name).map(in => VarKey(in.declarer, name) -> id)
+        )
+      )
+      .groupMap(_._1)(_._2)
 
   private def declaredAt(gid: NodeId, key: VarKey): Boolean =
     scopes
