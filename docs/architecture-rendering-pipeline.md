@@ -203,7 +203,9 @@ Three rules keep the layers apart, and building on them is how new work stays ch
   a chain of `Shared`, each the last one's decisions minus what its frame dirtied
   (`Renderer.advance`); a reader takes its version's from `Decided` and fills in what it reaches.
   A reader reuses only a decision made at its own version, or carried to it; one it makes after
-  the next version exists is offered on to it unless that frame dirtied it.
+  the next version exists is offered on to it unless that frame dirtied it. `Decided` keeps the
+  last two; one it lets go forgets its successor, or a dead version promoted to the old
+  generation keeps every later one alive through young collections.
 - **Work happens only where a dirty mark meets something shown.** A dirty decision is made again
   only when a walk reaches it: a viewer's, a press, the debug route, or the recorder's for what
   some session shows. One nobody shows stays dirty and costs nothing. A plain tick dirties no
