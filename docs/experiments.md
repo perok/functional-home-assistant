@@ -481,3 +481,21 @@ on a Pi at worst.
 **Worth asking again if** a dashboard's sets hold hundreds of candidates that switch together
 often, or a Pi's profile of the recorder shows `GroupMembers.of` under `keysMoved`. Start with
 the control (20 changes, no switch) to split the rebuild from the frame's other work.
+
+## The recorder's per-change lookups, trimmed
+
+`publishIdle(Set)` ran ~1.7 µs per frame slower after regions with equal B/op, and the new graphs
+add lookups per change: `componentsFor` through a map per container, `PickGraph.dirtied`
+concatenating two lists. Read the page root's map once and merge the two?
+
+**How.** Both, built together, `-f 3 -prof gc` against 9baea638.
+
+**Numbers.** `publishIdle` 3.75 → 3.80 µs, `publishIdleSet` 4.52 → 4.57, within error.
+
+**Verdict.** Not built (2026-11-27). The time was G1's: a dead `Shared` version kept every later
+one alive through young collections (`Decided`'s release, `docs/plan-after-regions-perf.md` 5).
+With that fixed the benches are back at main's.
+
+**Worth asking again if** a cpu profile of the recorder, with `gc.time` small, shows these
+lookups. Check `gc.time` before reading a time regression with equal B/op as cpu work.
+

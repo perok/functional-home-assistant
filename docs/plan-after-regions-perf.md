@@ -4,9 +4,8 @@ A full bench comparison of `after-regions` (9baea638) against main (574f062c), c
 `-f 3` and then profiled (async-profiler, alloc and cpu), found five regressions. Each one below
 names its cause, measured; the fixes keep behaviour byte-identical.
 
-**State:** 1–4 and 6 built 2026-11-27, one commit each with its numbers; 5 measured and not
-built (its two lookups were not the cost); Later (5's profile, 7, 8) is open. Branch
-`perf-after-regions`, stacked on `after-regions` (#736).
+**State:** 1–4 and 6 merged (#739); 5 built 2026-11-27 on branch `perf-idle-gc`, off main;
+Later (7, 8) is open.
 
 ## Working this plan
 
@@ -59,16 +58,20 @@ scalar-replaced them and this build's does not. `Double | Null` would keep the b
 already is; text still parses; `ne` is `onLine`'s `!=`, which a NaN keeps. `number` is unchanged
 (`ConditionsSuite` is its oracle).
 
-## 5. An unread entity costs more lookups per change (measured: not these)
+## 5. A dead version keeps every later one alive
 
-**Why.** `publishIdleSet` +1.7 µs per frame per slug (`publishIdle` the same at `-f 3`), spread
-over per-change lookups the new graphs added.
+**Why.** `publishIdleSet` +1.7 µs per frame per slug (`publishIdle` the same at `-f 3`), with
+equal B/op. Not the per-change lookups: reading the page root's map once and one merged
+entity → picks map moved neither bench. The cpu profile put 77% of the samples in G1's young
+evacuation (main: 1%): `gc.time` 2,498 ms against 67, and `-Xlog:gc` showed the heap after a
+young collection growing to 1.2 GB in 13 s, with a full collection finding the live set flat.
+Each `Shared.Table` links to the next version's (`next`, so a late fill is offered on), and once
+one dead version sits in the old generation it keeps the next alive through young collections,
+which promotes that one, and so on. The link is from #675; what after-regions changed is that a
+version now gets promoted at all.
 
-**Measured.** The two cheap ones, built together — `componentsFor` reading the page root's map
-taken once, and `PickGraph.dirtied` one merged entity → picks map — moved neither bench
-(`publishIdle` 3.75 → 3.80 µs, `publishIdleSet` 4.52 → 4.57, both within error), so they were
-not built. The cost is elsewhere in `advance`/`plan`/`record`; a cpu profile per frame of the two
-sides is the next step (Later).
+**Shape.** `Decided` releases a version it lets go: its tables forget `next`. Only a late
+offer is lost, and the next version decides that itself.
 
 ## 6. A write scans every scope for its readers
 
@@ -81,8 +84,6 @@ order the walk met them.
 
 ## Later
 
-5. **`publishIdle(Set)` +1.7 µs**: profile cpu per frame on both sides, below `advance`, `plan`
-   and `record`; a single entity → dirt index or a pre-filter wants that profile first.
 7. **`wireTick` +24% B/op**: each version's `Shared` builds three more tables (the viewer branches,
    sets and gates), each with an eager `ConcurrentHashMap`, ~1.2 KB per version. Making them on
    first use puts a check on every table read.
