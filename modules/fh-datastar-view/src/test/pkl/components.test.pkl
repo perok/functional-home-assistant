@@ -8,7 +8,7 @@ amends "pkl:test"
 
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "workspace-components.pkl" as ws
-import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
+import "../../main/resources/dashboards/lib/core/node.pkl" as nodeMod
 import "../../main/resources/dashboards/lib/core/css.pkl" as cssMod
 import "../../main/resources/dashboards/lib/core/badge.pkl" as badgeMod
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
@@ -22,8 +22,10 @@ import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switch
 import "../../main/resources/dashboards/lib/components/base/slider.pkl" as sliderBase
 import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/components/base/bar.pkl" as barBaseMod
-import "../../main/resources/dashboards/lib/components/base/surface.pkl" as surfacesMod
-import "../../main/resources/dashboards/lib/core/surface.pkl" as surfaceMod
+import "../../main/resources/dashboards/lib/components/base/tabs.pkl" as tabsMod
+import "../../main/resources/dashboards/lib/components/base/iff.pkl" as iffMod
+import "../../main/resources/dashboards/lib/components/base/popup.pkl" as popupBaseMod
+import "../../main/resources/dashboards/lib/components/popup.pkl" as popupMod
 import "../../main/resources/dashboards/lib/core/text.pkl" as textMod
 import "../../main/resources/dashboards/lib/theme-beer.pkl" as beerMod
 import "../../main/resources/dashboards/lib/query.pkl" as q
@@ -36,23 +38,23 @@ import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
 import "../../main/resources/dashboards/lib/hass/light.pkl" as hassLight
 
 /// A node's declarations as name -> default.
-local defaults = (n: nodes.Node) -> n.vars.toList().toMap((d) -> d.name, (d) -> d.default)
+local defaults = (n: nodeMod.Node) -> n.vars.toList().toMap((d) -> d.name, (d) -> d.default)
 // Whether `n`'s cell carries `cls` as a reading, which the renderer binds.
-local liveOn = (n: nodes.LayoutNode, cls: String) -> n.cell?.classes?.getOrNull(cls) is Map
+local liveOn = (n: nodeMod.LayoutNode, cls: String) -> n.cell?.classes?.getOrNull(cls) is Map
 // The classes `n`'s cell always carries.
-local staticOn = (n: nodes.LayoutNode) -> n.cell.layout.toList() + n.cell.classes.toMap().filter((_, v) -> v == true).keys.toList()
+local staticOn = (n: nodeMod.LayoutNode) -> n.cell.layout.toList() + n.cell.classes.toMap().filter((_, v) -> v == true).keys.toList()
 // What the root's class attribute carries from the cell, in order: the layout
 // builders' classes, then the rest.
-local rootClasses = (n: nodes.LayoutNode) -> n.cell.layout.toList() + n.cell.classes.keys.toList()
+local rootClasses = (n: nodeMod.LayoutNode) -> n.cell.layout.toList() + n.cell.classes.keys.toList()
 
 // Cards whose root is written from their `cardDef`'s root fields.
-local class PlainRoot extends nodes.Node {
+local class PlainRoot extends nodeMod.Node {
   card = "plainRoot"
-  cardDef = new nodes.CardDef { template = "<b>x</b>" }
+  cardDef = new nodeMod.CardDef { template = "<b>x</b>" }
 }
-local class AnchorRoot extends nodes.Node {
+local class AnchorRoot extends nodeMod.Node {
   card = "anchorRoot"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     tag = "a"
     classes = "my-tab"
     layoutCell = false
@@ -60,7 +62,7 @@ local class AnchorRoot extends nodes.Node {
     template = "x"
   }
 }
-local wireOf = (n: nodes.Node) -> nodes.cardsIn(List(n))[n.card]
+local wireOf = (n: nodeMod.Node) -> nodeMod.cardsIn(List(n))[n.card]
 
 local kitchen: hass.LightEntity = new { entity_id = "light.kitchen" }
 local dimmer: hass.LightEntity = new {
@@ -116,24 +118,18 @@ local class E_custom_icon extends hass.LightEntity { icon: String = "hue:bulb-su
 // A lock carrying its OWN icon — the case that must beat the state table.
 local class E_lock_icon extends hass.LockEntity { icon: String = "mdi:key" }
 // A card replacing its slots outright, as a component author may write.
-local class OwnSlots extends nodes.Node {
+local class OwnSlots extends nodeMod.Node {
   card = "ownSlots"
   cardDef { template = "<div></div>" }
   slots = new { slotMod.slot("label").of("x") }
 }
 
-// D1 helpers: there are no shared tables any more, so "how many distinct shapes
-// / conditions" is a question you ask of the members.
-local allClauses = (s) -> s.members.values.flatMap((m) -> m.clauses)
-local cards = (s) -> allClauses.apply(s).map((c) -> c.node.card).distinct
-local conds = (s) -> allClauses.apply(s).map((c) -> c.`when`).distinct
-local firstNode = (s) -> s.members.values.first.clauses.first.node
 
 
 /// The bar a progress card shows, inside the `c.iff` that shows it only while
 /// it runs.
 local function barOf(card: c.ProgressCard): barBaseMod.ProgressBar =
-  let (f = card.features[0]) (if (f is surfacesMod.If) f.`then`[0] else f) as barBaseMod.ProgressBar
+  let (f = card.features[0]) (if (f is iffMod.If) f.`then`[0] else f) as barBaseMod.ProgressBar
 
 // Every class in the library, so a new card's builders are in.
 local libClasses: List<reflect.Class> =
@@ -304,17 +300,17 @@ facts {
       == #"<a class="my-tab{{{cellClasses}}}"{{{cell}}} data-on:click="go()" data-class:warm="$w">x</a>"#
     wireOf.apply(new AnchorRoot {}).layoutCell == false
     // A tab is an anchor straight under the bar, never a layout box.
-    wireOf.apply(surfacesMod.tabButton(new varMod.Variable { name = "v" }, "a", "A")).template.startsWith(#"<a class="{{{cellClasses}}}"{{{cell}}} data-on:click="#)
+    wireOf.apply(tabsMod.tabButton(new varMod.Variable { name = "v" }, "a", "A")).template.startsWith(#"<a class="{{{cellClasses}}}"{{{cell}}} data-on:click="#)
   }
 
   ["a root's attrs cannot carry what the root writes itself, by attribute name"] {
-    module.catch(() -> new nodes.CardDef { template = ""; attrs = #"id="x""# }.attrs).contains("Type constraint")
-    module.catch(() -> new nodes.CardDef { template = ""; attrs = #"data-on:click="go()" class="x""# }.attrs).contains("Type constraint")
-    module.catch(() -> new nodes.CardDef { template = ""; attrs = #"style="color:red""# }.attrs).contains("Type constraint")
-    module.catch(() -> new nodes.CardDef { template = ""; attrs = #"data-signals="{a: 1}""# }.attrs).contains("Type constraint")
-    module.catch(() -> new nodes.CardDef { template = ""; tag = "a href" }.tag).contains("Type constraint")
+    module.catch(() -> new nodeMod.CardDef { template = ""; attrs = #"id="x""# }.attrs).contains("Type constraint")
+    module.catch(() -> new nodeMod.CardDef { template = ""; attrs = #"data-on:click="go()" class="x""# }.attrs).contains("Type constraint")
+    module.catch(() -> new nodeMod.CardDef { template = ""; attrs = #"style="color:red""# }.attrs).contains("Type constraint")
+    module.catch(() -> new nodeMod.CardDef { template = ""; attrs = #"data-signals="{a: 1}""# }.attrs).contains("Type constraint")
+    module.catch(() -> new nodeMod.CardDef { template = ""; tag = "a href" }.tag).contains("Type constraint")
     // Other attributes that merely contain one of those names.
-    new nodes.CardDef {
+    new nodeMod.CardDef {
       template = ""
       attrs = #"data-class="{a: $b}" data-class:x="$y" data-style:color="$c" data-signals__ifmissing="{c: 1}" data-attr:id="$d""#
     }.attrs.contains("data-attr:id")
@@ -336,31 +332,29 @@ facts {
   // The popup a tap opens for an entity nothing can be DONE to: what we know
   // about it, live. Its body is per-entity, hence inline rather than registered.
 
-  ["more-info is an inline popup, so every entity's body is its own surface"] {
+  ["more-info chooses the page's popup by an id its entity derives, and carries the popup"] {
     local t = c.view.moreInfo(kitchen)
-    t.inlineSurfaces.containsKey("self")
-    // A transform, not a constant: the route carries `dashboard_slug`, which
-    // only a transform can read.
-    (t.onclick as slotMod.Reading).source.src.contains("sse/surface/")
-    (t.onclick as slotMod.Reading).source.src.contains("/open/\(nodes.NODE_ID)_self")
-    (t.onclick as slotMod.Reading).source.src.contains("dashboard_slug")
+    t.variable == "popups"
+    t.value == "moreinfo_light_kitchen"
+    t.carries.first.id == "moreinfo_light_kitchen"
+    t.carries.first.card == "popup"
   }
 
   ["the body is the entity, then the controls its domain has, then its facts"] {
-    local body = c.view.moreInfo(dimmer).inlineSurfaces["self"].content.children[0]
+    local body = c.view.moreInfo(dimmer).carries.first.children[0]
     body.children.toList().map((n) -> n.card)
       == List("tile", "fhcol", "entityInfo", "button")
   }
 
   ["a numeric sensor's popup carries a chart of where the reading has been"] {
-    local body = c.view.moreInfo(power).inlineSurfaces["self"].content.children[0]
+    local body = c.view.moreInfo(power).carries.first.children[0]
     // The chart arrives under a window chooser, not beside the card: the
     // chooser is what DECLARES the window, so the nesting is what puts the
     // chart in scope of it. Composed here so no dashboard ever writes it.
     body.children.toList().map((n) -> n.card)
       == List("tile", "chooser", "entityInfo", "button")
     body.children[1].children[0].card == "historyChart"
-    defaults.apply(body.children[1] as nodes.Node) == Map("window", "24h")
+    defaults.apply(body.children[1] as nodeMod.Node) == Map("window", "24h")
     (body.children[1].children[0].slotsByName["chart"].value.fetch.window.by.source as slotMod.VarRead).name
       == "window"
   }
@@ -406,13 +400,13 @@ facts {
   ["each window is a tab node of its own, guarded by its own tap"] {
     local bar = (c.history.chooser).regions["bar"][0].children.toList()
     bar.map((n) -> n.card) == List("tab", "tab", "tab", "tab")
-    bar.map((n) -> (n as nodes.Node).slotsByName["label"].value) == List("1h", "24h", "7d", "30d")
+    bar.map((n) -> (n as nodeMod.Node).slotsByName["label"].value) == List("1h", "24h", "7d", "30d")
     // Per node, so one window's answer never clears another's guard (ADR 0019).
-    bar.every((n) -> (n as nodes.Node).slotsByName["busy"].value == true)
+    bar.every((n) -> (n as nodeMod.Node).slotsByName["busy"].value == true)
     // A window names the variable, never the chooser's id, which it cannot know.
-    let (week = bar[2] as nodes.Node)
+    let (week = bar[2] as nodeMod.Node)
       week.declared["tap"] == new slotMod.SetVarCall { variable = "window"; value = "7d" }
-      && (week.slotsByName["active"].value as String).endsWith("=== '7d'")
+      && week.liveClasses["fh-chosen"] == nodeMod.booleanReading(historyMod.windowVar.valueIs("7d"))
   }
 
   ["a variable choice is guarded, and takes only plain tokens"] {
@@ -423,19 +417,14 @@ facts {
     module.catch(() -> historyMod.windowVar.choose("7 d")).contains("matches")
     module.catch(() -> historyMod.windowVar.choose("it's")).contains("matches")
     // The name is spelled into signals and the URL, so it is a token too.
-    module.catch(() -> new varMod.Variable { name = "my window" }.declarer).contains("matches")
+    module.catch(() -> new varMod.Variable { name = "my window" }.name).contains("matches")
   }
 
-  ["a variable spells its declarer one way from its own template, another from below"] {
+  ["a variable is its name: its reads and its declaration"] {
     local tab = new varMod.Variable { name = "tab" }
-    tab.own.committed == "_var_{{id}}__tab"
-    tab.own.urlParam == "v.{{id}}.tab"
-    tab.below.group == "var_@@VAR:tab@@__tab"
-    tab.below.pending == "_var_@@VAR:tab@@__tab__pending"
     (tab.value.source as slotMod.VarRead).name == "tab"
     tab.defaultingTo("0").variable == tab
     tab.defaultingTo("0").default == "0"
-    tab.selects.name == "tab"
   }
 
   ["the declared window moves with `defaultingTo`"] {
@@ -468,7 +457,7 @@ facts {
     //
     // The property the default flip will rest on: there is no entity for which
     // this popup is empty.
-    local body = c.view.moreInfo(outside).inlineSurfaces["self"].content.children[0]
+    local body = c.view.moreInfo(outside).carries.first.children[0]
     body.children.toList().map((n) -> n.card)
       == List("tile", "entityInfo", "button")
   }
@@ -521,16 +510,16 @@ facts {
     // A stray tap on a wall tablet must not unlock the front door, so the card
     // posts nothing and opens a popup instead, as HA's tile does.
     !c.entityCard(latchLock).slotsByName.containsKey("service")
-    c.entityCard(latchLock).inlineSurfaces != null
-    local card = c.lock.controls(latchLock) as nodes.Node
+    !popupMod.carried(c.entityCard(latchLock)).isEmpty
+    local card = c.lock.controls(latchLock) as nodeMod.Node
     !card.slotsByName.containsKey("service")
     // Its features: Lock and Unlock side by side (HA's `lock-commands`), then
     // the latch. Fixed presses, not one that reads the state.
-    local features = card.regions!!["features"].toList()
-    local buttons = (features[0] as nodes.Node).regions!!["children"].toList()
-      .map((n) -> n as nodes.Node)
+    local features = card.regions["features"].toList()
+    local buttons = (features[0] as nodeMod.Node).regions["children"].toList()
+      .map((n) -> n as nodeMod.Node)
     buttons.map((b) -> b.declared["tap"].service) == List("lock/lock", "lock/unlock")
-    (features[1] as nodes.Node).slotsByName["glyph"].value == "mdi mdi-door-open"
+    (features[1] as nodeMod.Node).slotsByName["glyph"].value == "mdi mdi-door-open"
     // Each refused where HA disables its own button: the state it would reach,
     // and the moves.
     buttons.map((b) -> (b.slotsByName["tapDisabled"].value.steps.toList().last as simpleMod.Match)
@@ -540,9 +529,9 @@ facts {
         List("locking", "opening", "unavailable", "unlocked", "unlocking"))
     // More-info shows the same buttons, on a tile that opens nothing: it would
     // only open the popup it is in.
-    local popup = c.entityCard(latchLock).inlineSurfaces!!.toMap().values.first.content as nodes.Node
-    local body = popup.regions!!["children"].toList().first as nodes.Node
-    local inPopup = body.regions!!["children"].toList().first as nodes.Node
+    local popup = popupMod.carried(c.entityCard(latchLock)).first
+    local body = popup.regions["children"].toList().first as nodeMod.Node
+    local inPopup = body.regions["children"].toList().first as nodeMod.Node
     !inPopup.slotsByName.containsKey("tappable")
     inPopup.regions == card.regions
     // Only the guarded domains: a light's card still toggles on a tap.
@@ -554,17 +543,18 @@ facts {
     // Still tappable — but it opens the popup rather than posting a service
     // call HA would reject. This is the flip the more-info work gated.
     card.slotsByName["tappable"].value == true
-    card.inlineSurfaces.containsKey("self")
-    !(card.slotsByName["onclick"].value as slotMod.Reading).source.src.contains("sse/action")
-    (card.slotsByName["onclick"].value as slotMod.Reading).source.src.contains("/open/")
+    popupMod.carried(card).first.id == "moreinfo_sensor_outside"
+    card.declared["tap"].variable == "popups"
+    card.declared["tap"].value == "moreinfo_sensor_outside"
   }
 
-  ["the more-info body's own card does NOT default to more-info"] {
-    // Silent when broken, and fatal: `defaultTap` on a non-actionable entity
-    // is `moreInfo(e)`, whose body builds this very card — an infinite regress
-    // that laziness does not stop, because `slots` forces the tap.
-    local body = c.view.moreInfo(outside).inlineSurfaces["self"].content.children[0]
-    body.children.toList().first.inlineSurfaces == null
+  ["the more-info body's own card opens the popup it is in, which is equal to it"] {
+    // The body builds this very card, whose default tap is `moreInfo(e)` again:
+    // a reference, since what a node carries is hidden, so equality ends and
+    // the entry collects one popup.
+    local popup = c.view.moreInfo(outside).carries.first
+    local inner = (popup.children[0] as nodeMod.Node).children.toList().first as nodeMod.Node
+    popupMod.carried(inner).first == popup
   }
 
   ["every class the base stylesheet styles is fh- prefixed, clear of a framework's utilities"] {
@@ -592,33 +582,31 @@ facts {
     // Every live value on it is a signal, which is what lets it hold nodes.
     t.contains(textMod.liveRun(slotMod.slot("label")))
     local f = c.lock.controls(new hass.LockEntity { entity_id = "lock.front"; supported_features = 1 })
-      as nodes.Node
+      as nodeMod.Node
     f.card == "tile"
-    f.regions!!["features"].toList().map((n) -> (n as nodes.Node).card) == List("fhrow", "button")
+    f.regions["features"].toList().map((n) -> (n as nodeMod.Node).card) == List("fhrow", "button")
   }
 
-  ["a tab highlights by STRICT string comparison, so an unseeded '' lights no tab"] {
-    // Loose `==` makes `'' == 0` true: an unset selection would look like tab 0.
+  ["a tab is lit while the bar's variable holds its index"] {
+    // The renderer spells it, as strings (`VarSourceSuite`).
     local tab = ((c.tabs) { tabs { ["A"] { c.title("a") } ["B"] { c.title("b") } } })
-      .children.toList()[1] as nodes.Node
-    (tab.slotsByName["active"].value as String).endsWith(") === '1'")
-    (tab.slotsByName["active"].value as String).startsWith("String(")
+      .children.toList()[1] as nodeMod.Node
+    tab.liveClasses["fh-chosen"] == nodeMod.booleanReading(new varMod.Variable { name = "tab" }.valueIs("1"))
   }
 
   ["an If whose branches all fail collapses its cell, rather than leaving a blank band"] {
-    c.cards["ifhost"].template.contains(#"class="fh-ifhost""#)
-    cssMod.baseCss.contains(".fh-cell:has(>.fh-ifhost:empty){display:none}")
+    c.cards["ifhost"].classes == "fh-ifhost"
+    cssMod.baseCss.contains(".fh-ifhost:empty{display:none}")
   }
 
-  ["the guard is the tap's: every surface open is guarded, navigate and close are not"] {
-    tapMod.openPopup("p").busy
-    tapMod.openPopupInline(c.title("x")).busy
+  ["the guard is the tap's: every popup open is guarded, navigate and close are not"] {
+    c.view.popup("p", c.title("x")).busy
     new varMod.Variable { name = "tab" }.choose("0").busy
     c.view.moreInfo(outside).busy
     !tapMod.navigate("home").busy
-    !tapMod.closePopup().busy
+    !c.view.closePopup().busy
     // The tab card takes its guard from its tap, like every other card.
-    local tab = ((c.tabs) { tabs { ["A"] { c.title("a") } } }).children.toList().first as nodes.Node
+    local tab = ((c.tabs) { tabs { ["A"] { c.title("a") } } }).children.toList().first as nodeMod.Node
     tab.slotsByName["busy"].value == true
     tab.slotsByName["busyVisual"].value == true
   }
@@ -628,9 +616,9 @@ facts {
     local taps = List(
       tapMod.call("light/toggle", kitchen),
       quiet,
-      tapMod.openPopup("p"),
+      c.view.popup("p", c.title("x")),
       tapMod.navigate("home"),
-      tapMod.closePopup()
+      c.view.closePopup()
     )
     local cards = (t: tapMod.TapAction) -> List(
       c.button("b", t),
@@ -656,7 +644,7 @@ facts {
     )
     cards.apply(tapMod.call("light/toggle", kitchen)).every((n) -> n.slotsByName.containsKey("tapDisabled"))
     c.toggle(kitchen).slotsByName.containsKey("tapDisabled")
-    List(tapMod.openPopup("p"), tapMod.navigate("home"), tapMod.closePopup())
+    List(c.view.popup("p", c.title("x")), tapMod.navigate("home"), c.view.closePopup())
       .every((t) -> cards.apply(t).every((n) -> !n.slotsByName.containsKey("tapDisabled")))
   }
 
@@ -825,8 +813,16 @@ facts {
     // the target test any tap inside the popup would close it.
     local popup = c.cards["popup"]
     popup.classes == "fh-popup-backdrop"
-    popup.attrs == #"data-on:click="evt.target === el && \#(surfaceMod.closeExpr)""#
+    popup.attrs.endsWith(#"data-on:click="evt.target === el && \#(popupBaseMod.closeExpr)""#)
     popup.template.startsWith("<dialog open class=\"fh-popup\">")
+  }
+
+  ["a close acts only inside an element the popup's root marks"] {
+    // `el.closest('[attr]')`: the attribute it looks for is one the root carries,
+    // since a close outside every popup must not go back off the page.
+    local selector = Regex(#"el\.closest\('\[([\w-]+)\]'\)"#).findMatchesIn(popupBaseMod.closeExpr)
+    selector.length == 1
+    c.cards["popup"].attrs.split(" ").contains(selector.first.groups[1]!!.value)
   }
 
   ["the popup's ✕ is a touch target, and a member row has an edge"] {
@@ -945,7 +941,7 @@ facts {
     // The amend-scoping trap, and silent when broken: a mixin resolving the
     // entity anywhere but on the card it is applied to opens the wrong popup.
     local card = (c.entityCard(kitchen)) |> c.informative
-    card.inlineSurfaces["self"].content.children[0].children[0]
+    popupMod.carried(card).first.children[0].children[0]
       .slotsByName["entity_id"].value == "light.kitchen"
   }
 
@@ -1165,14 +1161,14 @@ facts {
     c.button("x", tap).active(true).columns(3).cell.layout.toList() == List("fh-cols-3")
   }
 
-  ["a live cell class rides the cell: replacing a card's slots cannot drop it, and a set has none"] {
+  ["a live cell class rides the cell: replacing a card's slots cannot drop it, a set's group included"] {
     local lit = c.button("x", c.tap.toggle(kitchen)).cellClassWhen("warm", c.isOn(kitchen))
     liveOn.apply(lit, "warm")
     lit.cellStyle("--x", c.expr("'1'")).cell.styles["--x"] is Map
     liveOn.apply(new OwnSlots {}.cellClassWhen("warm", c.isOn(kitchen)), "warm")
     local set = q.from(List(kitchen)).render((e) -> c.entityCard(e)).build()
-    module.catch(() -> set.cellClassWhen("warm", c.isOn(kitchen))).contains("only a card node has")
-    module.catch(() -> set.cellStyle("--x", c.expr("'1'"))).contains("only a card node has")
+    liveOn.apply(set.cellClassWhen("warm", c.isOn(kitchen)), "warm")
+    set.cellStyle("--x", c.expr("'1'")).cell.styles["--x"] is Map
   }
 
   ["an entity button is a base button with its inputs filled, and nothing more"] {
@@ -1275,7 +1271,7 @@ facts {
     c.toggle(kitchen).slotsByName["onoff"].value == true
     c.entityCard(kitchen).slotsByName["onoff"].value == true
     !c.entityCard(outside).slotsByName.containsKey("onoff")
-    local head = c.entitySlider(kitchen).children["head"][0]
+    local head = c.entitySlider(kitchen).regions["head"][0]
     liveOn.apply(head, "fh-active")
     head.slotsByName["onoff"].value == true
     // One meaning of on: a toggle's pill reads HA's rule, as the tile.
@@ -1312,7 +1308,7 @@ facts {
       c.tap.toggle(kitchen),
       c.pill(c.view.moreInfo(kitchen)).icon("mdi:information")
     ))
-    local acts = row.children["head"][0].children["actions"]
+    local acts = row.regions["head"][0].regions["actions"]
     acts.length == 2
     // In the order given.
     acts[0].slotsByName["glyph"].value == "mdi-power"
@@ -1327,10 +1323,10 @@ facts {
     // A toggle's pill is lit by its entity; a view tap's binds no class signal.
     liveOn.apply(acts[0], "fh-active")
     !liveOn.apply(acts[1], "fh-active")
-    // A popup action carries its OWN surfaces, so the popup hangs off the
-    // button that opens it rather than off the slider.
-    acts[1].inlineSurfaces != null
-    row.inlineSurfaces == null
+    // A popup action carries its popup, so it hangs off the button that opens
+    // it rather than off the slider.
+    !popupMod.carried(acts[1]).isEmpty
+    popupMod.carried(row).isEmpty
   }
 
   ["a slider with no actions still renders the strip, and the theme hides it"] {
@@ -1338,7 +1334,7 @@ facts {
     // strip is always in the markup and `:empty` is what removes it, the same
     // way `.fh-slider-members:empty` handles a member-less group.
     local plain = c.entitySlider(kitchen)
-    plain.children["head"][0].children["actions"].isEmpty
+    plain.regions["head"][0].regions["actions"].isEmpty
     c.cards["sliderHead"].template.contains(#"<div class="fh-slider-actions">"#)
     c.cards["slider"].css.contains(".fh-slider-actions:empty{display:none}")
   }
@@ -1348,10 +1344,10 @@ facts {
     // never a patch target, so a live bytes slot on it would never reach the
     // DOM — `Dashboard.validate` rejects one, and `core/node.pkl` constrains
     // `slots` so it fails in the author's editor first.
-    local head = (c.entitySlider(kitchen)).children["head"][0]
-    head.cardDef.regions.keys == Set("text", "actions")
+    local head = (c.entitySlider(kitchen)).regions["head"][0]
+    head.regions.keys == Set("text", "actions")
     // Every live slot left on it carries a signal binding...
-    head.slots.toList()
+    head.valueSlots
       .filter((s) -> s.value is slotMod.Reading && s.value.reads == "live")
       .every((s) -> s.signal != null)
     // ...and the label that stayed behind for the toggle's `aria-label` reads
@@ -1486,7 +1482,7 @@ facts {
   ["any entity tile takes a bar as a feature"] {
     local printer = c.entityCard(outside).features(List(c.bar.percent(outside)))
     printer.card == "tile"
-    printer.regions!!["features"].toList().map((n) -> (n as nodes.Node).card) == List("progressBar")
+    printer.regions["features"].toList().map((n) -> (n as nodeMod.Node).card) == List("progressBar")
   }
 
   ["a state-dependent tap refuses the press while the entity is mid-move"] {
@@ -1545,7 +1541,7 @@ facts {
     // The entity card's default, spelled for any card: the domain's service, or
     // more-info where there is none.
     c.tap.default(kitchen) == c.tap.toggle(kitchen)
-    c.tap.default(outside).inlineSurfaces != null
+    !c.tap.default(outside).carries.isEmpty
   }
 
   ["`c.tap.activate` fires each domain through its own service"] {
@@ -1566,8 +1562,8 @@ facts {
     c.tap(kitchen) == c.tap.toggle(kitchen)
     c.tap(kveld) == c.entityCard(kveld).tapAction
     // A lock's tap opens more-info rather than unlocking the door.
-    c.tap(frontLock).inlineSurfaces != null
-    c.tap(outside).inlineSurfaces != null
+    !c.tap(frontLock).carries.isEmpty
+    !c.tap(outside).carries.isEmpty
   }
 
   ["a value-carrying tap is the same call carrying its value as typed"] {
@@ -1626,8 +1622,8 @@ facts {
       .contains("c.entitySlider(light.lamp) has 2 main control switches")
     // Rendered once per member of a set, each member declares its own
     // `control` (#556).
-    local inSet = q.from(List(lamp)).render((e) -> c.entitySlider(e)).build()
-    (inSet.members["light.lamp"].clauses[0].node as c.EntitySlider).declaresControl
+    local inSet = q.from(List(lamp)).render((e) -> c.entitySlider(e)).fill()
+    (inSet.members["light.lamp"] as c.EntitySlider).declaresControl
     // A light with none of them keeps its plain row: one list serves mixed lights.
     local narrowed = c.entitySlider(dimmer).buttons(List(c.its.mainControl.options(List("colour"))))
     !narrowed.declaresControl
@@ -1820,26 +1816,26 @@ facts {
     // The whole of what `c.lock.controls` decides. A lock's tile is the generic
     // one — the composition exists for the capability the generic card cannot
     // see.
-    local withLatch = c.lock.controls(latchLock) as nodes.Node
+    local withLatch = c.lock.controls(latchLock) as nodeMod.Node
     withLatch.card == "tile"
     // The latch is the tile's feature, outside its tappable row: inside it,
     // one press would post `lock/open` and the tile's own `lock/lock` together.
-    withLatch.regions!!["features"].toList().map((n) -> (n as nodes.Node).card) == List("fhrow", "button")
+    withLatch.regions["features"].toList().map((n) -> (n as nodeMod.Node).card) == List("fhrow", "button")
     // No capability, no latch: a plain lock has Lock and Unlock and nothing
     // more.
     c.lock.controls(plainLock).card == "tile"
-    (c.lock.controls(plainLock) as nodes.Node).regions!!["features"].toList()
-      .map((n) -> (n as nodes.Node).card) == List("fhrow")
+    (c.lock.controls(plainLock) as nodeMod.Node).regions["features"].toList()
+      .map((n) -> (n as nodeMod.Node).card) == List("fhrow")
   }
 
   ["the latch ASKS before it opens; the confirmation is what posts lock/open"] {
     local latch = c.lock.openLatch(latchLock)
-    // The latch itself calls nothing — it opens an inline confirmation, which
-    // is the whole point: releasing a latch opens a door.
-    latch.inlineSurfaces != null
+    // The latch itself calls nothing — it opens a confirmation, which is the
+    // whole point: releasing a latch opens a door.
+    !popupMod.carried(latch).isEmpty
     !latch.slotsByName.containsKey("service")
     // …and `lock/open` lives inside it, aimed at the lock by its own target.
-    local body = latch.inlineSurfaces!!["self"].content.children.toList().first
+    local body = popupMod.carried(latch).first.children.toList().first
     local press = body.children.toList()
       .filter((n) -> n.card == "button" && n.declared.containsKey("tap"))
       .first
@@ -1852,7 +1848,7 @@ facts {
       .cases.toMap().containsKey("unavailable")
     // Lock and Unlock beside it are different actions, not two spellings of
     // the latch's.
-    c.lock.lockButtons(latchLock).children.toList().map((b) -> (b as nodes.Node).declared["tap"].service)
+    c.lock.lockButtons(latchLock).children.toList().map((b) -> (b as nodeMod.Node).declared["tap"].service)
       == List("lock/lock", "lock/unlock")
   }
 
@@ -1887,7 +1883,7 @@ facts {
     // the press inside — the one that posts `lock/open` — refused only a dead
     // lock.
     local press = c.tap.locks.openLatch(latchLock)
-    local confirm = c.lock.openLatch(latchLock).inlineSurfaces!!["self"].content
+    local confirm = popupMod.carried(c.lock.openLatch(latchLock)).first
       .children.toList().first.children.toList()
       .filter((n) -> n.card == "button" && n.declared.containsKey("tap"))
       .first

@@ -1,5 +1,9 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import fh.view.runtime.RendererTestOps.*
@@ -9,10 +13,10 @@ import fh.view.model.{
   SlotType,
   CardDef,
   Dashboard,
+  Ix,
   LayoutNode,
   NodeId,
   Reads,
-  Region,
   SetId,
   SignalBind,
   SignalId,
@@ -20,11 +24,10 @@ import fh.view.model.{
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.{asComponent, st}
-import fh.view.testkit.FixtureEntity
+import fh.view.testkit.{FixtureEntity, PklFixture}
 import fh.view.testkit.TestIds.given
 
 /** Signal slots (ADR 0017). The contract is negative, so every test asserts
@@ -51,22 +54,24 @@ class SignalSlotSuite extends ServerHarness {
 
   private val gaugeMarkup = "<b>{{label}}</b><i {{{value.bind}}}>{{value}}</i>"
 
-  private val cards = Map("gauge" -> TestCard(gaugeMarkup))
+  private val cards = Sets.cards ++ Map("gauge" -> TestCard(gaugeMarkup))
 
   private def gauge(entity: String): LayoutNode.Component =
     LayoutNode.Component(
       "gauge",
-      Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal(entity)),
-        "label" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some(entity), Part.Whole),
-            List(Step.Cel(friendlyRead))
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal(entity)),
+          "label" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some(entity), Part.Whole),
+              List(Step.Cel(friendlyRead))
+            )
+          ),
+          "value" -> TemplateSlot(
+            ValueExpr(Value.Entity(Some(entity))),
+            signal = Some(SignalBind.Text)
           )
-        ),
-        "value" -> TemplateSlot(
-          ValueExpr(Value.Entity(Some(entity))),
-          signal = Some(SignalBind.Text)
         )
       )
     )
@@ -127,7 +132,7 @@ class SignalSlotSuite extends ServerHarness {
         .renderNodeById(
           leaf,
           Shared.of(at("21.4")),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
         .get
     assertEquals(patch.contains("21.4"), false, clue = patch)
@@ -142,12 +147,12 @@ class SignalSlotSuite extends ServerHarness {
     def guarded(value: TemplateSlot) = Renderer.create(
       Dashboard(
         Map("gauge" -> TestCard(gaugeMarkup + write)),
-        gauge("sensor.a").copy(templateSlots =
-          gauge("sensor.a").templateSlots + ("value" -> value)
+        gauge("sensor.a").copy(slots =
+          Slots.values(gauge("sensor.a").valueSlots + ("value" -> value))
         )
       )
     )
-    val r = guarded(gauge("sensor.a").templateSlots("value"))
+    val r = guarded(gauge("sensor.a").valueSlots("value"))
     val assigned = "data-on:x=\"$_e.sensor.a.state = 1\""
     val page = r.renderPage(at("21.4"))
     assert(page.contains(assigned), clue = page)
@@ -156,7 +161,7 @@ class SignalSlotSuite extends ServerHarness {
       r.renderNodeById(
         leaf,
         Shared.of(at("21.4")),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get
     assert(patch.contains(assigned), clue = patch)
     val plain =
@@ -171,7 +176,7 @@ class SignalSlotSuite extends ServerHarness {
     val signalled =
       renderer.renderBodyTraced(
         Shared.of(at("21.4")),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
     val signalledId = signalled.own.keys.head
     assertEquals(
@@ -190,7 +195,7 @@ class SignalSlotSuite extends ServerHarness {
       .renderNodeById(
         signalledId,
         Shared.of(at("21.4")),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
       .get
     assert(signalled.html.contains("21.4"), clue = signalled.html)
@@ -201,9 +206,9 @@ class SignalSlotSuite extends ServerHarness {
   private def documentHolds(
       r: Renderer,
       states: Map[String, EntityState]
-  ): Map[NodeId, Held] =
-    r.renderPageTraced(states).own.map { case (id, p) =>
-      id -> p.held
+  ): Map[Ix, Held] =
+    r.renderPageTraced(states).painted.map { case (ix, p) =>
+      ix -> p.held
     }
 
   private def resumeFrom(
@@ -211,16 +216,8 @@ class SignalSlotSuite extends ServerHarness {
       was: Map[String, EntityState],
       now: Map[String, EntityState]
   ): List[Addressed] = {
-    val log = FragmentLog("test").touched(leaf, 1L)
-    resumeNow(
-      r,
-      log,
-      documentHolds(r, was),
-      now,
-      1L,
-      Set.empty,
-      Selections.none
-    )
+    val log = FragmentLog("test").touched(r.ixOf(leaf), 1L)
+    resumeNow(r, log, documentHolds(r, was), now, 1L)
   }
 
   test("a signal-only change sends a frame and NO element patch") {
@@ -267,18 +264,20 @@ class SignalSlotSuite extends ServerHarness {
       ),
       LayoutNode.Component(
         "pair",
-        Map(
-          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
-          "value" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some("sensor.a"))),
-            signal = Some(SignalBind.Text)
-          ),
-          "other" -> TemplateSlot(
-            ValueExpr(
-              Value.Entity(Some("sensor.a"), Part.Whole),
-              List(Step.Cel(friendlyRead))
+        Slots.values(
+          Map(
+            "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
+            "value" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.a"))),
+              signal = Some(SignalBind.Text)
             ),
-            signal = Some(SignalBind.Text)
+            "other" -> TemplateSlot(
+              ValueExpr(
+                Value.Entity(Some("sensor.a"), Part.Whole),
+                List(Step.Cel(friendlyRead))
+              ),
+              signal = Some(SignalBind.Text)
+            )
           )
         )
       )
@@ -302,27 +301,29 @@ class SignalSlotSuite extends ServerHarness {
   test("a member's children name their signals under the MEMBER") {
     // A member's children have no ids, so their signals ride on the member's
     // wrapper. Naming them under a child would seed a signal no element binds.
-    val set = LayoutNode.SetNode(
+    val set = Sets.node(
       candidates = List("light.a"),
       members = Map(
-        "light.a" -> LayoutNode.SetMember(
+        "light.a" -> Sets.Member(
           List(
-            LayoutNode.SetClause(node =
+            Sets.Clause(node =
               LayoutNode.Component(
                 "gauge",
-                Map(
-                  "entity_id" -> TemplateSlot(
-                    ValueExpr.literal("light.a")
-                  ),
-                  "label" -> TemplateSlot(
-                    ValueExpr(
-                      Value.Entity(Some("light.a"), Part.Whole),
-                      List(Step.Cel(friendlyRead))
+                Slots.values(
+                  Map(
+                    "entity_id" -> TemplateSlot(
+                      ValueExpr.literal("light.a")
+                    ),
+                    "label" -> TemplateSlot(
+                      ValueExpr(
+                        Value.Entity(Some("light.a"), Part.Whole),
+                        List(Step.Cel(friendlyRead))
+                      )
+                    ),
+                    "value" -> TemplateSlot(
+                      ValueExpr(Value.Entity(Some("light.a"))),
+                      signal = Some(SignalBind.Text)
                     )
-                  ),
-                  "value" -> TemplateSlot(
-                    ValueExpr(Value.Entity(Some("light.a"))),
-                    signal = Some(SignalBind.Text)
                   )
                 )
               )
@@ -357,35 +358,37 @@ class SignalSlotSuite extends ServerHarness {
     ),
     LayoutNode.Component(
       "slider",
-      Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
-        "state" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some("light.a"), Part.Whole),
-            List(Step.Cel(brightnessRead))
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
+          "state" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("light.a"), Part.Whole),
+              List(Step.Cel(brightnessRead))
+            ),
+            signal = Some(SignalBind.Text)
           ),
-          signal = Some(SignalBind.Text)
-        ),
-        "value" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some("light.a"), Part.Whole),
-            List(Step.Cel(brightnessRead))
+          "value" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("light.a"), Part.Whole),
+              List(Step.Cel(brightnessRead))
+            ),
+            signal = Some(SignalBind.Bind)
           ),
-          signal = Some(SignalBind.Bind)
-        ),
-        "fill" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some("light.a"), Part.Whole),
-            List(Step.Cel(fillPct))
+          "fill" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("light.a"), Part.Whole),
+              List(Step.Cel(fillPct))
+            ),
+            signal = Some(SignalBind.Style("--_end"))
           ),
-          signal = Some(SignalBind.Style("--_end"))
-        ),
-        "tint" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some("light.a"), Part.Whole),
-            List(Step.Cel(rgbRead))
-          ),
-          signal = Some(SignalBind.Attr("title"))
+          "tint" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("light.a"), Part.Whole),
+              List(Step.Cel(rgbRead))
+            ),
+            signal = Some(SignalBind.Attr("title"))
+          )
         )
       )
     )
@@ -467,15 +470,17 @@ class SignalSlotSuite extends ServerHarness {
     ),
     LayoutNode.Component(
       "sw",
-      Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
-        "off" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some("light.a"), bypassUnavailable = false),
-            List(boolOff)
-          ),
-          signal = Some(SignalBind.Attr("disabled")),
-          `type` = SlotType.Bool
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
+          "off" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("light.a"), bypassUnavailable = false),
+              List(boolOff)
+            ),
+            signal = Some(SignalBind.Attr("disabled")),
+            `type` = SlotType.Bool
+          )
         )
       )
     )
@@ -538,17 +543,19 @@ class SignalSlotSuite extends ServerHarness {
         ),
         LayoutNode.Component(
           "flag",
-          subject + ("on" -> TemplateSlot(
-            ValueExpr(
-              Value.Entity(
-                Some("light.a"),
-                reads = reads,
-                bypassUnavailable = false
+          Slots.values(
+            subject + ("on" -> TemplateSlot(
+              ValueExpr(
+                Value.Entity(
+                  Some("light.a"),
+                  reads = reads,
+                  bypassUnavailable = false
+                ),
+                List(boolOff)
               ),
-              List(boolOff)
-            ),
-            `type` = SlotType.Bool
-          ))
+              `type` = SlotType.Bool
+            ))
+          )
         )
       )
     for
@@ -575,43 +582,42 @@ class SignalSlotSuite extends ServerHarness {
       Map(
         "box" -> TestCard(
           """<div><b {{{state.bind}}}>{{state}}</b><i {{{bright.bind}}}>{{bright}}</i>{{{children}}}</div>""",
-          regions = Map("children" -> Region())
+          regions = Set("children")
         ),
         "plain" -> TestCard("<p>x</p>")
       ),
       LayoutNode.Component(
         "box",
-        Map(
-          "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
-          "state" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some("light.a"))),
-            signal = Some(SignalBind.Text)
-          ),
-          "bright" -> TemplateSlot(
-            ValueExpr(
-              Value.Entity(Some("light.a"), Part.Whole),
-              List(Step.Cel(brightnessRead))
+        Slots.values(
+          Map(
+            "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("light.a"))),
+              signal = Some(SignalBind.Text)
             ),
-            signal = Some(SignalBind.Text)
+            "bright" -> TemplateSlot(
+              ValueExpr(
+                Value.Entity(Some("light.a"), Part.Whole),
+                List(Step.Cel(brightnessRead))
+              ),
+              signal = Some(SignalBind.Text)
+            )
           )
-        ),
-        regions = LayoutNode.kids(LayoutNode.Component("plain", Map.empty))
+        ) ++ Slots.kids(LayoutNode.Component("plain", Slots.values(Map.empty)))
       )
     )
     val r = Renderer.create(boxed)
     val holds = r.renderPageHolds(
       Sink.buffer(r.pageBytesHint),
       Shared.of(lit(40)),
-      Viewing(Selections.none, FetchSnapshot.empty)
+      Viewing(FetchSnapshot.empty)
     )
     val out = resumeNow(
       r,
-      FragmentLog("test").touched(leaf, 1L),
+      FragmentLog("test").touched(r.ixOf(leaf), 1L),
       holds,
       lit(41),
-      1L,
-      Set.empty,
-      Selections.none
+      1L
     )
     assertEquals(
       out.map(_.patch),
@@ -621,17 +627,15 @@ class SignalSlotSuite extends ServerHarness {
 
   test("a brightness tick moves four values and sends no element patch") {
     val r = Renderer.create(sliderish)
-    val log = FragmentLog("test").touched(leaf, 1L)
+    val log = FragmentLog("test").touched(r.ixOf(leaf), 1L)
     val out = resumeNow(
       r,
       log,
-      r.renderPageTraced(lit(40)).own.map { case (id, p) =>
-        id -> p.held
+      r.renderPageTraced(lit(40)).painted.map { case (ix, p) =>
+        ix -> p.held
       },
       lit(41),
-      1L,
-      Set.empty,
-      Selections.none
+      1L
     )
     assertEquals(
       out.map(_.patch),
@@ -663,16 +667,18 @@ class SignalSlotSuite extends ServerHarness {
     Map("lock" -> lockCard),
     LayoutNode.Component(
       "lock",
-      Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal("lock.front")),
-        "state" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some("lock.front"), Part.Whole),
-            List(Step.Cel("value.state"))
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("lock.front")),
+          "state" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("lock.front"), Part.Whole),
+              List(Step.Cel("value.state"))
+            ),
+            signal = Some(SignalBind.Text)
           ),
-          signal = Some(SignalBind.Text)
-        ),
-        "service" -> service
+          "service" -> service
+        )
       )
     )
   )
@@ -727,17 +733,15 @@ class SignalSlotSuite extends ServerHarness {
 
   test("locking moves the service signal and sends NO element patch") {
     val r = Renderer.create(lockish)
-    val log = FragmentLog("test").touched(leaf, 1L)
+    val log = FragmentLog("test").touched(r.ixOf(leaf), 1L)
     val out = resumeNow(
       r,
       log,
-      r.renderPageTraced(lock("locked")).own.map { case (id, p) =>
-        id -> p.held
+      r.renderPageTraced(lock("locked")).painted.map { case (ix, p) =>
+        ix -> p.held
       },
       lock("unlocked"),
-      1L,
-      Set.empty,
-      Selections.none
+      1L
     )
     assertEquals(
       out.map(_.patch),
@@ -760,11 +764,11 @@ class SignalSlotSuite extends ServerHarness {
   private val twoNodes = Dashboard(
     cards + ("col" -> TestCard(
       "<div>{{{children}}}</div>",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     )),
     LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(gauge("sensor.a"), gauge("sensor.b"))
+      slots = Slots.kids(gauge("sensor.a"), gauge("sensor.b"))
     )
   )
 
@@ -772,11 +776,11 @@ class SignalSlotSuite extends ServerHarness {
   private val twiceOver = Dashboard(
     cards + ("col" -> TestCard(
       "<div>{{{children}}}</div>",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     )),
     LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(gauge("sensor.a"), gauge("sensor.a"))
+      slots = Slots.kids(gauge("sensor.a"), gauge("sensor.a"))
     )
   )
 
@@ -785,17 +789,9 @@ class SignalSlotSuite extends ServerHarness {
     // frame twice.
     val r = Renderer.create(twiceOver)
     val log = FragmentLog("test")
-      .touched(NodeId.derived("c_0"), 1L)
-      .touched(NodeId.derived("c_1"), 1L)
-    val out = resumeNow(
-      r,
-      log,
-      documentHolds(r, at("21.4")),
-      at("21.5"),
-      1L,
-      Set.empty,
-      Selections.none
-    )
+      .touched(r.ixOf("c_0"), 1L)
+      .touched(r.ixOf("c_1"), 1L)
+    val out = resumeNow(r, log, documentHolds(r, at("21.4")), at("21.5"), 1L)
     assertEquals(
       out.map(_.patch),
       List(frame(sig("sensor.a") -> "21.5")),
@@ -822,30 +818,32 @@ class SignalSlotSuite extends ServerHarness {
       ),
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       )
     )
     def place = LayoutNode.Component(
       "trio",
-      Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
-        "state" -> TemplateSlot(
-          ValueExpr(Value.Entity(Some("light.a"))),
-          signal = Some(SignalBind.Text)
-        ),
-        "fill" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some("light.a"), Part.Whole),
-            List(Step.Cel(fillPct))
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("light.a")),
+          "state" -> TemplateSlot(
+            ValueExpr(Value.Entity(Some("light.a"))),
+            signal = Some(SignalBind.Text)
           ),
-          signal = Some(SignalBind.Style("--_end"))
-        ),
-        "tint" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some("light.a"), Part.Whole),
-            List(Step.Cel(rgbRead))
+          "fill" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("light.a"), Part.Whole),
+              List(Step.Cel(fillPct))
+            ),
+            signal = Some(SignalBind.Style("--_end"))
           ),
-          signal = Some(SignalBind.Attr("title"))
+          "tint" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("light.a"), Part.Whole),
+              List(Step.Cel(rgbRead))
+            ),
+            signal = Some(SignalBind.Attr("title"))
+          )
         )
       )
     )
@@ -854,12 +852,12 @@ class SignalSlotSuite extends ServerHarness {
         trio,
         LayoutNode.Component(
           "col",
-          regions = LayoutNode.kids(place, place, place)
+          slots = Slots.kids(place, place, place)
         )
       )
     )
     val log = List("c_0", "c_1", "c_2").foldLeft(FragmentLog("test"))((l, id) =>
-      l.touched(NodeId.derived(id), 1L)
+      l.touched(r.ixOf(id), 1L)
     )
     // All three readings move; a fixture where only one moved would prove
     // nothing about sharing.
@@ -877,9 +875,7 @@ class SignalSlotSuite extends ServerHarness {
       log,
       documentHolds(r, lightAt(40, "on", "warm")),
       lightAt(41, "dim", "cool"),
-      1L,
-      Set.empty,
-      Selections.none
+      1L
     )
     val entries = out.map(_.patch).collect { case s: Patch.Signals => s.values }
     assertEquals(entries.map(_.size), List(3), clue = entries)
@@ -887,14 +883,16 @@ class SignalSlotSuite extends ServerHarness {
   }
 
   test("a fill seeds an entity the page has never shown") {
-    // Why the seed cannot move to one document-level `data-signals`: a surface
+    // Why the seed cannot move to one document-level `data-signals`: a case
     // can introduce an entity nothing on the page reads, so no frame is coming
     // and the fill's own bytes are the only way to make it correct (ADR 0017).
+    val tabs = PklFixture.shape(
+      """card = (c.tabs) { tabs { ["A"] { t.hole("a") } ["B"] { t.hole("b") } } }"""
+    )
     val r = Renderer.create(
       Dashboard(
-        cards,
-        gauge("sensor.a"),
-        surfaces = Map("panel" -> Surface(gauge("sensor.unseen")))
+        cards ++ tabs.cards,
+        tabs.fill("a" -> gauge("sensor.a"), "b" -> gauge("sensor.unseen"))
       )
     )
     val states = at("21.4") ++
@@ -908,12 +906,13 @@ class SignalSlotSuite extends ServerHarness {
     val page = r.renderPage(states)
     assertEquals(page.contains("sensor.unseen"), false, clue = page)
     val fill = r
-      .renderSurfaceTraced(
-        "panel",
+      .renderCaseTraced(
+        "c_panel_0",
+        1,
         Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
-      .map(_.html)
+      .map(_._2.html)
       .get
     assert(fill.contains("data-text=\"$_e.sensor.unseen.state\""), clue = fill)
     assert(
@@ -933,13 +932,13 @@ class SignalSlotSuite extends ServerHarness {
     // one HA frame are one frame.
     val r = Renderer.create(twoNodes)
     val log = FragmentLog("test")
-      .touched(NodeId.derived("c_0"), 1L)
-      .touched(NodeId.derived("c_1"), 1L)
-    val held = r.renderPageTraced(both("1", "2")).own.map { case (id, p) =>
-      id -> p.held
+      .touched(r.ixOf("c_0"), 1L)
+      .touched(r.ixOf("c_1"), 1L)
+    val held = r.renderPageTraced(both("1", "2")).painted.map { case (ix, p) =>
+      ix -> p.held
     }
     val out =
-      resumeNow(r, log, held, both("9", "8"), 1L, Set.empty, Selections.none)
+      resumeNow(r, log, held, both("9", "8"), 1L)
     assertEquals(
       out.map(_.patch),
       List(
@@ -957,15 +956,15 @@ class SignalSlotSuite extends ServerHarness {
     // selects from `position + 1`, not the version it woke for, and the log
     // holds versions, never values, so a frame renders the current snapshot.
     val r = renderer
-    val log = FragmentLog("test").touched(leaf, 1L).touched(leaf, 2L)
+    val log = FragmentLog("test")
+      .touched(r.ixOf(leaf), 1L)
+      .touched(r.ixOf(leaf), 2L)
     val out = resumeNow(
       r,
       log,
       documentHolds(r, at("21.4")),
       at("21.6"), // where it ended up, two moves later
-      1L,
-      Set.empty,
-      Selections.none
+      1L
     )
     assertEquals(
       out.map(_.patch),
@@ -1045,27 +1044,29 @@ class SignalSlotSuite extends ServerHarness {
     // (ADR 0003).
     def member(id: String) = LayoutNode.Component(
       "gauge",
-      Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
-        "label" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some(id), Part.Whole),
-            List(Step.Cel(friendlyRead))
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+          "label" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some(id), Part.Whole),
+              List(Step.Cel(friendlyRead))
+            )
+          ),
+          "value" -> TemplateSlot(
+            ValueExpr(Value.Entity(Some(id))),
+            signal = Some(SignalBind.Text)
           )
-        ),
-        "value" -> TemplateSlot(
-          ValueExpr(Value.Entity(Some(id))),
-          signal = Some(SignalBind.Text)
         )
       )
     )
     // Two candidates: one leaving an otherwise empty set takes the wholesale
     // refill path instead.
-    val set = LayoutNode.SetNode(
+    val set = Sets.node(
       candidates = List("light.a", "light.b"),
       members = List("light.a", "light.b").map { id =>
-        id -> LayoutNode.SetMember(
-          List(LayoutNode.SetClause(when = Some(isOn), node = member(id)))
+        id -> Sets.Member(
+          List(Sets.Clause(when = Some(isOn), node = member(id)))
         )
       }.toMap
     )
@@ -1075,14 +1076,10 @@ class SignalSlotSuite extends ServerHarness {
     val gone = on.updated("light.a", st("light.a", "off"))
     val prev = Shared.of(on)
     val next = Shared.of(gone, 1L)
-    val sets = List(SetId.of(NodeId.derived("c"), LayoutNode.SetNode()))
-    val held = r.renderPageTraced(on).own.map { case (id, p) =>
-      id -> p.held
-    }
+    val sets = List(SetId.of(NodeId.derived("c"), Sets.fill()))
+    val held = r.renderPageTraced(on).claims
     val seededLog = List("c_light_a", "c_light_b")
-      .foldLeft(FragmentLog("test"))((l, id) =>
-        l.touched(NodeId.derived(id), 0L)
-      )
+      .foldLeft(FragmentLog("test"))((l, id) => l.touched(r.ixOf(id), 0L))
     val delta = r.members.deltas(
       sets,
       List(
@@ -1100,17 +1097,16 @@ class SignalSlotSuite extends ServerHarness {
       seededLog,
       Patches.DiffRequest(
         staticIds = Nil,
-        sets = sets,
+        sets = delta,
         flips = Nil,
         prev = prev,
-        next = next,
-        membership = delta
+        next = next
       )
     )
-    val out = resumeNow(r, log, held, gone, 1L, Set.empty, Selections.none)
+    val out = resumeNow(r, log, held, gone, 1L)
     assertEquals(
-      out.map(_.patch),
-      List(Patch.Remove(r.elementId("c_light_a"))),
+      out.map(_.patch.toSse),
+      List(Datastar.remove(r.elementId("c_light_a").selector)),
       clue = events(out).map(_.render)
     )
   }
@@ -1122,11 +1118,13 @@ class SignalSlotSuite extends ServerHarness {
       Map("gauge" -> TestCard("<i>{{value}}</i>")),
       LayoutNode.Component(
         "gauge",
-        Map(
-          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
-          "value" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some("sensor.a"))),
-            signal = Some(SignalBind.Text)
+        Slots.values(
+          Map(
+            "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
+            "value" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.a"))),
+              signal = Some(SignalBind.Text)
+            )
           )
         )
       )
@@ -1146,14 +1144,16 @@ class SignalSlotSuite extends ServerHarness {
       Map("t" -> TestCard(tpl)),
       LayoutNode.Component(
         "t",
-        Map(
-          "entity_id" -> TemplateSlot(ValueExpr.literal("lock.front")),
-          "service" -> TemplateSlot(
-            ValueExpr(
-              Value.Entity(Some("lock.front"), Part.Whole),
-              List(Step.Cel(lockService))
-            ),
-            signal = Some(SignalBind.Handler)
+        Slots.values(
+          Map(
+            "entity_id" -> TemplateSlot(ValueExpr.literal("lock.front")),
+            "service" -> TemplateSlot(
+              ValueExpr(
+                Value.Entity(Some("lock.front"), Part.Whole),
+                List(Step.Cel(lockService))
+              ),
+              signal = Some(SignalBind.Handler)
+            )
           )
         )
       )
@@ -1192,12 +1192,14 @@ class SignalSlotSuite extends ServerHarness {
       ),
       LayoutNode.Component(
         "t",
-        Map(
-          "entity_id" -> TemplateSlot(ValueExpr.literal("lock.front")),
-          "service" -> TemplateSlot(
-            ValueExpr(
-              Value.Entity(Some("lock.front"), Part.Whole),
-              List(Step.Cel(lockService))
+        Slots.values(
+          Map(
+            "entity_id" -> TemplateSlot(ValueExpr.literal("lock.front")),
+            "service" -> TemplateSlot(
+              ValueExpr(
+                Value.Entity(Some("lock.front"), Part.Whole),
+                List(Step.Cel(lockService))
+              )
             )
           )
         )
@@ -1218,11 +1220,13 @@ class SignalSlotSuite extends ServerHarness {
       cards,
       LayoutNode.Component(
         "gauge",
-        Map(
-          "label" -> TemplateSlot(ValueExpr.literal("Hall")),
-          "value" -> TemplateSlot(
-            ValueExpr.literal("21.4"),
-            signal = Some(SignalBind.Text)
+        Slots.values(
+          Map(
+            "label" -> TemplateSlot(ValueExpr.literal("Hall")),
+            "value" -> TemplateSlot(
+              ValueExpr.literal("21.4"),
+              signal = Some(SignalBind.Text)
+            )
           )
         )
       )
@@ -1248,16 +1252,18 @@ class SignalSlotSuite extends ServerHarness {
       ),
       LayoutNode.Component(
         "gauge",
-        Map(
-          "entity_id" -> TemplateSlot(
-            ValueExpr(
-              Value.Entity(Some("sensor.a"), Part.Whole),
-              List(Step.Cel("value.state"))
+        Slots.values(
+          Map(
+            "entity_id" -> TemplateSlot(
+              ValueExpr(
+                Value.Entity(Some("sensor.a"), Part.Whole),
+                List(Step.Cel("value.state"))
+              ),
+              signal = Some(SignalBind.Text)
             ),
-            signal = Some(SignalBind.Text)
-          ),
-          "value" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some("sensor.a")))
+            "value" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.a")))
+            )
           )
         )
       )
@@ -1279,21 +1285,22 @@ class SignalSlotSuite extends ServerHarness {
   private val structural = Dashboard(
     cards + ("frame" -> TestCard(
       "<section {{{tint.bind}}}>{{{body}}}</section>",
-      regions = Map("body" -> Region())
+      regions = Set("body")
     )),
     LayoutNode.Component(
       "frame",
-      Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
-        "tint" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(Some("sensor.a"), Part.Whole),
-            List(Step.Cel(tintRead))
-          ),
-          signal = Some(SignalBind.Style("background"))
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
+          "tint" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(Some("sensor.a"), Part.Whole),
+              List(Step.Cel(tintRead))
+            ),
+            signal = Some(SignalBind.Style("background"))
+          )
         )
-      ),
-      regions = Map("body" -> List(gauge("sensor.a")))
+      ) ++ Slots.nodes(Map("body" -> List(gauge("sensor.a"))))
     )
   )
 
@@ -1316,13 +1323,15 @@ class SignalSlotSuite extends ServerHarness {
     // patching the section, carrying the region's content with it.
     val bytes = structural.copy(card =
       structural.card.asComponent
-        .copy(templateSlots =
-          Map(
-            "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
-            "tint" -> TemplateSlot(
-              ValueExpr(
-                Value.Entity(Some("sensor.a"), Part.Whole),
-                List(Step.Cel(tintRead))
+        .copy(slots =
+          Slots.values(
+            Map(
+              "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
+              "tint" -> TemplateSlot(
+                ValueExpr(
+                  Value.Entity(Some("sensor.a"), Part.Whole),
+                  List(Step.Cel(tintRead))
+                )
               )
             )
           )
@@ -1354,9 +1363,9 @@ class SignalSlotSuite extends ServerHarness {
   test("a change to structure's signal sends a frame and patches nothing") {
     val r = Renderer.create(structural)
     val holds = documentHolds(r, tinted("red"))
-    val log = FragmentLog("test").touched("c", 1L)
+    val log = FragmentLog("test").touched(r.ixOf("c"), 1L)
     val out =
-      resumeNow(r, log, holds, tinted("blue"), 1L, Set.empty, Selections.none)
+      resumeNow(r, log, holds, tinted("blue"), 1L)
     assertEquals(
       out.map(_.patch),
       List(frame(sig("sensor.a", tintRead) -> "blue")),

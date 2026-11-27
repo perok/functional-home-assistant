@@ -36,9 +36,8 @@ root element.**
    `fh-cell`, the card's classes, then the node's cell classes. The two holes
    are writer holes the renderer fills straight into the buffer, as it fills a
    region (`Renderer.NodeContext.writeHole`): `cellClasses` each with its
-   leading space, a live one inline in the document form only, then those decided
-   for the viewer at render (`cell.atRender`, `cellClassAtRender`, ADR 0033), in
-   the document form only and with no binding; `cell` the live
+   leading space, a live one inline in the document form only (one lit by a
+   node variable, `v.valueIs(x)`, decided for the viewer there, ADR 0033); `cell` the live
    `style` (document form), the id, the one `data-signals` seed, the cell
    bindings and the URL mirror, in that order. A card that sets no `tag` gets
    `<div class="fh-cell{{{cellClasses}}}"{{{cell}}}>…</div>` around its
@@ -54,7 +53,9 @@ root element.**
    `data-class="{…}"` is not `class`; and a node refuses a `cellClassWhen(x)`
    whose card's `attrs` binds `data-class:x` itself. `tag` is a plain element
    name. Ids are pure tree-path strings computed before templating — no HTML
-   parsing anywhere. A set's root (`fh-cell fh-group`) is still the renderer's.
+   parsing anywhere. A set's root is a card's root too: `.build()` is a `group`
+   (`core/group.pkl`), a card whose template is its one nodes slot, with
+   `fh-group` among its classes (ADR 0003).
 2. **`CardDef.layoutCell = false` is the escape hatch** (default `true`): the
    root keeps its id and its `cell` hole and loses the `fh-cell` class, for a
    root that must not be a layout box. The opt-outs are roots no container
@@ -76,9 +77,8 @@ root element.**
    template. A class is `"1"` (always there) or a reading, bound by name
    (`data-class:<name>`, ADR 0034); a style is a reading (`data-style:<prop>`).
    The map a slot sits in is its placement, so nothing reads meaning out of a
-   slot's name. It is optional on `LayoutNode.Component`, `LayoutNode.SetNode`
-   (the container root, literal classes only: a set has no slots to bind a
-   reading with), and each clause node. `layout` is the layout builders'
+   slot's name. It is optional on `LayoutNode.Component`, a set's group root
+   and each member node included. `layout` is the layout builders'
    classes (6), written ahead of `classes`.
    `Dashboard.validate` rejects any class that is not a plain token
    (`[A-Za-z0-9_-]+`) — the values are string-interpolated into markup. An
@@ -179,22 +179,21 @@ constant root around holes; rendering it by id would render its whole
 subtree, which is its children's business and not its own. `Dashboard.validate`
 says the same from the other side — it rejects a live BYTES slot on structure
 *because there is nothing to patch* — and the log follows the same rule (ADR
-0011, "what is a log key"). Candidate-set roots are in the same class, for the
-same reason.
+0011, "what is a log key"). A candidate set's root is a card whose one region
+is the set, so it is structure, for the same reason.
 
-**A structural card may read `bakeIndex`.** It is the node's own selected
-index, which no live state moves. What a structural card may not
-do is show a live value as BYTES: it holds content, so it would have to be
+**A structural card may not show a live value as BYTES:** it holds content, so it would have to be
 patched for those bytes to move, and it cannot be. A card wanting its own markup
 to change puts that markup in a region, as a node — a slider's head is a card of
 its own for exactly this reason — or carries the value as a SIGNAL slot (ADR
 0017), which never becomes bytes in its element.
 
-**The log key is always the node id.** A bake host's `<nodeId>_<bakeAs>` is a
-rendering detail derived from it and nothing maps back, so a DOM id can never
-enter the log, the reverse index, or a cursor (ADR 0022).
+**The log key is always the node id.** A choice's host is its node's root,
+the node id crossed into a DOM id by `Renderer.elementId` and nothing maps
+back, so a DOM id can never enter the log, the reverse index, or a cursor
+(ADR 0022).
 
-A bake-group owner (`Tabs`, `If`) gets a cell like anything else. Being a layout
+A choice's host (`Tabs`, `If`) gets a cell like anything else. Being a layout
 item and being a patch target are different jobs, and denying it the first
 because it fails the second is what used to drop `.columns(n)` on a `Tabs`
 silently.
@@ -223,9 +222,8 @@ framework-agnostic, and a new look is a sibling module exporting a
   shape (`CardDef.isStructure`).
 - A card that sets no `tag` is two elements, the `div` root and its markup; a
   card moves its markup into the root fields to be one. The library's cards
-  have, except two whose inner host carries an id of its own beside the
-  node's, which one element cannot hold: `if`'s host and a variable cycle's
-  (the regions work settles them). A root may
+  have; a choice's host is its card's root, so an `If` is one element and a
+  tab panel or a variable cycle's face is a `group` of its own. A root may
   still be `display:contents` on purpose, when what it holds is laid out by
   the parent: the slider head's (its label line and track are the card's
   rows) and the slider text's (its two lines are the head's grid items). The
@@ -241,14 +239,12 @@ framework-agnostic, and a new look is a sibling module exporting a
   rules that space siblings now reach a card's own root: the slider pill
   dissolves only `div` cells (a var cycle's root), and `theme-beer` zeroes BeerCSS's flow margin on
   cells. CI's visual snapshots, not the goldens, catch these.
-- The dynamic-group root's classes (`fh-cell fh-group`) are renderer policy,
-  not a template — unlike static containers, a group's member flow has no
-  card seam. A group wanting a non-grid flow says so via `cellClass` (an
-  entry-appended rule ties the `.fh-group` display rule on specificity and
-  wins by order; the span defaults are `:where()`-wrapped and always lose).
-  If that proves too coarse, the same-depth generalization is an optional
-  container-card reference on `Dynamic` — deferred until a real dashboard
-  needs it.
+- The dynamic-group root's classes (`fh-cell fh-group`) are the `group`
+  card's, written by the library like any root. A set wanting another tag or
+  flow is a `group` of its own (`groupMod.group("ul", "list", set)`), or says
+  so via `cellClass` (an entry-appended rule ties the `.fh-group` display
+  rule on specificity and wins by order; the span defaults are
+  `:where()`-wrapped and always lose).
 
 ## Verification
 

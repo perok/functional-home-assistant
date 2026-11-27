@@ -1,0 +1,70 @@
+/// A nodes slot: the card's template places its handle once, and each node
+/// fills it.
+///
+/// Outside `lib/` deliberately — see `components.test.pkl`.
+amends "pkl:test"
+
+import "../../main/resources/dashboards/lib/core/node.pkl" as nodeMod
+import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
+
+const local bar = slotMod.nodes("bar")
+const local baar = slotMod.nodes("baar")
+const local plain = slotMod.slot("plain")
+
+local class Leaf extends nodeMod.Node {
+  card = "leaf"
+  cardDef = new nodeMod.CardDef { template = "\(plain)" }
+  slots { plain.of("x") }
+}
+
+local class Holder extends nodeMod.Node {
+  card = "holder"
+  cardDef = new nodeMod.CardDef { template = "<b>\(bar)</b>" }
+  slots { bar.of(new Listing { new Leaf {} }) }
+}
+
+local class Empty extends nodeMod.Node {
+  card = "empty"
+  cardDef = new nodeMod.CardDef { template = "<b>\(bar)</b>" }
+  slots { bar.of(new Listing {}) }
+}
+
+/// Fills a slot its template does not place: the handle is spelled differently.
+local class Typo extends nodeMod.Node {
+  card = "typo"
+  cardDef = new nodeMod.CardDef { template = "<b>\(bar)</b>" }
+  slots { baar.of(new Listing { new Leaf {} }) }
+}
+
+/// Declares a slot its template places nowhere.
+local class Unplaced extends nodeMod.Node {
+  card = "unplaced"
+  cardDef = new nodeMod.CardDef { template = "<b></b>" }
+  slots { bar }
+}
+
+facts {
+  ["a placed nodes slot is on the wire as nodes, and is the card's region"] {
+    let (h = new Holder {})
+      h.wireSlots["bar"]["kind"] == "Nodes"
+      && h.regions["bar"].length == 1
+      && nodeMod.cardsIn(List(h))["holder"].regions!!.toSet() == Set("bar")
+  }
+  ["an empty nodes slot is declared by its card but not on the node's wire"] {
+    let (e = new Empty {})
+      !e.wireSlots.containsKey("bar")
+      && nodeMod.cardsIn(List(e))["empty"].regions!!.toSet() == Set("bar")
+  }
+  ["a typo'd nodes slot is an error naming the card"] {
+    module.catch(() -> nodeMod.cardsIn(List(new Typo {}))).contains("card 'typo': nodes slot 'baar' is never placed")
+  }
+  ["a nodes slot the template does not place is an error"] {
+    module.catch(() -> nodeMod.cardsIn(List(new Unplaced {}))).contains("card 'unplaced': nodes slot 'bar' is never placed")
+  }
+  ["children given to a card that places none are an error, not dropped"] {
+    module.catch(() -> ((new Leaf {}) { children { new Leaf {} } }).wireSlots).contains("places no `children` nodes slot")
+  }
+  ["a value slot's builders are not a nodes slot's"] {
+    module.catch(() -> bar.bind).contains("Cannot find property `bind`")
+  }
+}

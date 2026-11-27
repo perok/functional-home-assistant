@@ -1,5 +1,9 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.testkit.DashboardBuilders
 
 import fh.view.testkit.TestCard
@@ -11,11 +15,11 @@ import fh.view.history.Windows
 import fh.view.model.*
 import fh.view.testkit.Conds
 
-import scala.collection.immutable.ListMap
+import scala.collection.immutable.{BitSet, ListMap}
 import scala.collection.mutable.ListBuffer
 
 /** A decision made outside a render reads a fetch: a set's clause and order, a
-  * state surface, a `valueWhile` and a press decide by its answer, which the
+  * state pick, a `valueWhile` and a press decide by its answer, which the
   * server prepares before any of them is made.
   */
 class DecisionFetchSuite extends munit.FunSuite {
@@ -55,16 +59,16 @@ class DecisionFetchSuite extends munit.FunSuite {
 
   private def col(kids: LayoutNode*) = LayoutNode.Component(
     "col",
-    regions = Map(LayoutNode.DefaultRegion -> kids.toList)
+    slots = Slots.nodes(Map(LayoutNode.DefaultRegion -> kids.toList))
   )
 
   /** `inside`, shown while `when` holds. */
   private def guarded(when: ValueExpr, inside: LayoutNode) =
-    LayoutNode.SetNode(
+    Sets.node(
       candidates = List("sensor.a"),
       members = Map(
-        "sensor.a" -> LayoutNode.SetMember(
-          List(LayoutNode.SetClause(Some(when), inside))
+        "sensor.a" -> Sets.Member(
+          List(Sets.Clause(Some(when), inside))
         )
       )
     )
@@ -74,35 +78,35 @@ class DecisionFetchSuite extends munit.FunSuite {
 
   private def item(label: String) = LayoutNode.Component(
     "item",
-    templateSlots = Map("label" -> TemplateSlot(ValueExpr.literal(label)))
+    slots = Slots.values(Map("label" -> TemplateSlot(ValueExpr.literal(label))))
   )
 
   private def dashboard(kids: LayoutNode*) = Dashboard(
-    cards = Map(
+    cards = Sets.cards ++ Map(
       "item" -> TestCard("<i>{{label}}</i>"),
       "call" -> TestCard("""<button data-call="{{{tap.callId}}}"></button>"""),
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map(LayoutNode.DefaultRegion -> Region())
+        regions = Set(LayoutNode.DefaultRegion)
       )
     ),
     card = LayoutNode.Component(
       "col",
-      regions = Map(LayoutNode.DefaultRegion -> kids.toList)
+      slots = Slots.nodes(Map(LayoutNode.DefaultRegion -> kids.toList))
     )
   )
 
   private def set(
       when: Option[ValueExpr],
       orderBy: List[SortTerm] = Nil
-  ) = LayoutNode.SetNode(
+  ) = Sets.node(
     candidates = List("sensor.a", "sensor.b"),
     members = Map(
-      "sensor.a" -> LayoutNode.SetMember(
-        List(LayoutNode.SetClause(when, item("member-a")))
+      "sensor.a" -> Sets.Member(
+        List(Sets.Clause(when, item("member-a")))
       ),
-      "sensor.b" -> LayoutNode.SetMember(
-        List(LayoutNode.SetClause(when, item("member-b")))
+      "sensor.b" -> Sets.Member(
+        List(Sets.Clause(when, item("member-b")))
       )
     ),
     orderBy = orderBy
@@ -122,12 +126,12 @@ class DecisionFetchSuite extends munit.FunSuite {
   ): String =
     r.decide(answer) { run =>
       val at = shared.asking(run)
-      val _ = r.fetchesForPage(Set.empty, at, r.vars.env(Map.empty))
+      val _ = r.fetchesForPage(at, r.vars.env(Map.empty))
       at
     }.map(
       r.renderBodyTraced(
         _,
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).html
     ).unsafeRunSync()
 
@@ -138,7 +142,7 @@ class DecisionFetchSuite extends munit.FunSuite {
     val outside = intercept[FHError](
       r.renderBodyTraced(
         Shared.of(states()),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
     )
     assert(outside.getMessage.contains("outside a run"))
@@ -196,36 +200,31 @@ class DecisionFetchSuite extends munit.FunSuite {
     assert(!order(empty))
   }
 
-  test("a state surface's condition reads a fetch") {
-    val surface = Surface(
-      item("shown"),
-      bakeInto = Some(NodeId.derived("c")),
-      bakeAs = Some("t0"),
-      bakeIndex = Some(0),
-      activation = Activation.State(Some(hasPast))
-    )
-    assertEquals(
-      dashboard().copy(surfaces = Map("t0" -> surface)).decisionFetches,
-      List("surface 't0''s condition" -> history)
-    )
-    val g = new SurfaceGraph(
-      Map(
-        "t0" -> Conds.compiled(
-          Ready.Compile(Evaluator.Scope("")).surface(surface)
+  test("a choice over state reads a fetch") {
+    val d = dashboard()
+      .copy(card =
+        LayoutNode.Component(
+          "col",
+          Map(LayoutNode.DefaultRegion -> Slots.iff(hasPast, item("shown")))
         )
-      ),
-      Map.empty,
-      new MemberGraph(Map.empty, Map.empty)
+      )
+    assertEquals(d.decisionFetches, List("the choice at 'c'" -> history))
+    // Compiled past `validate`, which refuses a decision made by a fetch.
+    val ready = Conds.compiled(Ready.Compile(Evaluator.Scope("")).dashboard(d))
+    val g = new PickGraph(
+      ready.index,
+      ready.picks,
+      new MemberGraph(Map.empty, ready.index)
     )
     val gid = NodeId.derived("c")
     val read = SlotAsk(history, Step.Json).fixed
     def branch(have: FetchSnapshot) = {
       val run = Shared.Run(have)
-      g.resolveActiveByState(gid, Shared.of(states()).asking(run)) -> run.needs
+      g.decideByState(gid, Shared.of(states()).asking(run)) -> run.needs
     }
     assert(
       intercept[FHError](
-        g.resolveActiveByState(gid, Shared.of(states()))
+        g.decideByState(gid, Shared.of(states()))
       ).getMessage
         .contains("outside a run")
     )
@@ -281,7 +280,6 @@ class DecisionFetchSuite extends munit.FunSuite {
         col.regions(LayoutNode.DefaultRegion) match
           case List(c: Ready.Component) => c
           case _                        => fail("one call node")
-      case _ => fail("a column")
     val r = Renderer.create(d)
     def pressed(json: String) =
       r.decide(answering(json))(run =>
@@ -304,8 +302,8 @@ class DecisionFetchSuite extends munit.FunSuite {
       errs.exists(
         _.contains(
           "a set's clause reads the fetch '" + chosen.key + "': a decision " +
-            "is made for every viewer at once, so its fetch cannot read the " +
-            "variable 'window'"
+            "asks for its fetches every version, so its window cannot read " +
+            "the variable 'window'"
         )
       ),
       clue = errs
@@ -374,7 +372,7 @@ class DecisionFetchSuite extends munit.FunSuite {
           before.asking(run),
           after.asking(run),
           frame.changes,
-          Set.empty
+          BitSet.empty
         )
       )
       .unsafeRunSync()

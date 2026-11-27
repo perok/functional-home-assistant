@@ -17,6 +17,7 @@ import fh.view.model.{
 }
 import fh.view.fetch.FetchSnapshot
 import fh.view.history.Windows
+import fh.view.testkit.Slots
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -70,20 +71,21 @@ class VarEnvBench {
   @Benchmark
   def pullPlain(bh: Blackhole): Unit = {
     rot += 1
+    val log = renderer.index
+      .ixsOf(FetchBench.PlainId)
+      .foldLeft(Pulled.log(renderer))(_.touched(_, rot))
     bh.consume(
       Patches
         .resume(
           renderer,
           cache,
-          FragmentLog("bench").touched(FetchBench.PlainId, rot),
+          log,
           Map.empty,
           st,
           _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.of(Map.empty)),
           renderer.vars.env(Map(window -> "7d")),
-          rot,
-          Set.empty,
-          Selections.none
+          Pulled.from(renderer, log, rot)
         )
         .unsafeRunSync()
     )
@@ -95,13 +97,15 @@ object VarEnvBench {
   private def chart(entity: String) =
     LayoutNode.Component(
       "chart",
-      Map(
-        "chart" -> TemplateSlot(
-          ValueExpr(
-            Value.Fetch(
-              FetchTemplate(entity, chosenBy("window", Windows.presets))
-            ),
-            List(Step.Json, Step.JsonText)
+      Slots.values(
+        Map(
+          "chart" -> TemplateSlot(
+            ValueExpr(
+              Value.Fetch(
+                FetchTemplate(entity, chosenBy("window", Windows.presets))
+              ),
+              List(Step.Json, Step.JsonText)
+            )
           )
         )
       )
@@ -113,13 +117,13 @@ object VarEnvBench {
     ),
     card = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         (RenderBench.leaf(signals = true)(0).copy(id = Some("plain")) ::
           RenderBench.tree(RenderBench.Leaves, 4) ::
           List.tabulate(4)(i => chart(s"sensor.main_$i")))*
       ),
       id = Some("root"),
-      vars = List(Dashboard.Declaration("window", "24h"))
+      vars = List(Dashboard.Declaration("window", Some("24h")))
     )
   )
 }

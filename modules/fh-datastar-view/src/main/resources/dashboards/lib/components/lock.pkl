@@ -4,7 +4,7 @@
 /// What is not modelled is listed on [[hass.LockEntity]].
 module components.lock
 
-import "../core/node.pkl" as nodes
+import "../core/node.pkl" as nodeMod
 import "../layout.pkl" as layout
 import "../core/tap.pkl" as tapMod
 import "../core/slot.pkl" as slotMod
@@ -12,6 +12,7 @@ import "../hass.pkl"
 import "../hass/lock.pkl" as hassLock
 import "control.pkl" as control
 import "base/button.pkl" as buttonMod
+import "popup.pkl" as popupMod
 import "base/text.pkl" as textMod
 import "entity.pkl" as entityMod
 import "tap.pkl" as verbs
@@ -24,7 +25,7 @@ function openLatch(l: hass.LockEntity): control.EntityButton =
   control
     .entityButton(l)
     .label("Open")
-    .tapAction(tapMod.openPopupInline(confirmOpen(l)))
+    .tapAction(popupMod.popup(popupMod.idFor("confirm_open", l), confirmOpen(l)))
     .icon("mdi:door-open")
     // The opener's own reason, since a popup carries no call; the press inside
     // refuses the same states through its call.
@@ -36,7 +37,7 @@ local function confirmOpen(l: hass.LockEntity): layout.Column = new layout.Colum
     // Pinned to the domain action: the default would open more-info on top.
     (entityMod.entityCard(l)) { tapAction = tapMod.byDomain(l) }
     buttonMod.button("Open the door", verbs.locks.openLatch(l))
-    buttonMod.button("Cancel", tapMod.closePopup())
+    buttonMod.button("Cancel", popupMod.closePopup())
   }
 }
 
@@ -55,12 +56,12 @@ function lockButtons(l: hass.LockEntity): layout.Row = new layout.Row {
 /// features sit outside the tile's tappable row; the tile opens more-info,
 /// which shows [[moreInfoCard]]. Read off the entity: a one-bit capability has
 /// no group to pass (ADR 0013).
-function controls(l: hass.LockEntity): nodes.LayoutNode = withControls(entityMod.entityCard(l), l)
+function controls(l: hass.LockEntity): nodeMod.LayoutNode = withControls(entityMod.entityCard(l), l)
 
 /// [[controls]] for the more-info popup: the same buttons, and a tile that
 /// opens nothing, since it would only open the popup it is in.
-function moreInfoCard(l: hass.LockEntity): nodes.LayoutNode =
+function moreInfoCard(l: hass.LockEntity): nodeMod.LayoutNode =
   withControls((entityMod.entityCard(l)) { tapAction = null }, l)
 
-local function withControls(card: entityMod.EntityCard, l: hass.LockEntity): nodes.LayoutNode =
+local function withControls(card: entityMod.EntityCard, l: hass.LockEntity): nodeMod.LayoutNode =
   card.features(List(lockButtons(l)) + (if (l.supportsOpen) List(openLatch(l)) else List()))

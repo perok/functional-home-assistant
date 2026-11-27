@@ -81,21 +81,29 @@ object Templates {
     case Pending extends View("pending")
 
   object View:
-    private val bySpelling: Map[String, View] =
-      values.map(v => v.spelling -> v).toMap
+    private val all = values
 
-    /** `x.bind` as its slot and view; `None` for a name with no `.`. */
+    /** `x.bind` as its slot and view; `None` for a name with no `.`. Read twice
+      * per name a card places, at its compile and by validation, so the view is
+      * matched in place.
+      */
     def parse(name: String): Option[Either[String, (String, View)]] =
-      name.indexOf('.') match
-        case i if i <= 0 => None
-        case i           =>
-          val view = name.substring(i + 1)
-          Some(
-            bySpelling
-              .get(view)
-              .map(name.substring(0, i) -> _)
-              .toRight(view)
-          )
+      val i = name.indexOf('.')
+      if i <= 0 then None
+      else
+        spelledAt(name, i + 1) match
+          case null    => Some(Left(name.substring(i + 1)))
+          case v: View => Some(Right(name.substring(0, i) -> v))
+
+    private def spelledAt(name: String, from: Int): View | Null =
+      var found: View | Null = null
+      var k = 0
+      while found == null && k < all.length do
+        val s = all(k).spelling
+        if name.length - from == s.length && name.startsWith(s, from) then
+          found = all(k)
+        k += 1
+      found
 
   trait FhScope:
     def fhGet(name: String): AnyRef
@@ -177,16 +185,11 @@ object Templates {
     }
   }
 
-  /** The name is uniquified: the factory caches by name, so a reload would get
-    * the old template.
+  /** Not cached by the factory (only `compile(name)` is), so a template is
+    * freed with the [[Templates]] holding it.
     */
   def compile(name: String, template: String): JavaMustache =
-    factory.compile(
-      stringReader(template),
-      s"$name#${compileCounter.incrementAndGet()}"
-    )
-
-  private val compileCounter = new java.util.concurrent.atomic.AtomicLong
+    factory.compile(stringReader(template), name)
 
   /** What a template reads, off its code tree.
     *

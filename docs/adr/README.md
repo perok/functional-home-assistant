@@ -23,7 +23,7 @@ to move it; 0003 and 0007 own two of the three node kinds it draws.
 - [0004 — The slot model; AST (not an expression) for queries; attribute memoization](0004-label-as-slot-and-predicate-engine.md)
 - [0005 — Node-scoped UI state and the URL mirror](0005-node-state-and-the-url-mirror.md)
 - [0006 — Pkl as the dashboard authoring language](0006-pkl-authoring-track.md)
-- [0007 — State-activated surfaces: if/else as an activation mode](0007-state-activated-surfaces.md)
+- [0007 — If/else: a pick over state, not a node kind](0007-state-activated-surfaces.md)
 - [0008 — Every node is a cell: backend-owned layout wrappers + the `fh-` layout contract](0008-every-node-is-a-cell.md)
 - [0009 — How we test: functional tests over a fake HA, then browser smoke](0009-testing-strategy.md)
 - [0010 — The live Pkl schema endpoint: `hass.pkl`/`dump.pkl` served over HTTP, resolved in-memory server-side](0010-live-pkl-schema-endpoint.md)

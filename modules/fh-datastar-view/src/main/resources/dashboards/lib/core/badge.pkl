@@ -3,7 +3,7 @@
 /// what it paints is its cell's on look (`node.pkl`'s `ActiveNode`).
 module core.badge
 
-import "node.pkl" as nodes
+import "node.pkl" as nodeMod
 import "slot.pkl" as slotMod
 import "tap.pkl" as tapMod
 
@@ -26,7 +26,7 @@ const function seat(extraClass: String, glyph: String, spin: String): String =
 
 /// The slots a seat reads besides [[icon]]. The card lists them beside its own,
 /// `slots { ...badgeMod.slots(active) }`.
-const function slots(active: nodes.BooleanInput): Listing<slotMod.Slot> =
+const function slots(active: nodeMod.BooleanInput): Listing<slotMod.Slot> =
   new {
     onoff.setIf(!(active is Boolean))
   }

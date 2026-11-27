@@ -95,18 +95,18 @@ The spinner is the one piece a card places separately, because its class is the
 theme's to swap (`fh-busy-spin`) and it must sit on the element hosting the glyph, which
 only the template knows.
 
-**A popup open is guarded like a service call** (issue #412). The open POST
-answers only once the popup's fetches have resolved, and a chart's history
+**A popup open is guarded like a service call** (issue #412). The open is a
+choice of the page's `popups` (ADR 0002), which answers only once the popup's
+fetches have resolved, and a chart's history
 fetch is a wait, so the card that was tapped dims and then spins. A tab switch
 is guarded for the same reason; a tab has no glyph, so its spinner is
 `busyTextClass`, a ring after the label.
 
 **The guard belongs to the kind of tap, never to the card.** A `Call` is
-guarded, and so is an `OpenSurface`: the `Click` that `openPopup` and
-`openPopupInline` return. So is a `SetVar`, a node variable's choice
-(`varMod.Variable.choose`: a tab, an option of `c.select(v)`). A card folds its tap in
-through `tapSlots`, the tab included, so no card decides whether it is guarded
-and a new way to open a surface is guarded by being one. The close stays unguarded: it is `history.back()`, so the control sends
+guarded, and so is a `SetVar`, a node variable's choice
+(`varMod.Variable.choose`: a tab, an option of `c.select(v)`, a popup's open). A
+card folds its tap in through `tapSlots`, the tab included, so no card decides
+whether it is guarded, and a new way to choose is guarded by being one. The close stays unguarded: it is `history.back()`, so the control sends
 no request of its own (the page's `popstate` listener does, ADR 0005). So does
 `navigate`, which is a document load.
 

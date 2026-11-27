@@ -12,6 +12,9 @@ or ADR, not here. The section below is the exception: how to measure, learned th
   new is allocated (#657: `publishIdle` +640 B and `pageSetPlain` +14 KB were this).
 - Pass JFR as `-jvmArgsAppend -XX:StartFlightRecording=settings=…,filename=…`, not
   `-prof jfr:a;b`: sbt reads the `;` as a command separator and drops the benchmark filter.
+  The same trap takes the async profiler's options; quoted inside the sbt command they survive:
+  `sbt 'benchmarks/Jmh/run -prof "async:libPath=…;event=alloc;output=collapsed;dir=…" …'`.
+  Its alloc profile also counts a `Level.Invocation` setup (`ValidateBench`'s decode, ~24%).
 
 Recorded elsewhere:
 
@@ -26,7 +29,7 @@ Recorded elsewhere:
 
 **Question.** Would arrays or presized maps, in place of `List` and `Map`, cut memory where a
 collection's size is known when it is built? The candidates were the static indexes a renderer
-builds once (`MemberGraph`, `NodeAncestry`, `SurfaceGraph`, `allIndexed`) and the per-session
+builds once (`MemberGraph`, `NodeAncestry`, `PickGraph`, `allIndexed`) and the per-session
 `holds`.
 
 **How.** A throwaway `object` in `modules/benchmarks` (package `fh.view.runtime`) ran
@@ -92,7 +95,7 @@ the previous entry.
 
 Measured on #130, recorded here 2026-10-24. **Not worth doing.**
 
-**Question.** After a dashboard edit, `reloadRepaints` renders the body once per connected session,
+**Question.** After a dashboard edit, the swap's repaint renders the body once per connected session,
 and N browsers loading at once each render the whole page. Would one shared render (the cache, or
 one memoised body per set of viewer inputs) be worth having?
 
@@ -324,3 +327,157 @@ changes, which neither touches.
 **Worth asking again if** a member-free guard gets expensive (a CEL guard over a fetch or a
 large list), a profile of a set's decision shows guard runs in its top frames, or the guard
 moves to the set on the wire, which would make one compile and one decision fall out.
+
+## A set's moved members, without copying its list per patch
+
+When an ordered set's sort order changes, or members arrive or leave, a session is sent one
+leave and one place per moved member, and `Patches.applied` copies the host's whole held list
+(`Held.shows`) for each one, boxing as it compares. Is folding them worth a rewrite?
+
+**How.** `RenderBench.publishSetOrderedFanout`: 200 members ordered by brightness, a frame
+turning 20 lights on or off, so 20 move; ten sessions that fold what they were sent, as `Server`
+does. Allocation profile (async-profiler, escape analysis off) after D6's A (a leave removes
+its subtree's range, `longestRun` in loops).
+
+**Numbers.** 4.78 MB/op for the ten sessions, ~450 KB each. Of the whole, the list copies in
+`applied` (each leave's `filterNot`, each place's `placedIn`) are ~36% and the plan's position
+map and run ~29%.
+
+**Verdict.** Not built. The fix is hand-written, boxing-free list helpers, and the cost is
+O(moved × members): it matters for a 200-member set reordering 20 at once, not for a room's
+set, and a sort order changes far less often than members tick.
+
+**Worth asking again if** a dashboard with a large ordered set shows the pull in a profile, or
+a set's reorders become frequent (an order on a fast-moving value, such as power draw).
+
+## A viewer's open cases, decided once a pull
+
+`PickGraph.chosen` (the case roots a viewer's values pick) is derived again by each caller in
+one pull: `Patches.owing`, and `Renderer.caseAsks` through `PickGraph.shownWithin`. Is passing
+one answer down worth it?
+
+**How.** `RenderBench.viewerPull` (a tab bar and an If over a variable, a 4-light set, ten
+sessions), allocation profile (async-profiler, escape analysis off) after D6's D.
+
+**Numbers.** 207,092 B/op; `chosen` is ~9% of it overall, ~4% under `owing` and about as much
+from `caseAsks`.
+
+**Verdict.** Not built. Sharing it means a new parameter threaded from the pull through
+`Renderer`'s reads, for a few percent of a pull that is mostly per session anyway.
+
+**Worth asking again if** a dashboard with many variable or viewer picks shows `chosen` near the
+top of a pull's profile, or a third caller starts deriving it.
+
+## The fragment log, without a map update per touched node
+
+`Patches.record` marks each touched node with `FragmentLog.touched`, one immutable map update
+each, so a frame copies a map path per node. Is a cheaper log worth it?
+
+**How.** `RenderBench.publish` and `publishManyPopups` (the page bench's 200 leaves, one frame
+through the recorder), allocation profile (async-profiler, escape analysis off) in D6's pass.
+
+**Numbers.** `touched` is 31% of `publish` (18,408 B/op) and 26% of `publishManyPopups`
+(21,184), about 6 KB a frame.
+
+**Verdict.** Not built. It is paid once per slug per frame, never per session, and the
+alternatives are no plainer: a batched `++` still copies paths, and a versions array by `Ix`
+copied per frame costs about what it saves at this size, while the log must stay an immutable
+value that sessions read while the recorder writes.
+
+**Worth asking again if** frames touch far more nodes (a dashboard of thousands, or a recorder
+that touches every node of a fill), or the log moves behind a single owner that could keep a
+mutable table safely.
+
+## A tick's signal frame, built once for every session
+
+`Patches.signalFrame` is built per session on each pull: the signal values its nodes have now,
+the ones that moved from what it holds, and two maps, the frame's payload and the session's new
+holds. On an ordinary tick every session gets the same payload. Is sharing it worth it?
+
+**How.** `RenderBench.resumeMorphs` and `resumeMorphsFanout` (ten sessions), and
+`resumeSignalsFanout`; allocation profiles (async-profiler, escape analysis off) in D6's pass
+and again after D6's E.
+
+**Numbers.** `signalFrame` is ~38% of `resumeMorphs` (131,988 B/op) and 41% of
+`resumeMorphsFanout` (615,305), ~25 KB a session. Of that, ~88% is building the two maps and
+~11% the values themselves (`Renderer.signalsOf`), the only part that is the same for every
+session.
+
+**Verdict.** Not built. The maps are per session by nature, since each compares against that
+session's `holds`. Sharing the payload only works for a session whose held signals are all
+stale, so it means a second path for when a session is behind or ahead, for a saving that is
+mostly map building.
+
+**Worth asking again if** many sessions per slug becomes the normal case (a wall of tablets on
+one dashboard), or a profile of a real tick shows `signalFrame` above the render itself.
+
+## A compiled card shared across dashboards and reloads
+
+Each `Dashboard.validated` compiles every card it uses (`Templates.card`: mustache.java's compile,
+then what the template reads off its tree, `readCodes` and `inExpression`). Nothing is shared
+between two dashboards on the same theme, or with the serving dashboard on a reload. Is a cache
+of compiled cards worth it?
+
+**How.** `ValidateBench.validated` with allocation profiles (async-profiler, escape analysis
+off), D6's H on fc2b3e67; the four checked-in snapshots compared card by card.
+
+**Numbers.** The card compile is 43% of `validated` on the starter (1.71 MB/op, ~1.3 ms), 34%
+on `branches`, 17% on `taps`: ~0.5 ms a dashboard against seconds of Pkl evaluation on a Pi.
+A card of the same name has the same template in every snapshot (`page` has two), so the four
+compile 43 cards where 25 are distinct.
+
+**Verdict.** Not built. The render phase would not move: a compiled template is already run by
+every session of a slug at once, and the renderer only looks one up by name. The cost is who
+owns the cache. `factory.compile(Reader, name)` caches nothing (only `compile(name)` does), so
+today a template is freed with its renderer; a global map would keep every template an edit
+ever produced, a weakly held one frees at GC time behind everyone's back, and the plain shape,
+`validated` taking the cards it may reuse and a reload seeding them from the serving renderers,
+needs that map threaded through `Site.decode`, `DashboardBuild.decode` and `DumpRefresh`. A
+reload no longer validates a dashboard that decodes equal to what it serves
+(`DashboardBuild.decode`'s `live`), which took the case where sharing would have saved the most.
+
+**Worth asking again if** a site of many dashboards on one theme is the normal case and a reload
+or a dump refresh that changes every one of them shows up in a Pi's heap or reload time, or the
+retained size of the compiled cards (unmeasured; a JOL count like `HoldsSize`) turns out large.
+
+## The planner's per-client allocation, slimmed
+
+D3.4's planner (`Patches.owing`: `covered`, `hostsAt`, `owe`'s closures) allocates ~2.1 KB per
+client per pull that the `Patches.reordered` search it replaced did not. Worth a pass of its own?
+
+**How.** `RenderBench.resumeMorphs`/`resumeMorphsFanout` (B/op, escape analysis off) across D3,
+with async-profiler allocation profiles; retained `holds` from `HoldsSize`.
+
+**Numbers.** `resumeMorphs` 130,311 → 133,323 B/op (+2.3%), `resumeMorphsFanout` 609,785 →
+632,096 (+3.7%), times within error; what is left after the profile fix is the planner's ~2.1 KB
+a client. It is garbage per pull, not held: a session's retained `holds` is ~75 KB for 200
+leaves either way.
+
+**Verdict.** Not built (2026-11-26). It scales with open viewers, not with dashboard size, and a
+home has few; slimming it means specialising the one planner's closures for a cost no profile of
+a real pull has shown.
+
+**Worth asking again if** a Pi's GC shows up in a pull's latency with several tablets open, or
+`viewerPull`/`resumeMorphsFanout` move by more than the gate on a later change to `owing`.
+
+## A stable set's membership, rebuilt once a frame
+
+A stable set's delta (`MemberGraph.keysMoved`) folds `applyOne` over the touched entities, and
+each one that switches clause builds a fresh `GroupMembers`, so its `Presence` scan, again. A
+frame where several members switch together (a scene) pays it once per member. Build it once
+after the fold instead?
+
+**How.** `RenderBench.publishClauseSwitches` against `publishClauseSwitch` (9258dac6): the
+publisher pass on `clauseSetTree(200)`, 20 members switching clause per frame against one.
+
+**Numbers.** 173 against 50 µs, 495 against 190 KB: ~6.5 µs and 15 KB per extra switch. That
+is an upper bound on the rebuild's share, since the 20-switch frame also carries 19 more changes
+through the reverse index and the log; no control with 20 changes and no switch was run.
+
+**Verdict.** Not built (2026-11-26). It is paid once per slug per frame, not per viewer, and
+only when many members of one set switch at once, which a scene does a few times a day: ~1 ms
+on a Pi at worst.
+
+**Worth asking again if** a dashboard's sets hold hundreds of candidates that switch together
+often, or a Pi's profile of the recorder shows `GroupMembers.of` under `keysMoved`. Start with
+the control (20 changes, no switch) to split the rebuild from the frame's other work.

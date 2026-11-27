@@ -38,6 +38,17 @@ final case class ValueExpr(
   /** A [[constant]] that is text. */
   def literal: Option[String] = constant.collect { case s: String => s }
 
+  /** `v.valueIs(x)` as `(v, x)`: the one variable read a signal slot may hold,
+    * since the browser can read it off the variable's own signals (ADR 0033).
+    */
+  def chosenAt: Option[(String, String)] = (source, steps) match
+    case (
+          Value.Var(name),
+          List(Step.Compare(Op.Eq, Value.Literal(Lit.Text(at))))
+        ) =>
+      Some((name, at))
+    case _ => None
+
   /** The subject resolved: a source [[Value.Entity]] that names none reads
     * `subject`, and a step's operand that names none its source's entity, else
     * `subject`. `None` leaves one unnamed, which `validate` refuses.
@@ -181,7 +192,7 @@ final case class ValueExpr(
       inputs.filter((n, _) => read.contains(n))
 
   /** Why it cannot decide where a bool is required, read with no inputs: a
-    * clause, a guard, a state surface.
+    * clause, a guard, a state pick.
     */
   def boolError: Option[String] =
     typed(Nil) match
@@ -469,6 +480,8 @@ object ValueType:
         takes(in match { case List(_) => true; case _ => false }, "a list", Int)
       case Step.AllOf | Step.AnyOf =>
         takes(in == List(Bool), "a list of bools", Bool)
+      case Step.IndexOfTrue =>
+        takes(in == List(Bool), "a list of bools", Int)
       case _: Step.Compare   => takes(numberLike(in), "a number or text", Bool)
       case Step.Not          => takes(in == Bool, "a bool", Bool)
       case _: Step.First     => takes(in == List(Text), "a list of ids", Text)
@@ -748,6 +761,12 @@ object Step:
     */
   case object AnyOf extends Simple
 
+  /** The position of the first bool of a list that holds, stopping there, else
+    * no value: a chain of conditions as the one key a [[Choice]] picks a case
+    * by. An item with no value does not hold.
+    */
+  case object IndexOfTrue extends Simple
+
   /** The value against `to`, as `to`'s type picks: a number literal on the
     * number line, a text literal as text, a bool literal as equality; against a
     * read, two numbers on the number line, else text, ordering numeric when
@@ -854,8 +873,8 @@ object Step:
       case Match(cs, o)   => Match(cs, v(o))
       case Compare(op, t) => Compare(op, v(t))
       case Check(ss)      => Check(ss.map(about(subject)))
-      case s @ (_: Cel | _: First | _: Duration | Count | AllOf | AnyOf | Not |
-          ThemeClasses | Json | JsonText | _: Chart) =>
+      case s @ (_: Cel | _: First | _: Duration | Count | AllOf | AnyOf |
+          IndexOfTrue | Not | ThemeClasses | Json | JsonText | _: Chart) =>
         s
 
   /** Its outcomes are all Booleans. */
@@ -878,6 +897,7 @@ object Step:
     case Count        => "count"
     case AllOf        => "all-of"
     case AnyOf        => "any-of"
+    case IndexOfTrue  => "index-of-true"
     case _: Compare   => "compare"
     case Not          => "not"
     case _: First     => "first"
@@ -901,8 +921,8 @@ object Step:
       case Cel(_, inputs) => inputs.values.toList.map(Input(_))
       case First(orderBy) => orderBy.map(o => PerMember(o.by))
       case Check(ss)      => ss.flatMap(parts)
-      case _: Duration | Count | AllOf | AnyOf | Not | ThemeClasses | Json |
-          JsonText | _: Chart =>
+      case _: Duration | Count | AllOf | AnyOf | IndexOfTrue | Not |
+          ThemeClasses | Json | JsonText | _: Chart =>
         Nil
 
   def operands(s: Step): List[Value.Operand] =
@@ -929,6 +949,7 @@ object Step:
       case Count          => "count"
       case AllOf          => "allOf"
       case AnyOf          => "anyOf"
+      case IndexOfTrue    => "indexOfTrue"
       case Compare(op, t) => s"compare:$op(${Value.key(t)})"
       case Not            => "not"
       case First(orderBy) => orderBy.map(_.key).mkString("first(", ";", ")")
@@ -977,9 +998,12 @@ object SortTerm:
   */
 private[model] object Strict:
 
-  /** Pkl's `wireInputs` is `inputs` here: the Pkl `inputs` is the author's. */
+  /** Pkl's `wireInputs` is `inputs` here, and `wireSlots` is `slots`: the Pkl
+    * ones are the author's.
+    */
   val wireName: String => String =
     case "inputs" => "wireInputs"
+    case "slots"  => "wireSlots"
     case other    => other
 
   val configuration: Configuration =

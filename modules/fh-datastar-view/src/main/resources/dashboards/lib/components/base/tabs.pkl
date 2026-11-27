@@ -1,0 +1,94 @@
+/// A tab bar over one panel, and the tab button `c.select(v)` reuses. Pure
+/// composition over a match on a node variable; the backend never reads a
+/// card name (ADR 0033).
+module components.base.tabs
+
+import "../../core/node.pkl" as nodeMod
+import "../../core/group.pkl" as groupMod
+import "../../core/slot.pkl" as slotMod
+import "../../core/tap.pkl" as tapMod
+import "../../core/variable.pkl" as varMod
+
+/// One tab in an `.fh-tabs` bar, an anchor straight under it: a [[Tabs]]
+/// member, or an option of `c.select(v)`. Built by the bar, not by an author.
+class TabButton extends nodeMod.Node {
+  card = "tab"
+  cardDef = new nodeMod.CardDef {
+    // An anchor, so a theme can style the bar's `> a`.
+    tag = "a"
+    layoutCell = false
+    attrs = #"data-on:click="\#(tapMod.guardClick)\#(tapMod.click)"\#(tapMod.guard)\#(tapMod.busyVisual.ifSet(" " + tapMod.busyTextClass))"#
+    // Not a `core/text.pkl` box: the bar scrolls, so a tab is reached rather
+    // than shortened.
+    template = "\(labelSlot)"
+  }
+  hidden label: String
+  hidden tapAction: tapMod.SetVar
+  slots {
+    labelSlot.of(label)
+    ...tapMod.tapRoute(tapAction)
+    ...tapMod.guardSlots(tapAction)
+  }
+}
+
+const local labelSlot: slotMod.Slot = slotMod.slot("label")
+
+/// The slot holding the open tab's panel.
+const local panelSlot: slotMod.NodesSlot = slotMod.nodes("panel")
+
+/// The tab choosing `choice` for `v`, lit while `v` holds it: every button bar
+/// over a node variable — a [[Tabs]], `c.select(v)`. Lit for the viewer in the
+/// first HTML, and live off the variable's own signals, the ask while one is
+/// out, so a press lights at once; a patch carrying the class could land after
+/// a second press and light two tabs (ADRs 0019, 0025).
+const function tabButton(v: varMod.Variable, choice: varMod.Value, text: String): nodeMod.LayoutNode = (new TabButton {
+  label = text
+  tapAction = v.choose(choice)
+}).cellClassWhen("fh-chosen", v.valueIs(choice))
+
+/// A tab bar over one panel. It declares the node variable `tab`, the open
+/// tab's index; each tab's cards become a case of a match over it, filling
+/// the panel, and each button writes it (ADR 0033). The server
+/// commits `_var_<id>__tab` once the panel is in, the bar's cell mirrors it into
+/// the URL as `v.<id>.tab`, and a refresh restores the tab without a flash.
+class Tabs extends nodeMod.Node {
+  card = "tabs"
+  // The bar is structure: it holds the buttons and carries no live value; a
+  // selection arrives as a signal frame. A live header goes beside the buttons
+  // as a node of its own.
+  cardDef = new nodeMod.CardDef {
+    classes = "fh-col"
+    template = """
+      <div class="fh-tabs">\(slotMod.childrenSlot)</div>\(panelSlot)
+      """
+    // The panel must not be a box, so the tab's own layout reaches the
+    // surrounding column.
+    css = ".fh-tab-panel{display:contents}"
+  }
+  layoutClasses { "fh-cols-full" }
+  hidden tabCases: Mapping<varMod.Value, Listing<nodeMod.LayoutNode>> =
+    new { for (i, l in labels) { [i.toString()] = tabs[l] } }
+  slots {
+    panelSlot.of(new Listing { groupMod.inner("div", "fh-tab-panel", nodeMod.match(tabVar.value, tabCases)) })
+  }
+  /// label -> that tab's cards, in bar order. A tab amends into existence:
+  ///   (c.tabs) { tabs { ["Lights"] { c.entityCard(e) c.entitySlider(l) } } }
+  /// A tab's cards sit in a [[Row]]; nest another container as its one card
+  /// for a different layout.
+  hidden tabs: Mapping<String, Listing<nodeMod.LayoutNode>> = new { default = (_) -> new Listing {} }
+  // A List, because the derivations below need each tab's index.
+  hidden labels: List<String> = tabs.keys.toList()
+  vars { tabVar.defaultingTo("0") }
+  children = new Listing {
+    for (i, l in labels) {
+      tabButton(tabVar, i.toString(), l)
+    }
+  }
+}
+
+/// `(c.tabs) { tabs { ["Lights"] { ... } } }`.
+hidden tabs: Tabs = new Tabs {}
+
+/// The node variable a [[Tabs]] declares and its buttons write. Fixed, as the
+/// window chooser's is, so the declaration and its writers cannot drift.
+const tabVar: varMod.Variable = new { name = "tab" }

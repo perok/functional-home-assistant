@@ -1,0 +1,150 @@
+/// A nodes slot's fill that picks among branches: `nodeMod.iff(p).then(a).elif(q).then(b).else(x)`
+/// over live state or node variables, or `nodeMod.match(by, cases)` over a reading.
+/// On the wire a choice is `Fill.Nodes(Choice.Chosen)`: `by`, a case per key and an
+/// `otherwise`, one node per case (several sit in a row). A choice reading only
+/// state is decided once for every viewer; one reading a variable is decided for
+/// each viewer, at the values it holds.
+module core.choice
+
+import "../layout.pkl" as layout
+import "node.pkl" as nodeMod
+import "predicate.pkl" as pred
+import "slot.pkl" as slotMod
+import "variable.pkl" as varMod
+
+/// A branch: one node, or several, which sit in a row.
+typealias Branch = nodeMod.LayoutNode|Listing<nodeMod.LayoutNode>
+
+/// A condition as an If is built from: a bool reading or predicate, or a
+/// `Boolean` the build already knows (`q.from(emptyRoom).any()` folds to `false`).
+typealias Condition = slotMod.Expr|Boolean
+
+/// One case of a [[ChosenNodes]]: its node where `by` reads `is`.
+class NodesCase {
+  `is`: String|Boolean|Int
+  value: Listing<nodeMod.LayoutNode>
+}
+
+/// What a choice writes (`fh.view.model.Choice.Chosen` of a node list).
+class ChosenNodes {
+  kind: "Chosen" = "Chosen"
+  by: slotMod.Expr
+  cases: Listing<NodesCase>
+  otherwise: Listing<nodeMod.LayoutNode>?
+}
+
+/// What `NodesSlot.of` takes besides nodes and a set.
+abstract class Choice {
+  function wire(): ChosenNodes = throw("a choice writes its cases")
+
+  /// Every node a case can be.
+  function nodes(): List<nodeMod.LayoutNode> =
+    let (w = wire())
+      w.cases.toList().flatMap((k) -> k.value.toList()) + (w.otherwise?.toList() ?? List())
+}
+
+const function conditionOf(c: Condition): slotMod.Expr =
+  if (c is Boolean) (if (c) pred.alwaysHolds else pred.neverHolds)
+  else c as slotMod.Expr
+
+const local function listingOf(b: Branch): Listing<nodeMod.LayoutNode> =
+  if (b is Listing) b as Listing<nodeMod.LayoutNode> else new Listing<nodeMod.LayoutNode> { b as nodeMod.LayoutNode }
+
+/// Several nodes as one node: a row. A lone node is itself, so a case holding
+/// the one card it shows adds no element.
+const local function contentOf(b: Branch): nodeMod.LayoutNode =
+  if (b is Listing) new layout.Row { children = b as Listing<nodeMod.LayoutNode> } else b as nodeMod.LayoutNode
+
+const local function oneNode(b: Branch): Listing<nodeMod.LayoutNode> =
+  new Listing<nodeMod.LayoutNode> { contentOf(b) }
+
+/// One `elif` of an [[Iff]].
+class Elif {
+  condition: slotMod.Expr
+  nodes: Listing<nodeMod.LayoutNode> = new {}
+}
+
+/// `nodeMod.iff(p).then(a).elif(q).then(b).`else`(x)`: the first branch whose
+/// condition holds. Every step returns `this`.
+class Iff extends Choice {
+  hidden condition: slotMod.Expr
+  hidden `then`: Listing<nodeMod.LayoutNode> = new {}
+  hidden elifs: Listing<Elif> = new {}
+  hidden `else`: Listing<nodeMod.LayoutNode> = new {}
+
+  /// Append to the branch being built: the last `elif`'s, else `then`.
+  function then(n: Branch): this = let (i = this)
+    if (i.elifs.isEmpty) (i) { `then` { ...listingOf(n) } }
+    else (i) { elifs { [i.elifs.length - 1] { nodes { ...listingOf(n) } } } }
+  /// A further branch, taken when none before it holds: `.elif(q).then(b)`.
+  function elif(p: Condition): this = let (i = this) let (c = conditionOf(p))
+    (i) { elifs { new Elif { condition = c } } }
+  /// What shows when no branch holds; may be given more than once.
+  function `else`(n: Branch): this = let (i = this) (i) { `else` { ...listingOf(n) } }
+
+  function wire(): ChosenNodes =
+    let (i = this)
+    let (conds = List(i.condition) + i.elifs.toList().map((e) -> e.condition))
+    let (branches = List(i.`then`) + i.elifs.toList().map((e) -> e.nodes))
+    let (vars = conds.filter((c) -> c is varMod.ValueIs).map((c) -> (c as varMod.ValueIs).variable.name).distinct)
+      if (vars.length == 1 && conds.every((c) -> c is varMod.ValueIs))
+        // One variable alone shows a branch at every value, and one no case
+        // takes is refused, so the else is there even when empty.
+        new ChosenNodes {
+          by = (conds[0] as varMod.ValueIs).variable.value
+          cases {
+            for (k, b in branches) {
+              new NodesCase { `is` = (conds[k] as varMod.ValueIs).value; value = oneNode(b) }
+            }
+          }
+          otherwise = oneNode(i.`else`)
+        }
+      else
+        // Anything else, over state, variables or both: one condition is the
+        // key itself, a chain is the position of the first that holds. An
+        // `else` that is empty is no case at all.
+        new ChosenNodes {
+          by = if (conds.length == 1) conds[0] else new pred.FirstTrue { items { ...conds } }
+          cases {
+            for (k, b in branches) {
+              new NodesCase { `is` = if (conds.length == 1) true else k; value = oneNode(b) }
+            }
+          }
+          otherwise = if (i.`else`.isEmpty) null else oneNode(i.`else`)
+        }
+}
+
+/// `nodeMod.match(v.value, cases)`: the branch at the variable's value, for each
+/// viewer. Keys are the values a viewer can choose; `.otherwise(x)` takes every
+/// value no key names.
+class Match extends Choice {
+  hidden by: slotMod.Expr
+  hidden caseMap: Mapping<varMod.Value, Branch>
+  hidden other: Branch? = null
+
+  /// What shows at a value no case names.
+  function otherwise(b: Branch): this = (this) { other = b }
+
+  function wire(): ChosenNodes =
+    let (m = this)
+      new ChosenNodes {
+        by = m.by
+        cases {
+          for (key, b in m.caseMap) {
+            new NodesCase { `is` = key; value = oneNode(b) }
+          }
+        }
+        otherwise = if (m.other == null) null else oneNode(m.other!!)
+      }
+}
+
+/// `nodeMod.iff(p)`: a branch for `p`, extended with `.then`, `.elif`, `.else`.
+const function iff(p: Condition): Iff = new Iff { condition = conditionOf(p) }
+
+/// A choice over a value: a node variable's (`v.value`), possibly run through
+/// steps, or an entity-state reading (`simpleMod.state()`, a text reading). One
+/// reading a variable is decided for each viewer, one reading only state once for
+/// every viewer. The branch whose key is that value, else `.otherwise(…)`, else
+/// nothing.
+const function match(on: slotMod.Reading, byValue: Mapping<varMod.Value, Branch>): Match =
+  new Match { by = on; caseMap = byValue }

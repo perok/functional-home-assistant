@@ -62,19 +62,17 @@ object FixtureEntries {
     List(SmokeDashboard.switchLight, SmokeDashboard.longNameLight)
   )
 
-  /** What a tap does: a call, on an entity and on a set, more-info, a popup and
-    * an inline popup, a navigation, and a lock's own buttons.
+  /** What a tap does: a call, on an entity and on a set, more-info, two popups,
+    * a navigation, and a lock's own buttons.
     */
   val taps: Entry = Entry(
     "taps",
     header +
       """
-        |surfaces {
-        |  ["detail"] {
-        |    body {
-        |      c.title("Detail")
-        |      c.button("Close", c.view.closePopup())
-        |    }
+        |local detail = new c.Column {
+        |  children {
+        |    c.title("Detail")
+        |    c.button("Close", c.view.closePopup())
         |  }
         |}
         |
@@ -83,9 +81,9 @@ object FixtureEntries {
         |    c.entityCard(kitchen).tapAction(c.tap.call("homeassistant/toggle", kitchen))
         |    c.entityCard(kitchen) |> c.informative
         |    c.entityCard(kitchen).tapAction(c.view.moreInfo(kitchen))
-        |    c.entityCard(kitchen).tapAction(c.view.openPopup("detail"))
+        |    c.entityCard(kitchen).tapAction(c.view.popup("detail", detail))
         |    c.button("Lights off", c.tap.call("light/turn_off", q.from(dump.lights.all).where(q.eq(q.stateProp, "on"))))
-        |    c.button("Inline…", c.view.openPopupInline(new c.Column {
+        |    c.button("Inline…", c.view.popup("inline", new c.Column {
         |      children {
         |        c.title("Inline")
         |        c.button("Close", c.view.closePopup())
@@ -102,8 +100,8 @@ object FixtureEntries {
         |""".stripMargin
   )
 
-  /** The two inline-surface hoist paths, tab panels and branches, and a branch
-    * a node variable picks.
+  /** Both kinds of case, tab panels and branches, and a branch a node variable
+    * picks.
     */
   val branches: Entry = Entry(
     "branches",
@@ -130,6 +128,84 @@ object FixtureEntries {
         |  }
         |}
         |""".stripMargin
+  )
+
+  private def lamp(id: String, name: String, state: String): FixtureEntity =
+    FixtureEntity(
+      s"light.$id",
+      state,
+      Map("friendly_name" -> Json.fromString(name))
+    )
+
+  /** A decision per viewer: a chooser's variable, an If whose chain reads it
+    * and a light's state, so the case shown depends on both; and a set whose
+    * guard reads it and a member's state (a keeps every member, b the lit
+    * ones); a card whose second line has a value only while `mode` is b; and a
+    * set whose order key reads it and a member's state (a lit first, b unlit
+    * first). The sets and the card have lights of their own, so the kitchen
+    * moves only the If.
+    */
+  val viewerDecisions: Entry = Entry(
+    "viewer-decisions",
+    header.replace(
+      "import \"@fh-dashboard/theme.pkl\" as th",
+      "import \"@fh-dashboard/theme.pkl\" as th\n" +
+        "import \"@fh-dashboard/core/node.pkl\" as nodeMod\n" +
+        "import \"@fh-dashboard/core/slot.pkl\" as slotMod"
+    ) +
+      """
+        |const local stateSlot = slotMod.slot("state")
+        |
+        |/// `<p>{{state}}</p>`, the light's state while `gate` holds: a plain byte slot.
+        |local class Attic extends nodeMod.Node {
+        |  card = "attic"
+        |  cardDef = new nodeMod.CardDef { template = "<p>\(stateSlot)</p>" }
+        |  hidden entityId: String
+        |  hidden gate: slotMod.Expr
+        |  slots {
+        |    stateSlot.of(let (e = entityId) let (g = gate) new slotMod.Reading { entityId = e; valueWhile = g })
+        |  }
+        |}
+        |
+        |local mode = c.variable("mode")
+        |local hall = dump.entities.light_hall
+        |local porch = dump.entities.light_porch
+        |local attic = dump.entities.light_attic
+        |local lit = c.expr("value.state == 'on'")
+        |local ordered = q.from(List(dump.entities.light_desk, dump.entities.light_shelf, dump.entities.light_sofa))
+        |  .orderBy(q.asc(q.any(List(
+        |    q.all(List(mode.valueIs("a"), lit)),
+        |    q.all(List(mode.valueIs("b"), q.not(lit)))
+        |  ))))
+        |
+        |card = (c.column) {
+        |  children {
+        |    (c.chooser(c.select(mode).options(List("a", "b")))) {
+        |      children {
+        |        c.iff(mode.valueIs("a"))
+        |          .then(c.title("Mode a"))
+        |          .elif(q.entity(kitchen).stateIs("on"))
+        |          .then(c.toggle(kitchen))
+        |          .`else`(c.title("Neither"))
+        |        q.from(List(hall, porch))
+        |          .where(q.any(List(mode.valueIs("a"), q.eq(q.stateProp, "on"))))
+        |          .render((e) -> c.toggle(e))
+        |          .build()
+        |        new Attic { entityId = attic.entity_id; gate = mode.valueIs("b") }
+        |        ordered.render((e) -> c.toggle(e)).build()
+        |      }
+        |    }
+        |  }
+        |}
+        |""".stripMargin,
+    List(
+      lamp("hall", "Hall", "off"),
+      lamp("porch", "Porch", "on"),
+      lamp("attic", "Attic", "on"),
+      lamp("desk", "Desk", "off"),
+      lamp("shelf", "Shelf", "on"),
+      lamp("sofa", "Sofa", "off")
+    )
   )
 
   /** A candidate set: filtered, ordered and cut, and its leader as a condition.
@@ -341,6 +417,7 @@ object FixtureEntries {
     cards,
     taps,
     branches,
+    viewerDecisions,
     sets,
     readings,
     progress,

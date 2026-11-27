@@ -12,7 +12,7 @@
 /// of the same name and fields, which `WireShapeSuite` checks.
 module core.simple
 
-import "node.pkl" as nodes
+import "node.pkl" as nodeMod
 import "slot.pkl" as slotMod
 
 abstract class Step {
@@ -26,9 +26,9 @@ class Cel extends Step {
   kind: "Cel" = "Cel"
   src: String
   /// Named inputs of this expression alone, beside its node's
-  /// ([[nodes.Node.inputs]]): the same kinds, a fetch included
+  /// ([[nodeMod.Node.inputs]]): the same kinds, a fetch included
   /// (`p.history.of(e, w)`). A name in both reads this one.
-  hidden inputs: Mapping<String, nodes.Input>? = null
+  hidden inputs: Mapping<String, nodeMod.Input>? = null
   wireInputs: Map<String, Any>? = inputs?.toMap()?.mapValues((_, v) -> slotMod.wireInput(v))
 }
 
@@ -64,6 +64,12 @@ class AllOfStep extends Simple {
 /// Whether any bool of a list holds: an or.
 class AnyOfStep extends Simple {
   kind: "AnyOf" = "AnyOf"
+}
+
+/// The position of the first bool of a list that holds, and no value when none
+/// does: a chain of conditions as one key a choice picks its case by.
+class IndexOfTrueStep extends Simple {
+  kind: "IndexOfTrue" = "IndexOfTrue"
 }
 
 /// The backend's `Op` decoder accepts exactly these.

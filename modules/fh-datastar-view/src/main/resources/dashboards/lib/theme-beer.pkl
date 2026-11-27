@@ -129,8 +129,8 @@ class BeerTheme extends themeMod.Theme {
 
   // `responsive` is BeerCSS's centred max-width container.
   chrome = """
-    <main class="responsive" id="dashboard">{{{body}}}</main>
-    <div id="popups">{{{popups}}}</div>
+    <main class="responsive">{{{body}}}</main>
+    {{{popups}}}
     """
 
   // BeerCSS's self-morphing SVG mask, in place of the plain ring. Bound, never
