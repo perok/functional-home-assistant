@@ -20,7 +20,6 @@ import fh.view.model.{
   IdKind,
   Ix,
   LayoutNode,
-  MemberId,
   NodeId,
   Reads,
   Ready,
@@ -95,12 +94,12 @@ private[runtime] object Trace {
   }
 }
 
-/** A host's parts, the root of each, and what each node inside them now holds:
-  * a part per set member, or a state group's branch as one walk under a root
-  * with no rendering of its own ([[Renderer.Traced]]).
+/** A host's rendering, the root of each part, and what each node inside them
+  * now holds: a part per set member, or a state group's branch as one walk
+  * under a root with no rendering of its own ([[Renderer.Traced]]).
   */
 private[runtime] case class HostContent(
-    parts: List[(NodeId, String)],
+    html: String,
     shown: IArray[Ix],
     claims: Map[Ix, Held]
 )
@@ -993,17 +992,17 @@ class Renderer(val validated: Dashboard.Validated) {
         val traced = members
           .membersOf(setId, shared)
           .toList
-          .map(m => m.id -> memberTraced(m, shared, viewing))
+          .map(memberTraced(_, shared, viewing))
         HostContent(
-          traced.map((id, t) => id -> t.html),
-          IArray.from(traced.map(_._2.root)),
-          traced.flatMap(_._2.claims).toMap
+          traced.map(_.html).mkString,
+          IArray.from(traced.map(_.root)),
+          traced.flatMap(_.claims).toMap
         )
       case None =>
         pickedCase(container, shared)
           .flatMap(renderCaseTraced(container, _, shared, viewing))
-          .fold(HostContent(Nil, IArray.empty, Map.empty))((id, t) =>
-            HostContent(List(id -> t.html), IArray(t.root), t.claims)
+          .fold(HostContent("", IArray.empty, Map.empty))((_, t) =>
+            HostContent(t.html, IArray(t.root), t.claims)
           )
     }
 

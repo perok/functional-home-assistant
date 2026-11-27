@@ -266,6 +266,7 @@ class RenderBench {
   private var shared: Renderer = null
   private var st: Map[String, EntityState] = null
   private var stShared: Shared = null
+  private var heldStore: StoreState = null
   private var flipShared: Shared = null
   private var stLights: Map[String, EntityState] = null
   private var celProbes: List[Cel.Program] = null
@@ -372,6 +373,7 @@ class RenderBench {
   def setup(): Unit = {
     st = states(Leaves)
     stShared = Shared.of(st)
+    heldStore = StoreState(st, 1L)
     stLights = st.view
       .mapValues(e => e.copy(attributes = LightAttributes ++ e.attributes))
       .toMap
@@ -2145,6 +2147,13 @@ class RenderBench {
     }
     wireRot += 1
   }
+
+  /** A version the renderer already holds, asked again: what each resume and
+    * each send pays before it reads anything (`Server`).
+    */
+  @Benchmark
+  def sharedHeld(bh: Blackhole): Unit =
+    bh.consume(signalled.shared(heldStore))
 }
 
 object RenderBench {
