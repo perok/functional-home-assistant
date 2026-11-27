@@ -9,6 +9,7 @@ module core.slot
 
 import "../hass.pkl"
 import "../hass/active.pkl" as activeTables
+import "choice.pkl" as choiceMod
 import "predicate.pkl" as predMod
 import "simple.pkl" as simpleMod
 import "node.pkl" as nodeMod
@@ -301,21 +302,25 @@ class NodesSlot extends AnySlot {
   /// The set filling it, in place of [[nodes]]: the card's whole template, the
   /// members placed straight into its root.
   hidden set: predMod.SetFill? = null
-  /// Filled per viewer by a surface (a tab panel, an `If` branch) rather than
-  /// by [[nodes]]; its host carries `id="{{hostId}}"`.
-  hidden bakedBy: Boolean = false
+  /// The choice filling it, in place of [[nodes]]: a tab panel, an `If`'s
+  /// branches. It lowers to the node's bake group, and the card places the host
+  /// it is patched into, `id="{{hostId}}"`.
+  hidden choice: choiceMod.Choice? = null
+  hidden bakedBy: Boolean = choice != null
   /// What the wire holds of it, [[nodes]] being a fixed fill.
   fixed fill: NodesFill|predMod.SetFill = if (set != null) set!! else new NodesFill { choice = nodes }
   /// Whether anything fills it.
   hidden filled: Boolean = set != null || !nodes.isEmpty
 
-  /// Fixed nodes, or a set: `q.from(…).where(…).render(…)`, which is the one
-  /// fill of its card.
-  function of(f: Listing<nodeMod.LayoutNode>|predMod.TallyOf|predMod.SetFill): this =
+  /// Fixed nodes, a set (`q.from(…).where(…).render(…)`, the one fill of its
+  /// card) or a choice (`nodeMod.iff(…)`, `nodeMod.match(…)`).
+  function of(f: Listing<nodeMod.LayoutNode>|predMod.TallyOf|predMod.SetFill|choiceMod.Choice): this =
     if (f is predMod.TallyOf) of((f as predMod.TallyOf).fill())
     else if (f is predMod.SetFill) (this) { set = f as predMod.SetFill }
+    else if (f is choiceMod.Choice) (this) { choice = f as choiceMod.Choice }
     else (this) { nodes = f as Listing<nodeMod.LayoutNode> }
-  /// A slot a surface fills: its [[nodes]] are none.
+  /// Marks the slot as filled by a bake group built by hand; a choice
+  /// ([[of]]) sets it on its own.
   function baked(): this = (this) { bakedBy = true }
 
   function toString(): String = "{{{" + name + "}}}"

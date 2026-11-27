@@ -41,7 +41,7 @@ class Variable {
   name: Name
 
   /// The activation of a bake group whose member this variable chooses by
-  /// index: a tab bar's panel.
+  /// index. The library's choices select by value ([[selecting]]).
   fixed selects: surfaceMod.VarActivation = let (n = name) new { name = n }
 
   /// The activation of the bake member this variable shows at `at`.

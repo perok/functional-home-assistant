@@ -501,6 +501,27 @@ sits among other content, put it in a `group` (`core/group.pkl`), a card that
 is just such a slot: `groupMod.group("ul", "list", set)`. `.build()` on a set
 is a `group` of its own.
 
+A nodes slot can also hold a **choice**: one of several branches, picked live.
+Over live state, for every viewer:
+
+```pkl
+branch.of(nodeMod.iff(c.isOn(lamp)).then(a).elif(c.isOn(fan)).then(b).`else`(x))
+```
+
+and over a node variable, for each viewer, with one key per value the viewer can
+hold and `.otherwise(…)` for the rest (a key can hold several nodes as a
+`Listing`, which sit in a row):
+
+```pkl
+panel.of(nodeMod.match(mode.value, new Mapping { ["heat"] = h; ["cool"] = k }).otherwise(off))
+```
+
+Only the branch showing is rendered and kept live. A choice is patched into an
+element your template writes, so place one element carrying `id="{{hostId}}"`
+around the slot: `<div id="{{hostId}}">\(panel)</div>`. A chain reading a
+variable and live state together, and a `match` over entity state, are errors
+for now.
+
 ---
 
 ## Styling

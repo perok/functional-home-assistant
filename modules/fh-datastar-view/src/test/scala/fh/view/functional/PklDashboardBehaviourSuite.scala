@@ -382,6 +382,56 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
       .use(f)
       .timeout(60.seconds)
 
+  /** Three branches over two lights: the first condition to hold shows, so both
+    * on is the first branch.
+    */
+  private val chainEntry =
+    s"""amends "@fh-dashboard/entry.pkl"
+       |
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-dashboard/query.pkl" as q
+       |import "@fh-home/dump.pkl" as dump
+       |
+       |card = (c.column) {
+       |  children {
+       |    c
+       |      .iff(q.entity(dump.entities.${light.dumpKey}).stateIs("on"))
+       |      .then(c.title("Branch one"))
+       |      .elif(q.entity(dump.entities.${other.dumpKey}).stateIs("on"))
+       |      .then(c.title("Branch two"))
+       |      .`else`(c.title("Branch neither"))
+       |  }
+       |}
+       |""".stripMargin
+
+  test("an elif chain shows the first branch whose condition holds") {
+    TestServer
+      .fromWorkspace("elif-chain", chainEntry, List(light, other))
+      .use { ts =>
+        def shown: IO[List[String]] =
+          ts.page().map { html =>
+            List("Branch one", "Branch two", "Branch neither")
+              .filter(html.contains)
+          }
+        // No client is connected, so the frame is recorded and not pulled: the
+        // page is each branch's first paint.
+        def set(a: String, b: String): IO[Unit] =
+          ts.record(light.copy(state = a), other.copy(state = b))
+        for {
+          both <- set("on", "on") *> shown
+          second <- set("off", "on") *> shown
+          neither <- set("off", "off") *> shown
+          first <- set("on", "off") *> shown
+        } yield {
+          assertEquals(both, List("Branch one"))
+          assertEquals(second, List("Branch two"))
+          assertEquals(neither, List("Branch neither"))
+          assertEquals(first, List("Branch one"))
+        }
+      }
+      .timeout(60.seconds)
+  }
+
   test("first paint: the branch's tab panel carries its content") {
     withBranchServer(_.page()).map { html =>
       assert(html.contains("Light is on"), clue = html)

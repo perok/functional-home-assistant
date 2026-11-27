@@ -19,12 +19,12 @@
 /// `.over((p) -> p.history.chosen(v, table))`, a bake group.
 module components.select
 
+import "../core/choice.pkl" as choiceMod
 import "../core/icon.pkl" as icons
 import "../core/node.pkl" as nodeMod
 import "../core/predicate.pkl" as predMod
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
-import "../core/surface.pkl" as surfaceMod
 import "../core/tap.pkl" as tapMod
 import "../core/variable.pkl" as varMod
 import "../hass.pkl"
@@ -74,23 +74,15 @@ const local function entityCall(o: hass.Options, v: String): tapMod.Call =
 
 // Each option is a node in the default nodes slot, so the card is structure: a
 // patch of the select never re-sends them. A variable's panel is baked.
-const local panelSlot: slotMod.NodesSlot = slotMod.nodes("panel").baked()
+const local panelSlot: slotMod.NodesSlot = slotMod.nodes("panel")
 const local barSlot: slotMod.NodesSlot = slotMod.nodes("bar")
 
-// One member per option, shown while `v` is at its value: the server renders the
-// chosen one, as a slider's mode panels.
-const local function panelsOf(v: varMod.Variable, nodesFor: List<nodeMod.LayoutNode>, cs: List<Choice>): Mapping<String, surfaceMod.SurfaceDef> =
-  new Mapping {
-    for (i, ch in cs) {
-      ["o\(i)"] = new surfaceMod.SurfaceDef {
-        content = nodesFor[i]
-        bakeInto = nodeMod.NODE_ID
-        bakeAs = "panel"
-        bakeIndex = i
-        activation = v.selecting(ch.value)
-      }
-    }
-  }
+// A match with one case per option, shown while `v` is at its value: the server
+// renders the chosen one, as a slider's mode panels.
+const local function panelsOf(v: varMod.Variable, nodesFor: List<nodeMod.LayoutNode>, cs: List<Choice>): choiceMod.Match =
+  nodeMod.match(v.value, new Mapping<varMod.Value, nodeMod.LayoutNode> {
+    for (i, ch in cs) { [ch.value] = nodesFor[i] }
+  })
 
 abstract class Select extends nodeMod.Node {
   hidden target: Over
@@ -247,12 +239,13 @@ class VarSelectDropdown extends Select {
     template = menuTemplate(#"<span id="{{hostId}}">\#(panelSlot)</span>"#)
     css = menuCss
   }
-  slots {
-    panelSlot
-  }
-  inlineSurfaces =
+  // A class-level property: a nested body cannot see what `Select` declares.
+  hidden labelChoice: choiceMod.Match =
     let (cs = choices)
       panelsOf(target, cs.map((ch) -> new ChoiceLabel { label = ch.label; icon = ch.icon }), cs)
+  slots {
+    panelSlot.of(labelChoice)
+  }
 }
 
 /// One button showing the chosen option; a press chooses the next, round. Over
@@ -278,10 +271,11 @@ class VarSelectCycle extends Select {
     template = #"<div id="{{hostId}}" class="fh-select-cycles">\#(panelSlot)</div>"#
     css = cycleCss
   }
-  slots { panelSlot }
+  // A class-level property: a nested body cannot see what `Select` declares.
+  hidden panelChoice: choiceMod.Match = panelsOf(target, optionNodes, choices)
+  slots { panelSlot.of(panelChoice) }
   cycling = true
   children = new Listing {}
-  inlineSurfaces = panelsOf(target, optionNodes, choices)
 }
 
 /// The label a [[VarSelectDropdown]] shows for one option. An icon replaces

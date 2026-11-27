@@ -4,12 +4,10 @@
 module components.base.surface
 
 import "../../core/node.pkl" as nodeMod
-import "../../core/surface.pkl" as surfaceMod
-import "../../core/predicate.pkl" as pred
+import "../../core/choice.pkl" as choiceMod
 import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/variable.pkl" as varMod
-import "../../layout.pkl" as layout
 
 /// One tab in an `.fh-tabs` bar, an anchor straight under it: a [[Tabs]]
 /// member, or an option of `c.select(v)`. Built by the bar, not by an author.
@@ -35,8 +33,8 @@ class TabButton extends nodeMod.Node {
 
 const local labelSlot: slotMod.Slot = slotMod.slot("label")
 
-/// The panel a tab's surface is baked into.
-const local panelSlot: slotMod.NodesSlot = slotMod.nodes("panel").baked()
+/// The slot holding the panel the open tab is baked into.
+const local panelSlot: slotMod.NodesSlot = slotMod.nodes("panel")
 
 /// The tab choosing `choice` for `v`, lit while `v` holds it: every button bar
 /// over a node variable — a [[Tabs]], `c.select(v)`. Lit for the viewer in the
@@ -49,8 +47,8 @@ const function tabButton(v: varMod.Variable, choice: varMod.Value, text: String)
 }).cellClassWhen("fh-chosen", v.valueIs(choice))
 
 /// A tab bar over one panel. It declares the node variable `tab`, the open
-/// tab's index; each tab's cards become an inline surface baked into the panel
-/// host and selected by it, and each button writes it (ADR 0033). The server
+/// tab's index; each tab's cards become a branch of a match over it, baked into
+/// the panel and selected by it, and each button writes it (ADR 0033). The server
 /// commits `_var_<id>__tab` once the panel is in, the bar's cell mirrors it into
 /// the URL as `v.<id>.tab`, and a refresh restores the tab without a flash.
 class Tabs extends nodeMod.Node {
@@ -68,8 +66,10 @@ class Tabs extends nodeMod.Node {
     css = ".fh-tab-panel{display:contents}"
   }
   layoutClasses { "fh-cols-full" }
+  hidden tabCases: Mapping<varMod.Value, Listing<nodeMod.LayoutNode>> =
+    new { for (i, l in labels) { [i.toString()] = tabs[l] } }
   slots {
-    panelSlot
+    panelSlot.of(nodeMod.match(tabVar.value, tabCases))
   }
   /// label -> that tab's cards, in bar order. A tab amends into existence:
   ///   (c.tabs) { tabs { ["Lights"] { c.entityCard(e) c.entitySlider(l) } } }
@@ -79,17 +79,6 @@ class Tabs extends nodeMod.Node {
   // A List, because the derivations below need each tab's index.
   hidden labels: List<String> = tabs.keys.toList()
   vars { tabVar.defaultingTo("0") }
-  inlineSurfaces = new Mapping {
-    for (i, l in labels) {
-      ["t\(i)"] = new surfaceMod.SurfaceDef {
-        content = new layout.Row { children = tabs[l] }
-        bakeInto = nodeMod.NODE_ID
-        bakeAs = "panel"
-        bakeIndex = i
-        activation = tabVar.selects
-      }
-    }
-  }
   children = new Listing {
     for (i, l in labels) {
       tabButton(tabVar, i.toString(), l)
@@ -104,22 +93,21 @@ hidden tabs: Tabs = new Tabs {}
 /// window chooser's is, so the declaration and its writers cannot drift.
 const tabVar: varMod.Variable = new { name = "tab" }
 
-const local function stateActivation(p: slotMod.Expr?): surfaceMod.StateActivation =
-  new { condition = p }
-
-const local branchSlot: slotMod.NodesSlot = slotMod.nodes("branch").baked()
+const local branchSlot: slotMod.NodesSlot = slotMod.nodes("branch")
 
 /// A conditional section: `then` while `condition` holds, the optional `else`
-/// while it does not. The tabs machinery, and the inactive branch is neither
-/// rendered nor updated. Over live state the choice is shared by every viewer;
-/// over a node variable it is each viewer's own, as a tab bar's is.
+/// while it does not, and `elif`s between. The tabs machinery, and the inactive
+/// branch is neither rendered nor updated. Over live state the choice is shared
+/// by every viewer; over a node variable it is each viewer's own, as a tab
+/// bar's is.
 ///
 ///   c.iff(q.entity(dump.e_x).stateIs("on"))
 ///     .then(c.title("on")).`else`(c.title("off"))
+///   c.iff(p).then(a).elif(q).then(b).`else`(x)
 ///   c.iff(window.valueIs("30d")).then(c.title("Month"))
 ///   (c.iff(p)) { `then` { ...cards... } `else` { ...cards... } }
 ///
-/// An If inside `else` is else-if.
+/// The same chain as `nodeMod.iff`, in a node of its own.
 class If extends nodeMod.Node {
   card = "ifhost"
   // `fh-ifhost` lets the base stylesheet collapse a cell whose branches all
@@ -127,52 +115,31 @@ class If extends nodeMod.Node {
   cardDef = new nodeMod.CardDef {
     template = #"<div class="fh-ifhost" id="{{hostId}}">\#(branchSlot)</div>"#
   }
-  slots { branchSlot }
   layoutClasses { "fh-cols-full" }
-  hidden condition: slotMod.Expr|varMod.ValueIs
+  hidden condition: slotMod.Expr
   hidden `then`: Listing<nodeMod.LayoutNode> = new {}
+  hidden elifs: Listing<choiceMod.Elif> = new {}
   hidden `else`: Listing<nodeMod.LayoutNode> = new {}
-  // First match in `bakeIndex` order; `else` is the always-true member 1. Both
-  // share one `bakeAs`, since the backend reads it off a group's first member.
-  inlineSurfaces = new Mapping {
-    ["then"] = new surfaceMod.SurfaceDef {
-      content = new layout.Row { children = `then` }
-      bakeInto = nodeMod.NODE_ID
-      bakeAs = "branch"
-      bakeIndex = 0
-      activation =
-        if (condition is varMod.ValueIs) condition.variable.selecting(condition.value)
-        else stateActivation(condition)
-    }
-    // Over a variable the else is always there, if empty: a variable's group
-    // shows a member at every value, and one no member takes is refused.
-    when (!`else`.isEmpty || condition is varMod.ValueIs) {
-      ["else"] = new surfaceMod.SurfaceDef {
-        content = new layout.Row { children = `else` }
-        bakeInto = nodeMod.NODE_ID
-        bakeAs = "branch"
-        bakeIndex = 1
-        activation =
-          if (condition is varMod.ValueIs) condition.variable.selectingAnyOther
-          else stateActivation(null)
-      }
-    }
-  }
-  /// Append one node, or `new Listing { ... }` for several, to `then`.
-  function then(n: nodeMod.LayoutNode|Listing<nodeMod.LayoutNode>): this = let (l = this)
-    if (n is Listing) (l) { `then` { ...n } } else (l) { `then` { n } }
+  hidden chain: choiceMod.Iff =
+    let (i = this)
+      new choiceMod.Iff { condition = i.condition; `then` = i.`then`; elifs = i.elifs; `else` = i.`else` }
+  slots { branchSlot.of(chain) }
+
+  /// Append one node, or `new Listing { ... }` for several, to the branch being
+  /// built: `then`, or the last `elif`'s.
+  function then(n: choiceMod.Branch): this = let (l = this) let (c = l.chain.then(n))
+    (l) { `then` = c.`then`; elifs = c.elifs }
+  /// A further branch, taken when none before it holds: `.elif(q).then(b)`.
+  function elif(p: choiceMod.Condition): this = let (l = this) let (c = l.chain.elif(p))
+    (l) { elifs = c.elifs }
   /// `` .`else`(c.title("off")) ``.
-  function `else`(n: nodeMod.LayoutNode|Listing<nodeMod.LayoutNode>): this = let (l = this)
-    if (n is Listing) (l) { `else` { ...n } } else (l) { `else` { n } }
+  function `else`(n: choiceMod.Branch): this = let (l = this) let (c = l.chain.`else`(n))
+    (l) { `else` = c.`else` }
 }
 
 /// `c.iff(p).then(...).`else`(...)`. A condition over state must name the
 /// entities it reads (`q.entity(e)`, or an aggregate over `q.from(…)`). A
 /// `Boolean` is accepted because the build folds: `q.from(emptyRoom).any()` is
 /// already `false`. `v.valueIs(x)` chooses by a node variable instead.
-function iff(p: slotMod.Expr|Boolean|varMod.ValueIs): If =
-  new If {
-    condition =
-      if (p is Boolean) (if (p) pred.alwaysHolds else pred.neverHolds)
-      else p
-  }
+function iff(p: choiceMod.Condition): If =
+  new If { condition = choiceMod.conditionOf(p) }
