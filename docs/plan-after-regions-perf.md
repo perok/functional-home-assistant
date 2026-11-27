@@ -100,12 +100,13 @@ order the walk met them.
    flushes as one `fs2.Chunk` (`SseFrame` holds a chunk), so the page is never joined or grown.
    Eagerly, inside the step: the next step diffs against the `holds` the repaint leaves, and a
    tap or a swap runs on the owner without waiting on `drained`. Gate: 10's `repaint` B/op near
-   `pageWalk`'s. Built: `repaint` 9.82 MB → 1.29 MB/op (pageWalk 508 KB), 7191 → 2533 µs.
+   `pageWalk`'s. Built: `repaint` 9.82 MB → 1.29 MB/op (pageWalk 508 KB), 7191 → 2533 µs; the
+   gate is NOT met, 2.5× `pageWalk`.
 
-   Left above `pageWalk`, profiled: the frame's own bytes (~250 KB, the eager shape's floor) and
-   the repaint's signals frame (~350 KB: `signalsJson`'s `Json`, its `noSpaces`, `"signals " +`,
-   `renderString`, `getBytes`, and `SignalId.segments` re-split per call), which could be written
-   the same way.
+   Left above `pageWalk`, profiled: the frame's own bytes (~250 KB, the eager shape's floor, which
+   only the extension below removes) and the repaint's signals frame (~350 KB: `signalsJson`'s
+   `Json`, its `noSpaces`, `"signals " +`, `renderString`, `getBytes`, and `SignalId.segments`
+   re-split per call), which 12 writes the same way.
 
    **Extension, if the Pi says the rest matters:** the same writer into the stream instead of a
    chunk, which saves the frame's bytes (≈ the page). It needs a frame kind the
