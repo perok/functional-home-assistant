@@ -1329,11 +1329,11 @@ class Server(
       case _ => IO.pure(FetchSnapshot.of(Map.empty, env))
     }
 
-  /** Back or Forward under `conn`, as one step of its session. Only success is
-    * NoContent; a refusal is [[actionRefused]] (ADR 0024). With no session to
-    * run in, the page reloads at its URL, with a notice: the browser has
-    * already moved the URL, and the reconnect would rebuild the session from
-    * the page's committed choices, which still disagree with it.
+  /** Back or Forward under `conn`, as one step of its session; success is
+    * NoContent. Not run, with no session or on a page a dashboard edit replaced
+    * ([[swapAnswer]]), the page reloads at its URL with a notice (ADR 0024):
+    * the browser has already moved the URL, and a refusal leaves the session's
+    * choices disagreeing with it, so a popup Back closed came back open.
     */
   private def withSession(
       req: Request[IO],
@@ -1363,7 +1363,7 @@ class Server(
               ),
               conn,
               lost,
-              actionRefused(req, _)
+              lost
             )(f)
           )
       }

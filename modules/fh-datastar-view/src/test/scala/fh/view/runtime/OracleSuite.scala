@@ -468,6 +468,20 @@ class OracleSuite extends HedgehogSuite {
       case failure        => throw AssertionError(failure.toString)
   }
 
+  /** Back on a page a reload replaced while its stream was down: refused, the
+    * swap's repaint showed the session's popup the URL had already closed.
+    */
+  test("taps: Back while down, after a reload, closes the popup") {
+    val e = FixtureEntries.taps
+    run(
+      variants(e),
+      e,
+      List(Step.Press(0, 2), Step.Drop(0), Step.Reload, Step.Back(0))
+    ) match
+      case Result.Success => ()
+      case failure        => throw AssertionError(failure.toString)
+  }
+
   /** Back on a page whose session is forgotten: the browser has moved the URL
     * off the popup, so the page reloads there; refused, it kept the popup, and
     * the reconnect adopted it from the page's committed choices.
