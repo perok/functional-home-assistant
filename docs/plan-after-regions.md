@@ -5,8 +5,10 @@ runtime throw, a gap in the oracle and in two benches, and two things a popup ca
 put the rules where a mistake cannot be written and close the test gaps; G and H are the popup
 work. Each step is a commit (or a few) that is green on its own.
 
-**State:** planned 2026-11-26; A built (with its leaning dashboard and the Back reload); B built; C built; D dropped. Branch `after-regions`, stacked on `d6-benches`
-(#731).
+**State:** planned 2026-11-26; A built (with its leaning dashboard and the Back reload); B built;
+C built. Reviewed 2026-11-27: D dropped, E a test instead of a type, F's Why narrowed, G parked,
+H an ordinary node pending a browser check. Next: E. Branch `after-regions`, stacked on
+`d6-benches` (#731).
 
 ## Working this plan
 
@@ -121,19 +123,22 @@ not a type.
 setting folded into each dashboard at decode, as `Site.decode` folds the access rule, would be
 missed: the bug af075d3e fixed, again.
 
-**Shape.** `Dashboard.Validated(source: Validated.Source(dashboard, access), ready, templates)`.
-Everything else in it is compiled from `source`, so a site setting can only land in `Source`, and
-`planSite` compares `source`. `withAccess` updates it; `Origin.FromSite` holds
-`Either[String, Validated.Source]`; `Server.Content` goes.
+**Shape.** A test, not a type. Wrapping the pair as `Validated.Source` (the first shape) does not
+stop a setting from landing in `Validated` beside `source`, which is how af075d3e's bug would come
+back, and it costs about 40 `.dashboard` call sites. The test holds the rule instead: the field
+names of `Validated`, without the compiled `ready` and `templates`, are exactly `Content`'s, by
+`productElementNames` as `WireShapeSuite` compares them. A field added to one and not the other
+fails it, naming the field.
 
-**Test.** Cannot fail at run time once the type holds it: the reload test in
+**Test.** Add a field to `Validated` locally and see it fail; the reload test in
 `FailedDashboardSuite` ("a reload applies a changed site access rule…") stays green.
 
 ## F. Benches check their premise
 
-**Why.** `FetchBench` and `VarEnvBench` priced a whole-screen sweep under names that said pull
-(9258dac6). `RenderBench`'s setups fail when a fixture stops being what a bench claims; these did
-not.
+**Why.** A bench whose fixture drifts goes on pricing something its name no longer says.
+`RenderBench`'s setups fail when that happens; `FetchBench` and `VarEnvBench`'s do not. The cause
+9258dac6 found, a pull priced under a defaulted `Swept`, cannot recur since B: every bench names
+its coverage. What is left is fixture drift.
 
 **Shape.** Setup checks that fail naming the premise: `FetchBench.pullPlain` sends one node and
 asks no read, `pullChart` asks its chart's read and no other, `reconnectTabOpen` asks the tab's
@@ -141,49 +146,17 @@ four charts, `VarEnvBench.pullPlain` sends one node and asks nothing.
 
 **Test.** Break each premise locally once and see the error.
 
-## G. A popup reads what its taps read
+## G. Parked: a popup reads what its taps read
 
-**Why.** A popup is a case of the page's `popups` match, so it has the page's scope. A popup body
-reading a variable its button sees (a window chooser above the card) fails the build — "reads the
-variable 'window', which no ancestor declares" — although the build knows every tap that opens it.
+Parked at review, 2026-11-27, until a dashboard needs it. A popup has the page's scope, so a popup
+body reading a variable its button sees (a window chooser above the card) fails the build — "reads
+the variable 'window', which no ancestor declares". No issue asks for more, the error names a way
+out (declare it on the node that owns the choice, or write the value down), and the rule costs a
+scope fixpoint, an error for taps that disagree and five docs.
 
-**Rule** (ADR 0033 rule 6). A case starts with its host's scope, as today. A name the host does not
-see is in scope too when every tap that chooses the case sees it from the same declaration.
-
-- A tap chooses a case when its `v.choose(k)` resolves `v` to the declaration the choice's `by`
-  reads, and `k` is the case's key. Only a `by` that is a plain variable read has such taps; any
-  other case keeps its host's scope.
-- A tap inside another case sees what that case's scope gives it, by the same rule. Scopes only
-  grow, so the build repeats until nothing changes; two popups opening each other add nothing to
-  each other by themselves.
-
-**Consequences.**
-
-- The read still binds once, at build time (rule 2): nothing changes at run time, in the URL or on
-  the wire. An open popup follows its chooser live, as any reader does.
-- The host's scope comes first, so no dashboard that builds today changes meaning; only some that
-  fail today build.
-- Taps that disagree, two choosers each over a card opening one popup that reads `window`: the
-  name is out of scope there, and the error names both declarations and the way out (give each
-  its own popup id).
-- Each set member is its own declarer, so a popup reads a member's variable only if one member
-  opens it.
-
-**Where.** `Dashboard.varScopes`, a map from each case to the taps choosing it (each tap's
-`SetVar` resolved where the tap is), `Validate`'s message for a read with no declarer.
-
-**Test.** (a) a popup under one chooser reading `window` builds, shows the chooser's value, and
-repaints when the chooser is written while it is open; (b) taps under two choosers: the build
-error names both; (c) two popups opening each other, a name declared above only one tap: builds;
-(d) a popup still open after its chooser left the screen (a tab switched away) keeps reading the
-chooser's value, since values are kept by declarer (ADR 0033 rule 9), and a write elsewhere does
-not move it; (e) every golden and snapshot unchanged.
-
-**Gate.** `ValidateBench.validated`, equal within error.
-
-**Docs.** ADR 0033 rule 6; ADR 0002's popups; `writing-dashboards.md`, Popups ("a popup reads the
-choices its buttons read"); `writing-components.md` where it states a case's scope;
-`docs/terminology.md`, Popup.
+The designed rule, for when it reopens (full text in this plan at a9011a89): a name the host does
+not see is in scope for a case when every tap choosing it sees the name from the same declaration;
+the build repeats until nothing changes; taps that disagree are an error naming both declarations.
 
 ## H. Alerts: popups that state shows
 
@@ -191,38 +164,42 @@ choices its buttons read"); `writing-components.md` where it states a case's sco
 has no form. Decided: the state controls it and nothing else, so an alert has no close and no
 per-viewer dismissal.
 
-**Shape.**
+**Shape.** An alert is an ordinary node in the tree, not an entry field:
+`c.view.alert(id, cond, body)` is `nodeMod.iff(cond).then(...)` over the popup card with no ✕, no
+Escape and no backdrop close (`base/popup.pkl`), the id its DOM id as a popup's is.
 
-- An entry's `alerts { c.view.alert("doorbell", q.entity(doorbell).stateIs("on"), body) }`, shown
-  to every viewer while its condition holds. The id is the alert's DOM id, as a popup's is.
-- An alert is the popup card with no ✕, no Escape and no backdrop close (`base/popup.pkl`).
-- The page card's `popups` slot holds a group per alert (`nodeMod.iff(cond).then(alert)`; a card
-  holds one choice, so each alert is its own host) before the `popups` group, so a popup opened
-  from an alert's own button shows above it. A dashboard with no alerts sends today's wire.
-- `popupMod.cases` walks each alert's body too, so a popup an alert's button opens exists.
-- No history entry, so Back is unaffected. An alert has the page's scope (no tap chooses it).
+- Placed at the top of the entry's `card`, it covers every tab; placed inside one, only that one.
+- `popupMod.cases` already walks the tree, so a popup an alert's button opens exists with no
+  change, and `entry.pkl` and `core/page.pkl` stay as they are. A dashboard with no alerts sends
+  today's wire.
+- The page's `popups` element comes after the body at the same `z-index`, so a popup opened from an
+  alert shows above it; an alert arriving while a popup is open shows beneath it until it closes.
+- No history entry, so Back is unaffected. An alert has its host's scope, as any node.
 
-**Where.** `entry.pkl`, `core/page.pkl`, `components/popup.pkl`, `components/view.pkl`,
-`components/base/popup.pkl`; a `FixtureEntries` dashboard (snapshot and golden), added to the
-oracle's fixtures so a state change shows and hides it.
+**First, a check in the browser** (`sbt dashboardServe`): the backdrop is `position:fixed`, so an
+ancestor that is a containing block (a `transform`, `filter` or `container-type`) would trap it in
+a cell. Nothing in the library's CSS sets one on a cell today (`container-type` is on the text
+boxes only), but a theme could. If the check fails, the entry-field shape comes back: an entry's
+`alerts`, held by the page card's `popups` slot before the popups group, walked by `popupMod.cases`
+(this plan at a9011a89).
+
+**Where.** `components/view.pkl`, `components/base/popup.pkl`; a `FixtureEntries` dashboard
+(snapshot and golden), added to the oracle's fixtures so a state change shows and hides it.
 
 **Test.** A Pkl fact (an alert's markup has no close); the fixture's alert shown, then hidden by a
 state change; the oracle over it.
 
-**Docs.** `writing-dashboards.md` (Alerts), ADR 0002, `docs/terminology.md` (Alert). The guide
-says an alert covers the page for as long as its condition holds, so a sensor stuck `on` blocks
-the tablet, and shows the way out through HA: a helper in the condition
+**Docs.** `writing-dashboards.md` (Alerts: where to place one), ADR 0002, `docs/terminology.md`
+(Alert). The guide says an alert covers the page for as long as its condition holds, so a sensor
+stuck `on` blocks the tablet, and shows the way out through HA: a helper in the condition
 (`doorbell on && ack off`), a button in the alert turning `ack` on, an automation resetting it on
 the next ring. That is a dismissal shared by every viewer; a per-viewer one is out of scope.
 
-**Open.** The names (`alerts`, `c.view.alert`). The order: before user popups (recommended, so an
-alert's buttons open above it), which means an alert arriving while a viewer has a popup open
-shows beneath it until that closes.
+**Open.** The name `c.view.alert`.
 
 ## Not in this plan
 
 - Dismissing an alert per viewer: it needs a general per-viewer value, designed on its own
   (decided 2026-11-26).
-- Passing a value into a popup when it opens: G covers the static case, which is every case a
-  build can check.
+- Passing a value into a popup when it opens.
 - #732–#735.
