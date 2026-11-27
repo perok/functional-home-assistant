@@ -4,7 +4,7 @@
 /// slider. Opened in a popup by the view tap `c.view.colourWheel(l.colour)`.
 module components.wheel
 
-import "../core/node.pkl" as nodes
+import "../core/node.pkl" as nodeMod
 import "../core/shell.pkl"
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
@@ -53,9 +53,9 @@ const local commit: String = tapMod.post(tapMod.tapCall, List(picked))
 const local function hsRead(body: String, otherwise: String): String =
   "value.attr[?'hs_color'].optMap(hs, \(body)).orValue('\(otherwise)')"
 
-class ColourWheel extends nodes.Node {
+class ColourWheel extends nodeMod.Node {
   card = "colourWheel"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     // Two elements carry the patch handlers: one element holds one
     // `data-on-signal-patch` (the slider splits its two the same way). The
     // knob's position is on the knob, which alone reads it, so the root, which

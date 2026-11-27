@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -52,9 +54,11 @@ class SetNodeSuite extends ServerHarness {
     // injected at render time.
     LayoutNode.Component(
       "tile",
-      Map(
-        "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
-        "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(id))))
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+          "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(id))))
+        )
       )
     )
 
@@ -278,16 +282,18 @@ class SetNodeSuite extends ServerHarness {
     )
     val subtree = LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         tileNode("light.a"),
         LayoutNode.Component(
           "tile",
-          Map(
-            "entity_id" -> TemplateSlot(
-              ValueExpr.literal("sensor.temp")
-            ),
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.temp")))
+          Slots.values(
+            Map(
+              "entity_id" -> TemplateSlot(
+                ValueExpr.literal("sensor.temp")
+              ),
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.temp")))
+              )
             )
           )
         )
@@ -337,7 +343,7 @@ class SetNodeSuite extends ServerHarness {
             None,
             LayoutNode.Component(
               "col",
-              regions = LayoutNode.kids(
+              slots = Slots.kids(
                 LayoutNode.SetNode(
                   candidates = lights,
                   members = lights.map { l =>
@@ -395,7 +401,7 @@ class SetNodeSuite extends ServerHarness {
       )
     )
     def wrap(children: List[LayoutNode]) =
-      LayoutNode.Component("col", regions = LayoutNode.kids(children*))
+      LayoutNode.Component("col", slots = Slots.kids(children*))
     def leafSet(ids: List[String]) = LayoutNode.SetNode(
       candidates = ids,
       members = ids.map { l =>

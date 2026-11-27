@@ -2,365 +2,412 @@
   "card" : {
     "card" : "fhcol",
     "kind" : "Component",
-    "regions" : {
-      "children" : [
-        {
-          "card" : "historyChart",
-          "kind" : "Component",
-          "templateSlots" : {
-            "chart" : {
-              "source" : {
-                "fetch" : {
-                  "entity" : "sensor.outside_temp",
-                  "provider" : "history",
-                  "window" : {
-                    "fallback" : true,
-                    "kind" : "Statistics",
-                    "period" : "5minute",
-                    "span" : 86400
-                  }
-                },
-                "kind" : "Fetch"
+    "vars" : [
+    ],
+    "wireSlots" : {
+      "children" : {
+        "fill" : {
+          "choice" : [
+            {
+              "card" : "historyChart",
+              "kind" : "Component",
+              "vars" : [
+              ],
+              "wireSlots" : {
+                "chart" : {
+                  "kind" : "Value",
+                  "source" : {
+                    "fetch" : {
+                      "entity" : "sensor.outside_temp",
+                      "provider" : "history",
+                      "window" : {
+                        "fallback" : true,
+                        "kind" : "Statistics",
+                        "period" : "5minute",
+                        "span" : 86400
+                      }
+                    },
+                    "kind" : "Fetch"
+                  },
+                  "steps" : [
+                    {
+                      "kind" : "Chart",
+                      "style" : {
+                        "unit" : "°C"
+                      }
+                    }
+                  ],
+                  "type" : "textRaw"
+                }
+              }
+            },
+            {
+              "card" : "chooser",
+              "cell" : {
+                "layout" : [
+                  "fh-cols-full"
+                ]
               },
-              "steps" : [
+              "kind" : "Component",
+              "vars" : [
                 {
-                  "kind" : "Chart",
-                  "style" : {
-                    "unit" : "°C"
-                  }
+                  "default" : "24h",
+                  "inUrl" : true,
+                  "name" : "window"
                 }
               ],
-              "type" : "textRaw"
-            }
-          },
-          "vars" : [
-          ]
-        },
-        {
-          "card" : "chooser",
-          "cell" : {
-            "layout" : [
-              "fh-cols-full"
-            ]
-          },
-          "kind" : "Component",
-          "regions" : {
-            "bar" : [
-              {
-                "card" : "selectButtons",
-                "kind" : "Component",
-                "regions" : {
-                  "children" : [
-                    {
-                      "calls" : {
-                        "tap" : {
-                          "kind" : "SetVar",
-                          "value" : "1h",
-                          "variable" : "window"
-                        }
-                      },
-                      "card" : "tab",
-                      "cell" : {
-                        "classes" : {
-                          "fh-chosen" : {
-                            "source" : {
-                              "kind" : "Var",
-                              "name" : "window"
-                            },
-                            "steps" : [
-                              {
-                                "kind" : "Compare",
-                                "op" : "eq",
-                                "to" : "1h"
-                              }
-                            ]
-                          }
-                        }
-                      },
-                      "kind" : "Component",
-                      "templateSlots" : {
-                        "busy" : {
-                          "source" : true,
-                          "type" : "bool"
-                        },
-                        "busyVisual" : {
-                          "source" : true,
-                          "type" : "bool"
-                        },
-                        "label" : "1h"
-                      },
-                      "vars" : [
-                      ]
-                    },
-                    {
-                      "calls" : {
-                        "tap" : {
-                          "kind" : "SetVar",
-                          "value" : "24h",
-                          "variable" : "window"
-                        }
-                      },
-                      "card" : "tab",
-                      "cell" : {
-                        "classes" : {
-                          "fh-chosen" : {
-                            "source" : {
-                              "kind" : "Var",
-                              "name" : "window"
-                            },
-                            "steps" : [
-                              {
-                                "kind" : "Compare",
-                                "op" : "eq",
-                                "to" : "24h"
-                              }
-                            ]
-                          }
-                        }
-                      },
-                      "kind" : "Component",
-                      "templateSlots" : {
-                        "busy" : {
-                          "source" : true,
-                          "type" : "bool"
-                        },
-                        "busyVisual" : {
-                          "source" : true,
-                          "type" : "bool"
-                        },
-                        "label" : "24h"
-                      },
-                      "vars" : [
-                      ]
-                    },
-                    {
-                      "calls" : {
-                        "tap" : {
-                          "kind" : "SetVar",
-                          "value" : "7d",
-                          "variable" : "window"
-                        }
-                      },
-                      "card" : "tab",
-                      "cell" : {
-                        "classes" : {
-                          "fh-chosen" : {
-                            "source" : {
-                              "kind" : "Var",
-                              "name" : "window"
-                            },
-                            "steps" : [
-                              {
-                                "kind" : "Compare",
-                                "op" : "eq",
-                                "to" : "7d"
-                              }
-                            ]
-                          }
-                        }
-                      },
-                      "kind" : "Component",
-                      "templateSlots" : {
-                        "busy" : {
-                          "source" : true,
-                          "type" : "bool"
-                        },
-                        "busyVisual" : {
-                          "source" : true,
-                          "type" : "bool"
-                        },
-                        "label" : "7d"
-                      },
-                      "vars" : [
-                      ]
-                    },
-                    {
-                      "calls" : {
-                        "tap" : {
-                          "kind" : "SetVar",
-                          "value" : "30d",
-                          "variable" : "window"
-                        }
-                      },
-                      "card" : "tab",
-                      "cell" : {
-                        "classes" : {
-                          "fh-chosen" : {
-                            "source" : {
-                              "kind" : "Var",
-                              "name" : "window"
-                            },
-                            "steps" : [
-                              {
-                                "kind" : "Compare",
-                                "op" : "eq",
-                                "to" : "30d"
-                              }
-                            ]
-                          }
-                        }
-                      },
-                      "kind" : "Component",
-                      "templateSlots" : {
-                        "busy" : {
-                          "source" : true,
-                          "type" : "bool"
-                        },
-                        "busyVisual" : {
-                          "source" : true,
-                          "type" : "bool"
-                        },
-                        "label" : "30d"
-                      },
-                      "vars" : [
-                      ]
-                    }
-                  ]
-                },
-                "templateSlots" : {
-                  
-                },
-                "vars" : [
-                ]
-              }
-            ],
-            "children" : [
-              {
-                "card" : "historyChart",
-                "kind" : "Component",
-                "templateSlots" : {
-                  "chart" : {
-                    "source" : {
-                      "fetch" : {
-                        "entity" : "sensor.outside_temp",
-                        "provider" : "history",
-                        "window" : {
-                          "by" : {
-                            "source" : {
-                              "kind" : "Var",
-                              "name" : "window"
-                            },
-                            "steps" : [
-                            ]
-                          },
-                          "cases" : [
-                            {
-                              "is" : "1h",
-                              "value" : {
-                                "kind" : "Raw",
-                                "span" : 3600
-                              }
-                            },
-                            {
-                              "is" : "24h",
-                              "value" : {
-                                "fallback" : true,
-                                "kind" : "Statistics",
-                                "period" : "5minute",
-                                "span" : 86400
-                              }
-                            },
-                            {
-                              "is" : "7d",
-                              "value" : {
-                                "fallback" : true,
-                                "kind" : "Statistics",
-                                "period" : "hour",
-                                "span" : 604800
-                              }
-                            },
-                            {
-                              "is" : "30d",
-                              "value" : {
-                                "fallback" : true,
-                                "kind" : "Statistics",
-                                "period" : "hour",
-                                "span" : 2592000
-                              }
-                            }
-                          ],
-                          "kind" : "Chosen"
-                        }
-                      },
-                      "kind" : "Fetch"
-                    },
-                    "steps" : [
+              "wireSlots" : {
+                "bar" : {
+                  "fill" : {
+                    "choice" : [
                       {
-                        "kind" : "Chart",
-                        "style" : {
-                          "unit" : "°C"
+                        "card" : "selectButtons",
+                        "kind" : "Component",
+                        "vars" : [
+                        ],
+                        "wireSlots" : {
+                          "children" : {
+                            "fill" : {
+                              "choice" : [
+                                {
+                                  "calls" : {
+                                    "tap" : {
+                                      "kind" : "SetVar",
+                                      "value" : "1h",
+                                      "variable" : "window"
+                                    }
+                                  },
+                                  "card" : "tab",
+                                  "cell" : {
+                                    "classes" : {
+                                      "fh-chosen" : {
+                                        "source" : {
+                                          "kind" : "Var",
+                                          "name" : "window"
+                                        },
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "eq",
+                                            "to" : "1h"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "kind" : "Component",
+                                  "vars" : [
+                                  ],
+                                  "wireSlots" : {
+                                    "busy" : {
+                                      "kind" : "Value",
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "busyVisual" : {
+                                      "kind" : "Value",
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "label" : {
+                                      "kind" : "Value",
+                                      "source" : "1h"
+                                    }
+                                  }
+                                },
+                                {
+                                  "calls" : {
+                                    "tap" : {
+                                      "kind" : "SetVar",
+                                      "value" : "24h",
+                                      "variable" : "window"
+                                    }
+                                  },
+                                  "card" : "tab",
+                                  "cell" : {
+                                    "classes" : {
+                                      "fh-chosen" : {
+                                        "source" : {
+                                          "kind" : "Var",
+                                          "name" : "window"
+                                        },
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "eq",
+                                            "to" : "24h"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "kind" : "Component",
+                                  "vars" : [
+                                  ],
+                                  "wireSlots" : {
+                                    "busy" : {
+                                      "kind" : "Value",
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "busyVisual" : {
+                                      "kind" : "Value",
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "label" : {
+                                      "kind" : "Value",
+                                      "source" : "24h"
+                                    }
+                                  }
+                                },
+                                {
+                                  "calls" : {
+                                    "tap" : {
+                                      "kind" : "SetVar",
+                                      "value" : "7d",
+                                      "variable" : "window"
+                                    }
+                                  },
+                                  "card" : "tab",
+                                  "cell" : {
+                                    "classes" : {
+                                      "fh-chosen" : {
+                                        "source" : {
+                                          "kind" : "Var",
+                                          "name" : "window"
+                                        },
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "eq",
+                                            "to" : "7d"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "kind" : "Component",
+                                  "vars" : [
+                                  ],
+                                  "wireSlots" : {
+                                    "busy" : {
+                                      "kind" : "Value",
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "busyVisual" : {
+                                      "kind" : "Value",
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "label" : {
+                                      "kind" : "Value",
+                                      "source" : "7d"
+                                    }
+                                  }
+                                },
+                                {
+                                  "calls" : {
+                                    "tap" : {
+                                      "kind" : "SetVar",
+                                      "value" : "30d",
+                                      "variable" : "window"
+                                    }
+                                  },
+                                  "card" : "tab",
+                                  "cell" : {
+                                    "classes" : {
+                                      "fh-chosen" : {
+                                        "source" : {
+                                          "kind" : "Var",
+                                          "name" : "window"
+                                        },
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "eq",
+                                            "to" : "30d"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "kind" : "Component",
+                                  "vars" : [
+                                  ],
+                                  "wireSlots" : {
+                                    "busy" : {
+                                      "kind" : "Value",
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "busyVisual" : {
+                                      "kind" : "Value",
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "label" : {
+                                      "kind" : "Value",
+                                      "source" : "30d"
+                                    }
+                                  }
+                                }
+                              ],
+                              "kind" : "Nodes"
+                            },
+                            "kind" : "Nodes"
+                          }
                         }
                       }
                     ],
-                    "type" : "textRaw"
-                  }
+                    "kind" : "Nodes"
+                  },
+                  "kind" : "Nodes"
                 },
-                "vars" : [
-                ]
-              }
-            ]
-          },
-          "templateSlots" : {
-            
-          },
-          "vars" : [
-            {
-              "default" : "24h",
-              "inUrl" : true,
-              "name" : "window"
-            }
-          ]
-        },
-        {
-          "card" : "historyReadings",
-          "kind" : "Component",
-          "templateSlots" : {
-            "entity_id" : "sensor.outside_temp",
-            "label" : "Outside Temperature",
-            "postfix" : " °C",
-            "readings" : {
-              "source" : {
-                "fetch" : {
-                  "entity" : "sensor.outside_temp",
-                  "provider" : "history",
-                  "window" : {
-                    "fallback" : true,
-                    "kind" : "Statistics",
-                    "period" : "5minute",
-                    "span" : 86400
-                  }
-                },
-                "kind" : "Fetch"
-              },
-              "steps" : [
-                {
-                  "kind" : "Json"
-                },
-                {
-                  "kind" : "JsonText"
+                "children" : {
+                  "fill" : {
+                    "choice" : [
+                      {
+                        "card" : "historyChart",
+                        "kind" : "Component",
+                        "vars" : [
+                        ],
+                        "wireSlots" : {
+                          "chart" : {
+                            "kind" : "Value",
+                            "source" : {
+                              "fetch" : {
+                                "entity" : "sensor.outside_temp",
+                                "provider" : "history",
+                                "window" : {
+                                  "by" : {
+                                    "source" : {
+                                      "kind" : "Var",
+                                      "name" : "window"
+                                    },
+                                    "steps" : [
+                                    ]
+                                  },
+                                  "cases" : [
+                                    {
+                                      "is" : "1h",
+                                      "value" : {
+                                        "kind" : "Raw",
+                                        "span" : 3600
+                                      }
+                                    },
+                                    {
+                                      "is" : "24h",
+                                      "value" : {
+                                        "fallback" : true,
+                                        "kind" : "Statistics",
+                                        "period" : "5minute",
+                                        "span" : 86400
+                                      }
+                                    },
+                                    {
+                                      "is" : "7d",
+                                      "value" : {
+                                        "fallback" : true,
+                                        "kind" : "Statistics",
+                                        "period" : "hour",
+                                        "span" : 604800
+                                      }
+                                    },
+                                    {
+                                      "is" : "30d",
+                                      "value" : {
+                                        "fallback" : true,
+                                        "kind" : "Statistics",
+                                        "period" : "hour",
+                                        "span" : 2592000
+                                      }
+                                    }
+                                  ],
+                                  "kind" : "Chosen"
+                                }
+                              },
+                              "kind" : "Fetch"
+                            },
+                            "steps" : [
+                              {
+                                "kind" : "Chart",
+                                "style" : {
+                                  "unit" : "°C"
+                                }
+                              }
+                            ],
+                            "type" : "textRaw"
+                          }
+                        }
+                      }
+                    ],
+                    "kind" : "Nodes"
+                  },
+                  "kind" : "Nodes"
                 }
-              ]
+              }
+            },
+            {
+              "card" : "historyReadings",
+              "kind" : "Component",
+              "vars" : [
+              ],
+              "wireSlots" : {
+                "entity_id" : {
+                  "kind" : "Value",
+                  "source" : "sensor.outside_temp"
+                },
+                "label" : {
+                  "kind" : "Value",
+                  "source" : "Outside Temperature"
+                },
+                "postfix" : {
+                  "kind" : "Value",
+                  "source" : " °C"
+                },
+                "readings" : {
+                  "kind" : "Value",
+                  "source" : {
+                    "fetch" : {
+                      "entity" : "sensor.outside_temp",
+                      "provider" : "history",
+                      "window" : {
+                        "fallback" : true,
+                        "kind" : "Statistics",
+                        "period" : "5minute",
+                        "span" : 86400
+                      }
+                    },
+                    "kind" : "Fetch"
+                  },
+                  "steps" : [
+                    {
+                      "kind" : "Json"
+                    },
+                    {
+                      "kind" : "JsonText"
+                    }
+                  ]
+                }
+              }
             }
-          },
-          "vars" : [
-          ]
-        }
-      ]
-    },
-    "templateSlots" : {
-      
-    },
-    "vars" : [
-    ]
+          ],
+          "kind" : "Nodes"
+        },
+        "kind" : "Nodes"
+      }
+    }
   },
   "cards" : {
     "chooser" : {
       "regions" : {
         "bar" : {
-          "fill" : "eager"
+          
         },
         "children" : {
-          "fill" : "eager"
+          
         }
       },
       "template" : "<div class=\"fh-cell fh-col{{{cellClasses}}}\"{{{cell}}}>{{{bar}}}{{{children}}}</div>"
@@ -368,7 +415,7 @@
     "fhcol" : {
       "regions" : {
         "children" : {
-          "fill" : "eager"
+          
         }
       },
       "template" : "<div class=\"fh-cell fh-col{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
@@ -382,7 +429,7 @@
     "selectButtons" : {
       "regions" : {
         "children" : {
-          "fill" : "eager"
+          
         }
       },
       "template" : "<div class=\"fh-cell fh-tabs fh-select{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"

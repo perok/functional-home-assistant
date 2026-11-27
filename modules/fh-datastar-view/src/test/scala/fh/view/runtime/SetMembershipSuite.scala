@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -345,25 +347,23 @@ class SetMembershipSuite extends ServerHarness {
       "det" -> Surface(
         LayoutNode.SetNode(
           candidates = List("area.stue"),
-          members =
-            Map(
-              "area.stue" -> LayoutNode.SetMember(
-                List(
-                  LayoutNode.SetClause(
-                    None,
-                    LayoutNode.Component(
-                      "col",
-                      regions = LayoutNode.kids(
-                        onSet(
-                          List("light.a", "light.b"),
-                          List(
-                            (
-                              None,
-                              "dot",
-                              Map(
-                                "state" -> TemplateSlot(
-                                  ValueExpr(Value.Entity(None))
-                                )
+          members = Map(
+            "area.stue" -> LayoutNode.SetMember(
+              List(
+                LayoutNode.SetClause(
+                  None,
+                  LayoutNode.Component(
+                    "col",
+                    slots = Slots.kids(
+                      onSet(
+                        List("light.a", "light.b"),
+                        List(
+                          (
+                            None,
+                            "dot",
+                            Map(
+                              "state" -> TemplateSlot(
+                                ValueExpr(Value.Entity(None))
                               )
                             )
                           )
@@ -374,6 +374,7 @@ class SetMembershipSuite extends ServerHarness {
                 )
               )
             )
+          )
         )
       ),
       "other" -> Surface(LayoutNode.Component("col"))

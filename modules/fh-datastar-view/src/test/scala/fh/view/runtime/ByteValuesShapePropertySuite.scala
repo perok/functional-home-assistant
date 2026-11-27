@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.history.Windows
 import fh.view.model.*
@@ -167,7 +169,7 @@ object ByteValuesShapePropertySuite {
 
     def leaf(card: String): LayoutNode.Component = LayoutNode.Component(
       card,
-      templateSlots = names.zip(slots.map(_.slot)).toMap,
+      slots = Slots.values(names.zip(slots.map(_.slot)).toMap),
       cell = Option.when(liveClass || liveStyle || chosenClass)(
         Cell(
           classes =
@@ -213,7 +215,7 @@ object ByteValuesShapePropertySuite {
         else
           LayoutNode.Component(
             "box",
-            regions = LayoutNode.kids(leaf("one")),
+            slots = Slots.kids(leaf("one")),
             vars = declared("window" -> "24h"),
             id = Some("panel")
           )

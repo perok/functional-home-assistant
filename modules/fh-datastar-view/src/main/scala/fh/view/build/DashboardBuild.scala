@@ -64,14 +64,18 @@ object DashboardBuild {
 
   val InlineSurfacesKey: String = "inlineSurfaces"
 
-  /** Always keyed: a walk that read only a bare array once stopped at a
-    * region-keyed node, and `@@NODE_ID@@` reached the DOM verbatim.
+  /** Always keyed: a walk that read only a bare array once stopped at a node
+    * keyed by slot, and `@@NODE_ID@@` reached the DOM verbatim. The wire name
+    * of [[LayoutNode.Component.slots]].
     */
-  val RegionsKey: String = "regions"
+  val SlotsKey: String = "wireSlots"
+
+  val FillKey: String = "fill"
+  val ChoiceKey: String = "choice"
 
   val ContentKey: String = "content"
 
-  // A candidate set's edges: it holds no `regions`.
+  // A candidate set's edges: it holds no slots.
   val MembersKey: String = "members"
   val ClausesKey: String = "clauses"
   val NodeKey: String = "node"
@@ -196,6 +200,33 @@ object DashboardBuild {
     (rs.map(_._1).toList, rs.toList.flatMap(_._2))
   }
 
+  /** A nodes slot's fixed nodes, under the slot's name as their region; a value
+    * slot, or a fill that is not a list, passes through.
+    */
+  private def walkSlot(
+      name: String,
+      slot: Json,
+      idBase: String,
+      prefix: String,
+      clause: Option[Int]
+  ): (Json, List[(String, Json)]) =
+    (for {
+      obj <- slot.asObject
+      fill <- obj(FillKey).flatMap(_.asObject)
+      choice <- fill(ChoiceKey).filter(_.isArray)
+    } yield {
+      val (js, ss) = walkRegion(name, choice, idBase, prefix, clause)
+      (
+        Json.fromJsonObject(
+          obj.add(
+            FillKey,
+            Json.fromJsonObject(fill.add(ChoiceKey, Json.fromValues(js)))
+          )
+        ),
+        ss
+      )
+    }).getOrElse((slot, Nil))
+
   /** Clause nodes under [[LayoutNode.memberSegment]], as `MemberGraph` mints
     * them. Both clauses of a candidate get the same id, since one is ever
     * rendered, so a surface baked inside one carries its clause
@@ -269,16 +300,16 @@ object DashboardBuild {
       case Some(authored) =>
         // Children first.
         val (obj1, childSurfaces) =
-          authored(RegionsKey).flatMap(_.asObject) match {
-            case None          => (authored, Nil)
-            case Some(regions) =>
-              val rs = regions.toList.map { case (region, arr) =>
-                val (js, ss) = walkRegion(region, arr, idBase, prefix, clause)
-                (region -> Json.fromValues(js), ss)
+          authored(SlotsKey).flatMap(_.asObject) match {
+            case None        => (authored, Nil)
+            case Some(slots) =>
+              val rs = slots.toList.map { case (name, slot) =>
+                val (js, ss) = walkSlot(name, slot, idBase, prefix, clause)
+                (name -> js, ss)
               }
               (
                 authored.add(
-                  RegionsKey,
+                  SlotsKey,
                   Json.fromJsonObject(JsonObject.fromIterable(rs.map(_._1)))
                 ),
                 rs.flatMap(_._2)

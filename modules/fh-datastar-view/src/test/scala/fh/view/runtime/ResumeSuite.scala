@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -262,9 +264,11 @@ class ResumeSuite extends ServerHarness {
                 Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode.Component(
                   "pill",
-                  Map(
-                    "state" -> TemplateSlot(
-                      ValueExpr(Value.Entity(Some("light.a")))
+                  Slots.values(
+                    Map(
+                      "state" -> TemplateSlot(
+                        ValueExpr(Value.Entity(Some("light.a")))
+                      )
                     )
                   )
                 )
@@ -362,9 +366,11 @@ class ResumeSuite extends ServerHarness {
       mixedTabsDash.surfaces + ("t1" -> tabMember(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.b")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.b")))
+              )
             )
           )
         ),
@@ -409,9 +415,11 @@ class ResumeSuite extends ServerHarness {
         "det" -> Surface(
           LayoutNode.Component(
             "card",
-            templateSlots = Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.b")))
+            slots = Slots.values(
+              Map(
+                "state" -> TemplateSlot(
+                  ValueExpr(Value.Entity(Some("sensor.b")))
+                )
               )
             )
           )
@@ -465,9 +473,11 @@ class ResumeSuite extends ServerHarness {
       "det" -> Surface(
         LayoutNode.Component(
           "detail",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.b")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.b")))
+              )
             )
           )
         )
@@ -559,15 +569,19 @@ class ResumeSuite extends ServerHarness {
     // The bar with a button choosing the second tab.
     val withButton = mixedTabsDash.card match
       case col: LayoutNode.Component =>
-        col.copy(regions =
-          col.regions.updatedWith(LayoutNode.DefaultRegion)(
-            _.map(_.map {
-              case bar: LayoutNode.Component if bar.card == "tabs" =>
-                bar.copy(regions =
-                  Map("buttons" -> DashboardBuilders.choices("tab", "1"))
-                )
-              case n => n
-            })
+        col.copy(slots =
+          Slots.nodes(
+            col.regions.updatedWith(LayoutNode.DefaultRegion)(
+              _.map(_.map {
+                case bar: LayoutNode.Component if bar.card == "tabs" =>
+                  bar.copy(slots =
+                    Slots.nodes(
+                      Map("buttons" -> DashboardBuilders.choices("tab", "1"))
+                    )
+                  )
+                case n => n
+              })
+            )
           )
         )
       case other => other
@@ -589,9 +603,11 @@ class ResumeSuite extends ServerHarness {
       surfaces = mixedTabsDash.surfaces + ("t1" -> tabMember(
         LayoutNode.Component(
           "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.b")))
+          slots = Slots.values(
+            Map(
+              "state" -> TemplateSlot(
+                ValueExpr(Value.Entity(Some("sensor.b")))
+              )
             )
           )
         ),

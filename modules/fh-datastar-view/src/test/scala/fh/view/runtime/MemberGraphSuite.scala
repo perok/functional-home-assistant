@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.Conds
 
 import fh.view.model.{
@@ -27,7 +29,7 @@ class MemberGraphSuite extends munit.FunSuite {
   private val gid: SetId = SetId.of(NodeId.derived("c_0"), LayoutNode.SetNode())
 
   private def card(e: String, kind: String): LayoutNode.Component =
-    LayoutNode.Component(kind, Map("entity_id" -> lit(e)))
+    LayoutNode.Component(kind, Slots.values(Map("entity_id" -> lit(e))))
 
   private def clause(
       e: String,
@@ -394,7 +396,7 @@ class MemberGraphSuite extends munit.FunSuite {
           List(
             LayoutNode.SetClause(
               None,
-              LayoutNode.Component("tile", Map.empty, LayoutNode.kids(inner))
+              LayoutNode.Component("tile", Slots.kids(inner))
             )
           )
         )
@@ -422,16 +424,19 @@ class MemberGraphSuite extends munit.FunSuite {
   ) {
     val nested = LayoutNode.Component(
       "tile",
-      Map(
-        "entity_id" -> lit("light.a"),
-        // This is what makes the tile itself track light.a.
-        "state" -> TemplateSlot(ValueExpr(Value.Entity(Some("light.a"))))
-      ),
-      LayoutNode.kids(
+      Slots.values(
+        Map(
+          "entity_id" -> lit("light.a"),
+          // This is what makes the tile itself track light.a.
+          "state" -> TemplateSlot(ValueExpr(Value.Entity(Some("light.a"))))
+        )
+      ) ++ Slots.kids(
         LayoutNode.Component(
           "row",
-          Map(
-            "x" -> TemplateSlot(ValueExpr(Value.Entity(Some("sensor.k"))))
+          Slots.values(
+            Map(
+              "x" -> TemplateSlot(ValueExpr(Value.Entity(Some("sensor.k"))))
+            )
           )
         ),
         set(List("light.deep"))

@@ -30,6 +30,7 @@ import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.traverse.*
 import io.circe.Json
+import fh.view.testkit.Slots
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -1990,59 +1991,61 @@ object RenderBench {
     val subject = Some(entityId(i % distinct))
     LayoutNode.Component(
       "entity",
-      Map(
-        "entity_id" -> TemplateSlot(
-          ValueExpr.literal(entityId(i % distinct))
-        ),
-        "cls" -> TemplateSlot(ValueExpr.literal("fh-tile")),
-        // Literal now (entity.pkl): the entity's icon is a registry fact.
-        "icon" -> TemplateSlot(ValueExpr.literal("mdi:lightbulb")),
-        "name" -> TemplateSlot(
-          if (signalOnly) ValueExpr.literal(s"Tile number $i")
-          else
-            // Opted in (ADR 0028) — see [[NameSlot]] on what this models and
-            // what the shipped card actually does.
-            ValueExpr(Value.Entity(subject, Part.Attr("friendly_name")))
-        ),
-        "state" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(subject),
-            List(
-              Step.WithUnit(
-                Value.Entity(subject, Part.Attr("unit_of_measurement"))
-              )
-            )
+      Slots.values(
+        Map(
+          "entity_id" -> TemplateSlot(
+            ValueExpr.literal(entityId(i % distinct))
           ),
-          signal = Option.when(signals)(SignalBind.Text)
-        ),
-        "fill" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(subject, part = Part.Attr("brightness")),
-            List(
-              Step.Fill(
-                Value.Literal(Lit.Real(1.0)),
-                Value.Literal(Lit.Real(255.0))
-              )
-            )
+          "cls" -> TemplateSlot(ValueExpr.literal("fh-tile")),
+          // Literal now (entity.pkl): the entity's icon is a registry fact.
+          "icon" -> TemplateSlot(ValueExpr.literal("mdi:lightbulb")),
+          "name" -> TemplateSlot(
+            if (signalOnly) ValueExpr.literal(s"Tile number $i")
+            else
+              // Opted in (ADR 0028) — see [[NameSlot]] on what this models and
+              // what the shipped card actually does.
+              ValueExpr(Value.Entity(subject, Part.Attr("friendly_name")))
           ),
-          signal = Option.when(signals)(SignalBind.Style("--_end"))
-        ),
-        "fillColor" -> TemplateSlot(
-          ValueExpr(
-            Value.Entity(subject, Part.Whole),
-            List(
-              Step.Cel(
-                if (valued) TransformFillColorValued else TransformFillColor
+          "state" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(subject),
+              List(
+                Step.WithUnit(
+                  Value.Entity(subject, Part.Attr("unit_of_measurement"))
+                )
               )
-            )
+            ),
+            signal = Option.when(signals)(SignalBind.Text)
           ),
-          signal = Option.when(signals)(SignalBind.Style("background"))
-        ),
-        // Every dashboard has action slots, and ADR 0016 made them build-time
-        // literals; leaving the hole out would not match a shipped card.
-        "action" -> TemplateSlot(
-          ValueExpr.literal(actionLiteral(i, distinct)),
-          `type` = SlotType.TextRaw
+          "fill" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(subject, part = Part.Attr("brightness")),
+              List(
+                Step.Fill(
+                  Value.Literal(Lit.Real(1.0)),
+                  Value.Literal(Lit.Real(255.0))
+                )
+              )
+            ),
+            signal = Option.when(signals)(SignalBind.Style("--_end"))
+          ),
+          "fillColor" -> TemplateSlot(
+            ValueExpr(
+              Value.Entity(subject, Part.Whole),
+              List(
+                Step.Cel(
+                  if (valued) TransformFillColorValued else TransformFillColor
+                )
+              )
+            ),
+            signal = Option.when(signals)(SignalBind.Style("background"))
+          ),
+          // Every dashboard has action slots, and ADR 0016 made them build-time
+          // literals; leaving the hole out would not match a shipped card.
+          "action" -> TemplateSlot(
+            ValueExpr.literal(actionLiteral(i, distinct)),
+            `type` = SlotType.TextRaw
+          )
         )
       ),
       inputs = if (valued) FillColorInputs else Map.empty
@@ -2073,9 +2076,7 @@ object RenderBench {
         stack(
           items
             .grouped(math.max(2, branching))
-            .map(g =>
-              LayoutNode.Component("col", regions = LayoutNode.kids(g*))
-            )
+            .map(g => LayoutNode.Component("col", slots = Slots.kids(g*)))
             .toList
         )
     stack(List.tabulate(leaves)(leaf(signals, distinct, signalOnly, valued)))
@@ -2108,7 +2109,7 @@ object RenderBench {
       )),
       card = LayoutNode.Component(
         "col",
-        regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
+        slots = Slots.kids(LayoutNode.Component("ifhost"))
       ),
       surfaces = Map(
         "then" -> branchSurface(
@@ -2159,7 +2160,7 @@ object RenderBench {
   ): LayoutNode =
     LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.SetNode(
           candidates = List.tabulate(leaves)(entityId),
           orderBy = orderBy,
@@ -2187,7 +2188,7 @@ object RenderBench {
   def tileSetTree(leaves: Int): LayoutNode =
     LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.SetNode(
           candidates = List.tabulate(leaves)(entityId),
           members = List
@@ -2197,7 +2198,7 @@ object RenderBench {
                   LayoutNode.SetClause(node =
                     LayoutNode.Component(
                       "col",
-                      regions = LayoutNode.kids(leaf(false)(i), leaf(false)(i))
+                      slots = Slots.kids(leaf(false)(i), leaf(false)(i))
                     )
                   )
                 )
@@ -2215,11 +2216,11 @@ object RenderBench {
     def tile(i: Int) =
       LayoutNode.Component(
         "col",
-        regions = LayoutNode.kids(leaf(true)(i), leaf(false)(i))
+        slots = Slots.kids(leaf(true)(i), leaf(false)(i))
       )
     LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         LayoutNode.SetNode(
           candidates = List.tabulate(leaves)(entityId),
           members = List
@@ -2246,7 +2247,7 @@ object RenderBench {
   def manySetsTree(leaves: Int): LayoutNode =
     LayoutNode.Component(
       "col",
-      regions = LayoutNode.kids(
+      slots = Slots.kids(
         List
           .tabulate(leaves)(identity)
           .grouped(leaves / ManySets)
@@ -2282,7 +2283,7 @@ object RenderBench {
       withHost,
       LayoutNode.Component(
         "col",
-        regions = LayoutNode.kids(
+        slots = Slots.kids(
           LayoutNode.SetNode(
             candidates = List.tabulate(leaves)(entityId),
             members = List
@@ -2292,7 +2293,7 @@ object RenderBench {
                     LayoutNode.SetClause(node =
                       LayoutNode.Component(
                         "col",
-                        regions = LayoutNode.kids(
+                        slots = Slots.kids(
                           leaf(true)(i),
                           LayoutNode.Component("ifhost")
                         )

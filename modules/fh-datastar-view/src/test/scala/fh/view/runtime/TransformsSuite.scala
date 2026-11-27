@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -43,11 +45,13 @@ class TransformsSuite extends munit.CatsEffectSuite {
       dashboard("kitchen").copy(
         card = LayoutNode.Component(
           card = "c",
-          templateSlots = Map(
-            "onclick" -> TemplateSlot(
-              ValueExpr(
-                Value.Entity(Some("sensor.a"), Part.Whole),
-                List(Step.Cel("value.state"))
+          slots = Slots.values(
+            Map(
+              "onclick" -> TemplateSlot(
+                ValueExpr(
+                  Value.Entity(Some("sensor.a"), Part.Whole),
+                  List(Step.Cel("value.state"))
+                )
               )
             )
           )
@@ -130,8 +134,9 @@ class TransformsSuite extends munit.CatsEffectSuite {
       "card" -> Json.obj(
         "kind" -> Json.fromString("Component"),
         "card" -> Json.fromString("c"),
-        "templateSlots" -> Json.obj(
+        "wireSlots" -> Json.obj(
           "v" -> Json.obj(
+            "kind" -> Json.fromString("Value"),
             "source" -> Json.obj(
               "kind" -> Json.fromString("Entity"),
               "of" -> Json.fromString("sensor.a")
@@ -150,7 +155,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       validated.dashboard.card match {
         case c: LayoutNode.Component =>
           assertEquals(
-            c.templateSlots("v").expr.steps,
+            c.valueSlots("v").expr.steps,
             List(Step.Suffix(Value.Literal(Lit.Text(" W"))))
           )
         case other => fail(s"unexpected node: $other")
@@ -171,15 +176,20 @@ class TransformsSuite extends munit.CatsEffectSuite {
     val bad = dashboard("kitchen").copy(
       card = LayoutNode.Component(
         card = "c",
-        templateSlots = Map(
-          "onclick" -> TemplateSlot(
-            ValueExpr(
-              Value
-                .Entity(Some("light.kitchen"), part = Part.Attr("brightness")),
-              List(
-                Step.Percent(
-                  Value.Literal(Lit.Real(1.0)),
-                  Value.Literal(Lit.Real(1.0))
+        slots = Slots.values(
+          Map(
+            "onclick" -> TemplateSlot(
+              ValueExpr(
+                Value
+                  .Entity(
+                    Some("light.kitchen"),
+                    part = Part.Attr("brightness")
+                  ),
+                List(
+                  Step.Percent(
+                    Value.Literal(Lit.Real(1.0)),
+                    Value.Literal(Lit.Real(1.0))
+                  )
                 )
               )
             )
@@ -199,11 +209,13 @@ class TransformsSuite extends munit.CatsEffectSuite {
         .copy(card =
           LayoutNode.Component(
             card = "c",
-            templateSlots = Map(
-              "onclick" -> TemplateSlot(
-                ValueExpr(
-                  Value.Entity(Some("light.kitchen")),
-                  List(Step.Duration(s))
+            slots = Slots.values(
+              Map(
+                "onclick" -> TemplateSlot(
+                  ValueExpr(
+                    Value.Entity(Some("light.kitchen")),
+                    List(Step.Duration(s))
+                  )
                 )
               )
             )
@@ -226,9 +238,11 @@ class TransformsSuite extends munit.CatsEffectSuite {
         .copy(card =
           LayoutNode.Component(
             card = "c",
-            templateSlots = Map(
-              "onclick" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("light.kitchen")), List(m))
+            slots = Slots.values(
+              Map(
+                "onclick" -> TemplateSlot(
+                  ValueExpr(Value.Entity(Some("light.kitchen")), List(m))
+                )
               )
             )
           )
@@ -287,11 +301,13 @@ class TransformsSuite extends munit.CatsEffectSuite {
       ),
       card = LayoutNode.Component(
         card = "c",
-        templateSlots = Map(
-          "onclick" -> TemplateSlot(
-            ValueExpr(
-              Value.Entity(Some("light.kitchen"), Part.Whole),
-              List(Step.Cel(tapUrl))
+        slots = Slots.values(
+          Map(
+            "onclick" -> TemplateSlot(
+              ValueExpr(
+                Value.Entity(Some("light.kitchen"), Part.Whole),
+                List(Step.Cel(tapUrl))
+              )
             )
           )
         )
@@ -317,8 +333,9 @@ class TransformsSuite extends munit.CatsEffectSuite {
       "card" -> Json.obj(
         "kind" -> Json.fromString("Component"),
         "card" -> Json.fromString("c"),
-        "templateSlots" -> Json.obj(
+        "wireSlots" -> Json.obj(
           "onclick" -> Json.obj(
+            "kind" -> Json.fromString("Value"),
             "source" -> Json.obj(
               "kind" -> Json.fromString("Entity"),
               "of" -> Json.fromString("light.kitchen"),
@@ -373,11 +390,13 @@ class TransformsSuite extends munit.CatsEffectSuite {
     val plain = dashboard("kitchen").copy(
       card = LayoutNode.Component(
         card = "c",
-        templateSlots = Map(
-          "onclick" -> TemplateSlot(
-            ValueExpr(
-              Value.Entity(Some("light.kitchen"), Part.Whole),
-              List(Step.Cel("value.state"))
+        slots = Slots.values(
+          Map(
+            "onclick" -> TemplateSlot(
+              ValueExpr(
+                Value.Entity(Some("light.kitchen"), Part.Whole),
+                List(Step.Cel("value.state"))
+              )
             )
           )
         )
@@ -398,7 +417,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
       Map("c" -> TestCard("<b>{{v}}</b>")),
       LayoutNode.Component(
         "c",
-        templateSlots = Map("v" -> TemplateSlot(e)),
+        slots = Slots.values(Map("v" -> TemplateSlot(e))),
         inputs = nodeInputs
       )
     ).validated()

@@ -1,5 +1,7 @@
 package fh.view.model
 
+import fh.view.testkit.Slots
+
 import fh.view.history.Windows
 import fh.view.testkit.{TestCard, asService}
 import hedgehog.*
@@ -72,7 +74,7 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
       ),
       card = LayoutNode.Component(
         "t",
-        templateSlots = slots,
+        slots = Slots.values(slots),
         calls = Map("tap" -> decl)
       )
     ).validate()
@@ -156,7 +158,7 @@ class CallDeclValidateSuite extends _root_.munit.FunSuite {
     val call = on(ValueExpr.literal("light/turn_on"), "brightness" -> posted)
     def tapped(slots: Map[String, TemplateSlot]) = LayoutNode.Component(
       "t",
-      templateSlots = slots,
+      slots = Slots.values(slots),
       calls = Map("tap" -> call)
     )
     def built(card: LayoutNode, slots: Map[String, TemplateSlot] = Map.empty) =
@@ -316,11 +318,9 @@ object CallDeclPropertySuite {
       ),
       card = LayoutNode.Component(
         "parent",
-        templateSlots = slots("s", own),
-        regions = Map(
-          LayoutNode.DefaultRegion -> List(
-            LayoutNode.Component("child", templateSlots = slots("c", child))
-          )
+        slots = Slots.values(slots("s", own)) ++ Slots.kids(
+          LayoutNode
+            .Component("child", slots = Slots.values(slots("c", child)))
         ),
         calls = Map("tap" -> decl)
       )

@@ -8,7 +8,7 @@
 /// always carries a binding.
 module core.predicate
 
-import "node.pkl" as nodes
+import "node.pkl" as nodeMod
 import "simple.pkl" as simpleMod
 import "slot.pkl" as slotMod
 import "../hass.pkl"
@@ -151,7 +151,7 @@ class PConst extends Predicate {
 /// be wrong about which member it belongs to. `when = null` is unconditional.
 class SetClause {
   `when`: slotMod.Expr? = null
-  node: nodes.LayoutNode
+  node: nodeMod.LayoutNode
 }
 
 /// The first clause whose guard holds decides; falling off the end means not
@@ -162,7 +162,7 @@ class SetMember {
 
 /// A set over a candidate list known at build time; the runtime decides
 /// presence and order, never membership.
-class SetNode extends nodes.LayoutNode {
+class SetNode extends nodeMod.LayoutNode {
   kind: "SetNode" = "SetNode"
   /// In render order, already sorted when the ordering folded to registry facts.
   candidates: Listing<String>

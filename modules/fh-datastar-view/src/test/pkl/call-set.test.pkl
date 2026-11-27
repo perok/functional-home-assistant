@@ -10,7 +10,7 @@ import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
-import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
+import "../../main/resources/dashboards/lib/core/node.pkl" as nodeMod
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/components/base/tile.pkl" as tileMod
 import "../../main/resources/dashboards/lib/components/base/onoff.pkl" as switchMod
@@ -26,7 +26,7 @@ local litByDay = lit.where((e) ->
   if (e == lampe) q.not(q.entity(sun).stateIs("below_horizon")) else true)
 
 // The tally a set call targets, as the wire writes it.
-local function setOf(n: nodes.Node): Mapping =
+local function setOf(n: nodeMod.Node): Mapping =
   new json.Parser { useMapping = true }.parse(
     new JsonRenderer {}.renderValue((n.declared["tap"].target["entity_id"].toList().single as slotMod.Expr).source)
   ) as Mapping

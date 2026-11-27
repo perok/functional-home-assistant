@@ -68,22 +68,22 @@ facts {
   ["on a slider with main controls the buttons are the pill's, the switch among them"] {
     local s = c.entitySlider(lamp)
       .buttons(List(c.tap.toggle(lamp), c.its.mainControl, c.view.colourWheel(lamp.colour!!)))
-    local bs = s.children["head"][0].children.toList()[0].children["children"].toList()
+    local bs = s.regions["head"][0].children.toList()[0].regions["children"].toList()
     bs[0].slotsByName["glyph"].value == "mdi-power"
     bs[1] is selectMod.VarSelectCycle
     bs[2].slotsByName["glyph"].value == "mdi-palette-swatch"
     // The heads carry none: they are the pill's.
-    s.controls.every((m) -> m.head.children["actions"].isEmpty)
+    s.controls.every((m) -> m.head.regions["actions"].isEmpty)
     // Without a switch there is one main control: the buttons are the plain head's.
-    local plain = c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp))).children["head"][0]
-    plain.card == "sliderHead" && plain.children["actions"].length == 1
+    local plain = c.entitySlider(lamp).buttons(List(c.tap.toggle(lamp))).regions["head"][0]
+    plain.card == "sliderHead" && plain.regions["actions"].length == 1
     // The wheel instead of the hue track is a switch without "colour".
     c.entitySlider(lamp).buttons(List(c.its.mainControl.options(List("brightness", "colourTemp"))))
       .offeredControls == List("brightness", "colourTemp")
   }
 
   ["the main control switch is a select of the slider's control variable, in its style"] {
-    local switchOf = (sl: Any) -> sl.children["head"][0].children.toList()[0].children["children"].toList()[0]
+    local switchOf = (sl: Any) -> sl.regions["head"][0].children.toList()[0].regions["children"].toList()[0]
     local sw = switchOf.apply(c.entitySlider(lamp).buttons(List(c.its.mainControl.style("dropdown")))) as selectMod.VarSelectDropdown
     sw.choices.map((ch) -> ch.value) == List("brightness", "colourTemp", "colour")
     sw.choices.map((ch) -> ch.label) == List("Brightness", "Colour temperature", "Colour")
@@ -112,7 +112,7 @@ facts {
     // A null is no button either, for a building block that names its target.
     local function viaNull(l: hass.LightEntity) =
       c.entitySlider(l).buttons(List(c.tap.toggle(l), l.colour.ifNonNull((col) -> c.view.colourWheel(col))))
-        .children["head"][0].children["actions"].length
+        .regions["head"][0].regions["actions"].length
     viaNull(lamp) == 2 && viaNull(warm) == 1
   }
 }

@@ -100,15 +100,15 @@ object DashboardBuilders {
       card: String,
       slots: (String, TemplateSlot)*
   ): LayoutNode.Component =
-    LayoutNode.Component(card, slots.toMap)
+    LayoutNode.Component(card, Slots.values(slots.toMap))
 
   /** A `col` container over `kids` (the card name each suite's `cards`
     * defines).
     */
   def col(kids: LayoutNode*): LayoutNode.Component =
-    LayoutNode.Component("col", regions = LayoutNode.kids(kids*))
+    LayoutNode.Component("col", slots = Slots.kids(kids*))
 
   /** A `row` container over `kids`. */
   def row(kids: LayoutNode*): LayoutNode.Component =
-    LayoutNode.Component("row", regions = LayoutNode.kids(kids*))
+    LayoutNode.Component("row", slots = Slots.kids(kids*))
 }

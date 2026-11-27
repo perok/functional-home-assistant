@@ -2,309 +2,346 @@
   "card" : {
     "card" : "fhcol",
     "kind" : "Component",
-    "regions" : {
-      "children" : [
-        {
-          "card" : "fhrow",
-          "kind" : "Component",
-          "regions" : {
-            "children" : [
-              {
-                "calls" : {
-                  "tap" : {
-                    "kind" : "Service",
-                    "service" : "light/toggle",
-                    "target" : {
-                      "entity_id" : [
-                        "light.kitchen"
-                      ]
-                    }
-                  }
-                },
-                "card" : "pill",
-                "cell" : {
-                  "classes" : {
-                    "fh-active" : {
-                      "source" : {
-                        "kind" : "Entity",
-                        "of" : "light.kitchen"
-                      },
-                      "steps" : [
-                        {
-                          "cases" : {
-                            "off" : false,
-                            "unavailable" : false,
-                            "unknown" : false
-                          },
-                          "kind" : "Match",
-                          "otherwise" : true
-                        }
-                      ]
-                    }
-                  },
-                  "layout" : [
-                    "fh-hug"
-                  ]
-                },
-                "kind" : "Component",
-                "templateSlots" : {
-                  "busy" : {
-                    "source" : true,
-                    "type" : "bool"
-                  },
-                  "busyVisual" : {
-                    "source" : true,
-                    "type" : "bool"
-                  },
-                  "glyph" : {
-                    "source" : "mdi-power",
-                    "steps" : [
-                      {
-                        "kind" : "ThemeClasses"
-                      }
-                    ]
-                  },
-                  "label" : "Kveld",
-                  "tapDisabled" : {
-                    "signal" : {
-                      "kind" : "Handler"
-                    },
-                    "source" : {
-                      "kind" : "Entity",
-                      "of" : "light.kitchen"
-                    },
-                    "steps" : [
-                      {
-                        "cases" : {
-                          "unavailable" : true
-                        },
-                        "kind" : "Match",
-                        "otherwise" : false
-                      }
-                    ],
-                    "type" : "bool"
-                  }
-                },
-                "vars" : [
-                ]
-              },
-              {
-                "calls" : {
-                  "tap" : {
-                    "kind" : "Service",
-                    "service" : "light/toggle",
-                    "target" : {
-                      "entity_id" : [
-                        "light.kitchen"
-                      ]
-                    }
-                  }
-                },
-                "card" : "pill",
-                "cell" : {
-                  "classes" : {
-                    "fh-active" : {
-                      "source" : {
-                        "kind" : "Entity",
-                        "of" : "light.kitchen"
-                      },
-                      "steps" : [
-                        {
-                          "cases" : {
-                            "off" : false,
-                            "unavailable" : false,
-                            "unknown" : false
-                          },
-                          "kind" : "Match",
-                          "otherwise" : true
-                        }
-                      ]
-                    }
-                  },
-                  "layout" : [
-                    "fh-hug"
-                  ]
-                },
-                "kind" : "Component",
-                "templateSlots" : {
-                  "busy" : {
-                    "source" : true,
-                    "type" : "bool"
-                  },
-                  "busyVisual" : {
-                    "source" : true,
-                    "type" : "bool"
-                  },
-                  "glyph" : {
-                    "source" : "mdi-power",
-                    "steps" : [
-                      {
-                        "kind" : "ThemeClasses"
-                      }
-                    ]
-                  },
-                  "label" : "Morgen",
-                  "tapDisabled" : {
-                    "signal" : {
-                      "kind" : "Handler"
-                    },
-                    "source" : {
-                      "kind" : "Entity",
-                      "of" : "light.kitchen"
-                    },
-                    "steps" : [
-                      {
-                        "cases" : {
-                          "unavailable" : true
-                        },
-                        "kind" : "Match",
-                        "otherwise" : false
-                      }
-                    ],
-                    "type" : "bool"
-                  }
-                },
-                "vars" : [
-                ]
-              }
-            ]
-          },
-          "templateSlots" : {
-            
-          },
-          "vars" : [
-          ]
-        },
-        {
-          "card" : "fhgrid",
-          "kind" : "Component",
-          "regions" : {
-            "children" : [
-              {
-                "calls" : {
-                  "tap" : {
-                    "kind" : "Service",
-                    "service" : "light/toggle",
-                    "target" : {
-                      "entity_id" : [
-                        "light.kitchen"
-                      ]
-                    }
-                  }
-                },
-                "card" : "button",
-                "kind" : "Component",
-                "templateSlots" : {
-                  "busy" : {
-                    "source" : true,
-                    "type" : "bool"
-                  },
-                  "busyVisual" : {
-                    "source" : true,
-                    "type" : "bool"
-                  },
-                  "label" : "A",
-                  "size" : {
-                    "source" : "fh-size-large",
-                    "steps" : [
-                      {
-                        "kind" : "ThemeClasses"
-                      }
-                    ]
-                  },
-                  "tapDisabled" : {
-                    "signal" : {
-                      "kind" : "Handler"
-                    },
-                    "source" : {
-                      "kind" : "Entity",
-                      "of" : "light.kitchen"
-                    },
-                    "steps" : [
-                      {
-                        "cases" : {
-                          "unavailable" : true
-                        },
-                        "kind" : "Match",
-                        "otherwise" : false
-                      }
-                    ],
-                    "type" : "bool"
-                  }
-                },
-                "vars" : [
-                ]
-              },
-              {
-                "calls" : {
-                  "tap" : {
-                    "kind" : "Service",
-                    "service" : "light/toggle",
-                    "target" : {
-                      "entity_id" : [
-                        "light.kitchen"
-                      ]
-                    }
-                  }
-                },
-                "card" : "button",
-                "kind" : "Component",
-                "templateSlots" : {
-                  "busy" : {
-                    "source" : true,
-                    "type" : "bool"
-                  },
-                  "busyVisual" : {
-                    "source" : true,
-                    "type" : "bool"
-                  },
-                  "label" : "B",
-                  "size" : {
-                    "source" : "fh-size-large",
-                    "steps" : [
-                      {
-                        "kind" : "ThemeClasses"
-                      }
-                    ]
-                  },
-                  "tapDisabled" : {
-                    "signal" : {
-                      "kind" : "Handler"
-                    },
-                    "source" : {
-                      "kind" : "Entity",
-                      "of" : "light.kitchen"
-                    },
-                    "steps" : [
-                      {
-                        "cases" : {
-                          "unavailable" : true
-                        },
-                        "kind" : "Match",
-                        "otherwise" : false
-                      }
-                    ],
-                    "type" : "bool"
-                  }
-                },
-                "vars" : [
-                ]
-              }
-            ]
-          },
-          "templateSlots" : {
-            
-          },
-          "vars" : [
-          ]
-        }
-      ]
-    },
-    "templateSlots" : {
-      
-    },
     "vars" : [
-    ]
+    ],
+    "wireSlots" : {
+      "children" : {
+        "fill" : {
+          "choice" : [
+            {
+              "card" : "fhrow",
+              "kind" : "Component",
+              "vars" : [
+              ],
+              "wireSlots" : {
+                "children" : {
+                  "fill" : {
+                    "choice" : [
+                      {
+                        "calls" : {
+                          "tap" : {
+                            "kind" : "Service",
+                            "service" : "light/toggle",
+                            "target" : {
+                              "entity_id" : [
+                                "light.kitchen"
+                              ]
+                            }
+                          }
+                        },
+                        "card" : "pill",
+                        "cell" : {
+                          "classes" : {
+                            "fh-active" : {
+                              "source" : {
+                                "kind" : "Entity",
+                                "of" : "light.kitchen"
+                              },
+                              "steps" : [
+                                {
+                                  "cases" : {
+                                    "off" : false,
+                                    "unavailable" : false,
+                                    "unknown" : false
+                                  },
+                                  "kind" : "Match",
+                                  "otherwise" : true
+                                }
+                              ]
+                            }
+                          },
+                          "layout" : [
+                            "fh-hug"
+                          ]
+                        },
+                        "kind" : "Component",
+                        "vars" : [
+                        ],
+                        "wireSlots" : {
+                          "busy" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "busyVisual" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "glyph" : {
+                            "kind" : "Value",
+                            "source" : "mdi-power",
+                            "steps" : [
+                              {
+                                "kind" : "ThemeClasses"
+                              }
+                            ]
+                          },
+                          "label" : {
+                            "kind" : "Value",
+                            "source" : "Kveld"
+                          },
+                          "tapDisabled" : {
+                            "kind" : "Value",
+                            "signal" : {
+                              "kind" : "Handler"
+                            },
+                            "source" : {
+                              "kind" : "Entity",
+                              "of" : "light.kitchen"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "unavailable" : true
+                                },
+                                "kind" : "Match",
+                                "otherwise" : false
+                              }
+                            ],
+                            "type" : "bool"
+                          }
+                        }
+                      },
+                      {
+                        "calls" : {
+                          "tap" : {
+                            "kind" : "Service",
+                            "service" : "light/toggle",
+                            "target" : {
+                              "entity_id" : [
+                                "light.kitchen"
+                              ]
+                            }
+                          }
+                        },
+                        "card" : "pill",
+                        "cell" : {
+                          "classes" : {
+                            "fh-active" : {
+                              "source" : {
+                                "kind" : "Entity",
+                                "of" : "light.kitchen"
+                              },
+                              "steps" : [
+                                {
+                                  "cases" : {
+                                    "off" : false,
+                                    "unavailable" : false,
+                                    "unknown" : false
+                                  },
+                                  "kind" : "Match",
+                                  "otherwise" : true
+                                }
+                              ]
+                            }
+                          },
+                          "layout" : [
+                            "fh-hug"
+                          ]
+                        },
+                        "kind" : "Component",
+                        "vars" : [
+                        ],
+                        "wireSlots" : {
+                          "busy" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "busyVisual" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "glyph" : {
+                            "kind" : "Value",
+                            "source" : "mdi-power",
+                            "steps" : [
+                              {
+                                "kind" : "ThemeClasses"
+                              }
+                            ]
+                          },
+                          "label" : {
+                            "kind" : "Value",
+                            "source" : "Morgen"
+                          },
+                          "tapDisabled" : {
+                            "kind" : "Value",
+                            "signal" : {
+                              "kind" : "Handler"
+                            },
+                            "source" : {
+                              "kind" : "Entity",
+                              "of" : "light.kitchen"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "unavailable" : true
+                                },
+                                "kind" : "Match",
+                                "otherwise" : false
+                              }
+                            ],
+                            "type" : "bool"
+                          }
+                        }
+                      }
+                    ],
+                    "kind" : "Nodes"
+                  },
+                  "kind" : "Nodes"
+                }
+              }
+            },
+            {
+              "card" : "fhgrid",
+              "kind" : "Component",
+              "vars" : [
+              ],
+              "wireSlots" : {
+                "children" : {
+                  "fill" : {
+                    "choice" : [
+                      {
+                        "calls" : {
+                          "tap" : {
+                            "kind" : "Service",
+                            "service" : "light/toggle",
+                            "target" : {
+                              "entity_id" : [
+                                "light.kitchen"
+                              ]
+                            }
+                          }
+                        },
+                        "card" : "button",
+                        "kind" : "Component",
+                        "vars" : [
+                        ],
+                        "wireSlots" : {
+                          "busy" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "busyVisual" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "label" : {
+                            "kind" : "Value",
+                            "source" : "A"
+                          },
+                          "size" : {
+                            "kind" : "Value",
+                            "source" : "fh-size-large",
+                            "steps" : [
+                              {
+                                "kind" : "ThemeClasses"
+                              }
+                            ]
+                          },
+                          "tapDisabled" : {
+                            "kind" : "Value",
+                            "signal" : {
+                              "kind" : "Handler"
+                            },
+                            "source" : {
+                              "kind" : "Entity",
+                              "of" : "light.kitchen"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "unavailable" : true
+                                },
+                                "kind" : "Match",
+                                "otherwise" : false
+                              }
+                            ],
+                            "type" : "bool"
+                          }
+                        }
+                      },
+                      {
+                        "calls" : {
+                          "tap" : {
+                            "kind" : "Service",
+                            "service" : "light/toggle",
+                            "target" : {
+                              "entity_id" : [
+                                "light.kitchen"
+                              ]
+                            }
+                          }
+                        },
+                        "card" : "button",
+                        "kind" : "Component",
+                        "vars" : [
+                        ],
+                        "wireSlots" : {
+                          "busy" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "busyVisual" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "label" : {
+                            "kind" : "Value",
+                            "source" : "B"
+                          },
+                          "size" : {
+                            "kind" : "Value",
+                            "source" : "fh-size-large",
+                            "steps" : [
+                              {
+                                "kind" : "ThemeClasses"
+                              }
+                            ]
+                          },
+                          "tapDisabled" : {
+                            "kind" : "Value",
+                            "signal" : {
+                              "kind" : "Handler"
+                            },
+                            "source" : {
+                              "kind" : "Entity",
+                              "of" : "light.kitchen"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "unavailable" : true
+                                },
+                                "kind" : "Match",
+                                "otherwise" : false
+                              }
+                            ],
+                            "type" : "bool"
+                          }
+                        }
+                      }
+                    ],
+                    "kind" : "Nodes"
+                  },
+                  "kind" : "Nodes"
+                }
+              }
+            }
+          ],
+          "kind" : "Nodes"
+        },
+        "kind" : "Nodes"
+      }
+    }
   },
   "cards" : {
     "button" : {
@@ -313,7 +350,7 @@
     "fhcol" : {
       "regions" : {
         "children" : {
-          "fill" : "eager"
+          
         }
       },
       "template" : "<div class=\"fh-cell fh-col{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
@@ -321,7 +358,7 @@
     "fhgrid" : {
       "regions" : {
         "children" : {
-          "fill" : "eager"
+          
         }
       },
       "template" : "<div class=\"fh-cell fh-grid{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
@@ -329,7 +366,7 @@
     "fhrow" : {
       "regions" : {
         "children" : {
-          "fill" : "eager"
+          
         }
       },
       "template" : "<div class=\"fh-cell fh-row{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"

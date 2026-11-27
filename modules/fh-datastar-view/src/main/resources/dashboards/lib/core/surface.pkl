@@ -4,7 +4,7 @@
 /// authoring layer composes, never backend chrome (ADR 0002).
 module core.surface
 
-import "node.pkl" as nodes
+import "node.pkl" as nodeMod
 import "slot.pkl" as slotMod
 
 /// One surface (`fh.view.model.Surface`). `bake*` drive first-paint baking
@@ -16,7 +16,7 @@ import "slot.pkl" as slotMod
 /// that is not its parent. `openPopupInline` is locality only — its id derives
 /// from the owning node, so no second tap can name it.
 open class SurfaceDef {
-  content: nodes.LayoutNode
+  content: nodeMod.LayoutNode
   bakeInto: String? = null
   bakeAs: String? = null
   bakeIndex: Int? = null
@@ -71,7 +71,7 @@ class StateActivation {
 /// entry's `surfaces` default, so a popup amends into existence:
 ///   surfaces { ["detail"] { body { c.title("...") c.entityCard(e) } } }
 class PopupSurface extends SurfaceDef {
-  hidden body: Listing<nodes.LayoutNode> = new {}
+  hidden body: Listing<nodeMod.LayoutNode> = new {}
   content = new Popup { children = body }
 }
 
@@ -81,15 +81,14 @@ const closeExpr: String = "$ui_popups && history.back()"
 
 /// The popup dialog: the overlay `<dialog>` and a ✕, closed also by Escape and
 /// a tap on the backdrop.
-class Popup extends nodes.Node {
+class Popup extends nodeMod.Node {
   card = "popup"
-  cardDef = new nodes.CardDef {
-    regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
+  cardDef = new nodeMod.CardDef {
     // The backdrop is the root and holds the dialog, whose clicks bubble to it:
     // only one on the backdrop itself closes.
     classes = "fh-popup-backdrop"
     attrs = #"data-on:click="evt.target === el && \#(closeExpr)""#
-    template = #"<dialog open class="fh-popup"><button class="fh-popup-close" data-on:click="\#(closeExpr)" data-on:keydown__window="evt.key === 'Escape' && \#(closeExpr)">✕</button>{{{children}}}</dialog>"#
+    template = #"<dialog open class="fh-popup"><button class="fh-popup-close" data-on:click="\#(closeExpr)" data-on:keydown__window="evt.key === 'Escape' && \#(closeExpr)">✕</button>\#(slotMod.childrenSlot)</dialog>"#
     // The frame is the theme's `<dialog>`. The ✕ is 44px, the touch-target
     // minimum, with a surface of its own, and `z-index:1`: at that size it
     // overlaps a title, which was otherwise on top of it. The dialog is not

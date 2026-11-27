@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -40,9 +42,11 @@ class ResumePatchesSuite extends munit.FunSuite {
                 Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode.Component(
                   "dot",
-                  Map(
-                    "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
-                    "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+                  Slots.values(
+                    Map(
+                      "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+                      "state" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+                    )
                   )
                 )
               )

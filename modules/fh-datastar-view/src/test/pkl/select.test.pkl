@@ -9,7 +9,7 @@ import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
 import "../../main/resources/dashboards/lib/components/base/button.pkl" as buttonMod
-import "../../main/resources/dashboards/lib/core/node.pkl" as nodes
+import "../../main/resources/dashboards/lib/core/node.pkl" as nodeMod
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as predMod
 import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
 import "pkl:reflect"
@@ -47,8 +47,8 @@ facts {
     // A field Node gains must be named here: carried by `style`, or computed by
     // the card. Otherwise it is dropped by `.style(…)` without a word.
     local carried = Set("cellClasses", "layoutClasses", "stateClasses", "liveClasses", "liveStyles", "id", "vars", "inputs")
-    local cards = Set("kind", "cell", "card", "cardDef", "variants", "slots", "templateSlots", "slotsByName", "declared", "calls", "children", "regions", "wireInputs", "inlineSurfaces")
-    reflect.Class(nodes.LayoutNode).properties.keys + reflect.Class(nodes.Node).properties.keys == carried + cards
+    local cards = Set("kind", "cell", "card", "cardDef", "variants", "slots", "wireSlots", "valueSlots", "nodesSlots", "nodesDeclared", "slotsByName", "declared", "calls", "children", "regions", "wireInputs", "inlineSurfaces")
+    reflect.Class(nodeMod.LayoutNode).properties.keys + reflect.Class(nodeMod.Node).properties.keys == carried + cards
   }
 
   ["over a variable: buttons by default, one per option, each choosing its own"] {
@@ -58,7 +58,7 @@ facts {
     opts.length == 2
     route(opts[0]) == "shade=pale" && route(opts[1]) == "shade=deep"
     // Lit while `shade` holds it; the renderer reads the ask while one is out.
-    opts[1].liveClasses["fh-chosen"] == nodes.booleanReading(shade.valueIs("deep"))
+    opts[1].liveClasses["fh-chosen"] == nodeMod.booleanReading(shade.valueIs("deep"))
   }
 
   ["a style is the same choice in another card, a variable's baked"] {

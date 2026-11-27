@@ -721,8 +721,9 @@ composed subtree under a root with no rendering of its own, so it claims the wal
 
 Everything above says "a node's patch". This is what decides which nodes have one.
 
-A **card** is a template with named **regions** — the holes something else fills. The card alone
-decides the node's kind, and that is the whole rule:
+A **card** is a template with named **regions** — its nodes slots, the holes something else fills
+(`CardDef.regions` on the wire, which the Pkl card's `slots` list builds). The card alone decides
+the node's kind, and that is the whole rule:
 
 ```mermaid
 flowchart LR
