@@ -47,9 +47,9 @@ a surface carrying its place (`Surface.pick`):
   surface's content by the authoring layer (the `PopupSurface` mapping default
   wraps registered surfaces; `openPopupInline` wraps inline ones), not backend
   chrome; the theme styles `.fh-popup` as a class contract.
-- **The host is derived, not authored** — `Surface.hostId` is
-  `<node>_<slot>` for a choice's case (the `id="{{hostId}}"` element the
-  card's template places around the slot) and the theme's popup host
+- **The host is derived, not authored** — `Surface.hostId` is the root of the
+  node whose slot a choice fills (the choice is that card's whole template,
+  so its root holds nothing else) and the theme's popup host
   (`Dashboard.PopupHostId`, `#popups`) otherwise. The host is both the
   live-patch target and the eviction group.
 - **The first paint renders the picked case into its slot's hole**, so the
@@ -240,8 +240,9 @@ hoist and renderer, so a node's build-time id namespace equals its render-time
 ### Tabs are pure composition
 
 A tab group is one `tabs` card whose `panel` slot holds a match over its
-variable, a case per tab: the card's template owns the button bar and the
-panel host (`<div id="{{hostId}}">{{{panel}}}</div>`); the bar declares the
+variable, a case per tab: the card's template owns the button bar and places
+the panel, a `group` whose root hosts the match (`groupMod.inner("div",
+"fh-tab-panel", …)`); the bar declares the
 variable picking the panel, and its buttons write it (ADR 0033). **No tabs logic in the
 backend** — the runtime reads only structural surface fields and variables,
 never a card name. The active tab persists via the session and the URL mirror
@@ -287,7 +288,7 @@ wiring, not dashboard frame.
   co-varied; deriving the host and dropping stacking collapsed `Surface` from 8
   fields to 5 and unified open/switch/close. The derivations are safe only
   because the constraining assumptions (popups don't stack; a choice's host is
-  `<node>_<slot>`) are guaranteed, not inferred.
+  its node's root) are guaranteed, not inferred.
 - **A theme-composed `c.popupHost()` component**: inverted the layering (theme
   → components); the host is inlined in the theme instead.
 - **A hollow host plus a per-connection fill**: serving viewers on different tabs

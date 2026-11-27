@@ -72,21 +72,21 @@ class RendererSuite extends munit.FunSuite {
     // on: a fixture whose shape drifted would be a different kind of card.
     "tabs" -> TestCard(
       template = """<div class="fh-col"><div class="fh-row tabbar">""" +
-        """{{{children}}}</div>""" +
-        """<div id="{{hostId}}" class="fh-tab-panel">{{{panel}}}</div></div>""",
+        """{{{children}}}</div>{{{panel}}}</div>""",
       regions = Set("children", "panel")
     ),
+    Slots.GroupCard -> Slots.groupCard,
     // The live header is a node in the bar region, so a title tick patches that
     // node and cannot reach the panel.
     "tabsLive" -> TestCard(
-      template = """<div><div class="tabs">{{{bar}}}</div>""" +
-        """<div id="{{hostId}}">{{{panel}}}</div></div>""",
+      template = """<div><div class="tabs">{{{bar}}}</div>{{{panel}}}</div>""",
       regions = Set("bar", "panel")
     ),
     "tabsBar" -> TestCard("""<span>{{title}}</span>""")
   )
 
-  // As `c.tabs` produces it: the panel slot's choice is hosted at `c_panel`.
+  // As `c.tabs` produces it: the panel slot's group, `c_panel_0`, hosts the
+  // choice.
   private def tabsDashboard: Dashboard = {
     def panel(name: String): LayoutNode.Component =
       LayoutNode.Component(
@@ -106,7 +106,9 @@ class RendererSuite extends munit.FunSuite {
         slots = Slots.kids(
           LayoutNode.Component("btn", Slots.values(Map("label" -> lit("A")))),
           LayoutNode.Component("btn", Slots.values(Map("label" -> lit("B"))))
-        ) + ("panel" -> Slots.tabs("tab", panel("a"), panel("b"))),
+        ) + ("panel" -> Slots.inGroup(
+          Slots.tabs("tab", panel("a"), panel("b"))
+        )),
         vars = declared("tab" -> "0")
       )
     )
@@ -1198,37 +1200,43 @@ class RendererSuite extends munit.FunSuite {
       "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
-    val first = picking("c" -> 0)
-    assertEquals(rr.surfaces.selectedSurfaces(first), Set("c_t0"))
+    val first = picking("c_panel_0" -> 0)
+    assertEquals(rr.surfaces.selectedSurfaces(first), Set("c_panel_0_0"))
 
     // Surface-namespaced ids, so a later switch-back is byte-identical.
     val body = rr.renderBody(states, first)
     assert(
-      body.contains("""<div id="c_panel" class="fh-tab-panel">"""),
+      body.contains("""<div class="fh-cell" id="c_panel_0">"""),
       clue = body
     )
-    assert(body.contains("""id="s_c_t0__c""""), clue = body)
+    assert(body.contains("""id="c_panel_0_0""""), clue = body)
     assert(body.contains("<span>AA</span>"), clue = body)
     assert(!body.contains("<span>BB</span>"), clue = body)
 
     val panelB = rr
-      .renderSurfaceTraced(
-        "c_t1",
+      .renderShownTraced(
+        "c_panel_0_1",
         Shared.of(states),
         Viewing(Selections.none, FetchSnapshot.empty)
       )
       .map(_.html)
       .get
     assert(
-      panelB.startsWith("""<div class="fh-cell" id="s_c_t1__c">"""),
+      panelB.startsWith("""<div class="fh-cell" id="c_panel_0_1">"""),
       clue = panelB
     )
     assert(!panelB.contains("<dialog"), clue = panelB)
     assert(!panelB.contains("surface/close"), clue = panelB)
     assert(panelB.contains("<span>BB</span>"), clue = panelB)
 
-    assertEquals(rr.surfaceComponentsFor("c_t0", "sensor.a"), Set("s_c_t0__c"))
-    assertEquals(rr.surfaceComponentsFor("c_t1", "sensor.b"), Set("s_c_t1__c"))
+    assertEquals(
+      rr.surfaceComponentsFor("c_panel_0_0", "sensor.a"),
+      Set("c_panel_0_0")
+    )
+    assertEquals(
+      rr.surfaceComponentsFor("c_panel_0_1", "sensor.b"),
+      Set("c_panel_0_1")
+    )
   }
 
   test(
@@ -1236,8 +1244,8 @@ class RendererSuite extends munit.FunSuite {
   ) {
     val rr = Renderer.create(tabsDashboard)
     assertEquals(
-      rr.surfaces.selectedSurfaces(picking("c" -> 1)),
-      Set("c_t1")
+      rr.surfaces.selectedSurfaces(picking("c_panel_0" -> 1)),
+      Set("c_panel_0_1")
     )
     // A session's selections are decided from its variables, which every
     // declaration fills; no entry shows nothing.
@@ -1255,12 +1263,12 @@ class RendererSuite extends munit.FunSuite {
       "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
-    val body = rr.renderBody(states, picking("c" -> 1))
+    val body = rr.renderBody(states, picking("c_panel_0" -> 1))
     assert(
-      body.contains("""<div id="c_panel" class="fh-tab-panel">"""),
+      body.contains("""<div class="fh-cell" id="c_panel_0">"""),
       clue = body
     )
-    assert(body.contains("""id="s_c_t1__c""""), clue = body)
+    assert(body.contains("""id="c_panel_0_1""""), clue = body)
     assert(body.contains("<span>BB</span>"), clue = body)
     assert(!body.contains("<span>AA</span>"), clue = body)
   }
@@ -1268,8 +1276,11 @@ class RendererSuite extends munit.FunSuite {
   test("decideByViewer reads the chosen member, and none when none") {
     // Deciding a variable's value is `SurfaceGraph.selections`'s.
     val rr = Renderer.create(tabsDashboard)
-    assertEquals(rr.surfaces.decideByViewer("c", picking("c" -> 1)), Some(1))
-    assertEquals(rr.surfaces.decideByViewer("c", Selections.none), None)
+    assertEquals(
+      rr.surfaces.decideByViewer("c_panel_0", picking("c_panel_0" -> 1)),
+      Some(1)
+    )
+    assertEquals(rr.surfaces.decideByViewer("c_panel_0", Selections.none), None)
   }
 
   test(
@@ -1332,7 +1343,7 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(
       dash(
         TestCard(
-          """<div>{{{kids}}}<i id="{{hostId}}">{{{panel}}}</i></div>""",
+          """<div>{{{kids}}}<i>{{{panel}}}</i></div>""",
           regions = Set("kids", "panel")
         )
       ).validate(),
@@ -1608,19 +1619,6 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "Surface.hostId derives <host>_<slot> for a pick's case, the popup overlay otherwise"
-  ) {
-    val inPick = Surface(
-      col(),
-      pick = Some(Surface.InPick(NodeId.derived("c_1"), "panel", None, 0))
-    )
-    assertEquals(inPick.hostId, "c_1_panel")
-
-    val popup = Surface(col())
-    assertEquals(popup.hostId, Dashboard.PopupHostId)
-  }
-
-  test(
     "a live pick host patches its header alone; the case is document-path only"
   ) {
     // A live SSE patch re-renders the node by id; it must not carry the
@@ -1658,7 +1656,9 @@ class RendererSuite extends munit.FunSuite {
               )
             )
           )
-        ) + ("panel" -> Slots.tabs("tab", panel("a"), panel("b"))),
+        ) + ("panel" -> Slots.inGroup(
+          Slots.tabs("tab", panel("a"), panel("b"))
+        )),
         vars = declared("tab" -> "0")
       )
     )
@@ -1694,11 +1694,11 @@ class RendererSuite extends munit.FunSuite {
 
     // Which case shows lives on the document path alone, where the
     // selection still decides.
-    val dflt = rr.renderBody(states, picking("c" -> 0))
+    val dflt = rr.renderBody(states, picking("c_panel_0" -> 0))
     assert(dflt.contains("<span>AA</span>"), clue = dflt)
     assert(!dflt.contains("<span>BB</span>"), clue = dflt)
 
-    val sel = rr.renderBody(states, picking("c" -> 1))
+    val sel = rr.renderBody(states, picking("c_panel_0" -> 1))
     assert(sel.contains("<span>BB</span>"), clue = sel)
     assert(!sel.contains("<span>AA</span>"), clue = sel)
   }
@@ -1790,10 +1790,10 @@ class RendererSuite extends munit.FunSuite {
     Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
 
   private val ifCards =
-    // Mirrors lib/components.pkl's `If`: one region its choice fills and no
-    // markup of its own. The region's id is `Surface.hostId`.
+    // Mirrors lib/components.pkl's `If`: its root hosts the one region its
+    // choice fills.
     cards + ("ifhost" -> TestCard(
-      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+      template = """{{{branch}}}""",
       regions = Set("branch")
     ))
 
@@ -1850,10 +1850,7 @@ class RendererSuite extends munit.FunSuite {
     // The host still renders, empty, so a branch matching later has its patch
     // target in the DOM. Through the document path: an If is structure, so
     // `renderNodeById` refuses it.
-    assertEquals(
-      r.renderBody(states),
-      """<div class="fh-cell" id="c"><div id="c_branch"></div></div>"""
-    )
+    assertEquals(r.renderBody(states), """<div class="fh-cell" id="c"></div>""")
     assertEquals(
       r.renderNodeById(
         "c",
@@ -1938,7 +1935,7 @@ class RendererSuite extends munit.FunSuite {
   ) {
     val r = Renderer.create(ifDashboard())
     val bodyArmed = r.renderBody(armedStates("armed"))
-    assert(bodyArmed.contains("""id="s_c_t0__c""""), clue = bodyArmed)
+    assert(bodyArmed.contains("""id="c_branch_0""""), clue = bodyArmed)
     assert(bodyArmed.contains("<span>A</span>"), clue = bodyArmed)
     assert(!bodyArmed.contains("<span>B</span>"), clue = bodyArmed)
     val bodyElse = r.renderBody(armedStates("disarmed"))
@@ -1950,7 +1947,7 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(r.surfaces.statePicks, Set("c"))
     assertEquals(r.surfaces.varPicks, Set.empty[String])
     val tabs = Renderer.create(tabsDashboard)
-    assertEquals(tabs.surfaces.varPicks, Set("c"))
+    assertEquals(tabs.surfaces.varPicks, Set("c_panel_0"))
     assertEquals(tabs.surfaces.statePicks, Set.empty[String])
   }
 
@@ -2087,8 +2084,8 @@ class RendererSuite extends munit.FunSuite {
 
   test("state surfaces are transparent to visibility, user surfaces are not") {
     // Two chains off the main page, each two surfaces deep:
-    //   main -> c_0_t0 (tab)   -> if host -> b0 (state)
-    //   main -> c_1_t0 (state) -> tabs    -> u0 (tab)
+    //   main -> c_0_panel_0_0 (tab) -> if host -> b0 (state)
+    //   main -> c_1_branch_0 (state) -> tabs    -> u0 (tab)
     def card(e: String) = LayoutNode.Component(
       "card",
       Slots.values(
@@ -2097,7 +2094,7 @@ class RendererSuite extends munit.FunSuite {
     )
     def tabs(panel: LayoutNode) = LayoutNode.Component(
       "tabs",
-      Map("panel" -> Slots.tabs("tab", panel)),
+      Map("panel" -> Slots.inGroup(Slots.tabs("tab", panel))),
       vars = declared("tab" -> "0")
     )
     def ifHost(branch: LayoutNode) =
@@ -2112,11 +2109,11 @@ class RendererSuite extends munit.FunSuite {
 
     // A state case hides nothing, so b0 is shown exactly when the tab above it
     // is open, which its id cannot say.
-    val b0 = "s_s_c_0_t0__c_t0__c"
-    val u0 = "s_s_c_1_t0__c_t0__c"
-    assert(shown(b0, Set("c_0_t0")))
+    val b0 = "c_0_panel_0_0_branch_0"
+    val u0 = "c_1_branch_0_panel_0_0"
+    assert(shown(b0, Set("c_0_panel_0_0")))
     assert(!shown(b0, Set.empty))
-    assert(shown(u0, Set("s_c_1_t0__c_t0")))
+    assert(shown(u0, Set("c_1_branch_0_panel_0_0")))
     assert(!shown(u0, Set.empty))
     assert(shown("c", Set.empty))
   }
@@ -2261,11 +2258,14 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "hostId IS Surface.hostId — the template stops deriving it separately"
+    "a pick's host is its node's root, the one its cases name"
   ) {
     val r = Renderer.create(tabsDashboard)
-    assertEquals(r.hostId("c"), "c_panel")
-    assertEquals(r.hostId("c"), r.surface("c_t0").get.hostId)
+    assertEquals(r.hostId("c_panel_0"), r.elementId("c_panel_0"))
+    assertEquals(
+      r.surfaces.surfacesAt(r.hostId("c_panel_0")),
+      Set("c_panel_0_0", "c_panel_0_1")
+    )
   }
 
   /** A card may name any injected var in `slots`, and each must arrive filled.

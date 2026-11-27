@@ -5,6 +5,7 @@ amends "pkl:test"
 import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/core/choice.pkl" as choiceMod
+import "../../main/resources/dashboards/lib/core/group.pkl" as groupMod
 import "../../main/resources/dashboards/lib/core/tap.pkl" as tapMod
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "../../main/resources/dashboards/lib/components/select.pkl" as selectMod
@@ -33,7 +34,8 @@ local function route(n: Any): String =
 
 // A baked select's cases in order: what each shows, and the value showing it.
 local function members(s: selectMod.Select): List<Pair<Any, String?>> =
-  let (w = (s.nodesSlots.findOrNull((x) -> x.choice != null)!!.fill as slotMod.NodesFill).choice as choiceMod.ChosenNodes)
+  let (g = s.nodesSlots.flatMap((x) -> x.nodes.toList()).find((n) -> n is groupMod.Group) as groupMod.Group)
+  let (w = (g.nodesSlots.findOrNull((x) -> x.choice != null)!!.fill as slotMod.NodesFill).choice as choiceMod.ChosenNodes)
     w.cases.toList().map((k) -> Pair(k.value[0], k.`is` as String?))
 
 facts {

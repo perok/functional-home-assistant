@@ -23,11 +23,17 @@ object Ready:
       vars: List[fh.view.model.Dashboard.Declaration],
       subjectEntity: Option[String],
       calls: Map[String, Placed] = Map.empty,
-      set: Option[SetFill] = None
+      set: Option[SetFill] = None,
+      choices: Set[String] = Set.empty
   ) extends Node:
 
     /** Name order, for a reproducible walk; ids do not come from this. */
     def allChildren: List[Node] = regions.toList.sortBy(_._1).flatMap(_._2)
+
+    /** Whether `region` is a choice's: its nodes are the cases, and only the
+      * one its pick shows renders.
+      */
+    def isChoice(region: String): Boolean = choices.contains(region)
 
     /** The reverse index. Empty means static HTML, never patched. */
     lazy val liveEntities: List[String] =
@@ -141,25 +147,28 @@ object Ready:
       styleSlots: List[fh.view.model.Cell.Entry]
   )
 
-  /** A popup (`defaultOpen` from its activation), or a pick's case. */
-  final case class Surface(
-      content: Node,
-      pick: Option[fh.view.model.Surface.InPick],
-      defaultOpen: Boolean
-  ) extends fh.view.model.Surface.Placed
+  /** A popup, `defaultOpen` from its activation. */
+  final case class Surface(content: Node, defaultOpen: Boolean)
 
   /** A choice ready to decide: `by` read once and its case looked up
     * ([[decide]]). A `by` that is a node `variable` is decided per viewer, by a
-    * lookup of its value; any other reads state, once per version. `members`:
-    * the cases' surface ids, the otherwise's last.
+    * lookup of its value; any other reads state, once per version. Where it is
+    * as [[fh.view.model.Dashboard.Pick]] has it; `cases`: the cases' node ids,
+    * the otherwise's last.
     */
   final case class Pick(
+      host: NodeId,
+      slot: String,
+      prefix: String,
+      within: fh.view.model.Dashboard.Within,
       by: Condition,
       variable: Option[String],
-      members: Vector[String],
+      cases: Vector[NodeId],
       byKey: Map[Any, Int],
       otherwise: Option[Int]
   ):
+    def clause: Option[Int] = within.map(_._2)
+
     /** The member `read` picks: the case keyed by it, else the otherwise, else
       * none. Keyed by the raw value, as [[MemberChoice.pick]] is.
       */
@@ -250,7 +259,7 @@ object Ready:
       )
       (
         (c.bound.toList ++ seenSlots).traverse((k, b) => slot(b).map(k -> _)),
-        c.regions.toList.traverse((r, ns) => ns.traverse(node).map(r -> _)),
+        c.slotNodes.toList.traverse((r, ns) => ns.traverse(node).map(r -> _)),
         c.set.traverse((region, s) => set(region, s))
       ).mapN((slots, regions, filled) =>
         Component(
@@ -267,7 +276,8 @@ object Ready:
               seen.map((field, _) => field -> Ready.seenSlot(name, field))
             )
           ),
-          filled
+          filled,
+          c.chosen.keySet
         )
       )
 
@@ -332,7 +342,6 @@ object Ready:
       node(s.content).map(content =>
         Surface(
           content,
-          s.pick,
           s.activation match
             case fh.view.model.Activation.User(d) => d
         )
@@ -341,9 +350,13 @@ object Ready:
     def pick(p: fh.view.model.Dashboard.Pick): Built[Pick] =
       condition(p.choice.by).map(by =>
         Pick(
+          p.host,
+          p.slot,
+          p.prefix,
+          p.within,
           by,
           Choice.plainVariable(p.choice.by),
-          p.members.toVector,
+          p.cases.toVector,
           p.choice.cases.zipWithIndex.map((k, i) => k.is.raw -> i).toMap,
           p.choice.otherwise.map(_ => p.choice.cases.size)
         )

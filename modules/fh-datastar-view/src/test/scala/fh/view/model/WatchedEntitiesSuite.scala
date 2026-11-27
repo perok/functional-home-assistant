@@ -102,7 +102,7 @@ class WatchedEntitiesSuite extends munit.FunSuite {
 
   private val host = Map(
     "host" -> TestCard(
-      """<div id="{{hostId}}">{{{armed}}}</div>""",
+      """{{{armed}}}""",
       Set("armed")
     )
   )
@@ -116,7 +116,7 @@ class WatchedEntitiesSuite extends munit.FunSuite {
     val dash = Dashboard(
       cards = Sets.cards ++ tile ++ host,
       card = hostOf(onEntity(alarm), tileNode("light.b"))
-    ).lowered
+    )
 
     assert(dash.watchedEntities.contains(alarm), clue = dash.watchedEntities)
     assert(!dash.referencedEntities.contains(alarm))
@@ -152,7 +152,7 @@ class WatchedEntitiesSuite extends munit.FunSuite {
           hostOf(onEntity("alarm_control_panel.p"), tileNode("light.c"))
         )
       )
-    ).lowered
+    )
 
     // The relationship, not a hand-written list: whatever the walks grow to
     // cover, subscribing to `watchedEntities` must never drop an entity the

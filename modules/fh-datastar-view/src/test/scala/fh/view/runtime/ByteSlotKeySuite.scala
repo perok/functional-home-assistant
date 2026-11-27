@@ -55,10 +55,10 @@ class ByteSlotKeySuite extends munit.FunSuite {
     // A choice beside a live leaf: its host holds regions, so it is
     // structure and never cached, and the leaf cannot see the choice.
     "banner" -> TestCard(
-      template =
-        """<div>{{{bar}}}<div id="{{hostId}}">{{{branch}}}</div></div>""",
+      template = """<div>{{{bar}}}{{{branch}}}</div>""",
       regions = Set("bar", "branch")
     ),
+    Slots.GroupCard -> Slots.groupCard,
     "bannerBar" -> TestCard("""<b>{{title}}</b>"""),
     "btn" -> TestCard("""<button>{{label}}</button>"""),
     // The signal's entity reaches the patch form only as a binding (ADR 0017),
@@ -127,7 +127,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
               )
             )
           )
-        ) + ("branch" -> branch)
+        ) + ("branch" -> Slots.inGroup(branch))
       ),
       Sets.node(
         candidates = List("light.a", "light.b"),
@@ -364,8 +364,8 @@ class ByteSlotKeySuite extends munit.FunSuite {
     )
   }
 
-  /** A choice's host that reads an entity itself, as a signal: structure cannot
-    * carry live bytes (`validate`).
+  /** A card holding a choice that reads an entity itself, as a signal:
+    * structure cannot carry live bytes (`validate`).
     */
   private val tabsOwner: Dashboard =
     Dashboard(
@@ -389,16 +389,14 @@ class ByteSlotKeySuite extends munit.FunSuite {
                 .Component("btn", Slots.values(Map("label" -> lit("A"))))
             )
           )
-        ) + ("branch" -> Slots.tabs(
-          "tab",
-          bound("sensor.a"),
-          bound("sensor.b")
+        ) + ("branch" -> Slots.inGroup(
+          Slots.tabs("tab", bound("sensor.a"), bound("sensor.b"))
         )),
         vars = declared("tab" -> "0")
       )
     )
 
-  test("a choice's host with a live signal of its own has no key either") {
+  test("a card holding a choice, with a live signal of its own, has no key") {
     val tabs = Renderer.create(tabsOwner)
     assertEquals(
       tabs.byteSlotValues(

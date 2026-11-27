@@ -385,7 +385,7 @@ class ResumeSuite extends ServerHarness {
         // Reconciled on its own id with no entry at all (`fingerprint !=
         // stored`): otherwise the value never reaches the reconnected DOM.
         assert(opening.contains(">new<"), clue = opening)
-        assert(opening.contains("""id="s_c_1_t0__c""""), clue = opening)
+        assert(opening.contains("""id="c_1_panel_0""""), clue = opening)
         assert(!opening.contains("""class="tabs""""), clue = opening)
         assert(!opening.contains(BodyRepaint), clue = opening)
       }
@@ -562,7 +562,9 @@ class ResumeSuite extends ServerHarness {
               _.map(_.map {
                 case bar: LayoutNode.Component if bar.card == "tabs" =>
                   bar.copy(slots =
-                    bar.slots ++ Slots.nodes(
+                    bar.slots.updatedWith("panel")(
+                      _.map(Slots.inGroup)
+                    ) ++ Slots.nodes(
                       Map("buttons" -> DashboardBuilders.choices("tab", "1"))
                     )
                   )
@@ -577,14 +579,15 @@ class ResumeSuite extends ServerHarness {
         .updated(
           "tabs",
           TestCard(
-            """<div id="{{hostId}}" class="tabs">{{{buttons}}}{{{panel}}}</div>""",
+            """<div class="tabs">{{{buttons}}}{{{panel}}}</div>""",
             regions = Set(
               "panel",
               "buttons"
             )
           )
         )
-        .updated(DashboardBuilders.ChoiceCard, DashboardBuilders.choiceCard),
+        .updated(DashboardBuilders.ChoiceCard, DashboardBuilders.choiceCard)
+        .updated(Slots.GroupCard, Slots.groupCard),
       card = withButton
     )
     live(

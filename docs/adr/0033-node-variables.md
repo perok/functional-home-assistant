@@ -118,7 +118,7 @@ yields the declared edge and its inverse, `VarGraph.readersOf` — the exact set
 
 - **A popup is its own scope root; an owned surface inherits.** A popup can be opened from many
   places, and inheriting from one would let its content resolve differently per opener. A tab
-  panel or an `If` branch is a case of exactly one node's choice (`Surface.InPick`), so it starts
+  panel or an `If` branch is a case of exactly one node's choice, a node below it, so it starts
   with that node's scope (`Dashboard.varScopes`, which the renderer and validation read; the hoist applies
   the same rule to tokens). A chooser above a tab bar reaches the charts in its panels, and a
   nested bar's own declaration shadows the outer one. A write still re-renders only the readers

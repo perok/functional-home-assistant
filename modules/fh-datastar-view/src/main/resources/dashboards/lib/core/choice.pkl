@@ -1,5 +1,6 @@
 /// A nodes slot's fill that picks among branches: `nodeMod.iff(p).then(a).elif(q).then(b).else(x)`
-/// over live state, or `nodeMod.match(v.value, cases)` over a node variable. On
+/// over live state, or `nodeMod.match(by, cases)` over a node variable's value or
+/// an entity-state reading. On
 /// the wire a choice is `Fill.Nodes(Choice.Chosen)`: `by`, a case per key and an
 /// `otherwise`, one node per case (several sit in a row). Each choice is decided
 /// over state for every viewer, or over a variable for each one; one decision
@@ -119,7 +120,7 @@ class Iff extends Choice {
 /// viewer. Keys are the values a viewer can choose; `.otherwise(x)` takes every
 /// value no key names.
 class Match extends Choice {
-  hidden variable: varMod.Variable
+  hidden by: slotMod.Expr
   hidden caseMap: Mapping<varMod.Value, Branch>
   hidden other: Branch? = null
 
@@ -129,7 +130,7 @@ class Match extends Choice {
   function wire(): ChosenNodes =
     let (m = this)
       new ChosenNodes {
-        by = m.variable.value
+        by = m.by
         cases {
           for (key, b in m.caseMap) {
             new NodesCase { `is` = key; value = oneNode(b) }
@@ -142,11 +143,11 @@ class Match extends Choice {
 /// `nodeMod.iff(p)`: a branch for `p`, extended with `.then`, `.elif`, `.else`.
 const function iff(p: Condition): Iff = new Iff { condition = conditionOf(p) }
 
-/// A choice over a node variable's value (`v.value`): the branch whose key is
-/// that value, else `.otherwise(…)`, else nothing. A match over entity state is
-/// not built yet (R4 of docs/plan-regions.md).
+/// A choice over a value: a node variable's (`v.value`), decided for each viewer,
+/// or an entity-state reading (`simpleMod.state()`, a text reading), decided once for
+/// every viewer. The branch whose key is that value, else `.otherwise(…)`, else
+/// nothing.
 const function match(on: slotMod.Reading, byValue: Mapping<varMod.Value, Branch>): Match =
-  if (on.source is slotMod.VarRead && on.steps.isEmpty)
-    let (n = (on.source as slotMod.VarRead).name)
-      new Match { variable = new varMod.Variable { name = n }; caseMap = byValue }
-  else throw("nodeMod.match chooses by a node variable's value (`v.value`); a match over entity state is not built yet (R4 of docs/plan-regions.md)")
+  if (on.source is slotMod.VarRead && !on.steps.isEmpty)
+    throw("nodeMod.match chooses by a variable's value as it is (`v.value`) or by entity state, not a variable run through steps: one decision reading both is not built yet (R4d of docs/plan-regions.md)")
+  else new Match { by = on; caseMap = byValue }

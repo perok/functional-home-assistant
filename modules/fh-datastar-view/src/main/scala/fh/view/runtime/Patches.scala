@@ -211,15 +211,10 @@ private[runtime] object Patches {
       val evicted =
         log.invalidateWhere(hostEvicts(renderer, renderer.hostId(gid)))
       val withGone = was
-        .map(renderer.surfaceContentId)
+        .map(NodeId.derived)
         .foldLeft(evicted)(_.removed(gid, _, at))
-      now.foldLeft(withGone)((acc, sid) =>
-        acc.placed(
-          gid,
-          MemberKey.Surface(sid),
-          renderer.surfaceContentId(sid),
-          at
-        )
+      now.foldLeft(withGone)((acc, id) =>
+        acc.placed(gid, MemberKey.Surface(id), NodeId.derived(id), at)
       )
     }
   }
@@ -664,7 +659,7 @@ private[runtime] object Patches {
       viewing: Viewing
   ): Option[(Addressed, String)] =
     arriving
-      .flatMap(renderer.renderSurfaceTraced(_, shared, viewing))
+      .flatMap(renderer.renderShownTraced(_, shared, viewing))
       .map { t =>
         (
           Addressed(

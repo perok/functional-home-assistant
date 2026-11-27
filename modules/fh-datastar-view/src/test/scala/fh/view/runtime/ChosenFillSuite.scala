@@ -21,15 +21,14 @@ import fh.view.testkit.{Conds, Slots, TestCard}
 import fh.view.testkit.DashboardBuilders.{declared, st}
 import io.circe.Json
 
-/** A nodes slot filled with a `Choice.Chosen`: one pick decides it, each case
-  * served as a surface, case `i` as `<host>_t<i>` and the otherwise as
-  * `<host>_else`.
+/** A nodes slot filled with a `Choice.Chosen`: one pick decides it, each case a
+  * node at the slot position a fixed node would have, the otherwise last.
   */
 class ChosenFillSuite extends munit.FunSuite {
 
   private val cards = Map(
     "host" -> TestCard(
-      """<div id="{{hostId}}">{{{branch}}}</div>""",
+      """{{{branch}}}""",
       regions = Set("branch")
     ),
     "leaf" -> TestCard("<span>{{text}}</span>")
@@ -98,9 +97,15 @@ class ChosenFillSuite extends munit.FunSuite {
     assertEquals(shown(r, lights("off", "on", "on")), List("B"))
   }
 
-  test("a chain's cases are surfaces <host>_t<i>, the otherwise <host>_else") {
-    val d = dash(stateHost).lowered
-    assertEquals(d.surfaces.keySet, Set("c_t0", "c_t1", "c_t2", "c_else"))
+  test(
+    "a chain's cases are nodes at their slot positions, the otherwise last"
+  ) {
+    val d = dash(stateHost)
+    assertEquals(d.surfaces, Map.empty)
+    assertEquals(
+      d.picks.values.map(_.cases).toList,
+      List(List("c_branch_0", "c_branch_1", "c_branch_2", "c_branch_3"))
+    )
     assertEquals(d.validate(), Nil)
   }
 
@@ -187,13 +192,19 @@ class ChosenFillSuite extends munit.FunSuite {
       List(Lit.Bool(true) -> List(leaf("x"), leaf("y"))),
       None
     )
-    assert(errors(two).exists(_.contains("R4c")), clue = errors(two))
+    assert(
+      errors(two).exists(_.contains("not exactly one node")),
+      clue = errors(two)
+    )
   }
 
-  test("validate refuses two choices on one node") {
+  test("validate refuses two choices on one node: each is not the whole") {
     val one = host(isOn("l.a"), List(Lit.Bool(true) -> List(leaf("x"))), None)
     val Slot.Nodes(fill) = one.slots("branch"): @unchecked
     val twice = one.copy(slots = one.slots + ("other" -> Slot.Nodes(fill)))
-    assert(errors(twice).exists(_.contains("R4c")), clue = errors(twice))
+    assert(
+      errors(twice).exists(_.contains("not its card's whole template")),
+      clue = errors(twice)
+    )
   }
 }

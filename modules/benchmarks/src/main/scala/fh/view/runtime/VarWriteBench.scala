@@ -114,17 +114,14 @@ class VarWriteBench {
         renderer.surfaces
           .memberAt(gid, value)
           .map(renderer.surfaces.cases(gid))
-          .flatMap(sid =>
-            renderer
-              .surface(sid)
-              .flatMap(surf =>
-                Patches.hostFill(
-                  renderer,
-                  surf.hostId,
-                  Some(sid),
-                  st,
-                  Viewing(after, FetchSnapshot.of(Map.empty, env))
-                )
+          .flatMap(id =>
+            Patches
+              .hostFill(
+                renderer,
+                renderer.hostId(gid),
+                Some(id),
+                st,
+                Viewing(after, FetchSnapshot.of(Map.empty, env))
               )
               .map(_._2)
           )
@@ -233,7 +230,7 @@ object VarWriteBench {
     cards = RenderBench.cards ++ Map(
       "chart" -> TestCard("<div>{{{chart}}}</div>"),
       "host" -> TestCard(
-        """<div id="{{hostId}}">{{{panel}}}</div>""",
+        """{{{panel}}}""",
         regions = Set("panel")
       )
     ),

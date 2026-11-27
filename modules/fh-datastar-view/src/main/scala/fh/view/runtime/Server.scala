@@ -1060,21 +1060,20 @@ class Server(
       id: String,
       selections: Selections
   )(s: SessionState): IO[Session.Step[Unit]] =
-    renderer.surface(id) match {
-      case None =>
-        IO.raiseError(
-          FHError.notFound(s"no surface '$id' on this dashboard — reload")
+    if (renderer.surfaces.isVarCase(id))
+      IO.raiseError(
+        FHError.badCondition(
+          s"'$id' is chosen by a node variable, not opened — reload"
         )
-      case Some(surf)
-          if surf.group.flatMap(renderer.surfaces.varSelecting).nonEmpty =>
-        IO.raiseError(
-          FHError.badCondition(
-            s"'$id' is chosen by a node variable, not opened — reload"
-          )
-        )
-      case Some(surf) =>
-        swapHost(session, renderer, surf.hostId, Some(id), selections)(s)
-    }
+      )
+    else if (renderer.surface(id).isEmpty)
+      IO.raiseError(
+        FHError.notFound(s"no surface '$id' on this dashboard — reload")
+      )
+    else
+      swapHost(session, renderer, Dashboard.PopupHostId, Some(id), selections)(
+        s
+      )
 
   /** The one open/switch/close primitive: make `newSurface` the sole occupant
     * of `host` (`None` closes a popup) and patch the DOM. No server state
@@ -1091,10 +1090,8 @@ class Server(
       newSurface: Option[String],
       selections: Selections
   )(s: SessionState): IO[Session.Step[Unit]] = {
-    val evict = s.open.filter(sid =>
-      !newSurface.contains(sid) &&
-        renderer.surface(sid).exists(_.hostId == host)
-    )
+    val here = renderer.surfaces.surfacesAt(host)
+    val evict = s.open.filter(sid => !newSurface.contains(sid) && here(sid))
     val open = (s.open -- evict) ++ newSurface.toSet
     for {
       _ <- session.reveal(open)
@@ -1216,13 +1213,12 @@ class Server(
           renderer.surfaces
             .memberAt(gid, value)
             .map(renderer.surfaces.cases(gid))
-            .flatMap(sid =>
-              renderer.surface(sid).filterNot(_ => s.open(sid)).map(sid -> _)
-            )
+            .filterNot(s.open)
+            .map(gid -> _)
         }
         .foldLeftM(Session.Step(s.copy(vars = proposed), List.empty, ())) {
-          case (done, (sid, surf)) =>
-            swapHost(session, renderer, surf.hostId, Some(sid), after)(
+          case (done, (gid, id)) =>
+            swapHost(session, renderer, renderer.hostId(gid), Some(id), after)(
               done.next
             ).map(more => more.copy(frames = done.frames ++ more.frames))
         }

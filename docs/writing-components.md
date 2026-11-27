@@ -516,10 +516,20 @@ hold and `.otherwise(…)` for the rest (a key can hold several nodes as a
 panel.of(nodeMod.match(mode.value, new Mapping { ["heat"] = h; ["cool"] = k }).otherwise(off))
 ```
 
-Only the branch showing is rendered and kept live. A choice is patched into an
-element your template writes, so place one element carrying `id="{{hostId}}"`
-around the slot: `<div id="{{hostId}}">\(panel)</div>`. A chain reading a
-variable and live state together, a `match` over entity state, and a node with
+or over an entity's state, the same for every viewer (a text reading, keys are the
+states):
+
+```pkl
+panel.of(nodeMod.match(simpleMod.state(), new Mapping { ["heat"] = h; ["cool"] = k }).otherwise(off))
+```
+
+Only the branch showing is rendered and kept live. A choice is patched into
+your card's root, so it must be the card's whole template (`template =
+"\(panel)"`); the build refuses one beside anything else. To put it among other
+content, place a group holding it, which is a card of its own:
+`panel.of(new Listing { groupMod.inner("div", "my-panel", nodeMod.match(…)) })`
+(`core/group.pkl`; `groupMod.group` for one that is a layout cell). A chain reading a
+variable and live state together, a `match` over a variable run through steps, and a node with
 two choices in different slots, are errors for now.
 
 ---

@@ -239,6 +239,8 @@ abstract class Node extends LayoutNode {
       throw("card '\(card)' places no `children` nodes slot, so the children given to it would never render")
     else if (nodesSlots.any((s) -> s.set != null && cardDef.template != s.toString()))
       throw("card '\(card)': a set must be its card's whole template (`\(nodesSlots.findOrNull((s) -> s.set != null))` and nothing else): its members are placed relative to each other, so a fixed sibling in the same element would need anchors — put the set in a `group` of its own")
+    else if (nodesSlots.any((s) -> s.choice != null && cardDef.template != s.toString()))
+      throw("card '\(card)': a choice must be its card's whole template (`\(nodesSlots.findOrNull((s) -> s.choice != null))` and nothing else): the card's root is the element its case is patched into — put the choice in a `group` of its own (`groupMod.inner` for one that is no layout box)")
     else wireSlotMap(slots, nodesSlots, subjectOf(slots))
   /// The calls [[slots]] place ([[slotMod.CallSlot]]), by name.
   hidden declared: Map<String, slotMod.CallDecl> =
@@ -353,7 +355,7 @@ class CardDef {
   /// `.fh-tabs > a` would otherwise take a `.fh-col`'s full-width cell.
   layoutCell: Boolean = true
   /// Mustache, and the card's list of inputs: a name outside every section
-  /// must be a slot the node sets (or `id`, `hostId`, `dashboardSlug`), one
+  /// must be a slot the node sets (or `id`, `dashboardSlug`), one
   /// inside a section may be absent, and every slot the node sets must be
   /// named here. The build checks both. A template places a slot through its
   /// handle ([[slotMod.Slot]]: `\(label)`, `label.bind`, `label.ifSet(…)`) and

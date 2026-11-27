@@ -1,6 +1,7 @@
 package fh.view.testkit
 
 import fh.view.model.{
+  CardDef,
   Case,
   Choice,
   Fill,
@@ -25,6 +26,33 @@ object Slots:
   def kids(cs: LayoutNode*): Map[String, Slot] =
     if cs.isEmpty then Map.empty
     else nodes(Map(LayoutNode.DefaultRegion -> cs.toList))
+
+  /** The card [[inGroup]] puts a choice in: its one nodes slot is its whole
+    * template, as `core/group.pkl`'s.
+    */
+  val GroupCard: String = "group"
+  val groupCard: CardDef =
+    TestCard(
+      s"{{{${LayoutNode.DefaultRegion}}}}",
+      Set(LayoutNode.DefaultRegion)
+    )
+
+  /** `choice` beside other content: a live fill is its card's whole template,
+    * so it sits in a [[GroupCard]] node, whose root is the host.
+    */
+  def inGroup(choice: Slot): Slot =
+    Slot.Nodes(
+      Fill.Nodes(
+        Choice.Fixed(
+          List(
+            LayoutNode.Component(
+              GroupCard,
+              Map(LayoutNode.DefaultRegion -> choice)
+            )
+          )
+        )
+      )
+    )
 
   /** A nodes slot filled with a choice: case `i` is served as the surface
     * `<host>_t<i>`, the otherwise as `<host>_else`.

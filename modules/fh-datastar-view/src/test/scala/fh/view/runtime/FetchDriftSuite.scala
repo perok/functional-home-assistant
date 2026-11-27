@@ -70,7 +70,7 @@ class FetchDriftSuite extends munit.FunSuite {
     Case(
       name,
       built(d),
-      d.lowered,
+      d,
       List(Shared.of(base), Shared.of(flipped.toMap))
     )
   }
@@ -126,7 +126,7 @@ class FetchDriftSuite extends munit.FunSuite {
           regions = Set("children")
         ),
         "host" -> TestCard(
-          """<div id="{{hostId}}">{{{panel}}}</div>""",
+          """{{{panel}}}""",
           regions = Set("panel")
         )
       ),
@@ -168,7 +168,7 @@ class FetchDriftSuite extends munit.FunSuite {
     Case(
       "shapes",
       built(d),
-      d.lowered,
+      d,
       List(Shared.of(light("on")), Shared.of(light("off")))
     )
   }
@@ -187,10 +187,9 @@ class FetchDriftSuite extends munit.FunSuite {
           .map(i => Selections(None, Map(gid -> i)))
       )
     val popups: List[Selections] =
-      c.dashboard.surfaces.toList.collect {
-        case (sid, s) if s.hostId == Dashboard.PopupHostId =>
-          Selections(Some(sid), Map.empty)
-      }
+      c.dashboard.surfaces.keys.toList.sorted.map(sid =>
+        Selections(Some(sid), Map.empty)
+      )
     Selections.none :: tabs ++ popups
   }
 

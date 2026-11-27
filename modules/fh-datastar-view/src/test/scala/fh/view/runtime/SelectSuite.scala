@@ -121,7 +121,7 @@ class SelectSuite extends CatsEffectSuite {
   /** What the dropdown's summary and the cycle's face show. */
   private def shown(html: String): (List[String], List[String]) =
     (
-      """<summary class="fh-select-summary"><span id="[^"]+"><span class="fh-cell" id="[^"]+">([^<]*)</span>""".r
+      """<summary class="fh-select-summary"><span class="" id="[^"]+"><span class="fh-cell" id="[^"]+">([^<]*)</span>""".r
         .findAllMatchIn(html)
         .map(_.group(1))
         .toList,

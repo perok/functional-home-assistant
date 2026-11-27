@@ -1,7 +1,5 @@
 package fh.view.model
 
-import io.circe.Decoder
-
 /** The id kinds, kept apart by type (ADR 0022): the log renders from its keys,
   * so a DOM id stored as a key is a permanent, silent hole. [[NodeId]] ->
   * [[DomId]] is one-way ([[fh.view.runtime.Renderer.elementId]]).
@@ -17,9 +15,6 @@ object NodeId {
     * and [[fh.view.runtime.MemberGraph.memberIdOf]]; any other source is a bug.
     */
   private[view] def derived(s: String): NodeId = s
-
-  // For `Surface.InPick`'s derived decoder; Pkl never writes one.
-  given Decoder[NodeId] = Decoder[String].map(derived)
 }
 
 /** A node known to be a candidate set, at any depth. The only way to get one

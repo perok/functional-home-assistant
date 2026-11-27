@@ -26,17 +26,17 @@ and its URL mirror are authoring-layer composition the `tabs` card adds, and
 its selection is a node variable (ADR 0033). So an if/else is a choice whose
 case is picked by a **condition** instead of a viewer's value:
 
-- **No new `LayoutNode` kind.** An `If` is an ordinary host card (`ifhost`,
-  template `<div id="{{id}}">{{{branch}}}</div>`) plus inline surfaces riding
-  the generic hoist — branch nodes live in *surface indexes*, never in the
-  main page's reverse index, so hidden-branch silence is **structural**
-  (inactive surfaces are simply never consulted), not a guard bolted onto the
-  patch loop.
+- **No new `LayoutNode` kind.** An `If` is an ordinary card (`ifhost`, root
+  class `fh-ifhost`, template `{{{branch}}}`, so its root hosts the branch and
+  `.fh-ifhost:empty` collapses it when no branch holds). Each branch is a node
+  of the tree, and the index records the case holding every node below it, so
+  hidden-branch silence is **structural**: a node in a case nobody is shown is
+  never in what a tick patches or a page fetches (`SurfaceGraph`), not a guard
+  bolted onto the patch loop.
 - **A choice is not a kind of surface.** `Surface.activation` is a popup's
   alone (`User(defaultOpen)`; an absent one decodes to `User(false)`). A
-  choice's cases are surfaces the build derives from the `Chosen` fill, each
-  carrying its place (`Surface.pick`), and one **pick** decides them all
-  (`Ready.Pick`): `by` read once, its case looked up. So a case cannot be both
+  choice's cases are nodes, and one **pick** decides them all (`Ready.Pick`):
+  `by` read once, its case looked up. So a case cannot be both
   default-open and conditional, and one choice cannot mix a variable and state
   member by member: `by` is one expression, and `validate` refuses one reading
   both until R4d of `docs/plan-regions.md`.
@@ -146,11 +146,12 @@ to prevent it because nothing tested two clients on different tabs across a flip
 A choice is the fill of a nodes slot (`slot.of(nodeMod.iff(cond)…)`,
 `slot.of(nodeMod.match(v.value, cases))`, `core/choice.pkl`), and the node whose
 slot it fills writes it on the wire as `Fill.Nodes(Choice.Chosen)`: a `by`, a
-case per key holding one node, and an `otherwise`. The backend serves each case
-as a surface (`Dashboard.picks`), case `i` `<host>_t<i>` and the otherwise
-`<host>_else`, hosted at `<host>_<slot>`, so the card's template places one
-element carrying `id="{{hostId}}"` around the slot; R4c of
-`docs/plan-regions.md` moves the host to the card's root. A pick over a
+case per key holding one node, and an `otherwise`. Each case is a node with the
+id a fixed node at its index of the slot would have (`<host>_<slot>_<i>`, the
+default slot's `<host>_<i>`), the otherwise after the cases (`Dashboard.picks`),
+hosted at the card's root: a choice is its card's whole
+template, which the build checks, and one beside other content goes in a
+`group` (`core/group.pkl`). A pick over a
 variable looks the viewer's value up among the keys; one over state reads `by`
 and looks its value up. `c.iff(cond)` returns an
 `If` node, which is such a card and supports both a builder and an amend form

@@ -28,25 +28,28 @@ private[runtime] object Member {
   }
 
   /** A member's components under the ids the render walk mints below its own
-    * (`LayoutNode.childId`), each with its parent. Not a nested set's root,
-    * which is minted by [[MemberGraph.innerSetId]], nor its members, which are
-    * its own. No prefix: `validate` refuses an authored id in a clause.
+    * (`LayoutNode.childId`), each with its parent and the innermost choice's
+    * case below the member holding it. Not a nested set's root, which is minted
+    * by [[MemberGraph.innerSetId]], nor its members, which are its own. No
+    * prefix: `validate` refuses an authored id in a clause.
     */
   def subtree(
       id: NodeId,
       node: Ready.Component
-  ): List[(NodeId, Ready.Component, Option[NodeId])] = {
+  ): List[(NodeId, Ready.Component, Option[NodeId], Option[NodeId])] = {
     def walk(
         n: Ready.Component,
         at: NodeId,
-        parent: Option[NodeId]
-    ): List[(NodeId, Ready.Component, Option[NodeId])] =
-      (at, n, parent) :: LayoutNode.steps(n.regions).flatMap {
+        parent: Option[NodeId],
+        in: Option[NodeId]
+    ): List[(NodeId, Ready.Component, Option[NodeId], Option[NodeId])] =
+      (at, n, parent, in) :: LayoutNode.steps(n.regions).flatMap {
         case (step, c: Ready.Component) if c.set.isEmpty =>
-          walk(c, LayoutNode.childId("", at, step, c), Some(at))
+          val cid = LayoutNode.childId("", at, step, c)
+          walk(c, cid, Some(at), if (n.isChoice(step.region)) Some(cid) else in)
         case _ => Nil
       }
-    walk(node, id, None)
+    walk(node, id, None, None)
   }
 }
 
@@ -63,7 +66,7 @@ private[runtime] case class Member(
 
   /** Its own node and every component below it, by id. */
   lazy val nodes: Map[NodeId, Ready.Component] =
-    Member.subtree(id, node).map((at, n, _) => at -> n).toMap
+    Member.subtree(id, node).map((at, n, _, _) => at -> n).toMap
 
   /** What its nodes read, each under its own id, in id order. */
   lazy val fetching: List[(NodeId, Fetching)] =
@@ -326,7 +329,16 @@ private[runtime] final class MemberGraph(
             found :: nested(found)
           case None =>
             LayoutNode.steps(c.regions).flatMap { case (step, child) =>
-              setsIn(member, clauseIdx, child, path :+ step, root)
+              // A set in a choice's case is shown with that case.
+              val in =
+                if (!c.isChoice(step.region)) root
+                else
+                  child match
+                    case k: Ready.Component if k.set.isDefined =>
+                      innerSetId(member, clauseIdx, path :+ step, k.set.get)
+                    case _ =>
+                      LayoutNode.innerCaseId(member, path :+ step)
+              setsIn(member, clauseIdx, child, path :+ step, in)
             }
         }
     }
@@ -360,7 +372,7 @@ private[runtime] final class MemberGraph(
       memberSlot.toList.flatMap { case (_, (s, e)) =>
         s.clauseMembers(e)
           .flatMap(m => Member.subtree(m.id, m.node))
-          .flatMap((at, _, parent) => parent.map(at -> _))
+          .flatMap((at, _, parent, _) => parent.map(at -> _))
       }
 
   /** id below a member -> the member. Each member indexes its own subtree
@@ -486,6 +498,7 @@ private[runtime] final class MemberGraph(
         groupOf(s.gid, shared).binding.getOrElse(entityId, Vector.empty)
       )
       .flatMap(_.byEntity.getOrElse(entityId, Nil))
+      .filter(id => caseIn.get(id).forall(c => within(c)))
       .toSet
 
   // Off the owner's set, which every walk decides, not `memberAt`: a member's
@@ -671,9 +684,30 @@ private[runtime] final class MemberGraph(
   }
 
   /** Present or not: a departed member's patch is scoped like a present one's.
+    * A node in a choice's case below it is in that case.
     */
   def rootOfMember(id: NodeId): Option[String] =
-    memberOwning(id).flatMap(memberSlot.get).map(_._1.root)
+    caseIn
+      .get(id)
+      .map(c => c: String)
+      .orElse(memberOwning(id).flatMap(memberSlot.get).map(_._1.root))
+
+  /** id below a member -> the innermost choice's case below the member holding
+    * it, every clause's: one path is one id in each.
+    */
+  private lazy val caseIn: Map[NodeId, NodeId] =
+    memberSlot.toList.flatMap { case (_, (s, e)) =>
+      s.clauseMembers(e)
+        .flatMap(m => Member.subtree(m.id, m.node))
+        .collect { case (at, _, _, Some(c)) => at -> c }
+    }.toMap
+
+  /** `id`, a member or a node below one, as its member's `clause` has it. */
+  def nodeInClause(id: NodeId, clause: Int): Option[Ready.Component] =
+    memberOwning(id)
+      .flatMap(memberSlot.get)
+      .flatMap((s, e) => s.clauseMembers(e).find(_.clause == clause))
+      .flatMap(_.nodes.get(id))
 
   /** Without this a nested set's fill or removal reads as main-page and reaches
     * clients without the surface open.

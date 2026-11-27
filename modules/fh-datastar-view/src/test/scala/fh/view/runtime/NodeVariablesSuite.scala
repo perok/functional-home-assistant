@@ -260,13 +260,13 @@ class NodeVariablesSuite extends munit.FunSuite {
           Map(LayoutNode.DefaultRegion -> Slots.tabs("tab", chartNode()))
         )
       )
-    ).lowered
+    )
     val errs = d.validate()
     assert(!errs.exists(_.contains("no ancestor declares")), clue = errs)
     assertEquals(windowOf(d.allFetches), List("7d"))
     assertEquals(
       d.varScopes
-        .get(NodeId.derived(LayoutNode.surfacePrefix("c_0_t0") + "c"))
+        .get(NodeId.derived("c_0_0"))
         .flatMap(_.get("window"))
         .map(_.declarer),
       Some(NodeId.derived("c"))

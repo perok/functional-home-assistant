@@ -5,6 +5,7 @@ module components.base.surface
 
 import "../../core/node.pkl" as nodeMod
 import "../../core/choice.pkl" as choiceMod
+import "../../core/group.pkl" as groupMod
 import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/variable.pkl" as varMod
@@ -59,17 +60,17 @@ class Tabs extends nodeMod.Node {
   cardDef = new nodeMod.CardDef {
     classes = "fh-col"
     template = """
-      <div class="fh-tabs">\(slotMod.childrenSlot)</div><div id="{{hostId}}" class="fh-tab-panel">\(panelSlot)</div>
+      <div class="fh-tabs">\(slotMod.childrenSlot)</div>\(panelSlot)
       """
-    // A patch target that must not be a box, so the tab's own layout reaches
-    // the surrounding column.
+    // The panel must not be a box, so the tab's own layout reaches the
+    // surrounding column.
     css = ".fh-tab-panel{display:contents}"
   }
   layoutClasses { "fh-cols-full" }
   hidden tabCases: Mapping<varMod.Value, Listing<nodeMod.LayoutNode>> =
     new { for (i, l in labels) { [i.toString()] = tabs[l] } }
   slots {
-    panelSlot.of(nodeMod.match(tabVar.value, tabCases))
+    panelSlot.of(new Listing { groupMod.inner("div", "fh-tab-panel", nodeMod.match(tabVar.value, tabCases)) })
   }
   /// label -> that tab's cards, in bar order. A tab amends into existence:
   ///   (c.tabs) { tabs { ["Lights"] { c.entityCard(e) c.entitySlider(l) } } }
@@ -113,7 +114,8 @@ class If extends nodeMod.Node {
   // `fh-ifhost` lets the base stylesheet collapse a cell whose branches all
   // failed.
   cardDef = new nodeMod.CardDef {
-    template = #"<div class="fh-ifhost" id="{{hostId}}">\#(branchSlot)</div>"#
+    classes = "fh-ifhost"
+    template = branchSlot.toString()
   }
   layoutClasses { "fh-cols-full" }
   hidden condition: slotMod.Expr

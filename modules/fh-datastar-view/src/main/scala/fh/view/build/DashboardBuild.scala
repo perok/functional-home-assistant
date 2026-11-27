@@ -111,8 +111,7 @@ object DashboardBuild {
           cardSurfaces ++ rebuilt.flatMap(_._2)
         // `fromIterable` keeps the last of a repeated key, silently handing a
         // popup someone else's content. Two clauses of one candidate share a
-        // member id, so both owning a popup collide; a choice's case carries
-        // its clause.
+        // member id, so both owning a popup collide, in a choice's case too.
         val clashes = collected.map(_._1).diff(collected.map(_._1).distinct)
         if (clashes.nonEmpty)
           throw FHError.badCondition(
@@ -219,8 +218,10 @@ object DashboardBuild {
         )
       case None if fill(ChoiceKey).exists(_.isObject) =>
         val (walked, ss) = walkChosen(
+          name,
           fill(ChoiceKey).flatMap(_.asObject).getOrElse(JsonObject.empty),
           idBase,
+          prefix,
           clause
         )
         (
@@ -239,48 +240,57 @@ object DashboardBuild {
         (Json.fromJsonObject(obj.add(FillKey, Json.fromJsonObject(walked))), ss)
     }).getOrElse((slot, Nil))
 
-  /** A `Chosen` fill's cases, each walked as the root of the surface it is
-    * served as: case `i` is `<host>_t<i>`, the otherwise `<host>_else`, inside
-    * a set member's clause `<host>_k<clause>_…`. The model derives the same ids
-    * ([[fh.view.model.Dashboard.picks]]); a second spelling here would leave
-    * `@@NODE_ID@@` in the DOM.
+  /** A `Chosen` fill's cases, walked as the nodes they are: case `i` under the
+    * id a fixed node at index `i` of the slot would have, the otherwise after
+    * them ([[fh.view.model.LayoutNode.Component.slotNodes]]). A second spelling
+    * here would leave `@@NODE_ID@@` in the DOM.
     */
   private def walkChosen(
+      name: String,
       chosen: JsonObject,
       idBase: String,
+      prefix: String,
       clause: Option[Int]
   ): (JsonObject, List[(String, Json)]) = {
-    def sidOf(key: String) =
-      clause.fold(surfaceId(idBase, key))(k => surfaceId(s"${idBase}_k$k", key))
-    def nodes(key: String, js: Json): (Json, List[(String, Json)]) =
-      val rs = js.asArray.getOrElse(Vector.empty).map { n =>
-        walkRoot(n, LayoutNode.surfacePrefix(sidOf(key)))
-      }
-      (Json.fromValues(rs.map(_._1)), rs.toList.flatMap(_._2))
     val cases = chosen(CasesKey).flatMap(_.asArray).getOrElse(Vector.empty)
-    val walkedCases = cases.zipWithIndex.map { (kase, i) =>
-      val kObj = kase.asObject.getOrElse(JsonObject.empty)
-      kObj(ValueKey).fold((kase, List.empty[(String, Json)])) { v =>
-        val (js, ss) = nodes(s"t$i", v)
-        (Json.fromJsonObject(kObj.add(ValueKey, js)), ss)
+    val values = cases.map(
+      _.asObject
+        .flatMap(_(ValueKey))
+        .flatMap(_.asArray)
+        .getOrElse(Vector.empty)
+    )
+    val otherwise = chosen(OtherwiseKey).filter(!_.isNull).flatMap(_.asArray)
+    val (walked, surfaces) = walkRegion(
+      name,
+      Json.fromValues(values.flatten ++ otherwise.toVector.flatten),
+      idBase,
+      prefix,
+      clause
+    )
+    val (walkedCases, rest) =
+      cases.zip(values).foldLeft((Vector.empty[Json], walked)) {
+        case ((done, left), (kase, v)) =>
+          val (mine, more) = left.splitAt(v.size)
+          (
+            done :+ kase.asObject.fold(kase)(o =>
+              Json.fromJsonObject(o.add(ValueKey, Json.fromValues(mine)))
+            ),
+            more
+          )
       }
-    }
-    val walkedOtherwise =
-      chosen(OtherwiseKey).filter(!_.isNull).map(nodes("else", _))
-    val withCases = chosen.add(CasesKey, Json.fromValues(walkedCases.map(_._1)))
+    val withCases = chosen.add(CasesKey, Json.fromValues(walkedCases))
     (
-      walkedOtherwise.fold(withCases)((js, _) =>
-        withCases.add(OtherwiseKey, js)
+      otherwise.fold(withCases)(_ =>
+        withCases.add(OtherwiseKey, Json.fromValues(rest))
       ),
-      walkedCases.toList.flatMap(_._2) ++ walkedOtherwise.toList.flatMap(_._2)
+      surfaces
     )
   }
 
   /** A set's member nodes under [[LayoutNode.memberSegment]], as `MemberGraph`
     * mints them. Every case of a candidate gets the same id, since one is ever
-    * rendered, so a choice inside one carries its case (`Surface.InPick`); two
-    * cases' popups collide, which [[hoistInlineSurfaces]] refuses. A member
-    * that is a node alone is case 0.
+    * rendered; two cases' popups collide, which [[hoistInlineSurfaces]]
+    * refuses. A member that is a node alone is case 0.
     */
   private def walkMembers(
       fill: JsonObject,

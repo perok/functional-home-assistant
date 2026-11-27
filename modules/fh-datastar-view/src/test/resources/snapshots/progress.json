@@ -679,7 +679,7 @@
       "regions" : [
         "branch"
       ],
-      "template" : "<div class=\"fh-cell{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-ifhost\" id=\"{{hostId}}\">{{{branch}}}</div></div>"
+      "template" : "<div class=\"fh-cell fh-ifhost{{{cellClasses}}}\"{{{cell}}}>{{{branch}}}</div>"
     },
     "popup" : {
       "regions" : [

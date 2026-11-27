@@ -208,7 +208,6 @@ class DecisionFetchSuite extends munit.FunSuite {
           Map(LayoutNode.DefaultRegion -> Slots.iff(hasPast, item("shown")))
         )
       )
-      .lowered
     assertEquals(d.decisionFetches, List("the choice at 'c'" -> history))
     val ready = Conds.compiled(Ready.Compile(Evaluator.Scope("")).dashboard(d))
     val g = new SurfaceGraph(

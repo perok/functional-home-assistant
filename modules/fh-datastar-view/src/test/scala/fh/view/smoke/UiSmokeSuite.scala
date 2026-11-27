@@ -43,10 +43,8 @@ class UiSmokeSuite extends SmokeSuite {
       val panel = page.locator(".fh-tab-panel")
       for {
         // Read off the first paint: a hardcoded path id shifts with layout
-        // edits.
-        gid <- IO
-          .blocking(panel.getAttribute("id"))
-          .map(_.stripSuffix("_panel"))
+        // edits. The variable is the tabs card's, the panel's parent.
+        gid <- IO.blocking(panel.locator("xpath=..").getAttribute("id"))
         deepLink = s"${page.url().takeWhile(_ != '?')}?v.$gid.tab=1"
         _ <- IO.blocking(page.navigate(deepLink))
         // The failure is late: the first paint is right, and the connect's
