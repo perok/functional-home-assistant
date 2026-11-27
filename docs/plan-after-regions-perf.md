@@ -4,7 +4,7 @@ A full bench comparison of `after-regions` (9baea638) against main (574f062c), c
 `-f 3` and then profiled (async-profiler, alloc and cpu), found five regressions. Each one below
 names its cause, measured; the fixes keep behaviour byte-identical.
 
-**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10, 11 and 8 built; the reconnect
+**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10, 11 and 8 built; 12, the reconnect
 question and 9 open, in the order at the end.
 
 ## Working this plan
@@ -129,7 +129,30 @@ order the walk met them.
     `fh.bytes`: the walk span (`dashboard.page.walk`) covers a page load only, and a phone
     reopening the app resumes a stream. The opening step answers a `Server.Opened`.
 
-Order: 10, 11, 8, then the reconnect question (a tab switch of a few seconds repaints
+12. **One frame writer.** An SSE frame has one format and two writers: every node patch, removal
+    and signals frame goes `Datastar.sse` → http4s's `ServerSentEvent` → `renderString` →
+    `getBytes`, with the regex `collapse` on an `elements` line, and 8's repaint alone goes
+    `patchWritten` + `Sink.Folding` into a chunk (`FoldingSinkPropertySuite` pins the one against
+    the other: a copy kept equal by a test). Where a bench reaches the bytes it shows:
+    `wireCommon` is 3.2 µs per signals frame, all of a client's cost on that path. It was read as
+    a sharing question (one encode per slug), which is a separate one: this is what one encode
+    costs, shared or not.
+
+    **Shape.** One writer, `data:` lines straight into the frame's chunk, an `elements` line
+    through `Folding`, the event line and the blank line last; `patch`, `remove`,
+    `patchSignals` and the repaint are calls of it, and `collapse`, `sse` and
+    `ServerSentEvent` leave the frame path. A signals frame writes its nested JSON from the
+    sorted paths as `nestJsInto` writes a seed, instead of building a `Json` to print it. The
+    fold's oracle stays the regex, in the suite only. Byte-identical frames: the goldens and
+    the frame suites hold every kind.
+
+    **Benches encode.** `tabFlip`, `selectChange`, `chartWindow` and `resumeFlip(One)` stop at
+    `List[Addressed]`, so no write or pull bench has ever priced its frames; each ends through
+    `Patches.encode` as `Server` does. First, on its own commit, so their new baselines
+    are taken on the current writer. Gate: those benches, `wire`, `wireCommon` and `HouseBench.repaint`
+    B/op down (the repaint's signals frame is ~350 KB of its 1.29 MB), times within error.
+
+Order: 10, 11, 8, 12, then the reconnect question (a tab switch of a few seconds repaints
 wholesale; why, with the browser test setup: it decides how often 8's path runs), then 9.
 9. **No version refers to another** (replaces 5's release). 5 releases a version `Decided` lets
    go: a manual dispose that every holder of versions must remember. The forward offer has a
