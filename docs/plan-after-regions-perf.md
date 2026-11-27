@@ -4,8 +4,7 @@ A full bench comparison of `after-regions` (9baea638) against main (574f062c), c
 `-f 3` and then profiled (async-profiler, alloc and cpu), found five regressions. Each one below
 names its cause, measured; the fixes keep behaviour byte-identical.
 
-**State:** 1–4 and 6 merged (#739); 5 built 2026-11-27 on branch `perf-idle-gc`, off main;
-Later (7, 8) is open.
+**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7 built, 8 and 9 open.
 
 ## Working this plan
 
@@ -85,8 +84,10 @@ order the walk met them.
 ## Later
 
 7. **`wireTick` +24% B/op**: each version's `Shared` builds three more tables (the viewer branches,
-   sets and gates), each with an eager `ConcurrentHashMap`, ~1.2 KB per version. Making them on
-   first use puts a check on every table read.
+   sets and gates). `wireTick` makes a `Shared` per node, so it pays them three times; a slug
+   pays once per version. `Shared.of` is 984 B, 448 of it seven tables' empty
+   `ConcurrentHashMap`s: every table, not only the three, makes its map on the first fill, at a
+   null check on every read.
 8. **A patch's frame copies its fragment about five times** (`collapse`, `"elements " +`,
    the lines' `mkString`, http4s's `renderString`, `getBytes`), per connection, on main too. One
    pass from the fragment to the frame's bytes; `RenderBench.wire` prices it.

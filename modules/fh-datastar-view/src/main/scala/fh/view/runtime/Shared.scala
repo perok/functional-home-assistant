@@ -293,20 +293,33 @@ private[runtime] object Shared {
 
   private[runtime] final class Table[K, V] {
     @volatile private var carried: Map[K, V] = Map.empty
-    private val fills = new ConcurrentHashMap[K, V]()
+    // Made on the first fill: most versions fill few of their seven tables,
+    // and the empty maps were 448 of `Shared.of`'s 984 B.
+    @volatile private var fills: ConcurrentHashMap[K, V] | Null = null
     @volatile private var next: Table[K, V] | Null = null
     @volatile private var dropped: K => Boolean = _ => true
 
     def get(k: K): Option[V] = {
-      val filled = fills.get(k)
+      val f = fills
+      val filled = if (f == null) null else f.nn.get(k)
       if (filled != null) Some(filled.nn) else carried.get(k)
+    }
+
+    private def filling: ConcurrentHashMap[K, V] = {
+      val f = fills
+      if (f != null) f.nn
+      else
+        synchronized {
+          if (fills == null) fills = new ConcurrentHashMap[K, V]()
+          fills.nn
+        }
     }
 
     // Not `computeIfAbsent`: a derivation that asks for another key in the
     // same table (a group's member, under a `limit`) throws "Recursive update".
     def once(k: K)(derive: => V): V = {
       val v = derive
-      val held = fills.putIfAbsent(k, v)
+      val held = filling.putIfAbsent(k, v)
       if (held != null) held.nn
       else {
         offerOn(k, v)
@@ -315,7 +328,7 @@ private[runtime] object Shared {
     }
 
     private def offer(k: K, v: V): Unit =
-      if (!carried.contains(k) && fills.putIfAbsent(k, v) == null)
+      if (!carried.contains(k) && filling.putIfAbsent(k, v) == null)
         offerOn(k, v)
 
     private def offerOn(k: K, v: V): Unit = {
@@ -326,8 +339,11 @@ private[runtime] object Shared {
     def release(): Unit = next = null
 
     /** What this version holds now, carried and filled. */
-    def entries: Iterator[V] =
-      carried.valuesIterator ++ fills.values.asScala.iterator
+    def entries: Iterator[V] = {
+      val f = fills
+      if (f == null) carried.valuesIterator
+      else carried.valuesIterator ++ f.nn.values.asScala.iterator
+    }
 
     def carryInto(
         to: Table[K, V],
@@ -336,12 +352,15 @@ private[runtime] object Shared {
     ): Unit = {
       dropped = k => dirty(k) || !marked(k)
       next = to
+      // Read after `next` is set: a fill that makes the map later is offered on.
+      val f = fills
       // Most dashboards never fill the per-values tables, and walking an empty
       // one each frame was +1.8% B/op on `publishSet`.
-      if (fills.isEmpty && carried.isEmpty) ()
-      else
+      if (f == null) {
+        if (carried.nonEmpty) to.carried = carried.removedAll(dirty)
+      } else
         // Only fills can hold an unmarked key: none is ever carried.
-        to.carried = fills.asScala.iterator
+        to.carried = f.nn.asScala.iterator
           .filterNot((k, _) => dropped(k))
           .foldLeft(carried.removedAll(dirty))(_ + _)
     }
