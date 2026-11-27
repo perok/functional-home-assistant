@@ -488,13 +488,17 @@ the control (20 changes, no switch) to split the rebuild from the frame's other 
 add lookups per change: `componentsFor` through a map per container, `PickGraph.dirtied`
 concatenating two lists. Read the page root's map once and merge the two?
 
-**How.** Both, built together, `-f 3 -prof gc` against 9baea638.
+**How.** Both, built together, `-f 3 -prof gc` against 9baea638; then again on top of the GC fix
+(57cf63c9), `-f 5`, the two sides back to back.
 
-**Numbers.** `publishIdle` 3.75 → 3.80 µs, `publishIdleSet` 4.52 → 4.57, within error.
+**Numbers.** Against 9baea638: `publishIdle` 3.75 → 3.80 µs, `publishIdleSet` 4.52 → 4.57, but
+G1 was a quarter of the wall time then, so that run could not have seen a small saving. On the
+fix: `publishIdle` 2.35 → 2.87 µs (±18%), `publishIdleSet` 3.92 → 3.37 (±13.5%): opposite ways,
+both at the edge of the error; `publish`, `publishSet` within 2%.
 
 **Verdict.** Not built (2026-11-27). The time was G1's: a dead `Shared` version kept every later
 one alive through young collections (`Decided`'s release, `docs/plan-after-regions-perf.md` 5).
-With that fixed the benches are back at main's.
+With that fixed the benches are back at main's, and the trims buy nothing measurable.
 
 **Worth asking again if** a cpu profile of the recorder, with `gc.time` small, shows these
 lookups. Check `gc.time` before reading a time regression with equal B/op as cpu work.
