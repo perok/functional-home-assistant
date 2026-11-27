@@ -5,7 +5,6 @@ import fh.view.testkit.Slots
 import fh.view.testkit.TestCard
 
 import fh.view.history.Windows
-import fh.view.build.DashboardBuild
 import fh.view.model.{
   SlotType,
   CardDef,
@@ -18,18 +17,17 @@ import fh.view.model.{
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.fetch.{FetchSnapshot, Staged}
 import fh.view.testkit.{FixtureEntity, HouseFixture, PklFixture}
 import io.circe.parser.parse
 
 /** The reads a render is handed are decided BEFORE the walk, by code that is
-  * not the walk (`Renderer.fetchesForPage`, `fetchesForSurface`,
-  * `readsForPull`). If the two drift, a render misses an answer and raises.
-  * This renders each dashboard in every shape a viewer can put it in, against
-  * exactly what was decided, so a drift fails here instead.
+  * not the walk (`Renderer.fetchesForPage`, `readsForPull`). If the two drift,
+  * a render misses an answer and raises. This renders each dashboard in every
+  * shape a viewer can put it in, against exactly what was decided, so a drift
+  * fails here instead.
   */
 class FetchDriftSuite extends munit.FunSuite {
 
@@ -50,8 +48,8 @@ class FetchDriftSuite extends munit.FunSuite {
       os.pwd / "modules" / "fh-datastar-view" / "src" / "test" / "resources" /
         "snapshots" / s"$name.json"
     )
-    val d = DashboardBuild
-      .hoistInlineSurfaces(parse(wire).fold(e => fail(s"$name: $e"), identity))
+    val d = parse(wire)
+      .fold(e => fail(s"$name: $e"), identity)
       .as[Dashboard]
       .fold(e => fail(s"$name: $e"), identity)
     // The house as fixtured, and with every on/off flipped, so each state
@@ -70,7 +68,7 @@ class FetchDriftSuite extends munit.FunSuite {
 
   /** A distinct sensor in every place a chart can hide, so no read is answered
     * by accident because another position asks the same thing — which is what
-    * makes the fixtures above blind to a dropped surface.
+    * makes the fixtures above blind to a dropped case.
     */
   private val shapes: Case = {
     def chart(e: String) = LayoutNode.Component(
@@ -121,8 +119,7 @@ class FetchDriftSuite extends munit.FunSuite {
         "inner" -> chart("sensor.inner"),
         "off" -> chart("sensor.off"),
         "set" -> chart("sensor.set")
-      ),
-      surfaces = Map("pop" -> Surface(chart("sensor.pop")))
+      )
     )
     def light(s: String) = Map(
       "light.a" -> EntityState("light.a", s, Map.empty)
@@ -138,112 +135,126 @@ class FetchDriftSuite extends munit.FunSuite {
   private lazy val cases =
     List("cards", "readings", "charts").map(fixture) :+ shapes
 
-  /** No selection, each member of each tab group, and each popup open. */
-  private def uiStates(c: Case): List[Selections] = {
+  /** What a viewer can have put the dashboard in: its values. */
+  private final case class Ui(env: VarEnv)
+
+  /** The declared values, and each case of each pick over a variable, a popup
+    * open among them (a value naming each case, and one the otherwise takes
+    * where there is one).
+    */
+  private def uiStates(c: Case): List[Ui] = {
     val r = c.renderer
-    val tabs: List[Selections] =
-      r.surfaces.varPicks.toList.sorted.flatMap(gid =>
-        r.surfaces
-          .cases(gid)
-          .indices
-          .map(i => Selections(None, Map(gid -> i)))
-      )
-    val popups: List[Selections] =
-      c.dashboard.surfaces.keys.toList.sorted.map(sid =>
-        Selections(Some(sid), Map.empty)
-      )
-    Selections.none :: tabs ++ popups
+    val declared = defaults(r)
+    val tabs: List[Ui] =
+      r.picks.varPicks.toList.sorted.flatMap { gid =>
+        val name = r.picks.varSelecting(gid).getOrElse(fail(s"$gid"))
+        val values = r.picks.memberValues(gid)
+        val picking =
+          if (r.picks.cases(gid).sizeIs > values.size)
+            values :+ "no case names this"
+          else values
+        picking.map(v =>
+          Ui(
+            declared.updated(
+              gid,
+              declared.getOrElse(gid, Map.empty) + (name -> v)
+            )
+          )
+        )
+      }
+    Ui(declared) :: tabs
   }
 
   /** At the declared values, as `Server` hands every render its viewer's. */
   private def defaults(r: Renderer): VarEnv = r.vars.env(Map.empty)
 
-  private def answered(r: Renderer, reads: List[SlotRead]) =
-    FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap, defaults(r))
+  private def answered(env: VarEnv, reads: List[SlotRead]) =
+    FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap, env)
 
   test("a page render reads only what the page resolved") {
-    for (c <- cases; states <- c.houses; ui <- uiStates(c)) {
+    for (c <- cases; house <- c.houses; ui <- uiStates(c)) {
       val r = c.renderer
+      val states = house.viewing(ui.env)
       val snapshot = answered(
-        r,
-        r.fetchesForPage(r.surfaces.selectedSurfaces(ui), states, defaults(r))
+        ui.env,
+        r.fetchesForPage(states, ui.env)
       )
       val _ = r.renderPageInto(
         Sink.buffer(r.pageBytesHint),
         states,
-        Viewing(ui, snapshot)
+        Viewing(snapshot)
       )
     }
   }
 
-  test("a surface fill reads only what the surface resolved") {
-    for (
-      c <- cases; states <- c.houses; ui <- uiStates(c);
-      sid <- c.dashboard.surfaces.keys.toList.sorted
-    ) {
-      val r = c.renderer
-      val _ = r.renderSurfaceTraced(
-        sid,
-        states,
-        Viewing(
-          ui,
-          answered(r, r.fetchesForSurface(sid, states, ui, defaults(r)))
+  private def parents(r: Renderer, id: NodeId): List[NodeId] =
+    r.index
+      .ixsOf(id)
+      .flatMap(ix =>
+        List.unfold(r.index.parent(ix))(
+          _.map(p => r.index.id(p) -> r.index.parent(p))
         )
       )
-    }
-  }
 
   test("a pull renders each target and fills each host with what it asked") {
     for (c <- cases) {
       val r = c.renderer
       val painted: List[NodeId] =
-        (r.surfaces.statePicks.toList ++
-          c.dashboard.surfaces.keys.toList.flatMap(r.surfaceNodeIds) ++
-          c.houses.flatMap(states =>
+        (r.picks.statePicks.toList ++
+          r.picks.varPicks.toList
+            .flatMap(r.picks.cases(_))
+            .flatMap(r.caseNodeIds) ++
+          c.houses.flatMap(house =>
+            val states = house.viewing(defaults(r))
             r.renderPageInto(
               Sink.buffer(r.pageBytesHint),
               states,
               Viewing(
-                Selections.none,
                 answered(
-                  r,
-                  r.fetchesForPage(
-                    r.surfaces.selectedSurfaces(),
-                    states,
-                    defaults(r)
-                  )
+                  defaults(r),
+                  r.fetchesForPage(states, defaults(r))
                 )
               )
             ).keys
           )).distinct
       val nodes =
-        (painted ++ painted.flatMap(r.ancestry.ancestorsOf)).distinct.sorted
+        (painted ++ painted.flatMap(parents(r, _))).distinct.sorted
       val hosts = nodes.filter(id =>
-        r.surfaces.statePicks(id) || r.members.setContainer(id).isDefined
+        r.picks.statePicks(id) || r.members.setContainer(id).isDefined
       )
-      for (states <- c.houses; ui <- uiStates(c)) {
+      for (house <- c.houses; ui <- uiStates(c)) {
+        val states = house.viewing(ui.env)
         def asked(targets: List[NodeId], hs: List[NodeId]) =
-          answered(r, r.readsForPull(targets, hs, states, ui, defaults(r)))
+          answered(
+            ui.env,
+            r.readsForPull(targets, hs, states, ui.env)
+          )
         nodes.foreach { id =>
           val f = asked(List(id), Nil)
           val _ = (
             r.byteSlotValues(id, states, f),
-            r.renderNodeById(id, states, Viewing(ui, f))
+            r.renderNodeById(id, states, Viewing(f))
           )
         }
         hosts.foreach(h =>
-          r.renderHost(h, states, Viewing(ui, asked(Nil, List(h))))
+          r.renderHost(
+            h,
+            states,
+            Viewing(asked(Nil, List(h)))
+          )
         )
       }
-      // Precise, not everything: a plain node asks nothing, a chart asks.
+      // Precise, not everything: a plain node asks nothing, a chart asks, in
+      // whichever case shows it.
       val (quiet, loud) = nodes.partition(id =>
-        r.readsForPull(
-          List(id),
-          Nil,
-          c.houses.head,
-          Selections.none,
-          defaults(r)
-        ).isEmpty
+        uiStates(c).forall(ui =>
+          r.readsForPull(
+            List(id),
+            Nil,
+            c.houses.head.viewing(ui.env),
+            ui.env
+          ).isEmpty
+        )
       )
       assert(quiet.nonEmpty && loud.nonEmpty, clue = c.name)
     }

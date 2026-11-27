@@ -313,9 +313,10 @@ alone. A node above the card must declare the variable, or the build fails.
 
 Because the value is the viewer's, only a plain value slot of a card that holds
 no other cards may read one. The build refuses it in a signal slot (and so in
-`cellStyle`), in a `valueWhile`, and in a set's `where` or `orderBy`: those are
-worked out once for everyone. To show a different branch per viewer, use
-`c.iff(v.valueIs(x))`.
+`cellStyle`), which every viewer shares. To show a different branch per viewer,
+use `c.iff(v.valueIs(x))`; to show a different set of members, or the same ones
+in another order, read it in the set (below); to give a slot a value only for
+some viewers, read it in its `valueWhile`.
 
 The one exception is a class: `cellClassWhen` takes `v.valueIs(x)` on any card.
 It is how a tab bar lights the open tab:
@@ -350,9 +351,15 @@ It takes what `active` and `disabled` take: `true`/`false`, a condition
 `bool` (`slotMod.expr("int(value.state) > 0")`). A condition is the fast choice, and
 one that names no entity reads the slot's. A reading here can read history as
 above, and so can one in a set's `where` or `orderBy` or in a `c.iff`, but not
-through `p.history.chosen`: these are decided once for every viewer, so the
-build refuses a window a viewer picks.
+through `p.history.chosen`: a decision asks for its history on every change, not
+for one viewer's window, so the build refuses a window a viewer picks.
 Your template decides what `""` looks like; the progress bar hides.
+
+It can read a node variable too, `valueWhile = mode.valueIs("detail")`: the
+slot then has a value for the viewers on `detail` and `""` for the rest, and its
+history is read only for the first. A slot that reads a variable is for the
+viewer alone, so it is not a signal, and the variable must be declared at or
+above the node.
 
 Such a decision is kept until an entity it reads changes, and the history's own
 sensor is not one of them: a `where` over `size(past) > 0` alone keeps its first
@@ -371,6 +378,8 @@ Set a tap on your node, fold its slots in, and place the click in the template:
 import "@fh-dashboard/core/tap.pkl" as tapMod
 
 hidden tapAction: tapMod.TapAction
+// A tap that opens a popup brings it along; this puts it on the page.
+carries = tapAction.carries
 
 slots {
   ...tapMod.tapSlots(tapAction)
@@ -383,7 +392,9 @@ slots {
 </button>
 ```
 
-That is the whole thing. You do not write any signal names, and you do not need
+That is the whole thing. Leave out `carries` and a `c.view.popup(…)` tap on
+your card opens nothing, since the page only holds the popups its cards
+carry. You do not write any signal names, and you do not need
 a `tapMod.busy.ifSet(…)` section around anything — the pieces bring their own, so you
 place them whether or not this particular card guards its tap.
 
@@ -501,6 +512,17 @@ sits among other content, put it in a `group` (`core/group.pkl`), a card that
 is just such a slot: `groupMod.group("ul", "list", set)`. `.build()` on a set
 is a `group` of its own.
 
+When a card that holds a set is itself a member of another set, a change to
+its own members re-sends that whole card. Put the inner set in a `group`
+below the card's root if that card is large.
+
+A set's `where` and `orderBy` may read a node variable, alone or mixed with state
+in one condition: `.where(q.any(List(mode.valueIs("all"), q.eq(q.stateProp, "on"))))`
+keeps every member for a viewer on `all` and the lit ones for the rest, and each
+viewer's list follows their own value. The variable must be declared at or above
+the node holding the set. What is inside such a set depends on the viewer, so
+a viewer's page holds only the members that viewer is shown.
+
 A nodes slot can also hold a **choice**: one of several branches, picked live.
 Over live state, for every viewer:
 
@@ -516,6 +538,13 @@ hold and `.otherwise(…)` for the rest (a key can hold several nodes as a
 panel.of(nodeMod.match(mode.value, new Mapping { ["heat"] = h; ["cool"] = k }).otherwise(off))
 ```
 
+A chain can mix the two, one condition per branch, and each viewer gets the
+first branch that holds for them (an `else` left empty shows nothing):
+
+```pkl
+branch.of(nodeMod.iff(mode.valueIs("away")).then(a).elif(c.isOn(lamp)).then(b))
+```
+
 or over an entity's state, the same for every viewer (a text reading, keys are the
 states):
 
@@ -528,9 +557,8 @@ your card's root, so it must be the card's whole template (`template =
 "\(panel)"`); the build refuses one beside anything else. To put it among other
 content, place a group holding it, which is a card of its own:
 `panel.of(new Listing { groupMod.inner("div", "my-panel", nodeMod.match(…)) })`
-(`core/group.pkl`; `groupMod.group` for one that is a layout cell). A chain reading a
-variable and live state together, a `match` over a variable run through steps, and a node with
-two choices in different slots, are errors for now.
+(`core/group.pkl`; `groupMod.group` for one that is a layout cell). A node with
+two choices in different slots is an error for now.
 
 ---
 

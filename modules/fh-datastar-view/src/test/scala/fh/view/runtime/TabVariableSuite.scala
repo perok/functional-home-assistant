@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.{LayoutNode, NodeId}
+import fh.view.model.{Ix, NodeId}
 import fh.view.testkit.FixtureEntity
 import fh.view.testkit.DashboardBuilders.declared
 import fh.view.testkit.PklFixture
@@ -30,17 +30,13 @@ class TabVariableSuite extends ServerHarness {
       |""".stripMargin
   )
 
-  private val bar = dash.card match
-    case c: LayoutNode.Component => c
+  private val bar = PklFixture.body(dash)
 
   private def served[A](f: TestServer => IO[A]): IO[A] =
     TestServer
       .resource(dash, List(FixtureEntity("sensor.a", "1")))
       .use(f)
       .timeout(30.seconds)
-
-  private def post(ts: TestServer, conn: String, path: String) =
-    ts.postResult(path, body = s"""{"${Server.ConnSignal}":"$conn"}""")
 
   private def press(ts: TestServer, conn: String, tab: String) =
     ts.choose(conn, VarKey(NodeId.derived("bar"), "tab"), Some(tab))
@@ -56,13 +52,13 @@ class TabVariableSuite extends ServerHarness {
         conn <- ts.load().map(_.conn)
         session <- ts.sessions.get(conn)
         result <- press(ts, conn, "1")
-        open <- session.traverse(_.state.map(_.open))
+        state <- session.traverse(_.state)
         sent <- drain(session)
       } yield {
         assertEquals(result._1, Status.NoContent)
         assertEquals(
-          open.map(_.intersect(Set("bar_panel_0_0", "bar_panel_0_1"))),
-          Some(Set("bar_panel_0_1"))
+          state.map(_.vars),
+          Some(Map(VarKey(NodeId.derived("bar"), "tab") -> "1"))
         )
         assert(sent.contains("PanelTwo"), clue = sent)
         assert(sent.contains("\"_var_bar__tab\":\"1\""), clue = sent)
@@ -70,6 +66,39 @@ class TabVariableSuite extends ServerHarness {
         // The commit rides after the panel, so the highlight agrees only once
         // the panel is in.
         assert(sent.indexOf("PanelTwo") < sent.indexOf("_var_bar__tab"), sent)
+      }
+    }
+  }
+
+  test("a tab switch leaves the host holding the new case, none of the old") {
+    val r = Renderer.create(dash)
+    val pick = NodeId.derived("bar_panel_0")
+    val host = r.hostIx(pick, Shared.of(Map.empty))
+    val one = r.index.ixsOf(NodeId.derived("bar_panel_0_0")).head
+    val two = r.index.ixsOf(NodeId.derived("bar_panel_0_1")).head
+    def under(root: Ix, holds: Map[Ix, Held]) =
+      holds.keySet.filter(r.index.contains(root, _))
+    served { ts =>
+      for {
+        conn <- ts.load().map(_.conn)
+        session <- ts.sessions.get(conn)
+        _ <- session.traverse(_.takeBacklog)
+        _ <- press(ts, conn, "0")
+        before <- session.traverse(_.state.map(_.holds))
+        _ <- press(ts, conn, "1")
+        after <- session.traverse(_.state.map(_.holds))
+      } yield {
+        assertEquals(
+          before.flatMap(_.get(host)).flatMap(_.shows).map(_.toList),
+          Some(List(one))
+        )
+        assert(before.exists(under(one, _).nonEmpty), clue = before)
+        assertEquals(
+          after.flatMap(_.get(host)).flatMap(_.shows).map(_.toList),
+          Some(List(two))
+        )
+        assertEquals(after.map(under(one, _)), Some(Set.empty[Ix]))
+        assert(after.exists(under(two, _).nonEmpty), clue = after)
       }
     }
   }
@@ -102,20 +131,6 @@ class TabVariableSuite extends ServerHarness {
     }
   }
 
-  test("a variable-selected panel is chosen, never opened") {
-    // An open would move the panel without the variable, and the next page
-    // load would show another tab than the one on screen.
-    served { ts =>
-      for {
-        conn <- ts.load().map(_.conn)
-        result <- post(ts, conn, s"sse/surface/${ts.slug}/open/bar_panel_0_1")
-      } yield {
-        assertEquals(result._1, Status.Ok)
-        assert(result._2.contains("node variable"), clue = result._2)
-      }
-    }
-  }
-
   test("a link chooses the tab on the first paint") {
     served(ts =>
       (ts.page(), ts.page("?v.bar.tab=1"), ts.page("?ui.bar=1")).mapN {
@@ -135,14 +150,15 @@ class TabVariableSuite extends ServerHarness {
   }
 
   test("a bar's variable must be declared at the bar, at a value a tab takes") {
-    val undeclared = dash.copy(card = bar.copy(vars = Nil))
+    val undeclared = PklFixture.withBody(dash, bar.copy(vars = Nil))
     assert(
       undeclared
         .validate()
         .exists(_.contains("which no ancestor declares")),
       clue = undeclared.validate()
     )
-    val outside = dash.copy(card = bar.copy(vars = declared("tab" -> "2")))
+    val outside =
+      PklFixture.withBody(dash, bar.copy(vars = declared("tab" -> "2")))
     assert(
       outside
         .validate()

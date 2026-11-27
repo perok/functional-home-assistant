@@ -1,6 +1,5 @@
 package fh.view.runtime
 
-import fh.view.build.DashboardBuild
 import fh.view.model.Dashboard
 import io.circe.parser.parse
 import org.openjdk.jmh.annotations.*
@@ -33,14 +32,12 @@ class ValidateBench {
 
   @Setup
   def setup(): Unit =
-    wire = DashboardBuild.hoistInlineSurfaces(
-      parse(
-        os.read(
-          os.pwd / "modules" / "fh-datastar-view" / "src" / "test" /
-            "resources" / "snapshots" / s"$fixture.json"
-        )
-      ).fold(throw _, identity)
-    )
+    wire = parse(
+      os.read(
+        os.pwd / "modules" / "fh-datastar-view" / "src" / "test" /
+          "resources" / "snapshots" / s"$fixture.json"
+      )
+    ).fold(throw _, identity)
 
   @Setup(Level.Invocation)
   def decode(): Unit = dashboard = wire.as[Dashboard].fold(throw _, identity)

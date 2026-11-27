@@ -6,6 +6,7 @@ import fh.view.runtime.RendererTestOps.*
 import fh.view.testkit.Conds
 
 import fh.view.model.{
+  Ix,
   SlotType,
   SortTerm,
   ValueType,
@@ -21,13 +22,16 @@ import fh.view.model.{
   Step,
   Value,
   ValueExpr,
+  Choice,
+  Fill,
+  Slot,
   TemplateSlot
 }
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import cats.syntax.traverse.*
 import io.circe.Json
-import fh.view.testkit.{Sets, Slots}
+import fh.view.testkit.{DashboardBuilders, Sets, Slots, TestPage}
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
 
@@ -296,16 +300,16 @@ class RenderBench {
   private var wireRot = 0
   // The pull benches' fixture: what one client holds after a page open, and
   // the node each of the tick's entities is shown on.
-  private var heldAfterPaint: Map[NodeId, Held] = null
+  private var heldAfterPaint: Map[Ix, Held] = null
   // The same for [[set]]: the members the tick's entities are.
-  private var heldAfterSetPaint: Map[NodeId, Held] = null
+  private var heldAfterSetPaint: Map[Ix, Held] = null
   private var tickMemberIds: Vector[NodeId] = null
   private var tickNodeIds: Vector[NodeId] = null
   private var tickEntities: Vector[String] = null
   // The signal-only variant: same dashboard, name held as a literal, so no
   // slot reads the entity as bytes and the cache key cannot move.
   private var pure: Renderer = null
-  private var heldPure: Map[NodeId, Held] = null
+  private var heldPure: Map[Ix, Held] = null
   private var pureNodeIds: Vector[NodeId] = null
   // The SLUG's cache, not the op's — see [[pull]].
   private var liveCache: RenderCache = null
@@ -341,6 +345,22 @@ class RenderBench {
   private var clauseFlips: Vector[Map[String, EntityState]] = null
   private var clauseSteady: Vector[Map[String, EntityState]] = null
   private var clauseRot = 0
+  // [[viewerPull]]: a tab bar over a node variable, one session per client.
+  private var viewers: Renderer = null
+  private var viewerStates: Map[String, EntityState] = null
+  private var viewerPaint: Map[String, EntityState] = null
+  private var viewerShared: Shared = null
+  private var viewerCache: RenderCache = null
+  private var viewerSessions: Vector[ViewerSession] = null
+  private var viewerRot = 0
+  // [[popupOpen]], [[popupClose]], [[publishManyPopups]]: the page fixture with
+  // a more-info per leaf, none open.
+  private var popups: Renderer = null
+  private var popupShared: Shared = null
+  private var popupCache: RenderCache = null
+  private var heldPopupPage: Map[Ix, Held] = null
+  private var heldPopupOpen: Map[Ix, Held] = null
+  private var popupRot = 0
 
   @Setup(Level.Trial)
   def setup(): Unit = {
@@ -416,7 +436,7 @@ class RenderBench {
         signalled.renderNodeById(
           _,
           stShared,
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
       )
       .toList
@@ -433,15 +453,15 @@ class RenderBench {
     // "unknown, send it" and would make every pull a morph, which is exactly
     // the case the suppression exists to avoid measuring.
     val paint = signalled.renderPageTraced(st)
-    heldAfterPaint = paint.own.map { case (id, p) =>
-      id -> p.held
+    heldAfterPaint = paint.painted.map { case (ix, p) =>
+      ix -> p.held
     }
     tickEntities = Vector.tabulate(TickEntities)(entityId)
     tickNodeIds = tickEntities.flatMap(signalled.componentsFor(_).toList)
     pure = Renderer.create(Dashboard(cards, tree(Leaves, 4, signalOnly = true)))
     val purePaint = pure.renderPageTraced(st)
-    heldPure = purePaint.own.map { case (id, p) =>
-      id -> p.held
+    heldPure = purePaint.painted.map { case (ix, p) =>
+      ix -> p.held
     }
     pureNodeIds = tickEntities.flatMap(pure.componentsFor(_).toList)
     liveCache = RenderCache.create.unsafeRunSync()
@@ -470,7 +490,7 @@ class RenderBench {
     setIfs = Renderer.create(ifSetDash(Leaves))
     setIfsFrames = Vector.tabulate(4)(i => publishFrame(ifStates, i % 2))
     if (
-      setIfs.surfaces
+      setIfs.picks
         .affectedStateGroups(
           List(windowFlip(1)._1),
           Shared.of(ifStates),
@@ -481,12 +501,15 @@ class RenderBench {
       sys.error("publishSetIfsFlip flips no member's If")
     checkFillShape()
     checkPublishShape()
-    heldAfterSetPaint = set.renderPageTraced(st).own.map { case (id, p) =>
-      id -> p.held
+    heldAfterSetPaint = set.renderPageTraced(st).painted.map { case (ix, p) =>
+      ix -> p.held
     }
     // After `checkPublishShape`, whose frame left `set`'s membership held.
     tickMemberIds = tickEntities.flatMap(
-      set.members.binding(_, _.isEmpty, heldBy(set)).toList.sorted
+      set.members
+        .binding(_, _ == set.picks.pageRoot, heldBy(set))
+        .toList
+        .sorted
     )
     checkTickShapes()
     clauseSet = Renderer.create(Dashboard(cards, clauseSetTree(Leaves)))
@@ -514,6 +537,228 @@ class RenderBench {
       sys.error("memberClauseFlip switches no clause")
     if (clauseSteady.map(clauseAt).distinct.sizeIs != 1)
       sys.error("memberClauseSteady switches a clause")
+    viewers = Renderer.create(viewerDash())
+    viewerPaint = states(ViewerEntities)
+    viewerStates = viewerPaint
+    viewerShared = viewers.shared(StoreState(viewerStates, 0L))
+    viewerCache = RenderCache.create.unsafeRunSync()
+    viewerSessions = Vector.tabulate(WireClients)(i =>
+      viewerSession(viewers, viewerPaint, if (i % 2 == 0) "a" else "b")
+    )
+    checkViewerShape()
+    popups = Renderer.create(popupsDash(Leaves))
+    popupShared = popups.shared(StoreState(st, 0L))
+    popupCache = RenderCache.create.unsafeRunSync()
+    heldPopupPage = popups.renderPageTraced(st).painted.map { case (ix, p) =>
+      ix -> p.held
+    }
+    heldPopupOpen = popupWrite(Some(popupId(0)), heldPopupPage)
+    if (heldPopupOpen.sizeIs <= heldPopupPage.size)
+      sys.error("popupOpen fills nothing")
+    if (popupWrite(None, heldPopupOpen).sizeIs >= heldPopupOpen.size)
+      sys.error("popupClose evicts nothing")
+  }
+
+  /** What `Server.commitVars` does with a write of the page's `popups`: the
+    * pick it moves planned against `holds`, patched, and what the session then
+    * holds.
+    */
+  private def popupWrite(
+      value: Option[String],
+      holds: Map[Ix, Held]
+  ): Map[Ix, Held] = {
+    val env = popups.vars.env(value.fold(Map.empty)(v => Map(PopupsKey -> v)))
+    val at = popupShared.viewing(env)
+    val owing = Patches.written(
+      popups,
+      holds,
+      at,
+      Nil,
+      popups.vars.picksDecidedBy(PopupsKey)
+    )
+    Patches
+      .patches(
+        popups,
+        popupCache,
+        holds,
+        at,
+        Viewing(FetchSnapshot.of(Map.empty, env)),
+        owing
+      )
+      .unsafeRunSync()
+      .foldLeft(holds)(Patches.applied(popups.index, _, _))
+  }
+
+  /** One viewer opening a more-info over a page that holds [[Leaves]] of them:
+    * the popup's render and what it leaves the session holding.
+    */
+  @Benchmark
+  def popupOpen(bh: Blackhole): Unit = {
+    popupRot += 1
+    bh.consume(popupWrite(Some(popupId(popupRot % Leaves)), heldPopupPage))
+  }
+
+  /** Closing it: what the session stops holding. */
+  @Benchmark
+  def popupClose(bh: Blackhole): Unit =
+    bh.consume(popupWrite(None, heldPopupOpen))
+
+  /** [[publish]]'s frame against the page with a more-info per leaf, none open:
+    * an unopened popup should cost the recorder nothing.
+    */
+  @Benchmark
+  def publishManyPopups(bh: Blackhole): Unit = {
+    pubRot += 1
+    bh.consume(publishPass(popups, pubFrames(pubRot % 4)))
+  }
+
+  /** [[viewerPull]] only prices per-viewer decisions if the pick separates the
+    * viewers: a tab-`a` session is owed the moved leaf and a tab-`b` one
+    * nothing. A pick that showed both panels to everyone would still run and
+    * report a number.
+    */
+  private def checkViewerShape(): Unit = {
+    val owed = viewerOp()
+    val tag = s"Viewer $viewerRot"
+    def hosts(patches: List[Addressed]) = patches.map(_.patch).filter {
+      case _: (Patch.Fill | Patch.Place | Patch.Leave) => true
+      case _                                           => false
+    }
+    viewerSessions.zip(owed).foreach { (s, patches) =>
+      val morphs = patches.map(_.patch).collect { case Patch.Morph(html) =>
+        html
+      }
+      if (s.tab == "a" && !(morphs.sizeIs == 1 && morphs.head.contains(tag)))
+        sys.error(s"a tab-a session must be owed the moved leaf; got $patches")
+      // The If's light moved: `mode == "a"` holds for a tab-a viewer whatever
+      // it does, and a tab-b viewer's case follows it (its page began on `off`).
+      if (s.tab == "a" && hosts(patches).nonEmpty)
+        sys.error(s"a tab-a session must keep its If's case; got $patches")
+      // And the set light, which `mode == "a"` keeps for tab `a` only: tab
+      // `b` has it placed or left, tab `a` a signal.
+      if (s.tab == "b" && (morphs.nonEmpty || hosts(patches).sizeIs != 2))
+        sys.error(
+          s"a tab-b session must be owed the If's host and the set's; got $patches"
+        )
+    }
+  }
+
+  /** One state change of a light in panel `a` ([[ViewerPanelLeaves]] of them,
+    * in turn), as `Server.recordFrame` plans and records it for every watched
+    * session, then each session's `Server.resumed` against its own holds. Holds
+    * stay as the page left them, so every op prices the same work (see
+    * [[pull]]).
+    */
+  private def viewerOp(): List[List[Addressed]] = {
+    viewerRot += 1
+    val id = entityId(viewerRot % ViewerPanelLeaves)
+    val was = viewerStates(id)
+    val moved = was.copy(attributes =
+      was.attributes.updated(
+        "friendly_name",
+        Json.fromString(s"Viewer $viewerRot")
+      )
+    )
+    val light = entityId(ViewerIfLight)
+    val lightWas = viewerStates(light)
+    val lightNow =
+      lightWas.copy(state = if (lightWas.state == "on") "off" else "on")
+    val member = entityId(ViewerSetFirst)
+    val memberWas = viewerStates(member)
+    val memberNow =
+      memberWas.copy(state = if (memberWas.state == "on") "off" else "on")
+    val changes = List(
+      StateChange.Moved(id, Some(was), moved),
+      StateChange.Moved(light, Some(lightWas), lightNow),
+      StateChange.Moved(member, Some(memberWas), memberNow)
+    )
+    val states = viewerStates
+      .updated(id, moved)
+      .updated(light, lightNow)
+      .updated(member, memberNow)
+    val version = viewerShared.version + 1
+    val prev = viewerShared
+    val next =
+      viewers.advance(
+        prev,
+        fh.view.runtime.Frame(changes, StoreState(states, version)),
+        viewerSessions.map(s => Map(ViewerMode -> s.tab)).toSet
+      )
+    val req = viewers
+      .decide(_ => IO.pure(FetchSnapshot.empty)) { run =>
+        val (before, now) = (prev.asking(run), next.asking(run))
+        val screens = viewerSessions.map(s =>
+          s.tab -> (
+            s.env,
+            viewers.picks.onScreen(now.viewing(s.env))
+          )
+        )
+        val seen = screens.groupBy(_._1).values.toList.map { same =>
+          PickGraph.Seen(
+            same.head._2._1,
+            same.foldLeft(scala.collection.immutable.BitSet.empty)(_ | _._2._2)
+          )
+        }
+        // A set read per viewer is planned as each values' viewer, as
+        // `Server.recordFrame` does.
+        seen.map(s =>
+          Patches.plan(
+            viewers,
+            before.viewing(s.env),
+            now.viewing(s.env),
+            changes,
+            s.visible,
+            List(s)
+          )
+        )
+      }
+      .unsafeRunSync()
+    val log = req.foldLeft(FragmentLog("bench"))(Patches.record(viewers, _, _))
+    viewerStates = states
+    viewerShared = next
+    viewerSessions.toList
+      .traverse { s =>
+        Patches.resume(
+          viewers,
+          viewerCache,
+          log,
+          s.holds,
+          next,
+          _ => IO.pure(FetchSnapshot.empty),
+          _ => IO.pure(FetchSnapshot.of(Map.empty, s.env)),
+          s.env,
+          version,
+          Patches.Coverage.Logged
+        )
+      }
+      .unsafeRunSync()
+  }
+
+  /** Per-viewer decisions: a tab bar over the plain variable `mode` (two panels
+    * of [[ViewerPanelLeaves]] lights) and an If over `mode` and a light, ten
+    * sessions half on each tab. One op moves a light in panel `a` and toggles
+    * the If's light: a frame through the recorder and every session's resume,
+    * so the per-viewer decisions are part of every pull here. A set of
+    * [[ViewerSetLights]] lights kept by `mode == "a"` or the light being on
+    * moves one of them too: tab `b` loses or gains it. A light's name is read
+    * only while `mode == "b"`.
+    */
+  @Benchmark
+  def viewerPull(bh: Blackhole): Unit = bh.consume(viewerOp())
+
+  /** A page load for a session on tab `b`: the document the pick's other panel
+    * is left out of.
+    */
+  @Benchmark
+  def viewerPage(bh: Blackhole): Unit = {
+    val s = viewerSessions(1)
+    bh.consume(
+      viewers.renderPageHolds(
+        Sink.buffer(viewers.pageBytesHint),
+        Shared.of(viewerPaint).viewing(s.env),
+        Viewing(FetchSnapshot.of(Map.empty, s.env))
+      )
+    )
   }
 
   /** The two pull fixtures assert what they are, because the thing that makes
@@ -529,7 +774,7 @@ class RenderBench {
   private def checkTickShapes(): Unit = {
     def kinds(
         r: Renderer,
-        held: Map[NodeId, Held],
+        held: Map[Ix, Held],
         ids: Vector[NodeId],
         tick: Int => Map[String, EntityState]
     ): List[Patch] = {
@@ -570,7 +815,7 @@ class RenderBench {
     */
   private def checkFillShape(): Unit = {
     val one = pullFlip(1).head
-    val filled = one.collect { case Addressed(Patch.Insert(html, _, _), _, _) =>
+    val filled = one.collect { case Addressed(Patch.Fill(_, _, html, _), _) =>
       html
     }
     if (filled.sizeIs != 1)
@@ -975,7 +1220,7 @@ class RenderBench {
     val own = signalled.renderPageInto(
       Sink.streaming(w),
       stShared,
-      Viewing(Selections.none, FetchSnapshot.empty)
+      Viewing(FetchSnapshot.empty)
     )
     w.flush()
     bh.consume(own.size)
@@ -1002,7 +1247,7 @@ class RenderBench {
     val own = signalled.renderPageInto(
       Sink.streaming(w),
       stShared,
-      Viewing(Selections.none, FetchSnapshot.empty)
+      Viewing(FetchSnapshot.empty)
     )
     w.flush()
     bh.consume(own.size)
@@ -1034,7 +1279,7 @@ class RenderBench {
           val own = signalled.renderPageInto(
             Sink.streaming(w),
             stShared,
-            Viewing(Selections.none, FetchSnapshot.empty)
+            Viewing(FetchSnapshot.empty)
           )
           w.flush()
           own.size
@@ -1186,25 +1431,21 @@ class RenderBench {
     clauseSet.renderMemberTraced(
       clauseMember,
       Shared.of(states),
-      Viewing(Selections.none, FetchSnapshot.empty)
+      Viewing(FetchSnapshot.empty)
     )
 
   /** One flip, replayed from a cursor before it, for `clients` connections.
     *
-    * The log carries the mutation alone: a flip is recorded structurally
-    * (`Mutation.Placed` on the group, keyed by the arriving SURFACE), and that
-    * is the whole of what a resuming client is owed for it. `holds` is empty
-    * because a client that just missed a flip knows nothing about what is
-    * inside the host it is about to be handed.
+    * The log carries the flip alone: the pick's host and the arriving case's
+    * root, which is the whole of what a resuming client is owed for it. `holds`
+    * is empty because a client that just missed a flip knows nothing about what
+    * is inside the host it is about to be handed.
     */
   private def pullFlip(clients: Int): List[List[Addressed]] = {
     val at = flipRot.toLong
-    val log = FragmentLog("bench").placed(
-      FlipContainer,
-      MemberKey.Surface(FlipElse),
-      FlipElse,
-      at
-    )
+    val log = List(FlipContainer, FlipElse)
+      .flatMap(flipped.index.ixsOf)
+      .foldLeft(FragmentLog("bench"))(_.touched(_, at))
     (1 to clients).toList
       .traverse(_ =>
         Patches.resume(
@@ -1216,7 +1457,8 @@ class RenderBench {
           _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
-          at
+          at,
+          coverage = Patches.Coverage.Logged
         )
       )
       .unsafeRunSync()
@@ -1487,7 +1729,13 @@ class RenderBench {
       fh.view.runtime.Frame(changes, StoreState(states, pubRot.toLong))
     )
     heldBy(renderer) = next
-    val req = Patches.plan(renderer, prev, next, changes, Set.empty)
+    val req = Patches.plan(
+      renderer,
+      prev,
+      next,
+      changes,
+      scala.collection.immutable.BitSet.empty
+    )
     Patches.record(renderer, FragmentLog("bench"), req)
   }
 
@@ -1531,8 +1779,8 @@ class RenderBench {
     if (plain.fragments.isEmpty)
       sys.error("publish selected no nodes — the reverse index found nothing")
     val members = publishPass(set, frame)
-    if (members.fragments.isEmpty && members.mutations.isEmpty)
-      sys.error("publishSet recorded neither a fragment nor a membership move")
+    if (members.fragments.isEmpty)
+      sys.error("publishSet recorded neither a fragment nor a moved host")
   }
 
   /** The same pull when the movement is in the BYTES — a `friendly_name`
@@ -1583,13 +1831,15 @@ class RenderBench {
     */
   private def pull(
       renderer: Renderer,
-      held: Map[NodeId, Held],
+      held: Map[Ix, Held],
       nodeIds: Vector[NodeId],
       moved: Map[String, EntityState],
       clients: Int
   ): List[List[Addressed]] = {
     val at = wireRot.toLong
-    val log = nodeIds.foldLeft(FragmentLog("bench"))(_.touched(_, at))
+    val log = nodeIds
+      .flatMap(renderer.index.ixsOf)
+      .foldLeft(FragmentLog("bench"))(_.touched(_, at))
     // One per version, as `Renderer.shared` hands every session.
     val shared = Shared.of(moved)
     (1 to clients).toList
@@ -1604,8 +1854,7 @@ class RenderBench {
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
           at,
-          Set.empty,
-          Selections.none
+          Patches.Coverage.Logged
         )
       }
       .unsafeRunSync()
@@ -1694,7 +1943,7 @@ class RenderBench {
   def tickRender(bh: Blackhole): Unit = {
     // One version for every node, as a pull reads it.
     val shared = Shared.of(signalTick(wireRot))
-    val viewing = Viewing(Selections.none, FetchSnapshot.empty)
+    val viewing = Viewing(FetchSnapshot.empty)
     tickNodeIds.foreach(id =>
       bh.consume(signalled.renderNodeById(id, shared, viewing))
     )
@@ -1809,7 +2058,7 @@ class RenderBench {
         signalled.renderNodeById(
           id,
           Shared.of(moved),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
       )
     }
@@ -1980,7 +2229,8 @@ object RenderBench {
       signals: Boolean,
       distinct: Int = Int.MaxValue,
       signalOnly: Boolean = false,
-      valued: Boolean = false
+      valued: Boolean = false,
+      nameWhile: Option[ValueExpr] = None
   )(
       i: Int
   ): LayoutNode.Component = {
@@ -2001,7 +2251,8 @@ object RenderBench {
             else
               // Opted in (ADR 0028) — see [[NameSlot]] on what this models and
               // what the shipped card actually does.
-              ValueExpr(Value.Entity(subject, Part.Attr("friendly_name")))
+              ValueExpr(Value.Entity(subject, Part.Attr("friendly_name"))),
+            valueWhile = nameWhile
           ),
           "state" -> TemplateSlot(
             ValueExpr(
@@ -2079,6 +2330,53 @@ object RenderBench {
     stack(List.tabulate(leaves)(leaf(signals, distinct, signalOnly, valued)))
   }
 
+  def popupId(i: Int): String = s"info_$i"
+
+  val PopupsKey: VarKey = VarKey(Dashboard.PageRootId, "popups")
+
+  /** [[tree]] in a page card whose `popups` holds a more-info per leaf, as
+    * `components/popup.pkl` collects them: a match over the page's `popups`,
+    * each case its entity's card and a second card of it, the shape
+    * `moreInfoBody` holds.
+    */
+  def popupsDash(leaves: Int): Dashboard = {
+    val page = TestPage.around(Dashboard(cards, tree(leaves, 4)))
+    val host = LayoutNode.Component(
+      "page_popups",
+      Map(
+        LayoutNode.DefaultRegion -> Slot.Nodes(
+          Fill.Nodes(
+            DashboardBuilders.chosenBy(
+              "popups",
+              List
+                .tabulate(leaves)(i =>
+                  popupId(i) -> List[LayoutNode](
+                    LayoutNode.Component(
+                      "col",
+                      slots =
+                        Slots.kids(leaf(signals = true)(i), leaf(false)(i)),
+                      id = Some(popupId(i))
+                    )
+                  )
+                )
+                .toMap
+            )
+          )
+        )
+      ),
+      id = Some("popups")
+    )
+    page.copy(card = page.card match
+      case c: LayoutNode.Component =>
+        c.copy(
+          slots = c.slots.updated(
+            "popups",
+            Slot.Nodes(Fill.Nodes(Choice.Fixed(List(host))))
+          ),
+          vars = List(Dashboard.Declaration("popups", None, inHistory = true))
+        ))
+  }
+
   /** Leaves in EACH branch of the flip fixture. Smaller than [[Leaves]] on
     * purpose: a state group holds a section of a dashboard, not the whole page,
     * and the number that matters for a fill is what one host contains.
@@ -2086,7 +2384,7 @@ object RenderBench {
   final val FlipLeaves = 20
 
   /** The entity whose state chooses the branch — an alarm, the shipped shape
-    * for a state-activated surface.
+    * for a pick over state.
     */
   final val FlipEntity = "alarm.house"
 
@@ -2095,7 +2393,7 @@ object RenderBench {
     * [[FlipLeaves]] entity cards.
     *
     * This is the fixture the FILL benches need and nothing else here had — the
-    * page benches are one tree with no surfaces in it, so a wholesale host
+    * page benches are one tree with no picks in it, so a wholesale host
     * re-supply was unmeasured (issue #224).
     */
   def flipDash(signals: Boolean = true): Dashboard =
@@ -2251,6 +2549,174 @@ object RenderBench {
           )*
       )
     )
+
+  /** Lights in each panel of [[viewerDash]], and the few outside the tabs. */
+  final val ViewerPanelLeaves = 20
+  final val ViewerSetLights = 4
+  final val ViewerSetFirst = 2 * ViewerPanelLeaves + 6
+  final val ViewerGateLight = ViewerSetFirst + ViewerSetLights
+  final val ViewerEntities = ViewerGateLight + 1
+
+  /** The light the mixed If of [[viewerDash]] reads, toggled by every
+    * [[viewerPull]] op.
+    */
+  final val ViewerIfLight = 2 * ViewerPanelLeaves + 5
+
+  val ViewerMode: VarKey = VarKey(NodeId.derived("viewers"), "mode")
+
+  /** One session on a tab: what `Server.renderPage` records for it. */
+  final case class ViewerSession(
+      tab: String,
+      env: VarEnv,
+      holds: Map[Ix, Held]
+  )
+
+  def viewerSession(
+      renderer: Renderer,
+      states: Map[String, EntityState],
+      tab: String
+  ): ViewerSession = {
+    val env = renderer.vars.env(Map(ViewerMode -> tab))
+    ViewerSession(
+      tab,
+      env,
+      renderer.renderPageHolds(
+        Sink.buffer(renderer.pageBytesHint),
+        Shared.of(states).viewing(env),
+        Viewing(FetchSnapshot.of(Map.empty, env))
+      )
+    )
+  }
+
+  /** A tab bar over the node variable `mode`, as `c.chooser(c.select(mode))`
+    * lowers to: two buttons choosing it, and a pick over it holding a panel per
+    * value. Entities are disjoint per panel, and five lights sit outside. Below
+    * them an If over `mode == "a"`, else a light being on, which is decided per
+    * viewer.
+    */
+  def viewerDash(): Dashboard = {
+    def panel(from: Int) =
+      LayoutNode.Component(
+        "col",
+        slots = Slots.kids(
+          List.tabulate(ViewerPanelLeaves)(j => leaf(true)(from + j))*
+        )
+      )
+    def outside(j: Int) = leaf(true)(2 * ViewerPanelLeaves + j)
+    Dashboard(
+      cards = cards ++ Map(
+        "ifhost" -> TestCard("""{{{branch}}}""", regions = Set("branch")),
+        DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard
+      ),
+      card = LayoutNode.Component(
+        "col",
+        slots = Slots.kids(
+          (List(outside(0), outside(1), outside(2)) ++
+            DashboardBuilders.choices("mode", "a", "b") ++
+            List(
+              LayoutNode.Component(
+                "ifhost",
+                Map(
+                  "branch" -> Slots.byVar(
+                    "mode",
+                    List("a" -> panel(0), "b" -> panel(ViewerPanelLeaves))
+                  )
+                )
+              ),
+              // `mode == "a"`, else the light on, else nothing: a tab-`a`
+              // viewer's case never moves, a tab-`b` one's does with the light.
+              LayoutNode.Component(
+                "ifhost",
+                Map(
+                  "branch" -> Slots.chosen(
+                    ValueExpr(
+                      Value.List(
+                        ValueType.Bool,
+                        List(
+                          ValueExpr(
+                            Value.Var("mode"),
+                            List(
+                              Step.Compare(Op.Eq, Value.Literal(Lit.Text("a")))
+                            )
+                          ),
+                          Conds.cmp(
+                            "state",
+                            Op.Eq,
+                            Json.fromString("on"),
+                            entity = Some(entityId(ViewerIfLight))
+                          )
+                        )
+                      ),
+                      List(Step.IndexOfTrue)
+                    ),
+                    List(
+                      Lit.Whole(0) -> LayoutNode.Component("col"),
+                      Lit.Whole(1) -> leaf(true)(ViewerIfLight)
+                    )
+                  )
+                )
+              ),
+              // `mode == "a"` or lit: tab `a` keeps every member, tab `b` the
+              // lit ones.
+              Sets.node(
+                candidates = List.tabulate(ViewerSetLights)(i =>
+                  entityId(ViewerSetFirst + i)
+                ),
+                members = List
+                  .tabulate(ViewerSetLights)(i =>
+                    entityId(ViewerSetFirst + i) -> Sets.Member(
+                      List(
+                        Sets.Clause(
+                          Some(
+                            ValueExpr(
+                              Value.List(
+                                ValueType.Bool,
+                                List(
+                                  ValueExpr(
+                                    Value.Var("mode"),
+                                    List(
+                                      Step.Compare(
+                                        Op.Eq,
+                                        Value.Literal(Lit.Text("a"))
+                                      )
+                                    )
+                                  ),
+                                  Conds.cmp(
+                                    "state",
+                                    Op.Eq,
+                                    Json.fromString("on")
+                                  )
+                                )
+                              ),
+                              List(Step.AnyOf)
+                            )
+                          ),
+                          leaf(true)(ViewerSetFirst + i)
+                        )
+                      )
+                    )
+                  )
+                  .toMap
+              ),
+              // Named only while `mode == "b"`: tab `a` gets it empty.
+              leaf(
+                true,
+                nameWhile = Some(
+                  ValueExpr(
+                    Value.Var("mode"),
+                    List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("b"))))
+                  )
+                )
+              )(ViewerGateLight),
+              outside(3),
+              outside(4)
+            ))*
+        ),
+        id = Some("viewers"),
+        vars = DashboardBuilders.declared("mode" -> "a")
+      )
+    )
+  }
 
   def windowId(i: Int): String = s"binary_sensor.window_$i"
 

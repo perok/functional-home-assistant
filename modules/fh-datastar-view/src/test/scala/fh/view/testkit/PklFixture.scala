@@ -1,16 +1,16 @@
 package fh.view.testkit
 
-import fh.view.build.{DashboardBuild, PklBuild, PklDump, Site, SourceEval}
+import fh.view.build.{PklBuild, PklDump, Site, SourceEval}
 import fh.view.model.{CardDef, Choice, Dashboard, Fill, LayoutNode, Slot}
 import io.circe.{Json, parser}
 import org.pkl.core.{Evaluator, EvaluatorBuilder, ModuleSource, OutputFormat}
 import org.pkl.core.project.Project
 
 /** A real [[Dashboard]] from an inline Pkl entry through the Tier-A path (ADR
-  * 0009): `.pkl` -> `SourceEval.eval` -> `DashboardBuild.hoistInlineSurfaces`
-  * -> decode, over a staged package-form workspace with the caller's dump
-  * (typically [[HouseFixture.transformedDump]]) seeded as `@fh-home`. Entries
-  * usually set [[dummyTheme]], leaving CSS to the browser suites.
+  * 0009): `.pkl` -> `SourceEval.eval` -> decode, over a staged package-form
+  * workspace with the caller's dump (typically
+  * [[HouseFixture.transformedDump]]) seeded as `@fh-home`. Entries usually set
+  * [[dummyTheme]], leaving CSS to the browser suites.
   */
 object PklFixture {
 
@@ -19,7 +19,8 @@ object PklFixture {
     */
   case class Built(value: Json, imports: Set[os.Path])
 
-  /** Every [[fh.view.model.Theme]] field empty. Use as `theme = <this>` after
+  /** Every [[fh.view.model.Theme]] field empty, the page card's frame the
+    * default. Use as `theme = <this>` after
     * `import "@fh-dashboard/theme.pkl" as th`: the alias keeps `th.Theme` the
     * module identity the base expects, where a file import would be a distinct
     * URI.
@@ -31,7 +32,6 @@ object PklFixture {
       |  stylesheets = new {}
       |  scripts = new {}
       |  styles = ""
-      |  chrome = ""
       |}""".stripMargin
 
   /** Resolves `@fh-dashboard`/`@fh-home` from the cache as the live server
@@ -57,7 +57,7 @@ object PklFixture {
     Built(result.value, result.imports)
   }
 
-  /** Hoisting inline surfaces first, as the build phase does. */
+  /** Decoded and validated as the build phase does. */
   def buildDashboard(
       slug: String,
       entrySource: String,
@@ -103,10 +103,10 @@ object PklFixture {
        |""".stripMargin
 
   /** A library shape as the build makes it, for a test that would otherwise
-    * hand-copy it: `body` follows [[SnippetHeader]] (`card = …`, `surfaces`,
-    * locals), over the house plus `extras`. Cached per JVM by source, and every
-    * snippet over one dump shares a workspace and an evaluator, so a warm one
-    * costs a few ms where a cold [[buildDashboard]] costs about 110.
+    * hand-copy it: `body` follows [[SnippetHeader]] (`card = …`, locals), over
+    * the house plus `extras`. Cached per JVM by source, and every snippet over
+    * one dump shares a workspace and an evaluator, so a warm one costs a few ms
+    * where a cold [[buildDashboard]] costs about 110.
     */
   def snippet(body: String, extras: FixtureEntity*): Dashboard =
     snippets.getOrElseUpdate(
@@ -157,9 +157,40 @@ object PklFixture {
       case Choice.Chosen(by, cases, or) =>
         Choice.Chosen(by, cases.map(c => c.copy(value = f(c.value))), or.map(f))
 
-    def of(d: Dashboard): Shape = d.card match
+    /** The body as written, without the `c` the page card names it by, so it
+      * can be placed anywhere.
+      */
+    def of(d: Dashboard): Shape =
+      val b = body(d)
+      Shape(
+        d.cards.filterNot(_._1.startsWith(HolePrefix)),
+        if b.id.contains("c") then b.copy(id = None) else b
+      )
+
+  /** A built dashboard's own card: the page card's body (`core/page.pkl`). */
+  def body(d: Dashboard): LayoutNode.Component =
+    pageBody(d.card) match
+      case c: LayoutNode.Component => c
+
+  /** `d` with its page card's body replaced. */
+  def withBody(d: Dashboard, node: LayoutNode): Dashboard =
+    d.card match
+      case page: LayoutNode.Component =>
+        d.copy(card =
+          page.copy(slots =
+            page.slots.updated(
+              BodySlot,
+              Slot.Nodes(Fill.Nodes(Choice.Fixed(List(node))))
+            )
+          )
+        )
+
+  private val BodySlot = "body"
+
+  private def pageBody(page: LayoutNode): LayoutNode =
+    page match
       case c: LayoutNode.Component =>
-        Shape(d.cards.filterNot(_._1.startsWith(HolePrefix)), c)
+        c.slotNodes.getOrElse(BodySlot, sys.error(s"no page card: $c")).head
 
   /** [[snippet]]'s `card`, as a [[Shape]]. */
   def shape(body: String, extras: FixtureEntity*): Shape =
@@ -217,8 +248,7 @@ object PklFixture {
   }
 
   private def decodeDashboard(slug: String, value: Json): Dashboard =
-    DashboardBuild
-      .hoistInlineSurfaces(value)
+    value
       .as[Dashboard]
       .fold(
         err => sys.error(s"decoding $slug as Dashboard failed: $err"),

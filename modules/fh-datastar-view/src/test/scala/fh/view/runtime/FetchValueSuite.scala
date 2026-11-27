@@ -74,7 +74,7 @@ class FetchValueSuite extends munit.FunSuite {
   private def answered(json: String = answer) =
     FetchSnapshot.of(Map(read -> Staged(7L, json)))
 
-  private def rootId(d: Dashboard) = LayoutNode.rootId("", d.card)
+  private def rootId(d: Dashboard) = LayoutNode.rootId(d.card)
 
   test("a slot's CEL reads a fetch value as its points") {
     val d = dashboard()
@@ -83,7 +83,7 @@ class FetchValueSuite extends munit.FunSuite {
       .create(d)
       .renderBodyTraced(
         Shared.of(states("47")),
-        Viewing(Selections.none, answered())
+        Viewing(answered())
       )
       .html
     assert(html.contains("101"), clue = html)
@@ -274,7 +274,7 @@ class FetchValueSuite extends munit.FunSuite {
       assertEquals(d.validate(), Nil, clue = where)
       val html = Renderer
         .create(d)
-        .renderBodyTraced(Shared.of(both), Viewing(Selections.none, answered()))
+        .renderBodyTraced(Shared.of(both), Viewing(answered()))
         .html
       assert(html.contains(shown), clue = s"$where: $html")
     }
@@ -344,7 +344,7 @@ class FetchValueSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val html = Renderer
       .create(d)
-      .renderBodyTraced(Shared.of(both), Viewing(Selections.none, answered()))
+      .renderBodyTraced(Shared.of(both), Viewing(answered()))
       .html
     assert(html.contains("k=3"), clue = html)
   }

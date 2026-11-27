@@ -5,50 +5,95 @@ import cats.syntax.traverse.*
 import cats.syntax.traverseFilter.*
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
-  Dashboard,
   DomId,
+  Ix,
   NodeId,
   SetId,
   SignalId,
   SlotRead,
-  SlotValue
+  SlotValue,
+  TreeIndex
 }
 import fh.view.model.DomId.selector
 import io.circe.Json
 
-import scala.collection.immutable.HashMap
+import scala.collection.immutable.{BitSet, HashMap}
 
 /** One DOM patch, rendered to SSE only at the edge. A `Morph` carries its
   * target's id inside `html`; `Signals` touches no element (ADR 0017). Targets
   * are [[DomId]]s, never a [[NodeId]], with the `#` added here.
+  *
+  * A set's or a pick's host is changed by `Fill`, `Place` and `Leave`, which
+  * name the host's [[Ix]] and what it then shows ([[Patches.applied]] reads
+  * them).
   */
 private[runtime] enum Patch:
   case Morph(html: String)
-  case Insert(html: String, mode: PatchMode, target: DomId)
-  case Remove(target: DomId)
   case Signals(values: Map[SignalId, Json])
 
+  /** Everything inside `host`, whose element is `target`; `shows` is the root
+    * of each thing now in it.
+    */
+  case Fill(
+      host: Ix,
+      target: DomId,
+      html: String,
+      shows: Option[IArray[Ix]]
+  )
+
+  /** One member into `host`, which then shows `shown`: before `before`, or
+    * last. `target` is `before`'s element, else the host's.
+    */
+  case Place(
+      host: Ix,
+      target: DomId,
+      html: String,
+      shown: Ix,
+      before: Option[Ix]
+  )
+
+  /** `key`, in `host`, goes: by id, as every clause of a member spells it,
+    * since a caller cannot say which one the client holds.
+    */
+  case Leave(host: Ix, key: NodeId)
+
   def toSse: SseFrame = this match
-    case Patch.Morph(html)                => Datastar.patchElements(html)
-    case Patch.Insert(html, mode, target) =>
-      Datastar.patch(html, mode, Some(target.selector))
-    case Patch.Remove(target)  => Datastar.remove(target.selector)
+    case Patch.Morph(html)     => Datastar.patchElements(html)
     case Patch.Signals(values) =>
       Datastar.patchSignals(Datastar.signalsJson(values))
+    // An empty `Inner` is not a well-formed patch.
+    case Patch.Fill(_, target, "", _) =>
+      Datastar.remove(s"${target.selector} > *")
+    case Patch.Fill(_, target, html, _) =>
+      Datastar.patch(html, PatchMode.Inner, Some(target.selector))
+    case Patch.Place(_, target, html, _, before) =>
+      Datastar.patch(
+        html,
+        if before.isDefined then PatchMode.Before else PatchMode.Append,
+        Some(target.selector)
+      )
+    case Patch.Leave(_, key) => Datastar.remove(DomId.derived(key).selector)
+
+/** What a host's client does to show what was decided, in order
+  * ([[Patches.planHost]]); each key is the [[Ix]] of a shown root. `Fill` with
+  * no keys empties the host.
+  */
+private[runtime] enum HostStep:
+  case Fill(keys: IArray[Ix])
+  case Leave(key: Ix)
+
+  /** `key` goes before `before`, or last. */
+  case Place(key: Ix, before: Option[Ix])
 
 /** A patch and what it does to its client's record. No audience: the session
   * that sends it produced it ([[Patches.resume]]).
   *
-  * `establishes` is what its bytes put in the DOM. `invalidates` names hosts an
-  * `Inner` fill re-supplied — the only patch that aims at a host — so that
-  * after applying any patch, `holds` describes the DOM. A `Remove` needs
-  * neither: a stale claim on a gone element costs at most an ignored morph.
+  * `establishes` is what its bytes put in the DOM, so that after applying any
+  * patch, `holds` describes it.
   */
 private[runtime] case class Addressed(
     patch: Patch,
-    establishes: Map[NodeId, Held] = Map.empty,
-    // Roots: a host and everything under it ([[NodeAncestry]]).
-    invalidates: Set[NodeId] = Set.empty
+    establishes: Map[Ix, Held] = Map.empty
 )
 
 /** The pure core of the live path, apart from [[Server]]'s `Ref`s and `IO`. The
@@ -59,12 +104,14 @@ private[runtime] object Patches {
 
   case class DiffRequest(
       staticIds: List[NodeId],
-      // Membership only: a member that ticked is in `staticIds`.
+      // Whose keys moved; a member that ticked is in `staticIds`.
       sets: List[SetId],
       flips: List[NodeId],
       prev: Shared,
       next: Shared,
-      membership: Map[SetId, MemberDelta]
+      // Each viewer pick some viewer is shown another case of, with the cases
+      // arriving for them.
+      viewerFlips: List[(NodeId, List[Int])] = Nil
   ):
     // The frame's own, so nothing claims a version its HTML lacks.
     def at: Long = next.version
@@ -73,34 +120,48 @@ private[runtime] object Patches {
     * bounds what is recorded: wide records a node nobody pulls, narrow would
     * drop an update someone needed.
     *
-    * Flipped state groups are recorded as [[Mutation]]s and excluded below (the
-    * fill re-renders them). A surface binding a changed entity contributes only
-    * if it is shown from the page or a visible surface
-    * ([[SurfaceGraph.visibleSurface]]), so a hidden branch never gets updates.
-    * No viewer's [[Selections]] are read. `prev` is the version before, so its
-    * decisions are what viewers were sent.
+    * A flipped state pick is logged by its host and its arriving case, and its
+    * own id is left out below; so is a viewer pick that flips for some viewer
+    * of `seen` (one entry per distinct values, with the containers on screen
+    * for them), logged by its host and each arriving case. A case binding a
+    * changed entity contributes only if it is shown from the page
+    * ([[PickGraph.visibleContainer]]), so a hidden branch never gets updates; a
+    * viewer's flip cuts no one's visibility here, since it moves the case for
+    * only those it flips for. `prev` is the version before, so its decisions
+    * are what viewers were sent.
     */
   def plan(
       renderer: Renderer,
       prev: Shared,
       next: Shared,
       changes: List[StateChange],
-      visible: Set[String]
+      visible: BitSet,
+      seen: List[PickGraph.Seen] = Nil
   ): DiffRequest = {
     val flips =
-      renderer.surfaces.affectedStateGroups(changes, prev, next, visible)
-    val flipped = flips.toSet
-    // Per frame: every changed entity a branch binds asks of the same surface,
+      renderer.picks.affectedStateGroups(changes, prev, next, visible)
+    val viewerFlips = renderer.picks.affectedViewerGroups(
+      changes,
+      prev,
+      next,
+      seen,
+      flips.toSet
+    )
+    val flipped = flips.toSet ++ viewerFlips.map(_._1)
+    val cutting = flips.toSet
+    // Per frame: every changed entity a branch binds asks of the same case,
     // and each asking evaluates the conditions above it (`publishFlip`).
-    val reached = scala.collection.mutable.HashMap.empty[String, Boolean]
-    val shown: String => Boolean = sid =>
-      reached.getOrElseUpdate(
-        sid,
-        renderer.surfaces.visibleSurface(sid, visible, next, flipped)
-      )
+    val asked = scala.collection.mutable.BitSet.empty
+    val reached = scala.collection.mutable.BitSet.empty
+    val shown: Ix => Boolean = c =>
+      if (asked.add(c.toInt)) {
+        val r = renderer.picks.visibleContainer(c, visible, next, cutting)
+        if (r) reached += c.toInt
+        r
+      } else reached(c.toInt)
     // First: `deltas` makes `next`'s set decisions incrementally, where a
     // `binding` reading them first would rebuild each from scratch.
-    val membership = renderer.members.deltas(
+    val sets = renderer.members.deltas(
       renderer.members.affectedSetsWithin(changes, shown),
       changes,
       prev,
@@ -113,20 +174,13 @@ private[runtime] object Patches {
         renderer.componentsFor(c.entityId).toList ++
           renderer.members.binding(c.entityId, shown, next) ++
           renderer
-            .surfacesBinding(c.entityId)
+            .containersBinding(c.entityId)
             .filter(shown)
-            .flatMap(renderer.surfaceComponentsFor(_, c.entityId))
+            .flatMap(renderer.containerComponentsFor(_, c.entityId))
       )
       .distinct
       .filterNot(flipped)
-    DiffRequest(
-      staticIds,
-      membership.keys.toList.sortBy(id => id: String),
-      flips,
-      prev,
-      next,
-      membership
-    )
+    DiffRequest(staticIds, sets, flips, prev, next, viewerFlips)
   }
 
   /** Loud, rather than caching `""` forever if `byteSlotValues` and
@@ -139,19 +193,14 @@ private[runtime] object Patches {
       )
     )
 
-  /** The fewest survivors to move: everything outside a longest increasing
-    * subsequence of old positions. A set ordered on a live value reorders on
-    * every crossing, and moving everything is a patch storm. O(n²) on purpose:
-    * n is a room's lights, and this version is checkable.
+  /** The indices of a longest increasing run of `positions`, the survivors that
+    * need no move. A set ordered on a live value reorders on every crossing,
+    * and moving everything is a patch storm. O(n²) on purpose: n is a room's
+    * lights, and this version is checkable.
     */
-  private[runtime] def reordered(
-      before: List[String],
-      after: List[String]
-  ): List[String] = {
-    val was = before.zipWithIndex.toMap
-    val idx = after.map(was.getOrElse(_, -1)).toArray
-    val n = idx.length
-    if (n < 2) Nil
+  private def longestRun(positions: Array[Int]): Set[Int] = {
+    val n = positions.length
+    if (n == 0) Set.empty
     else {
       // len(i): longest increasing run ending at i. prev(i): its predecessor.
       val len = Array.fill(n)(1)
@@ -159,343 +208,369 @@ private[runtime] object Patches {
       for {
         i <- 1 until n
         j <- 0 until i
-        if idx(j) < idx(i) && len(j) + 1 > len(i)
+        if positions(j) < positions(i) && len(j) + 1 > len(i)
       } {
         len(i) = len(j) + 1
         prev(i) = j
       }
-      val keep = Iterator
-        .iterate((0 until n).maxBy(len))(prev)
+      Iterator
+        .iterate((0 until n).maxBy(len))(prev(_))
         .takeWhile(_ >= 0)
         .toSet
-      after.zipWithIndex.collect { case (e, i) if !keep(i) => e }
     }
   }
 
+  /** The steps that turn a host whose client shows `held` into one showing
+    * `decided`. `None` is a page nobody knows, where only a fill is safe. A
+    * kept key is held, decided and not `again`; the rest of `held` leaves, so a
+    * key sent `again` is taken out and put back whole, and the placing runs
+    * back to front so each anchor is on the page when its turn comes.
+    */
+  private[runtime] def planHost(
+      held: Option[IArray[Ix]],
+      decided: IArray[Ix],
+      again: Ix => Boolean
+  ): List[HostStep] = held match
+    case None                         => List(HostStep.Fill(decided))
+    case Some(was) if decided.isEmpty => was.toList.map(HostStep.Leave(_))
+    case Some(was)                    =>
+      val heldAt = was.indices.map(i => was(i) -> i).toMap
+      val keepable = decided.toList.filter(k => heldAt.contains(k) && !again(k))
+      if keepable.isEmpty then List(HostStep.Fill(decided))
+      else {
+        val run = longestRun(keepable.map(heldAt).toArray)
+        val stays = keepable.zipWithIndex.collect {
+          case (k, i) if run(i) => k
+        }.toSet
+        val leaves = was.toList.filterNot(stays).map(HostStep.Leave(_))
+        val places = decided.indices.reverseIterator.collect {
+          case i if !stays(decided(i)) =>
+            HostStep.Place(
+              decided(i),
+              Option.when(i + 1 < decided.length)(decided(i + 1))
+            )
+        }
+        leaves ++ places
+      }
+
+  /** The changelog, and nothing else: each node whose bytes moved, each host
+    * whose keys moved, and the root of each key that arrived, each at its
+    * place. An id in several clauses of a member is logged at the one `next`
+    * shows ([[Renderer.ixAt]]), so two clauses are logged apart, and not at all
+    * if its member left: its host's entry takes it from a viewer's list. A key
+    * that left leaves its entries behind, harmless: a pull reads them only
+    * where they are visible and outside any range it sends whole.
+    */
   def record(
       renderer: Renderer,
       log: FragmentLog,
       req: DiffRequest
   ): FragmentLog = {
     val at = req.at
-    // Flips first: nothing may be suppressed against a pre-flip entry.
-    val afterFlips = req.flips.foldLeft(log) { (l, gid) =>
-      recordFlip(renderer, l, gid, req.prev, req.next, at)
-    }
-    val afterNodes = req.staticIds.foldLeft(afterFlips)(_.touched(_, at))
-    req.sets.foldLeft(afterNodes) { (l, gid) =>
-      req.membership
-        .get(gid)
-        .fold(l)(recordSet(renderer, l, gid, _, at))
-    }
-  }
-
-  /** [[resume]]'s branch fill is the other half. */
-  private def recordFlip(
-      renderer: Renderer,
-      log: FragmentLog,
-      gid: NodeId,
-      prev: Shared,
-      next: Shared,
-      at: Long
-  ): FragmentLog = {
-    def memberAt(shared: Shared): Option[String] =
-      renderer.surfaces
-        .decideByState(gid, shared)
-        .flatMap(renderer.surfaces.cases(gid).lift)
-    val was = memberAt(prev)
-    val now = memberAt(next)
-    if (was == now) log
-    else {
-      // The departing branch is gone from the DOM, not just stale.
-      val evicted =
-        log.invalidateWhere(hostEvicts(renderer, renderer.hostId(gid)))
-      val withGone = was
-        .map(NodeId.derived)
-        .foldLeft(evicted)(_.removed(gid, _, at))
-      now.foldLeft(withGone)((acc, id) =>
-        acc.placed(gid, MemberKey.Surface(id), NodeId.derived(id), at)
-      )
-    }
-  }
-
-  /** Once per frame, not per entity: two entities can cross the boundary in
-    * opposite directions in one tick.
-    *
-    * Deltas by default. A fill re-sends the unchanged members and raises the
-    * host's horizon, so it is used only when `was` or `now` is empty (nothing
-    * to re-send) or the log holds none of the members (no baseline to patch).
-    */
-  private def recordSet(
-      renderer: Renderer,
-      log: FragmentLog,
-      gid: SetId,
-      delta: MemberDelta,
-      at: Long
-  ): FragmentLog = {
-    val was = delta.was
-    val now = delta.now
-    // A member whose case moved. By id: a case binding no live entity is
-    // not in the reverse index. One that can hold nodes has no single element
-    // to morph, so it is placed again where it stands.
-    val (morphed, replaced) =
-      delta.replaced.sortBy(_.id).partition(m => renderer.memberIsTarget(m.id))
-    val base =
-      replaced.foldLeft(morphed.foldLeft(log)((l, m) => l.touched(m.id, at))) {
-        (l, m) => l.placed(gid, m.key, m.id, at)
-      }
-    if (was == now) base
-    else {
-      val nowSet = now.toSet
-      val wasSet = was.toSet
-      val added = now.filterNot(wasSet)
-      val removed = was.filterNot(nowSet)
-      // Only a set ordered by a live value reorders.
-      val moved = Patches.reordered(was.filter(nowSet), now.filter(wasSet))
-      val churn = added.size + removed.size + moved.size
-      if (churn == 0) base
-      else if (
-        was.isEmpty || now.isEmpty || !base.holdsAnyOf(
-          was.map(renderer.members.memberIdOf(gid, _))
+    // Only a clause-split id needs its member decided: deciding every touched
+    // node was +21% B/op on RenderBench.publishSet.
+    def touch(l: FragmentLog, id: NodeId): FragmentLog =
+      renderer.index.ixsOf(id) match
+        case ix :: Nil => l.touched(ix, at)
+        case _         => renderer.ixAt(id, req.next).fold(l)(l.touched(_, at))
+    val nodes = req.staticIds.foldLeft(log)(touch)
+    val sets = req.sets.foldLeft(nodes) { (l, gid) =>
+      val was = renderer.members.keysOf(gid, req.prev).toSet
+      renderer.members
+        .membersOf(gid, req.next)
+        .foldLeft(touch(l, gid))((acc, m) =>
+          if (was(m.node.ix)) acc else acc.touched(m.node.ix, at)
         )
-      )
-        // Touched too, so the next change has a baseline and does not fill
-        // again.
-        now.foldLeft(base.filled(gid, at, renderer.ancestry))((l, e) =>
-          l.touched(renderer.members.memberIdOf(gid, e), at)
-        )
-      else {
-        // A move is a departure plus an arrival, so it needs no patch kind.
-        val afterRemoves = (removed ++ moved).foldLeft(base)((l, e) =>
-          l.removed(gid, renderer.members.memberIdOf(gid, e), at)
-        )
-        // Back to front, so each anchor (its successor) is already in the DOM;
-        // an insert-before a missing selector is silently dropped.
-        val place = (added ++ moved).sortBy(now.indexOf).reverse
-        place.foldLeft(afterRemoves) { (l, e) =>
-          val cid = renderer.members.memberIdOf(gid, e)
-          // Touched too, for the next change's baseline; `since` reports it
-          // once, so no extra patch.
-          l.placed(gid, MemberKey.Entity(e), cid, at).touched(cid, at)
-        }
-      }
     }
+    def arriving(l: FragmentLog, gid: NodeId, cases: List[Int]) =
+      cases
+        .flatMap(renderer.picks.cases(gid).lift)
+        .foldLeft(touch(l, renderer.picks.hostOf(gid)))((acc, c) =>
+          touch(acc, NodeId.derived(c))
+        )
+    val stateFlipped = req.flips.foldLeft(sets) { (l, gid) =>
+      arriving(l, gid, renderer.picks.decideByState(gid, req.next).toList)
+    }
+    req.viewerFlips.foldLeft(stateFlipped)((l, flip) =>
+      arriving(l, flip._1, flip._2)
+    )
   }
 
   /** Everything a client at cursor `v` is owed (ADR 0011) — also the live path,
     * since a pull is a resume from `position + 1`.
     *
-    * '''One rule:''' candidates are the nodes logged at `>= v` plus every node
-    * of an open surface (which nothing recorded while unwatched). Render each
-    * now and send it when its byte-slot values differ from what this viewer
-    * holds, a missing entry meaning "send". The cursor selects nodes, never
-    * content.
-    *
-    * A [[Mutation.Placed]] emits `remove` and `insert`, so it is idempotent
-    * whatever the DOM holds, and an arrival and a reorder are one operation.
-    * '''Placed nodes go out descending by current position''', so each anchor
-    * is a member the client had or one placed a moment ago; this needs only
-    * that both sides agree on some total order
-    * ([[MemberGraph.memberEntities]]).
+    * Candidates are the nodes logged at `>= v`, where the log's place is the
+    * one shown now, and under [[Coverage.Swept]] every node and host of a
+    * container on the viewer's screen, a case its values pick. A node is sent
+    * when its byte-slot values differ from what this viewer holds. A host's
+    * keys are decided now and planned against the list it holds ([[planHost]]);
+    * a key held and decided is sent again when its root was logged and it has
+    * no rendering of its own, since it left and came back while the viewer was
+    * away (A → B → A). Nothing inside a range sent whole or leaving is patched
+    * as well. The cursor selects ids, never content.
     */
   def resume(
       renderer: Renderer,
       cache: RenderCache,
       log: FragmentLog,
-      holds: Map[NodeId, Held],
+      holds: Map[Ix, Held],
       shared: Shared,
       // The decisions' fetches, then this pull's reads; most ask none.
       decisions: Set[SlotRead] => IO[FetchSnapshot],
       answers: List[SlotRead] => IO[FetchSnapshot],
       env: VarEnv,
       v: Long,
-      open: Set[String] = Set.empty,
-      selections: Selections = Selections.none
+      coverage: Coverage = Coverage.Swept
   ): IO[List[Addressed]] =
     renderer
       .decide(decisions) { run =>
-        val at = shared.asking(run)
-        val o = owing(renderer, log, at, v, open)
+        val at = shared.asking(run).viewing(env)
+        val o = owing(renderer, log, holds, at, v, coverage)
         (
           at,
           o,
-          renderer.readsForPull(o.touchedIds, o.hosts, at, selections, env)
+          renderer.readsForPull(o.touched, o.filled, at, env)
         )
       }
       .flatMap { (at, o, reads) =>
         answers(reads).flatMap(snapshot =>
-          patches(renderer, cache, holds, at, Viewing(selections, snapshot), o)
+          patches(renderer, cache, holds, at, Viewing(snapshot), o)
         )
       }
 
-  /** What a pull owes one client, as `shared` decides it. */
-  private final case class Owing(
-      owed: Resume,
-      memberMoves: List[(NodeId, Mutation)],
-      branch: List[(NodeId, Mutation)],
-      fromOpenIds: List[NodeId],
-      changed: List[NodeId],
-      touchedIds: List[NodeId],
-      hosts: List[NodeId]
+  /** What the log is trusted to name for a resume's viewer. */
+  enum Coverage {
+
+    /** Every frame since the cursor was recorded against this viewer's screen,
+      * so the log names all it is owed: a live session's pull, since its page
+      * registers before it renders ([[Server.recordFrame]]) and a press renders
+      * what arrives itself. A node it misses is a recorder bug, which [[Swept]]
+      * would hide; `OracleSuite` is what catches one.
+      */
+    case Logged
+
+    /** The screen may be one no frame was recorded against (a reconnect, an
+      * adopted session), so every node on it is a candidate too.
+      */
+    case Swept
+  }
+
+  /** A host's steps, `host` as `shared` has it inside a member. */
+  private[runtime] final case class HostPlan(
+      gid: NodeId,
+      host: Ix,
+      steps: List[HostStep]
+  )
+
+  /** What a pull or a variable write owes one client, as `shared` decides it.
+    */
+  private[runtime] final case class Owing(
+      morphs: List[NodeId],
+      plans: List[HostPlan],
+      // From the candidates, not the patches: a signal-only change emits none.
+      touched: List[NodeId],
+      filled: List[NodeId]
   )
 
   private def owing(
       renderer: Renderer,
       log: FragmentLog,
+      holds: Map[Ix, Held],
       shared: Shared,
       v: Long,
-      open: Set[String]
+      coverage: Coverage
   ): Owing = {
-    val all = log.since(v, renderer.ancestry)
+    val index = renderer.index
+    val open = renderer.picks.chosen(shared)
+    val logged = log.since(v)
+    val fromOpen = coverage match
+      case Coverage.Logged => Iterator.empty
+      case Coverage.Swept  =>
+        open.iterator
+          .map(Ix(_))
+          // `open` includes a tab panel inside a hidden `If`.
+          .filter(renderer.picks.visibleContainer(_, open, shared))
+          .flatMap(renderer.containerNodeIds)
     // Only what this client can see; the rest would cost only bytes.
-    val owed = all.copy(
-      moved = all.moved.filter { case (_, m) =>
-        renderer.surfaces.visibleNode(m.container, open, shared)
-      },
-      refill = all.refill.filter(renderer.surfaces.visibleNode(_, open, shared))
-    )
-    // A set needs sibling-preserving deltas; a state group's host holds one
-    // member and is overwritten.
-    val (memberMoves, branch) = owed.moved.partition { case (_, m) =>
-      renderer.members.setContainer(m.container).isDefined
-    }
-    // Dropped when a mutation or refill re-supplies an ancestor.
-    val fromOpenIds = open.toList
-      // `open` includes a tab panel inside a hidden `If`.
-      .filter(renderer.surfaces.visibleSurface(_, open, shared))
-      .flatMap(renderer.surfaceNodeIds)
-      .distinct
-      .filterNot(id =>
-        owed.nodes.contains(id) || owed.moved.exists(_._1 == id) ||
-          log.coveredByMutation(
-            id,
-            owed.moved.map(_._1).toSet ++ owed.refill,
-            renderer.ancestry
-          )
-      )
-      .sorted
-    val changed = owed.nodes
-      .filter(renderer.surfaces.visibleNode(_, open, shared))
+    // A logged place of another clause is not what this viewer is shown; an
+    // id with one place needs no decision.
+    val loggedNow = logged.iterator
+      .filter { i =>
+        val id = index.id(Ix(i))
+        index.ixsOf(id).sizeIs == 1 ||
+        renderer.ixAt(id, shared).exists(_.toInt == i)
+      }
+      .map(i => index.id(Ix(i)))
+    val candidates = (loggedNow ++ fromOpen).distinct
+      .filter(renderer.picks.visibleNode(_, open, shared))
+      .toList
       // Document order among siblings, since ids are location-derived.
       .sorted
-    // From the candidates, not the patches: a signal-only change emits no
-    // patch.
-    val touchedIds =
-      (changed ++ fromOpenIds ++ memberMoves.collect {
-        case (nodeId, _: Mutation.Placed) => nodeId
-      }).distinct
-    val hosts = (branch.map(_._2.container) ++ owed.refill).distinct
-    Owing(owed, memberMoves, branch, fromOpenIds, changed, touchedIds, hosts)
+    owe(
+      renderer,
+      holds,
+      shared,
+      candidates,
+      candidates.flatMap(renderer.hostsAt(_, shared)).distinct,
+      k => logged(k.toInt) && !renderer.hasOwnRendering(k)
+    )
   }
 
-  private def patches(
+  /** A variable write's owing: `hosts`, the picks it selects, planned against
+    * `holds` with no key sent again, since no log is read; `readers` morphed.
+    */
+  private[runtime] def written(
+      renderer: Renderer,
+      holds: Map[Ix, Held],
+      shared: Shared,
+      readers: List[NodeId],
+      hosts: List[NodeId]
+  ): Owing =
+    owe(renderer, holds, shared, readers, hosts, _ => false)
+
+  private def owe(
+      renderer: Renderer,
+      holds: Map[Ix, Held],
+      shared: Shared,
+      candidates: List[NodeId],
+      hosts: List[NodeId],
+      again: Ix => Boolean
+  ): Owing = {
+    val index = renderer.index
+    val planned = hosts
+      .flatMap { gid =>
+        val host = renderer.hostIx(gid, shared)
+        planHost(
+          holds.get(host).flatMap(_.shows),
+          renderer.decidedKeys(gid, shared),
+          again
+        ) match
+          case Nil   => None
+          case steps => Some(HostPlan(gid, host, steps))
+      }
+    // A fill sends what is under its host, a place its key's subtree, and a
+    // leave takes it away: every clause's, since the client may hold either.
+    val whole: List[(Ix, Boolean)] = planned.flatMap(p =>
+      p.steps.flatMap {
+        case HostStep.Fill(_)     => List(p.host -> false)
+        case HostStep.Leave(k)    => index.ixsOf(index.id(k)).map(_ -> true)
+        case HostStep.Place(k, _) => index.ixsOf(index.id(k)).map(_ -> true)
+      }
+    )
+    def covered(ix: Ix): Boolean =
+      whole.exists((root, itself) =>
+        index.contains(root, ix) && (itself || root != ix)
+      )
+    val plans = planned.filterNot(p => covered(p.host))
+    val morphs = candidates.filterNot(
+      renderer.nodeAt(_, shared).exists(n => covered(n.ix))
+    )
+    val placed = plans.flatMap(_.steps.collect { case HostStep.Place(k, _) =>
+      index.id(k)
+    })
+    Owing(
+      morphs,
+      plans,
+      (morphs ++ placed).distinct,
+      plans.collect {
+        case p if p.steps.exists {
+              case HostStep.Fill(_) => true; case _ => false
+            } =>
+          p.gid
+      }
+    )
+  }
+
+  /** The batch's frame first, then the morphs, every leave, and each host's
+    * fill or places: an anchor or a host is on the page when its patch runs.
+    */
+  private[runtime] def patches(
       renderer: Renderer,
       cache: RenderCache,
-      holds: Map[NodeId, Held],
+      holds: Map[Ix, Held],
       shared: Shared,
       viewing: Viewing,
       o: Owing
   ): IO[List[Addressed]] = {
-    import o.*
-    val gone = memberMoves.collect { case (nodeId, _: Mutation.Gone) => nodeId }
-    // Without the replay, a client away across a flip sits on an empty host.
-    def branchFills = branch
-      .groupBy { case (_, m) => m.container }
-      .toList
-      .sortBy(_._1)
-      .flatMap { case (gid, entries) =>
-        val content = renderer.renderHost(gid, shared, viewing)
-        branchPatch(
-          renderer,
-          gid,
-          content.parts.map(_._2).reduceOption(_ + _),
-          entries.map(_._1).sorted.headOption
-        ).map(
-          // Branch ids are `s_<surface>__…`, outside the container's id, so
-          // the host names what it holds.
-          Addressed(
-            _,
-            content.claims,
-            invalidates = hostEvicts(renderer, renderer.hostId(gid))
+    val index = renderer.index
+    def rendered(key: Ix): IO[Option[(String, Map[Ix, Held])]] =
+      renderer.picks.caseOf(key) match
+        case Some((gid, i)) =>
+          IO(
+            renderer
+              .renderCaseTraced(gid, i, shared, viewing)
+              .map((_, t) => t.html -> t.claims)
           )
-        )
+        case None => placed(renderer, cache, index.id(key), shared, viewing)
+    def structural(p: HostPlan): IO[List[Addressed]] =
+      p.steps.flatTraverse {
+        case HostStep.Fill(_) =>
+          IO {
+            val content = renderer.renderHost(p.gid, shared, viewing)
+            List(
+              Addressed(
+                Patch.Fill(
+                  p.host,
+                  renderer.hostId(p.gid),
+                  content.parts.map(_._2).mkString,
+                  Some(content.shown)
+                ),
+                content.claims
+              )
+            )
+          }
+        case HostStep.Place(key, before) =>
+          rendered(key).map(_.toList.map { (html, claims) =>
+            Addressed(
+              Patch.Place(
+                p.host,
+                before.fold(renderer.hostId(p.gid))(b =>
+                  renderer.elementId(index.id(b))
+                ),
+                html,
+                key,
+                before
+              ),
+              claims
+            )
+          })
+        case HostStep.Leave(_) => IO.pure(Nil)
       }
-    def places = memberMoves
-      .collect { case (nodeId, p: Mutation.Placed) => (nodeId, p) }
-      .groupBy { case (_, p) => p.container }
-      .toList
-      .sortBy(_._1)
-      .flatTraverse { case (container, moves) =>
-        renderer.members.setContainer(container).toList.flatTraverse { gid =>
-          val members = renderer.members.memberEntities(gid, shared)
-          val position = members.zipWithIndex.toMap
-          moves
-            // Still a member (it may have arrived and left while away).
-            .flatMap { case (nodeId, p) =>
-              p.member match {
-                case MemberKey.Entity(e)  => position.get(e).map((nodeId, e, _))
-                case _: MemberKey.Surface => None
-              }
-            }
-            .sortBy { case (_, _, at) => -at }
-            .flatTraverse { case (nodeId, entityId, _) =>
-              placed(renderer, cache, nodeId, shared, viewing)
-                .map(_.toList.flatMap { (html, claims) =>
-                  List(
-                    Addressed(Patch.Remove(renderer.elementId(nodeId))),
-                    Addressed(
-                      insertInto(
-                        renderer,
-                        gid,
-                        members,
-                        entityId,
-                        _ => true,
-                        html
-                      ),
-                      claims
-                    )
-                  )
-                })
-            }
-        }
+    val leaves = o.plans.flatMap(p =>
+      p.steps.collect { case HostStep.Leave(k) =>
+        Addressed(Patch.Leave(p.host, index.id(k)))
       }
-    // History no longer reaches this cursor: fill the host, still far cheaper
-    // than a body repaint.
-    def refills = owed.refill.sorted.map { gid =>
-      val asSet = renderer.members.setContainer(gid)
-      val content = renderer.renderHost(gid, shared, viewing)
-      Addressed(
-        Patch.Insert(
-          content.parts.map(_._2).mkString,
-          PatchMode.Inner,
-          renderer.hostId(gid)
-        ),
-        content.claims,
-        if (asSet.isDefined) Set(gid)
-        else hostEvicts(renderer, renderer.hostId(gid))
-      )
-    }
+    )
     for {
-      morphs <- changed.traverseFilter(
+      morphs <- o.morphs.traverseFilter(
         morph(renderer, cache, holds, shared, viewing, _)
       )
-      open <- fromOpenIds.traverseFilter(
-        morph(renderer, cache, holds, shared, viewing, _)
-      )
-      placed <- places
-    } yield signalFrame(
-      renderer,
-      holds,
-      shared,
-      viewing.fragments,
-      touchedIds
-    ) ++
-      morphs ++ open ++
-      gone.toList.sorted.map(id =>
-        Addressed(Patch.Remove(renderer.elementId(id)))
-      ) ++
-      branchFills ++ placed ++ refills
+      placing <- o.plans.flatTraverse(structural)
+    } yield {
+      // Every one, held or not: a fill morphs onto what the page has, and the
+      // morph re-applies a seed only where its text changed.
+      val seeded = placing
+        .collect { case Addressed(_: Patch.Fill, claims) => claims }
+        .flatMap(_.valuesIterator.flatMap(_.signals))
+        .map((name, value) => name -> SlotValue.json(value))
+        .toMap
+      withSignals(
+        signalFrame(renderer, holds, shared, viewing.fragments, o.touched),
+        seeded
+      ) ++ morphs ++ leaves ++ placing
+    }
   }
+
+  private def withSignals(
+      frame: List[Addressed],
+      values: Map[SignalId, Json]
+  ): List[Addressed] =
+    if (values.isEmpty) frame
+    else
+      frame match
+        case Addressed(Patch.Signals(diffed), held) :: Nil =>
+          List(Addressed(Patch.Signals(diffed ++ values), held))
+        case _ => List(Addressed(Patch.Signals(values)))
 
   /** The batch's one signal frame (ADR 0017), diffed against `holds`. First,
     * because an inserted member's patch-form bytes carry no seed, so the frame
@@ -503,7 +578,7 @@ private[runtime] object Patches {
     */
   private def signalFrame(
       renderer: Renderer,
-      holds: Map[NodeId, Held],
+      holds: Map[Ix, Held],
       shared: Shared,
       fragments: FetchSnapshot,
       ids: List[NodeId]
@@ -513,35 +588,31 @@ private[runtime] object Patches {
     // client's cost (`RenderBench.resumeSignalsFanout`). Never key a node's
     // signals by node id — that silently keeps one of the slider's four.
     val payload = HashMap.newBuilder[SignalId, Json]
-    val heldB = HashMap.newBuilder[NodeId, Held]
+    val heldB = HashMap.newBuilder[Ix, Held]
     var anyMoved = false
     ids.foreach { id =>
-      val held = holds.get(id) match
-        case Some(h) => h.signals
-        case None    => Map.empty[SignalId, SlotValue]
-      val now = renderer.signalsFor(id, shared, fragments)
-      var moved = 0
-      now.foreachEntry { (name, value) =>
-        if (!holdsValue(held, name, value)) {
-          // A JSON boolean: the string `"false"` is truthy in every binding.
-          payload.addOne(
-            name,
-            value match
-              case b: Boolean => Json.fromBoolean(b)
-              case d: Double  => Json.fromDoubleOrString(d)
-              case s: String  => Json.fromString(s)
-          )
-          moved += 1
-        }
-      }
-      if (moved > 0) {
-        // Usually every one moved, and then the node's map is the held one.
-        val nodeHeld =
-          if (moved == now.size) now
-          else now.filter((name, value) => !holdsValue(held, name, value))
-        heldB.addOne(id, Held(signals = nodeHeld))
-        anyMoved = true
-      }
+      renderer.nodeAt(id, shared) match
+        case Some(node) =>
+          val held = holds.get(node.ix) match
+            case Some(h) => h.signals
+            case None    => Map.empty[SignalId, SlotValue]
+          val now = renderer.signalsOf(id, node, shared, fragments)
+          var moved = 0
+          now.foreachEntry { (name, value) =>
+            if (!holdsValue(held, name, value)) {
+              payload.addOne(name, SlotValue.json(value))
+              moved += 1
+            }
+          }
+          if (moved > 0) {
+            // Usually every one moved, and then the node's map is the held one.
+            val nodeHeld =
+              if (moved == now.size) now
+              else now.filter((name, value) => !holdsValue(held, name, value))
+            heldB.addOne(node.ix, Held(signals = nodeHeld))
+            anyMoved = true
+          }
+        case None => ()
     }
     if (!anyMoved) Nil
     else List(Addressed(Patch.Signals(payload.result()), heldB.result()))
@@ -560,7 +631,7 @@ private[runtime] object Patches {
   private[runtime] def morph(
       renderer: Renderer,
       cache: RenderCache,
-      holds: Map[NodeId, Held],
+      holds: Map[Ix, Held],
       shared: Shared,
       viewing: Viewing,
       id: NodeId
@@ -569,13 +640,14 @@ private[runtime] object Patches {
     // what this viewer holds already answers, with no render and no cache
     // lookup. Unequal values are sent: the bytes rarely survive a value change,
     // and a morph to the bytes the client has changes nothing in its DOM.
-    renderer.byteSlotValues(id, shared, viewing.fragments) match {
-      case Some(values) if !holds.get(id).exists(_.values.contains(values)) =>
+    renderer.ownValues(id, shared, viewing.fragments) match {
+      case Some(own)
+          if !holds.get(own.ix).exists(_.values.contains(own.values)) =>
         IO(
           Some(
             Addressed(
-              Patch.Morph(cached(renderer, cache, id, values, shared)),
-              Map(id -> Held(Some(values)))
+              Patch.Morph(cached(renderer, cache, id, own, shared)),
+              Map(own.ix -> Held(Some(own.values)))
             )
           )
         )
@@ -593,11 +665,11 @@ private[runtime] object Patches {
       renderer: Renderer,
       cache: RenderCache,
       id: NodeId,
-      values: ByteValues,
+      own: Own,
       shared: Shared
   ): String =
-    cache(id, renderer, values)(
-      mustRender(renderer.renderPatch(id, shared, values), id)
+    cache(own.ix, renderer, own.values)(
+      mustRender(renderer.renderPatch(id, shared, own.values), id)
     )
 
   /** What a placed member inserts and claims. A member that is a leaf comes
@@ -610,14 +682,14 @@ private[runtime] object Patches {
       id: NodeId,
       shared: Shared,
       viewing: Viewing
-  ): IO[Option[(String, Map[NodeId, Held])]] =
+  ): IO[Option[(String, Map[Ix, Held])]] =
     IO(
       if (renderer.memberIsTarget(id))
         renderer
-          .byteSlotValues(id, shared, viewing.fragments)
-          .map(v =>
-            cached(renderer, cache, id, v, shared) ->
-              Map(id -> Held(Some(v)))
+          .ownValues(id, shared, viewing.fragments)
+          .map(own =>
+            cached(renderer, cache, id, own, shared) ->
+              Map(own.ix -> Held(Some(own.values)))
           )
       else
         renderer
@@ -625,104 +697,95 @@ private[runtime] object Patches {
           .map(t => t.html -> t.claims)
     )
 
-  /** Positional in `ordered`, never by comparing ids, so an author-chosen order
-    * works.
-    */
-  private def insertInto(
-      renderer: Renderer,
-      gid: SetId,
-      ordered: List[String],
-      entity: String,
-      anchorable: String => Boolean,
-      html: String
-  ): Patch =
-    ordered.dropWhile(_ != entity).drop(1).find(anchorable) match {
-      case Some(succ) =>
-        Patch.Insert(
-          html,
-          PatchMode.Before,
-          renderer.elementId(renderer.members.memberIdOf(gid, succ))
-        )
-      case None =>
-        Patch.Insert(html, PatchMode.Append, renderer.hostId(gid))
-    }
-
-  /** A tab switch or popup open: one client's choice, so it touches only that
-    * session's `holds`. The departing member is evicted via `invalidates`; a
-    * stale claim would suppress a real change on its return.
-    */
-  private[runtime] def hostFill(
-      renderer: Renderer,
-      host: DomId,
-      arriving: Option[String],
-      shared: Shared,
-      viewing: Viewing
-  ): Option[(Addressed, String)] =
-    arriving
-      .flatMap(renderer.renderShownTraced(_, shared, viewing))
-      .map { t =>
-        (
-          Addressed(
-            Patch.Insert(t.html, PatchMode.Inner, host),
-            t.claims,
-            (renderer.surfaces.surfacesAt(host) ++ arriving)
-              .flatMap(renderer.surfaceNodeIds)
-          ),
-          t.html
-        )
-      }
-
-  /** The body and the open popup, and what they leave the session holding. The
-    * popup's host sits outside `#dashboard`: a repaint that stopped there left
-    * the dialog showing what it held before, until a pull happened to re-send
-    * its nodes.
+  /** The page, as a page load paints it, and what it leaves the session
+    * holding: one morph.
     */
   private[runtime] def repaint(
       renderer: Renderer,
       shared: Shared,
       viewing: Viewing
-  ): (List[SseFrame], Map[NodeId, Held]) = {
+  ): (List[SseFrame], Map[Ix, Held]) = {
     val body = renderer.renderBodyTraced(shared, viewing)
-    val popup = hostFill(
-      renderer,
-      Dashboard.PopupHostId,
-      viewing.selections.popup,
-      shared,
-      viewing
-    ).map(_._1)
+    val held = body.claims
+    // The seeds alone are not enough: the morph re-applies a seed only when
+    // its text changed, so on a page that missed frames (a forgotten session,
+    // a restart) a value that moved and came back stayed where the frames
+    // left it.
+    val values = held.valuesIterator
+      .flatMap(_.signals)
+      .map((name, v) => name -> SlotValue.json(v))
+      .toMap
     (
-      Datastar.patch(body.html, PatchMode.Inner, Some("#dashboard")) ::
-        popup.map(_.patch.toSse).toList,
-      popup.foldLeft(body.claims)(applied(renderer.ancestry, _, _))
+      Datastar.patch(body.html, selector = Some(s"#${renderer.rootId}")) ::
+        Option.when(values.nonEmpty)(Patch.Signals(values).toSse).toList,
+      held
     )
   }
 
-  /** [[hostFill]]'s `invalidates` when nothing arrives. */
-  private[runtime] def hostEvicts(
-      renderer: Renderer,
-      host: DomId
-  ): Set[NodeId] =
-    renderer.surfaces.surfacesAt(host).flatMap(renderer.surfaceNodeIds)
-
-  /** Invalidate first, then claim: a fill re-supplies a host and places members
-    * in it. Containment is [[NodeAncestry]]'s, not id spelling.
+  /** Move the lists first, then claim: a fill re-supplies a host and places
+    * members in it. Containment is [[TreeIndex.contains]]'s, not id spelling.
+    *
+    * A host's list ([[Held.shows]]) follows the structural patch that moved it:
+    *   - `Fill` drops everything below the host and sets the list;
+    *   - `Place` inserts before its anchor, or last, and an anchor the list
+    *     lacks makes the list unknown;
+    *   - `Leave` drops the subtree of each clause of the key and takes it out
+    *     of the list.
+    *
+    * A host with no entry has no list to move, and a `Place` into one leaves it
+    * so: its next fill sets one.
     */
   def applied(
-      ancestry: NodeAncestry,
-      holds: Map[NodeId, Held],
+      index: TreeIndex,
+      holds: Map[Ix, Held],
       patch: Addressed
-  ): Map[NodeId, Held] =
+  ): Map[Ix, Held] = {
+    val structural = patch.patch match
+      case Patch.Fill(host, _, _, shows) =>
+        showing(
+          holds.filterNot((ix, _) => ix != host && index.contains(host, ix)),
+          host
+        )(_ => shows)
+      case Patch.Place(host, _, _, shown, before) =>
+        showing(holds, host)(_.flatMap(placedIn(_, shown, before)))
+      case Patch.Leave(host, key) =>
+        val keys = index.ixsOf(key)
+        showing(
+          holds.filterNot((ix, _) => keys.exists(index.contains(_, ix))),
+          host
+        )(_.map(_.filterNot(ix => keys.contains(ix))))
+      case _ => holds
     // Merged per node: a morph says nothing about signals and a signal frame
     // nothing about bytes ([[Held.merge]]).
-    patch.establishes.foldLeft(
-      if (patch.invalidates.isEmpty) holds
-      else
-        holds.filterNot { case (id, _) =>
-          ancestry.withinAny(id, patch.invalidates.toSet)
-        }
-    ) { case (acc, (id, later)) =>
-      acc.updated(id, acc.get(id).fold(later)(_.merge(later)))
+    patch.establishes.foldLeft(structural) { case (acc, (ix, later)) =>
+      acc.updated(ix, acc.get(ix).fold(later)(_.merge(later)))
     }
+  }
+
+  /** `host`'s list through `change`; a host with no entry keeps none unless
+    * `change` makes a list from nothing, as a fill does.
+    */
+  private def showing(holds: Map[Ix, Held], host: Ix)(
+      change: Option[IArray[Ix]] => Option[IArray[Ix]]
+  ): Map[Ix, Held] =
+    holds.get(host) match
+      case Some(held) =>
+        holds.updated(host, held.copy(shows = change(held.shows)))
+      case None =>
+        change(None).fold(holds)(list =>
+          holds.updated(host, Held(shows = Some(list)))
+        )
+
+  private def placedIn(
+      list: IArray[Ix],
+      shown: Ix,
+      before: Option[Ix]
+  ): Option[IArray[Ix]] =
+    before match
+      case None         => Some(list :+ shown)
+      case Some(anchor) =>
+        val at = list.indexOf(anchor)
+        Option.when(at >= 0)(list.take(at) ++ (shown +: list.drop(at)))
 
   /** Merges adjacent morphs and adjacent signal frames, never across an insert
     * or remove: a later morph may target what the insert created.
@@ -741,22 +804,5 @@ private[runtime] object Patches {
       }
       .reverse
       .map(_.toSse)
-
-  /** `Inner` is both the delta and idempotent for a one-member host. Emptying
-    * is a `remove` of the departed branch: an empty `Inner` is not a
-    * well-formed patch.
-    */
-  private def branchPatch(
-      renderer: Renderer,
-      gid: NodeId,
-      content: Option[String],
-      departed: Option[NodeId]
-  ): List[Patch] =
-    content match {
-      case Some(html) =>
-        List(Patch.Insert(html, PatchMode.Inner, renderer.hostId(gid)))
-      case None =>
-        departed.map(id => Patch.Remove(renderer.elementId(id))).toList
-    }
 
 }

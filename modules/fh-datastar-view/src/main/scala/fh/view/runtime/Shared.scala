@@ -17,11 +17,15 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 import scala.jdk.CollectionConverters.*
 
-/** What one state version decides, each thing once, for every viewer: which
-  * members a set holds and in which clause, which branch a state group shows,
-  * and whether a `valueWhile` holds. The pre-read, the walk, the render key,
-  * the paint and the recorder ask here, so they cannot disagree (pipeline doc
-  * §1a).
+/** What one state version decides, each thing once: which members a set holds
+  * and in which clause, which branch a state group shows, and whether a
+  * `valueWhile` holds. The pre-read, the walk, the render key, the paint and
+  * the recorder ask here, so they cannot disagree (pipeline doc §1a).
+  *
+  * A decision reading only state, fetches and literals is the same for every
+  * viewer. One that also reads variables is made at the values they hold for
+  * the viewer this is [[viewing]] for, and kept under them: viewers on equal
+  * values share it, and asked with no viewer it raises.
   *
   * Each decision is either carried from the version before, which no change
   * since has dirtied, or made here on demand (a fill). A fill made after the
@@ -35,13 +39,89 @@ private[runtime] final class Shared private (
     val states: Map[String, EntityState],
     val version: Long,
     private val tables: Shared.Tables,
-    private val run: Shared.Run | Null
+    private val run: Shared.Run | Null,
+    private val viewedBy: VarEnv | Null
 ) {
 
   /** This version as `r`'s walk reads it: the same decisions, made with its
     * answers.
     */
-  def asking(r: Shared.Run): Shared = new Shared(states, version, tables, r)
+  def asking(r: Shared.Run): Shared =
+    new Shared(states, version, tables, r, viewedBy)
+
+  /** This version as one viewer reads it: what reads a variable is decided at
+    * `env`'s values.
+    */
+  def viewing(env: VarEnv): Shared =
+    new Shared(states, version, tables, run, env)
+
+  def viewer: VarEnv =
+    if (viewedBy == null)
+      throw FHError.internal(
+        "a decision reading a variable was asked with no viewer"
+      )
+    else viewedBy.nn
+
+  /** A pick's case read at the values of `names` in scope at `gid`; `derive`
+    * reads them as variables.
+    */
+  def branchAt(gid: NodeId, names: List[String], reads: Set[SlotRead])(
+      derive: Shared.Fetched => Option[Int]
+  ): Option[Int] =
+    decideAt(tables.viewerBranches, gid, gid, names, reads, None)(derive)
+
+  /** A set's members read at the values of `names` in scope at its node `at`,
+    * as [[branchAt]] reads a pick's case.
+    */
+  def setAt(
+      gid: SetId,
+      at: NodeId,
+      names: List[String],
+      reads: Set[SlotRead],
+      missing: => GroupMembers
+  )(derive: Shared.Fetched => GroupMembers): GroupMembers =
+    decideAt(tables.viewerSets, gid, at, names, reads, missing)(derive)
+
+  private def decideAt[K, V](
+      t: ByValues[K, V],
+      k: K,
+      at: NodeId,
+      names: List[String],
+      reads: Set[SlotRead],
+      missing: => V
+  )(derive: Shared.Fetched => V): V = {
+    val scope = viewer.getOrElse(at, Map.empty)
+    val values = names.map(n => scope.getOrElse(n, Evaluator.noVariable(n)))
+    t.get(k, values) match
+      case Some(v) => v
+      case None    =>
+        answered(reads) match
+          case None    => missing
+          case Some(f) =>
+            val in = new Evaluator.Lookup:
+              def fetched(t: fh.view.model.FetchTemplate): Object = f.fetched(t)
+              def variable(name: String): String | Null =
+                Evaluator.held(scope, name)
+            t.once(k, at, names, values)(derive(in))
+  }
+
+  /** A `valueWhile` read at the values of `names` in scope at its slot's node
+    * `at`, as [[branchAt]] reads a pick's case.
+    */
+  def holdsAt(
+      key: String,
+      at: NodeId,
+      names: List[String],
+      reads: Set[SlotRead]
+  )(derive: Shared.Fetched => Boolean): Boolean =
+    decideAt(
+      tables.viewerGates,
+      key,
+      at,
+      names,
+      reads,
+      java.lang.Boolean.FALSE
+    )(f => java.lang.Boolean.valueOf(derive(f))).booleanValue
 
   def set(gid: SetId, reads: Set[SlotRead], missing: => GroupMembers)(
       derive: Shared.Fetched => GroupMembers
@@ -111,13 +191,27 @@ private[runtime] final class Shared private (
   private[runtime] def carryInto(
       next: Shared,
       dirty: Shared.Dirty,
-      marked: Shared.Marked
+      marked: Shared.Marked,
+      live: Shared.Live
   ): Unit = {
     val (from, to) = (tables, next.tables)
     from.sets.carryInto(to.sets, dirty.sets, _ => true)
     from.members.carryInto(to.members, dirty.members, _ => true)
     from.branches.carryInto(to.branches, dirty.branches, marked.branch)
     from.gates.carryInto(to.gates, dirty.gates, marked.gate)
+    from.viewerBranches.carryInto(
+      to.viewerBranches,
+      dirty.branches,
+      marked.branch,
+      live
+    )
+    from.viewerSets.carryInto(to.viewerSets, dirty.sets, _ => true, live)
+    from.viewerGates.carryInto(
+      to.viewerGates,
+      dirty.gates,
+      marked.gate,
+      live
+    )
   }
 }
 
@@ -129,7 +223,7 @@ private[runtime] object Shared {
     * kept.
     */
   def of(states: Map[String, EntityState], version: Long = 0L): Shared =
-    new Shared(states, version, new Tables, null)
+    new Shared(states, version, new Tables, null, null)
 
   /** One walk's answers so far, and what it found it needs. A walk is
     * synchronous, so one thread writes it. Once its walk needs nothing more,
@@ -176,15 +270,27 @@ private[runtime] object Shared {
     */
   final case class Marked(branch: NodeId => Boolean, gate: String => Boolean)
 
+  /** The values live sessions hold, when they changed since the last carry: an
+    * entry no live session's values reach is dropped, which bounds the
+    * per-values tables by the sessions. `Unchanged` keeps every entry.
+    */
+  enum Live {
+    case Unchanged
+    case Now(envs: List[VarEnv])
+  }
+
   private final class Tables {
     val sets = new Table[SetId, GroupMembers]
     val members = new Table[NodeId, Option[Member]]
     val branches = new Table[NodeId, Option[Int]]
     val gates = new Table[String, java.lang.Boolean]
+    val viewerBranches = new ByValues[NodeId, Option[Int]]
+    val viewerSets = new ByValues[SetId, GroupMembers]
+    val viewerGates = new ByValues[String, java.lang.Boolean]
     val signals = new ConcurrentHashMap[NodeId, Map[SignalId, SlotValue]]()
   }
 
-  private final class Table[K, V] {
+  private[runtime] final class Table[K, V] {
     @volatile private var carried: Map[K, V] = Map.empty
     private val fills = new ConcurrentHashMap[K, V]()
     @volatile private var next: Table[K, V] | Null = null
@@ -216,6 +322,10 @@ private[runtime] object Shared {
       if (n != null && !dropped(k)) n.nn.offer(k, v)
     }
 
+    /** What this version holds now, carried and filled. */
+    def entries: Iterator[V] =
+      carried.valuesIterator ++ fills.values.asScala.iterator
+
     def carryInto(
         to: Table[K, V],
         dirty: Set[K],
@@ -223,11 +333,61 @@ private[runtime] object Shared {
     ): Unit = {
       dropped = k => dirty(k) || !marked(k)
       next = to
-      // Only fills can hold an unmarked key: none is ever carried.
-      to.carried = fills.asScala.iterator
-        .filterNot((k, _) => dropped(k))
-        .foldLeft(carried.removedAll(dirty))(_ + _)
+      // Most dashboards never fill the per-values tables, and walking an empty
+      // one each frame was +1.8% B/op on `publishSet`.
+      if (fills.isEmpty && carried.isEmpty) ()
+      else
+        // Only fills can hold an unmarked key: none is ever carried.
+        to.carried = fills.asScala.iterator
+          .filterNot((k, _) => dropped(k))
+          .foldLeft(carried.removedAll(dirty))(_ + _)
     }
+  }
+}
+
+/** A [[Shared.Table]] of decisions kept per values: one entry per decision,
+  * holding each values' answer, so a dirty decision drops every values in one
+  * removal. An entry's map is shared by the versions it is carried through,
+  * which is sound because carried means nothing it reads changed between them.
+  */
+private[runtime] final class ByValues[K, V] {
+  private val table = new Shared.Table[K, ByValues.Entry[V]]
+
+  def get(k: K, values: List[String]): Option[V] =
+    table.get(k).flatMap(e => Option(e.answers.get(values)).map(_.nn))
+
+  def once(k: K, at: NodeId, names: List[String], values: List[String])(
+      derive: => V
+  ): V = {
+    val e = table.get(k).getOrElse(table.once(k)(new ByValues.Entry(at, names)))
+    val v = derive
+    val held = e.answers.putIfAbsent(values, v)
+    if (held != null) held.nn else v
+  }
+
+  def carryInto(
+      to: ByValues[K, V],
+      dirty: Set[K],
+      marked: K => Boolean,
+      live: Shared.Live
+  ): Unit = {
+    table.carryInto(to.table, dirty, marked)
+    live match
+      case Shared.Live.Unchanged => ()
+      case Shared.Live.Now(envs) =>
+        to.table.entries.foreach { e =>
+          val reached = envs.map { env =>
+            val scope = env.getOrElse(e.at, Map.empty)
+            e.names.map(scope.getOrElse(_, ""))
+          }.toSet
+          e.answers.keySet.removeIf(v => !reached(v))
+        }
+  }
+}
+
+private[runtime] object ByValues {
+  final class Entry[V](val at: NodeId, val names: List[String]) {
+    val answers = new ConcurrentHashMap[List[String], V]()
   }
 }
 
@@ -257,15 +417,20 @@ private[runtime] final class Decided(
     * reader ahead of the recorder may have made it already; the carry goes
     * beneath what it filled.
     */
-  def advance(prev: Shared, frame: Frame, dirty: Shared.Dirty): Shared = {
+  def advance(
+      prev: Shared,
+      frame: Frame,
+      dirty: Shared.Dirty,
+      live: Shared.Live
+  ): Shared = {
     val next = at(frame.state)
-    prev.carryInto(next, dirty, marked)
+    prev.carryInto(next, dirty, marked, live)
     next
   }
 }
 
-/** One viewer's, for one send, beside the [[Shared]] it was read against: its
-  * selections, and the answers to the slot fetches the send reads (which carry
-  * the viewer's node variables).
+/** One viewer's, for one send, beside the [[Shared]] it was read against: the
+  * answers to the slot fetches the send reads (which carry the viewer's node
+  * variables).
   */
-final case class Viewing(selections: Selections, fragments: FetchSnapshot)
+final case class Viewing(fragments: FetchSnapshot)

@@ -30,7 +30,7 @@ import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 /** What one variable write costs the server, `Server.setVar`'s pure core: the
-  * check, the viewer's environment, then either the panel it selects rendered
+  * check, the viewer's environment, then either the panel it selects planned
   * into its host or its readers re-rendered through the slug's cache.
   *
   *   - `tabFlip` — a tab bar's `tab` alternating between two panels of
@@ -102,31 +102,31 @@ class VarWriteBench {
     if (reads.isEmpty) IO.pure(FetchSnapshot.of(Map.empty, env))
     else FetchSnapshot.resolve(resolver, reads, env, FetchIdentity.Instance)
 
-  /** The swap `Server.setVar` makes for a panel group. */
-  private def panelWrite(key: VarKey, value: String): Option[String] = {
+  /** The fill `Server.setVar` plans for a panel group, onto a host holding no
+    * list.
+    */
+  private def panelWrite(key: VarKey, value: String): List[Addressed] = {
     val proposed = Map(key -> value)
     require(renderer.refusals(proposed).isEmpty)
     val env = renderer.vars.env(proposed)
-    val after = renderer.surfaces.selections(None, env)
-    renderer.vars
-      .panelsSelectedBy(key)
-      .flatMap { gid =>
-        renderer.surfaces
-          .memberAt(gid, value)
-          .map(renderer.surfaces.cases(gid))
-          .flatMap(id =>
-            Patches
-              .hostFill(
-                renderer,
-                renderer.hostId(gid),
-                Some(id),
-                st,
-                Viewing(after, FetchSnapshot.of(Map.empty, env))
-              )
-              .map(_._2)
-          )
-      }
-      .headOption
+    val at = st.viewing(env)
+    val owing = Patches.written(
+      renderer,
+      Map.empty,
+      at,
+      Nil,
+      renderer.vars.panelsSelectedBy(key)
+    )
+    Patches
+      .patches(
+        renderer,
+        cache,
+        Map.empty,
+        at,
+        Viewing(FetchSnapshot.of(Map.empty, env)),
+        owing
+      )
+      .unsafeRunSync()
   }
 
   /** The readers `Server.setVar` re-renders, through the slug's cache. */
@@ -134,11 +134,11 @@ class VarWriteBench {
     val proposed = Map(WindowKey -> value)
     require(renderer.refusals(proposed).isEmpty)
     val env = renderer.vars.env(proposed)
-    val after = renderer.surfaces.selections(None, env)
+    val at = st.viewing(env)
     val readers = renderer.vars.readersOf(WindowKey)
     (for {
       snapshot <- answer(
-        renderer.readsForPull(readers, Nil, st, after, env),
+        renderer.readsForPull(readers, Nil, at, env),
         env
       )
       patches <- readers.traverseFilter(
@@ -146,8 +146,8 @@ class VarWriteBench {
           renderer,
           cache,
           Map.empty,
-          st,
-          Viewing(after, snapshot),
+          at,
+          Viewing(snapshot),
           _
         )
       )

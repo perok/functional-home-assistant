@@ -108,7 +108,11 @@ Three more things fell out of the same change:
   and each candidate runs its own, even one that reads no member and so answers
   every candidate alike. Sharing equal guards' compile, and running a
   member-free one once per decision, both saved nothing measurable
-  (`docs/experiments.md`).
+  (`docs/experiments.md`). A guard reading a node variable (`mode.valueIs(x)`,
+  alone or beside state in one `q.any`/`q.all`) is the exception to "once per
+  version": the set is decided at each viewer's values, kept per values in the
+  version's `Shared`, and what is below it is on the page only for the viewers
+  it shows (ADR 0033).
 - **Order** — `orderBy` is a lexicographic list of `SortTerm`s, each a value read
   per member (`by`, a `ValueExpr`): a property, or a condition's truth, true
   first under `asc`. They are compared only among the PRESENT members, and a
@@ -122,12 +126,12 @@ Three more things fell out of the same change:
 - **`limit`** — at most this many present members, after ordering. Every
   candidate still ships, because which are cut depends on live values.
 
-A member appearing, disappearing or moving is the same `Gone`/`Placed` patch
+A member appearing, disappearing or moving is the same leave-and-place patch
 pair. There is no separate visibility path, and no fourth node kind.
 
 **Ordering by a continuously live key is the trap to design against.** It
 reorders the DOM whenever any present member crosses a neighbour. The stable
-tiebreak is candidate order (the sort is stable over it), `Patches.reordered`
+tiebreak is candidate order (the sort is stable over it), `Patches.planHost`
 keeps a longest increasing subsequence so one light overtaking three costs one
 move, and a set carrying a live ordering or a limit is rebuilt rather than
 patched in place — one entity moving can reorder its neighbours or push a
@@ -137,23 +141,24 @@ different member past the cut.
 
 Only a CHANGED entity can have moved a candidate's presence, so a frame costs
 O(changes) per set. The graph holds the member ORDER, so "the successor of this
-arrival" — what an `insert before` needs — is a lookup rather than a sort.
+arrival" — what an `insert before` needs — is a lookup rather than a sort. A set decided per viewer's values keeps one such
+order per distinct values among the live viewers.
 
 The frame boundary is still where the question is asked, because two entities
 can move in opposite directions in one tick and each single-entity view of that
 reports a change the frame did not make (`MemberGraph.syncMembers`, and
 `architecture-rendering-pipeline.md` §4b).
 
-**What a membership change costs.** The recorder writes a delta where it can:
-one `Mutation` per member that moved. A whole-host fill happens only in the two
-cases where it costs nothing — the UNCHANGED set is empty (everything arrived,
-or everything left, so the fill re-sends nothing and one patch replaces N), or
-the log holds no member entry to patch against. Nothing is rendered while
+**What a membership change costs.** The recorder logs the host and each arriving
+member's root, and nothing for a departure. Each session plans the host against
+the list it holds: a leave per member gone, a place per member arriving or moved,
+and a whole-host fill only where nothing can be kept (everything arrived, or the
+session holds no list for it). Nothing is rendered while
 recording; each session renders what it is owed when it pulls (ADR 0012),
 through the per-slug render cache, so N viewers of one set cost one render of
 each changed leaf member. A member holding nodes (a slider) arrives rendered
 per viewer instead, since what its baked regions show is each viewer's own;
-after that its leaves patch through the cache like any others. A set inside a surface no session has open is not recorded
+after that its leaves patch through the cache like any others. A set inside a case no session is shown is not recorded
 at all, and one inside an inactive state branch (ADR 0007) is structurally
 silent.
 
@@ -168,19 +173,19 @@ Three silent failure modes are worth naming, because all three were real bugs:
   set is not in the static index — it hangs off a member — so selecting from the
   index meant the inner set synced, its members moved, and nothing recorded it:
   correct ids, correct HTML, zero patches.
-- **Where a nested set LIVES comes from `MemberGraph.sourceRoot`, not from the
-  static index — for the members AND for the container.** That root decides
-  which clients a patch may reach, and a nested set is (again) absent from the
-  static index, so both halves read as `""` — the main page — and went to every
-  connected client whether or not they had the surface open. Two distinct
-  leaks, found one after the other: the member's, which the reverse index
-  selects, and the container's, which a host fill and a departing member's
-  `remove` both name directly. `SurfaceGraph.rootOf` falls through to the graph
-  for each, and the graph places a member from its set whether or not it is
-  present — a departed member's `remove` is scoped like a present one's. Both
-  roots are fixed when the graph is built: a nested set inherits its owner's.
-  Worth noting how they were found, because it generalises: a unit
-  assertion on `Member.root` pinned the first and was blind to the second; the
+- **Where a nested set LIVES is its host's container in the dashboard's
+  `TreeIndex` — for the members AND for the container.** That container decides
+  which clients a patch may reach: a patch goes only to a viewer who has it
+  shown. Two distinct leaks were found one after the other when a nested set
+  read as the main page and went to every connected client whether or not they
+  were shown its case: the member's, which the reverse index selects, and the
+  container's, which a host fill and a departing member's `remove` both name
+  directly. Each member's nodes are nodes of the index, so both are placed by
+  it whether or not the member is present — a departed member's `remove` is
+  scoped like a present one's. A nested set's is its own host's, which may be
+  a case inside the member owning it.
+  Worth noting how they were found, because it generalises: a unit assertion
+  on one placement pinned the first and was blind to the second; the
   two-viewer test in `SetMembershipSuite` — one tab open, one not, one frame —
   is what states the actual property and caught the rest.
 

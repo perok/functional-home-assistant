@@ -5,7 +5,6 @@
 module components.wheel
 
 import "../core/node.pkl" as nodeMod
-import "../core/shell.pkl"
 import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../core/tap.pkl" as tapMod
@@ -18,8 +17,8 @@ const local wheelScript: String = """
   """
 
 // What the wheel SHOWS is the client's (`h`, `s`, `p`): a drag moves those, and
-// the server's slots only ever adopt into them, so a refused or lost commit puts
-// the knob back where the light is, as the slider's thumb does (ADR 0025).
+// the server's slots only ever adopt into them, so a refused commit puts the
+// knob back where the light is, as the slider's thumb does (ADR 0025).
 const local hs: String = "$_{{id}}__hs"
 const local drag: String = "$_{{id}}__drag"
 const local shownH: String = "$_{{id}}__h"
@@ -30,9 +29,8 @@ const local hue: slotMod.Slot = slotMod.slot("hue")
 const local sat: slotMod.Slot = slotMod.slot("sat")
 const local paint: slotMod.Slot = slotMod.slot("paint")
 
-/// The light's own colour onto the knob: on a server write, on a refusal, while
-/// the stream is down, and when the popup mounts it, since a closed popup's copy
-/// saw none of those.
+/// The light's own colour onto the knob: on a server write, on a refusal, and
+/// when the popup mounts it, since a closed popup's copy saw none of those.
 const local adopt: String =
   "\(shownH) = \(hue.jsValue), \(shownS) = \(sat.jsValue), \(shownP) = \(paint.jsValue)"
 
@@ -62,7 +60,7 @@ class ColourWheel extends nodeMod.Node {
     // the cell writes `style` on, needs none: a `cellStyle` would bind the
     // server's reading where the knob shows the drag.
     classes = "fh-wheel"
-    attrs = #"\#(hue.bind) \#(sat.bind) \#(paint.bind) data-signals__ifmissing="{ _{{id}}__drag: false, _{{id}}__hs: [], _{{id}}__h: \#(hue.jsValue), _{{id}}__s: \#(sat.jsValue), _{{id}}__p: \#(paint.jsValue) }" \#(adoptOnPatch) data-effect="\#(shell.streamDown) && (\#(adopt))" data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(drag) = true; \#(move)" data-on:pointermove="\#(drag) && (\#(move))" data-on:pointerup="\#(drag) && (\#(drag) = false, \#(tapMod.refusalGuard)\#(commit))" data-on:pointercancel="\#(drag) && (\#(drag) = false, \#(adopt))"\#(tapMod.guardMechanism)"#
+    attrs = #"\#(hue.bind) \#(sat.bind) \#(paint.bind) data-signals__ifmissing="{ _{{id}}__drag: false, _{{id}}__hs: [], _{{id}}__h: \#(hue.jsValue), _{{id}}__s: \#(sat.jsValue), _{{id}}__p: \#(paint.jsValue) }" \#(adoptOnPatch) data-on:pointerdown="el.setPointerCapture(evt.pointerId); \#(drag) = true; \#(move)" data-on:pointermove="\#(drag) && (\#(move))" data-on:pointerup="\#(drag) && (\#(drag) = false, \#(tapMod.refusalGuard)\#(commit))" data-on:pointercancel="\#(drag) && (\#(drag) = false, \#(adopt))"\#(tapMod.guardMechanism)"#
     template = #"<span class="fh-wheel-knob" style="background:\#(paint);--fh-h:\#(hue);--fh-s:\#(sat)" data-style:background="\#(shownP)" data-style:--fh-h="\#(shownH)" data-style:--fh-s="\#(shownS)" data-init="\#(adopt)" data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(adopt))"></span>"#
     // `flex:none`: its size is the wheel's, whatever share a row hands a cell.
     css = """

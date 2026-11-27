@@ -46,6 +46,11 @@ object NpmPlugin extends AutoPlugin {
       taskKey[Unit]("npm ci — install the frontend dependencies")
     lazy val frontendBundle =
       taskKey[Seq[File]]("npm run build — bundle into managed resources")
+    lazy val frontendTestSources =
+      settingKey[File]("Directory holding the test-only frontend sources")
+    lazy val frontendTestBundle = taskKey[Seq[File]](
+      "npm run build:oracle — the oracle's page, into TEST managed resources"
+    )
   }
 
   import autoImport.*
@@ -101,39 +106,80 @@ object NpmPlugin extends AutoPlugin {
       val into = (Compile / resourceManaged).value
       val log = streams.value.log
       Def.uncached {
-        val inputs = (sources.allPaths.get() ++ Seq(
-          dir / "vite.config.ts",
-          dir / "tsconfig.json",
-          dir / "package.json"
-        )).filter(_.isFile)
-        stamped(
+        bundle(
+          "build",
+          dir,
+          sources.allPaths.get() ++
+            Seq("vite.config.ts", "tsconfig.json", "package.json").map(dir / _),
+          dist,
           dir / "target" / "npm-bundle.stamp",
-          inputs,
-          force = !dist.exists
-        ) {
-          log.info(s"npm run build ($dir)")
-          // Wiped first, because the bundler appends: three `vite build` runs
-          // share two output directories, so none of them may empty its own.
-          // Without this a source file that is deleted leaves its bundle
-          // behind, and the copy below would keep shipping it.
-          IO.delete(dist)
-          npm("run build", dir, log, "frontend bundle failed")
-        }
-        // Copy rather than point the bundler straight at `resourceManaged`:
-        // that directory belongs to every resource generator at once, and a
-        // bundler that cleans its own output dir would take the others with it.
-        val copies = Path
-          .allSubpaths(dist)
-          .collect { case (from, rel) if from.isFile => from -> into / rel }
-          .toSeq
-        if (copies.isEmpty)
-          sys.error(s"the frontend bundle produced nothing in $dist")
-        IO.copy(copies, CopyOptions().withOverwrite(true))
-        copies.map(_._2)
+          into,
+          log
+        )
       }
     },
-    Compile / resourceGenerators += (Compile / frontendBundle)
+    Compile / resourceGenerators += (Compile / frontendBundle),
+    frontendTestSources := frontendDirectory.value / "src" / "test" / "js",
+    frontendTestBundle / fileInputs ++= Seq(
+      frontendTestSources.value.toGlob / ** / *,
+      frontendSources.value.toGlob / ** / *,
+      frontendDirectory.value.toGlob / "vite.oracle.config.ts"
+    ),
+    frontendTestBundle := {
+      frontendInstall.value
+      val dir = frontendDirectory.value
+      val inputs = frontendTestSources.value.allPaths.get() ++
+        frontendSources.value.allPaths.get() ++
+        Seq("vite.oracle.config.ts", "package.json").map(dir / _)
+      val into = (Test / resourceManaged).value
+      val log = streams.value.log
+      Def.uncached {
+        bundle(
+          "build:oracle",
+          dir,
+          inputs,
+          dir / "target" / "frontend-test",
+          dir / "target" / "npm-test-bundle.stamp",
+          into,
+          log
+        )
+      }
+    },
+    Test / resourceGenerators += frontendTestBundle
   )
+
+  /** `npm run <script>` into `dist` when `inputs` moved, then `dist` copied
+    * into `into`.
+    */
+  private def bundle(
+      script: String,
+      dir: File,
+      inputs: Seq[File],
+      dist: File,
+      stamp: File,
+      into: File,
+      log: Logger
+  ): Seq[File] = {
+    stamped(stamp, inputs.filter(_.isFile), force = !dist.exists) {
+      log.info(s"npm run $script ($dir)")
+      // Wiped first, because the bundler appends: without this a source file
+      // that is deleted leaves its bundle behind, and the copy below would
+      // keep shipping it.
+      IO.delete(dist)
+      npm(s"run $script", dir, log, s"frontend bundle ($script) failed")
+    }
+    // Copy rather than point the bundler straight at `resourceManaged`:
+    // that directory belongs to every resource generator at once, and a
+    // bundler that cleans its own output dir would take the others with it.
+    val copies = Path
+      .allSubpaths(dist)
+      .collect { case (from, rel) if from.isFile => from -> into / rel }
+      .toSeq
+    if (copies.isEmpty)
+      sys.error(s"the frontend bundle produced nothing in $dist")
+    IO.copy(copies, CopyOptions().withOverwrite(true))
+    copies.map(_._2)
+  }
 
   /** Run `work` when `inputs`' content no longer matches `stamp` (or when
     * `force` says the output is missing), then record what was built from.

@@ -22,6 +22,7 @@ import fh.view.model.{
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.testkit.TestIds.given
 import fh.view.testkit.PklFixture
+import fh.view.runtime.RendererTestOps.ixOf
 
 /** A pull asks for the reads of what it renders, and nothing else — most pulls
   * move a plain card and ask none.
@@ -81,14 +82,19 @@ class PullReadsSuite extends munit.FunSuite {
     )
   )
 
-  /** The entities of every read the pull asked for. */
-  private def asked(log: FragmentLog, open: Set[String] = Set.empty) = {
+  /** The viewer who has the tab bar's only tab chosen. */
+  private val onTab =
+    choosing(renderer, "charted", "tab", "0")
+
+  /** The entities of every read the pull asked for, for a viewer whose values
+    * are `env`: none chosen unless given.
+    */
+  private def asked(log: FragmentLog, env: VarEnv = Map.empty) = {
     val snapshot = FetchSnapshot.of(
       renderer
         .fetchesForPage(
-          Set("charted_panel_0_0"),
-          Shared.of(Map.empty),
-          Map.empty
+          Shared.of(Map.empty).viewing(onTab),
+          onTab
         )
         .map(_ -> Staged(1L, "<svg/>"))
         .toMap
@@ -104,9 +110,8 @@ class PullReadsSuite extends munit.FunSuite {
         Shared.of(Map("light.a" -> EntityState("light.a", "on", Map.empty))),
         noDecisionFetches,
         reads => seen.update(_ ++ reads).as(snapshot),
-        Map.empty,
-        0L,
-        open
+        env,
+        0L
       )
       reads <- seen.get
     } yield reads.map { case SlotRead(FetchRequest.History(e, _), _) =>
@@ -115,24 +120,27 @@ class PullReadsSuite extends munit.FunSuite {
   }
 
   test("a pull that moves only a plain card asks for nothing") {
-    assertEquals(asked(FragmentLog("test").touched("plain", 1L)), Set.empty)
+    assertEquals(
+      asked(FragmentLog("test").touched(renderer.ixOf("plain"), 1L)),
+      Set.empty
+    )
   }
 
   test("a pull that renders a chart asks for that chart") {
     assertEquals(
-      asked(FragmentLog("test").touched("chart", 1L)),
+      asked(FragmentLog("test").touched(renderer.ixOf("chart"), 1L)),
       Set("sensor.main")
     )
   }
 
   test("an open tab's chart is asked on every pull, and only that one") {
-    // A pull re-checks every node of an open surface, and a chart's key holds
+    // A pull re-checks every node of a shown case, and a chart's key holds
     // its read's version — so the tab's chart is asked even when only a light
     // moved, and the body's is not.
     assertEquals(
       asked(
-        FragmentLog("test").touched("plain", 1L),
-        open = Set("charted_panel_0_0")
+        FragmentLog("test").touched(renderer.ixOf("plain"), 1L),
+        env = onTab
       ),
       Set("sensor.tab")
     )

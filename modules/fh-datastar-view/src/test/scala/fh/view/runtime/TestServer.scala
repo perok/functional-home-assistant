@@ -10,6 +10,7 @@ import cats.syntax.all.*
 import com.comcast.ip4s.{host, port}
 import fh.view.auth.{AuthSessions, HaOAuth}
 import fh.view.build.{Minifier, PklDump, Site}
+import fh.view.history.ChartRenderer
 import fh.view.model.{Access, CallDecl, Dashboard, VarValue}
 import fh.view.telemetry.{Logging, Meters, Telemetry}
 import fh.view.testkit.{
@@ -191,7 +192,7 @@ final class TestServer(
               slug,
               key,
               value.map(_.refineUnsafe[VarValue.Token]),
-              r.shared(now)
+              r.shared(now).viewing(r.vars.env(Map.empty))
             )
           )
           .getOrElse(sys.error(s"no node places the choice $value of $key"))
@@ -347,13 +348,21 @@ final class TestServer(
     * or a connection's.
     */
   def record(entities: FixtureEntity*): IO[Unit] =
+    recorded(fake.emitFrame(entities.toList))
+
+  /** [[record]] of `entityId` leaving HA. */
+  def recordRemoval(entityId: String): IO[Unit] =
+    recorded(fake.remove(entityId))
+
+  /** `emit` must move the store, or this times out. */
+  private def recorded(emit: IO[Unit]): IO[Unit] =
     for {
       // A topic delivers only to current subscribers, and the recorder starts
       // asynchronously, so a frame that beats it is never recorded and every
       // later gate times out. Connecting a client does not imply it.
       _ <- awaitChangeSubscribers(1).timeout(15.seconds)
       before <- store.version
-      _ <- fake.emitFrame(entities.toList)
+      _ <- emit
       now <- TestServer.poll(store.version)(_ > before)
       live <- server.liveSlug(slug)
       _ <- TestServer.poll(live.doorbell.get)(_ >= now)
@@ -381,10 +390,8 @@ final class TestServer(
   /** A stream from a browser this server holds no session for, so only `cursor`
     * can decide what it is owed; see [[TestServer.reconnect]].
     */
-  def reconnect(
-      cursor: Option[Server.Cursor],
-      popup: Option[String] = None
-  ): IO[String] = TestServer.reconnect(gatedApp, slug, cursor, popup)
+  def reconnect(cursor: Option[Server.Cursor]): IO[String] =
+    TestServer.reconnect(gatedApp, slug, cursor)
 }
 
 object TestServer {
@@ -464,14 +471,13 @@ object TestServer {
     def leave: IO[Unit] = ts.sessions.deregisterIf(document.conn, session)
   }
 
-  /** Carrying `cursor` and `popup` as a reconnect's signals do, read up to its
-    * cursor or its reload.
+  /** Carrying `cursor` as a reconnect's signals do, read up to its cursor or
+    * its reload.
     */
   def reconnect(
       app: HttpApp[IO],
       slug: String,
-      cursor: Option[Server.Cursor],
-      popup: Option[String]
+      cursor: Option[Server.Cursor]
   ): IO[String] = {
     val signals = cursor.toList.map(c =>
       s""""${Server.CursorSignal}":{""" +
@@ -479,8 +485,6 @@ object TestServer {
         s""""${Server.StyleHashSignal}":"${c.styleHash}",""" +
         s""""${Server.LogIdSignal}":"${c.logId}",""" +
         s""""${Server.StoreVersionSignal}":${c.version}}"""
-    ) ++ popup.map(p =>
-      s""""${Server.UiSignalPrefix}${Dashboard.PopupHostId}":"$p""""
     )
     val stream = Uri.unsafeFromString(s"/sse/dashboard/$slug/patch")
     val uri =
@@ -502,13 +506,11 @@ object TestServer {
       .timeout(15.seconds)
   }
 
-  private def poll[A](read: IO[A])(done: A => Boolean): IO[A] =
-    fs2.Stream
-      .repeatEval(read <* IO.sleep(5.millis))
-      .find(done)
-      .compile
-      .lastOrError
-      .timeout(15.seconds)
+  private def poll[A](read: IO[A])(done: A => Boolean): IO[A] = {
+    def loop: IO[A] =
+      read.flatMap(a => if (done(a)) IO.pure(a) else IO.sleep(1.millis) *> loop)
+    loop.timeout(15.seconds)
+  }
 
   private val StreamUrlMarker: String = """data-init="@get\('"""
 
@@ -546,7 +548,9 @@ object TestServer {
       // The site default the gate falls back to when the dashboard sets none.
       access: Access = Access.default,
       windows: Server.SessionWindows = Server.SessionWindows.default,
-      config: FakeConfig = FakeConfig()
+      config: FakeConfig = FakeConfig(),
+      chart: Resource[IO, IO[ChartRenderer]] = perServer,
+      historyClock: IO[java.time.Instant] = IO.realTimeInstant
   ): Resource[IO, TestServer] =
     for {
       validated <- IO
@@ -566,7 +570,9 @@ object TestServer {
         fake,
         dir,
         startingWith(validated.withAccess(access)),
-        windows = windows
+        windows = windows,
+        chart = chart,
+        historyClock = historyClock
       )
       ts <- inProcess(fake, dashboard.slug, booted)
     } yield ts
@@ -714,13 +720,23 @@ object TestServer {
   // One per test JVM, so only the first served page pays for an engine.
   private lazy val minifiedStore: os.Path = os.temp.dir(prefix = "fh-minified")
 
+  /** Production's: drawn up by the server's first chart. A suite booting many
+    * servers passes its own [[ChartRenderer.lazily]] instead, so ECharts loads
+    * once (~270 ms each otherwise); not per JVM, since tests run in the sbt
+    * server, which would keep an engine per run.
+    */
+  private def perServer: Resource[IO, IO[ChartRenderer]] =
+    ChartRenderer.lazily(Logging.console)
+
   private def assemble(
       fake: FakeHomeAssistant,
       workspace: os.Path,
       prepare: HaFeed => IO[ServerApp.Prepared],
       assetsClient: Client[IO] = NoCdn,
       windows: Server.SessionWindows = Server.SessionWindows.default,
-      minifier: Minifier = Minifier.none
+      minifier: Minifier = Minifier.none,
+      chart: Resource[IO, IO[ChartRenderer]] = perServer,
+      historyClock: IO[java.time.Instant] = IO.realTimeInstant
   ): Resource[IO, Booted] =
     for {
       assetsDir <- tempDir("fh-assets")
@@ -742,7 +758,9 @@ object TestServer {
           meters = Meters.noop,
           sourceWatcher = Resource.pure(watcher),
           sessionWindows = windows,
-          minifier = minifier
+          chart = chart,
+          minifier = minifier,
+          historyClock = historyClock
         )
       )
     } yield Booted(assembled, haUp, watcher)

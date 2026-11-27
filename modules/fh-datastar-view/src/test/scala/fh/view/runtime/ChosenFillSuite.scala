@@ -101,7 +101,6 @@ class ChosenFillSuite extends munit.FunSuite {
     "a chain's cases are nodes at their slot positions, the otherwise last"
   ) {
     val d = dash(stateHost)
-    assertEquals(d.surfaces, Map.empty)
     assertEquals(
       d.picks.values.map(_.cases).toList,
       List(List("c_branch_0", "c_branch_1", "c_branch_2", "c_branch_3"))
@@ -127,7 +126,7 @@ class ChosenFillSuite extends munit.FunSuite {
       val env = r.vars.env(
         choice.map(c => VarKey(NodeId.derived("c"), "mode") -> c).toMap
       )
-      r.renderBody(Map.empty, r.surfaces.selections(None, env))
+      r.renderBody(Map.empty, vars = env)
     val first = viewing(None)
     val second = viewing(Some("cool"))
     assert(first.contains("<span>hot</span>"), clue = first)
@@ -144,7 +143,7 @@ class ChosenFillSuite extends munit.FunSuite {
     )
     val env =
       r.vars.env(Map(VarKey(NodeId.derived("c"), "mode") -> "away"))
-    val body = r.renderBody(Map.empty, r.surfaces.selections(None, env))
+    val body = r.renderBody(Map.empty, vars = env)
     assert(body.contains("<span>off</span>"), clue = body)
   }
 
@@ -161,29 +160,6 @@ class ChosenFillSuite extends munit.FunSuite {
       errors(bad).exists(_.contains("has the case 'true', a bool")),
       clue = errors(bad)
     )
-  }
-
-  test("validate refuses one decision reading a variable and state") {
-    val mixed = ValueExpr(
-      Value.List(
-        ValueType.Bool,
-        List(
-          ValueExpr(
-            Value.Var("mode"),
-            List(Step.Compare(Op.Eq, Value.Literal(Lit.Text("a"))))
-          ),
-          isOn("l.a")
-        )
-      ),
-      List(Step.IndexOfTrue)
-    )
-    val n = host(
-      mixed,
-      List(Lit.Whole(0) -> List(leaf("x")), Lit.Whole(1) -> List(leaf("y"))),
-      None,
-      vars = declared("mode" -> "a")
-    )
-    assert(errors(n).exists(_.contains("R4d")), clue = errors(n))
   }
 
   test("validate refuses a case that is not exactly one node") {

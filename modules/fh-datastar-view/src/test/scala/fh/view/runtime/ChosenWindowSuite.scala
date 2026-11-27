@@ -1,13 +1,13 @@
 package fh.view.runtime
 
-import fh.view.testkit.Sets
+import fh.view.testkit.{Conds, Sets}
 
 import fh.view.testkit.Slots
 
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.history.{ChartStyle, Window, Windows}
 import fh.view.model.*
-import fh.view.testkit.DashboardBuilders.{asComponent, declared, st}
+import fh.view.testkit.DashboardBuilders.{declared, st}
 import fh.view.testkit.TestCard
 import io.github.iltotore.iron.autoRefine
 
@@ -67,11 +67,11 @@ class ChosenWindowSuite extends munit.FunSuite {
 
   /** The pre-read at `shared`, then the body over what it answered. */
   private def paint(r: Renderer, shared: Shared): (List[SlotRead], String) =
-    val reads = r.fetchesForPage(Set.empty, shared, Map.empty)
+    val reads = r.fetchesForPage(shared, Map.empty)
     val snapshot =
       FetchSnapshot.of(reads.map(q => q -> Staged(1L, s"<svg>$q</svg>")).toMap)
     reads -> r
-      .renderBodyTraced(shared, Viewing(Selections.none, snapshot))
+      .renderBodyTraced(shared, Viewing(snapshot))
       .html
 
   test("an entity's state picks the window, per version") {
@@ -82,10 +82,7 @@ class ChosenWindowSuite extends munit.FunSuite {
 
   test("what picks the window wakes the chart and keys its bytes") {
     val d = dash(chart(byState()))
-    val node = Ready
-      .Compile(Evaluator.Scope(""))
-      .component(d.card.asComponent)
-      .fold(e => fail(e.message), identity)
+    val node = Conds.compiledAlone(d.card)
     assertEquals(node.liveEntities, List(span))
     assertEquals(node.liveEntitiesAsBytes, List(span))
   }

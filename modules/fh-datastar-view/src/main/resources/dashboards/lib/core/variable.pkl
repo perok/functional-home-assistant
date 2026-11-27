@@ -41,22 +41,32 @@ class Variable {
 
   /// Its value as this viewer holds it, a text reading: `label.of(window.value)`.
   /// The viewer's own, so only a leaf's value slot reads it; the build refuses it
-  /// in a signal, on a card holding a nodes slot, and in anything decided once for
-  /// every viewer (a clause, a condition, a `valueWhile`, an order). [[valueIs]]
+  /// in a signal, on a card holding a nodes slot, and in a call, which is made
+  /// once for the press. A choice (`nodeMod.match`), a set's clause or order and
+  /// a `valueWhile` may read it, decided per viewer. [[valueIs]]
   /// may also light a class (`cellClassWhen`).
   fixed value: slotMod.Reading =
     let (n = name) new slotMod.Reading { source = new slotMod.VarRead { name = n } }
 
   /// Whether it holds `at`: `value == at`, a bool reading. As an If's condition,
-  /// `c.iff(window.valueIs("30d"))`, it picks the branch per viewer. Not a
-  /// predicate, so it cannot be combined with one over entity state. Named
-  /// beside `q`'s `stateIs`, since `is` is a Pkl keyword.
+  /// `c.iff(window.valueIs("30d"))`, it picks the branch per viewer. An If's chain
+  /// may mix it with conditions over state, one `elif` each; a set's `where` may
+  /// combine it with one inside `q.any`/`q.all` (`q.any(List(window.valueIs("30d"),
+  /// q.eq(q.stateProp, "on")))`), and `orderBy` takes it as a key. Either is then
+  /// decided per viewer. Named beside `q`'s `stateIs`, since `is` is a Pkl
+  /// keyword.
   function valueIs(at: Value): ValueIs = let (self = this) new ValueIs { variable = self; value = at }
 
   /// Its declaration, at `value` until a viewer chooses: an entry in the
   /// declaring node's `vars`.
   function defaultingTo(value: Value): Declaration =
     let (self = this) let (v = value) new Declaration { variable = self; default = v }
+
+  /// Its declaration, holding no value until a viewer chooses: a reading of it
+  /// is `null`, a `match` over it takes its otherwise, and [[valueIs]] holds for
+  /// nothing.
+  function startingEmpty(): Declaration =
+    let (self = this) new Declaration { variable = self; default = noValue }
 
   /// Choose `at`, from the declarer or a node below it; null clears the
   /// choice, back to the declared value. It sets only the pending ask; the
@@ -71,11 +81,14 @@ class Declaration {
   /// What it declares, for the readers below: `d.variable.value`.
   hidden variable: Variable
   fixed name: Name = variable.name
-  /// What it holds before anyone chooses.
-  default: Value
+  /// What it holds before anyone chooses: a value, or [[noValue]].
+  default: Value | NoValue
   /// Whether a choice is mirrored into the page URL, so a refresh or a link
   /// keeps it. Off, it lives as long as the page: [[notInUrl]].
   inUrl: Boolean = true
+  /// Whether each choice is a browser history entry: [[inHistory]]. Only a
+  /// variable in the URL can be, since an entry is a URL.
+  inHistory: Boolean(!this || inUrl) = false
   /// Where a session opens it instead of at [[default]]: [[withInitialTransform]].
   initialTransform: InitialTransform? = null
 
@@ -83,12 +96,24 @@ class Declaration {
   /// light's control in a set of many. A link naming it is still read.
   function notInUrl(): this = (this) { inUrl = false }
 
+  /// Each choice is a browser history entry, so Back returns to the previous
+  /// one and then leaves the dashboard. Back returns the whole previous URL:
+  /// a choice made since then to a variable in the URL but not in history (a
+  /// window chooser) goes back too. One kept out of the URL is left alone.
+  function inHistory(): this = (this) { inHistory = true }
+
   /// Opened by CEL over `e`'s state, run once as a session opens; it does not
   /// follow the entity afterwards. A result no reader takes keeps [[default]].
   function withInitialTransform(e: hass.Entity, cel: String): this =
     let (self = this) let (id = e.entity_id)
       (self) { initialTransform = new InitialTransform { entityId = id; transform = cel } }
 }
+
+/// What a declaration holds before anyone chooses, when that is nothing. An
+/// object rather than `null`, which the wire would drop (ADR 0006).
+class NoValue {}
+
+const noValue: NoValue = new {}
 
 /// A node variable at one value: what an If over a variable is chosen by, and a
 /// bool reading wherever a variable may be read.

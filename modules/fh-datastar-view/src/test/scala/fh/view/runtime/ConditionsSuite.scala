@@ -17,7 +17,7 @@ import fh.view.testkit.DashboardBuilders.{noSubject, st}
 import io.circe.Json
 
 /** A condition compiled and decided against live state, for a set clause's
-  * guard, a state surface's condition and a `Count` inside either; none needs a
+  * guard, a state pick's condition and a `Count` inside either; none needs a
   * renderer.
   */
 class ConditionsSuite extends munit.FunSuite {

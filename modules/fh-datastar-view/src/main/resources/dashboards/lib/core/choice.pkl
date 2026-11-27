@@ -1,10 +1,9 @@
 /// A nodes slot's fill that picks among branches: `nodeMod.iff(p).then(a).elif(q).then(b).else(x)`
-/// over live state, or `nodeMod.match(by, cases)` over a node variable's value or
-/// an entity-state reading. On
-/// the wire a choice is `Fill.Nodes(Choice.Chosen)`: `by`, a case per key and an
-/// `otherwise`, one node per case (several sit in a row). Each choice is decided
-/// over state for every viewer, or over a variable for each one; one decision
-/// reading both is not built yet (docs/plan-regions.md, R4d).
+/// over live state or node variables, or `nodeMod.match(by, cases)` over a reading.
+/// On the wire a choice is `Fill.Nodes(Choice.Chosen)`: `by`, a case per key and an
+/// `otherwise`, one node per case (several sit in a row). A choice reading only
+/// state is decided once for every viewer; one reading a variable is decided for
+/// each viewer, at the values it holds.
 module core.choice
 
 import "../layout.pkl" as layout
@@ -88,21 +87,9 @@ class Iff extends Choice {
     let (conds = List(i.condition) + i.elifs.toList().map((e) -> e.condition))
     let (branches = List(i.`then`) + i.elifs.toList().map((e) -> e.nodes))
     let (vars = conds.filter((c) -> c is varMod.ValueIs).map((c) -> (c as varMod.ValueIs).variable.name).distinct)
-      if (vars.isEmpty)
-        // Over state: one condition is the key itself, a chain is the position
-        // of the first that holds. An `else` that is empty is no case at all.
-        new ChosenNodes {
-          by = if (conds.length == 1) conds[0] else new pred.FirstTrue { items { ...conds } }
-          cases {
-            for (k, b in branches) {
-              new NodesCase { `is` = if (conds.length == 1) true else k; value = oneNode(b) }
-            }
-          }
-          otherwise = if (i.`else`.isEmpty) null else oneNode(i.`else`)
-        }
-      else if (vars.length == 1 && conds.every((c) -> c is varMod.ValueIs))
-        // A variable shows a branch at every value and one no case takes is
-        // refused, so the else is there even when empty.
+      if (vars.length == 1 && conds.every((c) -> c is varMod.ValueIs))
+        // One variable alone shows a branch at every value, and one no case
+        // takes is refused, so the else is there even when empty.
         new ChosenNodes {
           by = (conds[0] as varMod.ValueIs).variable.value
           cases {
@@ -113,7 +100,18 @@ class Iff extends Choice {
           otherwise = oneNode(i.`else`)
         }
       else
-        throw("an If chain reads one variable and nothing else, or live state and no variable: one decision reading both is not built yet (R4d of docs/plan-regions.md)")
+        // Anything else, over state, variables or both: one condition is the
+        // key itself, a chain is the position of the first that holds. An
+        // `else` that is empty is no case at all.
+        new ChosenNodes {
+          by = if (conds.length == 1) conds[0] else new pred.FirstTrue { items { ...conds } }
+          cases {
+            for (k, b in branches) {
+              new NodesCase { `is` = if (conds.length == 1) true else k; value = oneNode(b) }
+            }
+          }
+          otherwise = if (i.`else`.isEmpty) null else oneNode(i.`else`)
+        }
 }
 
 /// `nodeMod.match(v.value, cases)`: the branch at the variable's value, for each
@@ -143,11 +141,10 @@ class Match extends Choice {
 /// `nodeMod.iff(p)`: a branch for `p`, extended with `.then`, `.elif`, `.else`.
 const function iff(p: Condition): Iff = new Iff { condition = conditionOf(p) }
 
-/// A choice over a value: a node variable's (`v.value`), decided for each viewer,
-/// or an entity-state reading (`simpleMod.state()`, a text reading), decided once for
+/// A choice over a value: a node variable's (`v.value`), possibly run through
+/// steps, or an entity-state reading (`simpleMod.state()`, a text reading). One
+/// reading a variable is decided for each viewer, one reading only state once for
 /// every viewer. The branch whose key is that value, else `.otherwise(…)`, else
 /// nothing.
 const function match(on: slotMod.Reading, byValue: Mapping<varMod.Value, Branch>): Match =
-  if (on.source is slotMod.VarRead && !on.steps.isEmpty)
-    throw("nodeMod.match chooses by a variable's value as it is (`v.value`) or by entity state, not a variable run through steps: one decision reading both is not built yet (R4d of docs/plan-regions.md)")
-  else new Match { by = on; caseMap = byValue }
+  new Match { by = on; caseMap = byValue }

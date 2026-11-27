@@ -132,9 +132,8 @@ class SetSuite extends ServerHarness {
         _ <- step(v, off("light.a"))
         patches <- step(v, on("light.a"))
       } yield {
-        // Remove-then-insert, the idempotent pair an arrival always is.
-        assertEquals(patches.size, 2, clue = patches)
-        assert(patches.head.contains("mode remove"), clue = patches.head)
+        // One insert: the viewer's own list says it was not on the page.
+        assertEquals(patches.size, 1, clue = patches)
         val p = patches.last
         assert(p.contains("mode before"), clue = p)
         // Authored order is c,a,b,d,e, so `a` anchors before `b`.
@@ -145,19 +144,6 @@ class SetSuite extends ServerHarness {
         )
       }
     }
-  }
-
-  test("a reorder moves the FEWEST members that can produce it") {
-    // A set ordered on a live value reorders whenever two members cross, so
-    // moving everything on each crossing would be a patch storm.
-    def moves(before: String, after: String) =
-      Patches.reordered(before.split(" ").toList, after.split(" ").toList)
-
-    assertEquals(moves("a b c", "a b c"), Nil)
-    assertEquals(moves("a b c", "c a b"), List("c"))
-    assertEquals(moves("a b c d", "a d b c"), List("d"))
-    // A full reversal costs n-1; which element stays is arbitrary.
-    assertEquals(moves("a b c", "c b a").size, 2)
   }
 
   private def bri(id: String, v: Int) =
@@ -507,7 +493,7 @@ class SetSuite extends ServerHarness {
         patches <- step(v, on(hall))
       } yield {
         assert(!html.contains("""id="c_light_a""""), clue = html)
-        assertEquals(patches.size, 2, clue = patches)
+        assertEquals(patches.size, 1, clue = patches)
         val p = patches.last
         assert(p.contains("mode before"), clue = p)
         assert(p.contains("selector #c_light_c"), clue = p)

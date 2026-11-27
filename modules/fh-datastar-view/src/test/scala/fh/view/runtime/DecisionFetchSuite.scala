@@ -15,11 +15,11 @@ import fh.view.history.Windows
 import fh.view.model.*
 import fh.view.testkit.Conds
 
-import scala.collection.immutable.ListMap
+import scala.collection.immutable.{BitSet, ListMap}
 import scala.collection.mutable.ListBuffer
 
 /** A decision made outside a render reads a fetch: a set's clause and order, a
-  * state surface, a `valueWhile` and a press decide by its answer, which the
+  * state pick, a `valueWhile` and a press decide by its answer, which the
   * server prepares before any of them is made.
   */
 class DecisionFetchSuite extends munit.FunSuite {
@@ -126,12 +126,12 @@ class DecisionFetchSuite extends munit.FunSuite {
   ): String =
     r.decide(answer) { run =>
       val at = shared.asking(run)
-      val _ = r.fetchesForPage(Set.empty, at, r.vars.env(Map.empty))
+      val _ = r.fetchesForPage(at, r.vars.env(Map.empty))
       at
     }.map(
       r.renderBodyTraced(
         _,
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).html
     ).unsafeRunSync()
 
@@ -142,7 +142,7 @@ class DecisionFetchSuite extends munit.FunSuite {
     val outside = intercept[FHError](
       r.renderBodyTraced(
         Shared.of(states()),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
     )
     assert(outside.getMessage.contains("outside a run"))
@@ -209,12 +209,12 @@ class DecisionFetchSuite extends munit.FunSuite {
         )
       )
     assertEquals(d.decisionFetches, List("the choice at 'c'" -> history))
+    // Compiled past `validate`, which refuses a decision made by a fetch.
     val ready = Conds.compiled(Ready.Compile(Evaluator.Scope("")).dashboard(d))
-    val g = new SurfaceGraph(
-      ready.surfaces,
+    val g = new PickGraph(
+      ready.index,
       ready.picks,
-      Map.empty,
-      new MemberGraph(Map.empty, Map.empty)
+      new MemberGraph(Map.empty, ready.index)
     )
     val gid = NodeId.derived("c")
     val read = SlotAsk(history, Step.Json).fixed
@@ -302,8 +302,8 @@ class DecisionFetchSuite extends munit.FunSuite {
       errs.exists(
         _.contains(
           "a set's clause reads the fetch '" + chosen.key + "': a decision " +
-            "is made for every viewer at once, so its fetch cannot read the " +
-            "variable 'window'"
+            "asks for its fetches every version, so its window cannot read " +
+            "the variable 'window'"
         )
       ),
       clue = errs
@@ -372,7 +372,7 @@ class DecisionFetchSuite extends munit.FunSuite {
           before.asking(run),
           after.asking(run),
           frame.changes,
-          Set.empty
+          BitSet.empty
         )
       )
       .unsafeRunSync()

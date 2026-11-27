@@ -90,7 +90,7 @@ class AckedResumeSuite extends ServerHarness {
       .getOrElse(fail("no cursor in the opening block"))
 
   private def repainted(events: List[ServerSentEvent]): Boolean =
-    events.exists(_.selector.contains("#dashboard"))
+    events.exists(_.selector.contains("#root"))
 
   /** The ordinary tab switch, which must not get more expensive: a closed
     * stream sends nothing, so `told` stays put and the missed change comes back

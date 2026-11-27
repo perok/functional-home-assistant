@@ -1,8 +1,9 @@
 package fh.view.model
 
-/** The id kinds, kept apart by type (ADR 0022): the log renders from its keys,
-  * so a DOM id stored as a key is a permanent, silent hole. [[NodeId]] ->
-  * [[DomId]] is one-way ([[fh.view.runtime.Renderer.elementId]]).
+/** The id kinds, kept apart by type (ADR 0022): a pull renders the ids of the
+  * places the log holds, so a DOM id taken for a [[NodeId]] is a permanent,
+  * silent hole. [[NodeId]] -> [[DomId]] is one-way
+  * ([[fh.view.runtime.Renderer.elementId]]).
   *
   * `<: String`, since interpolation and prefix tests are harmless; what the
   * bound forbids is a bare `String` or a `DomId` where a `NodeId` is wanted.
@@ -11,8 +12,8 @@ opaque type NodeId <: String = String
 
 object NodeId {
 
-  /** The derivations are [[LayoutNode.pathId]], [[LayoutNode.surfacePrefix]]
-    * and [[fh.view.runtime.MemberGraph.memberIdOf]]; any other source is a bug.
+  /** The derivations are [[LayoutNode.pathId]] and
+    * [[fh.view.runtime.MemberGraph.memberIdOf]]; any other source is a bug.
     */
   private[view] def derived(s: String): NodeId = s
 }
@@ -45,8 +46,7 @@ object MemberId {
   private[view] def of(id: NodeId): MemberId = id
 }
 
-/** A patch target: a node's `.fh-cell`, a pick's host, the theme's `popups`.
-  * Never a log key.
+/** A patch target: a node's `.fh-cell` or a pick's host. Never a log key.
   */
 opaque type DomId <: String = String
 
@@ -112,4 +112,12 @@ object SlotValue {
     case s: String  => s.nonEmpty
     case b: Boolean => b
     case d: Double  => d != 0
+
+  /** A boolean stays a JSON boolean: the string `"false"` is truthy in every
+    * binding.
+    */
+  def json(v: SlotValue): io.circe.Json = v match
+    case b: Boolean => io.circe.Json.fromBoolean(b)
+    case d: Double  => io.circe.Json.fromDoubleOrString(d)
+    case s: String  => io.circe.Json.fromString(s)
 }

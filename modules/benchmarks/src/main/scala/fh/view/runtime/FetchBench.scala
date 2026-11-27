@@ -39,7 +39,7 @@ import java.util.concurrent.TimeUnit
   *
   *   - `pullPlain` — a pull that moves one card, nothing open: asks nothing.
   *   - `pullPlainTabOpen` — the same with the chart tab open: the tab's four
-  *     charts are asked, since a resume re-checks every open-surface node.
+  *     charts are asked, since a resume re-checks every shown node.
   *   - `pullChart` — a pull that renders one body chart.
   *   - `pagePrepass` — resolving a page's eight reads.
   *   - `pageWithCharts` — that, plus the page walk.
@@ -56,6 +56,8 @@ class FetchBench {
   private var renderer: Renderer = null
   private var resolver: FetchResolver = null
   private var st: Shared = null
+  // `st` as a viewer on the declared tab sees it: its panel is open.
+  private var tabOpen: (Shared, VarEnv) = null
   private var cache: RenderCache = null
   private val asOf = Instant.parse("2026-09-24T12:00:00Z")
   private var rot = 0L
@@ -64,6 +66,8 @@ class FetchBench {
   def setup(): Unit = {
     st = Shared.of(RenderBench.states(RenderBench.Leaves))
     renderer = Renderer.create(dashboard)
+    val tabEnv = renderer.vars.env(Map.empty)
+    tabOpen = (st.viewing(tabEnv), tabEnv)
     resolver = (for {
       history <- History.create(
         new SeriesSource {
@@ -87,7 +91,7 @@ class FetchBench {
     } yield r).unsafeRunSync()
     cache = RenderCache.create.unsafeRunSync()
     // Warm: every read drawn once.
-    val _ = answer(renderer.fetchesForPage(Set("tabs_panel_0"), st, Map.empty))
+    val _ = answer(renderer.fetchesForPage(tabOpen._1, tabOpen._2))
       .unsafeRunSync()
   }
 
@@ -102,54 +106,54 @@ class FetchBench {
         FetchIdentity.Instance
       )
 
-  private def pull(node: NodeId, open: Set[String]): List[Addressed] = {
+  private def pull(node: NodeId, at: (Shared, VarEnv)): List[Addressed] = {
     rot += 1
     Patches
       .resume(
         renderer,
         cache,
-        FragmentLog("bench").touched(node, rot),
+        renderer.index
+          .ixsOf(node)
+          .foldLeft(FragmentLog("bench"))(_.touched(_, rot)),
         Map.empty,
-        st,
+        at._1,
         reads => answer(reads.toList),
         answer,
-        Map.empty,
-        rot,
-        open,
-        renderer.surfaces.selectionsIn(open)
+        at._2,
+        rot
       )
       .unsafeRunSync()
   }
 
   @Benchmark
   def pullPlain(bh: Blackhole): Unit =
-    bh.consume(pull(PlainId, Set.empty))
+    bh.consume(pull(PlainId, (st, Map.empty)))
 
   @Benchmark
   def pullPlainTabOpen(bh: Blackhole): Unit =
-    bh.consume(pull(PlainId, Set("tabs_panel_0")))
+    bh.consume(pull(PlainId, tabOpen))
 
   @Benchmark
   def pullChart(bh: Blackhole): Unit =
-    bh.consume(pull(ChartId, Set.empty))
+    bh.consume(pull(ChartId, (st, Map.empty)))
 
   @Benchmark
   def pagePrepass(bh: Blackhole): Unit =
     bh.consume(
-      answer(renderer.fetchesForPage(Set("tabs_panel_0"), st, Map.empty))
+      answer(renderer.fetchesForPage(tabOpen._1, tabOpen._2))
         .unsafeRunSync()
     )
 
   @Benchmark
   def pageWithCharts(bh: Blackhole): Unit = {
     val f =
-      answer(renderer.fetchesForPage(Set("tabs_panel_0"), st, Map.empty))
+      answer(renderer.fetchesForPage(tabOpen._1, tabOpen._2))
         .unsafeRunSync()
     bh.consume(
       renderer.renderPageInto(
         Sink.buffer(renderer.pageBytesHint),
         st,
-        Viewing(Selections.none, f)
+        Viewing(f)
       )
     )
   }

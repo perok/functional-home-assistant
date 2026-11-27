@@ -738,13 +738,12 @@ class VarTapSuite extends ServerHarness {
       dash.validated().fold(e => sys.error(e.mkString("; ")), identity)
     )
     val declared = Server
-      .openingSignals(renderer, Set.empty, Map.empty, "log", 0L)
+      .openingSignals(renderer, Map.empty, "log", 0L)
       .data
       .getOrElse("")
     val chosen = Server
       .openingSignals(
         renderer,
-        Set.empty,
         Map(VarKey(NodeId.derived("panel"), "window") -> "7d"),
         "log",
         0L

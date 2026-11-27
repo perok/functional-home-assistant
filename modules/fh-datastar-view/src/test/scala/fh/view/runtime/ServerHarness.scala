@@ -5,6 +5,7 @@ import fh.view.testkit.Sets
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
+import fh.view.testkit.TestPage
 import fh.view.testkit.Conds
 
 import fh.view.fetch.FetchSnapshot
@@ -17,8 +18,8 @@ import cats.syntax.all.*
 import fh.view.model.{
   CardDef,
   Dashboard,
+  Ix,
   LayoutNode,
-  NodeId,
   Op,
   Value,
   ValueExpr,
@@ -132,11 +133,11 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def resumeNow(
       renderer: Renderer,
       log: FragmentLog,
-      holds: Map[NodeId, Held],
+      holds: Map[Ix, Held],
       states: Map[String, EntityState],
       v: Long,
-      open: Set[String],
-      selections: Selections
+      env: VarEnv = Map.empty,
+      coverage: Patches.Coverage = Patches.Coverage.Swept
   ): List[Addressed] =
     RenderCache.create
       .flatMap(
@@ -148,10 +149,9 @@ trait ServerHarness extends munit.CatsEffectSuite {
           Shared.of(states),
           noDecisionFetches,
           _ => IO.pure(FetchSnapshot.empty),
-          Map.empty,
+          env,
           v,
-          open,
-          selections
+          coverage
         )
       )
       .unsafeRunSync()
@@ -186,24 +186,27 @@ trait ServerHarness extends munit.CatsEffectSuite {
   def get(params: (String, String)*): Request[IO] =
     Request[IO](Method.GET, uri"/".withQueryParams(params.toMap))
 
-  // No picks, so its live patches belong entirely to the shared pass.
-  def liveLeafDash = Dashboard(
-    cards = Sets.cards ++ Map(
-      "col" -> TestCard(
-        "<div>{{{children}}}</div>",
-        regions = Set("children")
+  // No picks, so its live patches belong entirely to the shared pass. Under
+  // the page card, as a built dashboard is, so its repaint is [[BodyRepaint]].
+  def liveLeafDash = TestPage.around(
+    Dashboard(
+      cards = Sets.cards ++ Map(
+        "col" -> TestCard(
+          "<div>{{{children}}}</div>",
+          regions = Set("children")
+        ),
+        "card" -> TestCard("<span>{{state}}</span>")
       ),
-      "card" -> TestCard("<span>{{state}}</span>")
-    ),
-    card = LayoutNode.Component(
-      "col",
-      slots = Slots.kids(
-        LayoutNode.Component(
-          "card",
-          slots = Slots.values(
-            Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.a")))
+      card = LayoutNode.Component(
+        "col",
+        slots = Slots.kids(
+          LayoutNode.Component(
+            "card",
+            slots = Slots.values(
+              Map(
+                "state" -> TemplateSlot(
+                  ValueExpr(Value.Entity(Some("sensor.a")))
+                )
               )
             )
           )
@@ -260,7 +263,7 @@ trait ServerHarness extends munit.CatsEffectSuite {
     )
   )
 
-  def logged(log: FragmentLog): Map[NodeId, Long] = log.fragments
+  def logged(log: FragmentLog): Map[Ix, Long] = log.fragments
 
   def elementPatches(batch: List[SseFrame]): List[String] =
     batch.map(_.render).filterNot(_.contains("datastar-patch-signals"))
@@ -307,7 +310,8 @@ trait ServerHarness extends munit.CatsEffectSuite {
     * returns what this viewer's pull emits. `holds` and `position` accumulate
     * across steps.
     */
-  val BodyRepaint = "selector #dashboard"
+  /** A repaint: the morph over the page card's root. */
+  val BodyRepaint = s"selector #${Dashboard.PageRootId}"
 
   /** A card on sensor.shared at `c_0` and the shipped tab bar at `c_1`, whose
     * tab `i` shows a card on `sensors(i)`: the case `c_1_panel_0_<i>`.
@@ -362,8 +366,6 @@ trait ServerHarness extends munit.CatsEffectSuite {
 
   def events(out: List[Addressed]): List[SseFrame] =
     out.map(_.patch.toSse)
-
-  val PopupSig = Server.UiSignalPrefix + Dashboard.PopupHostId
 
   val Elements = "datastar-patch-elements"
 

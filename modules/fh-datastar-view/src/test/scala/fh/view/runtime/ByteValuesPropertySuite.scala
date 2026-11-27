@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.own
+
 import fh.view.testkit.Sets
 
 import fh.view.testkit.Slots
@@ -12,7 +14,7 @@ import hedgehog.*
 import hedgehog.munit.HedgehogSuite
 
 /** A node's byte-slot values are its render key and what a session compares
-  * (ADR 0012): `holds` is seeded from [[Renderer.Traced.own]], and
+  * (ADR 0012): `holds` is seeded from [[Renderer.Traced.painted]], and
   * `Patches.morph` compares against [[Renderer.byteSlotValues]]. So the two
   * must agree, and equal values must mean equal bytes; pinned over generated
   * shapes from an awkward-character pool (the escape set, mustache tags,
@@ -112,7 +114,7 @@ class ByteValuesPropertySuite extends HedgehogSuite {
     } yield {
       val r = Renderer.create(dashboard(signal))
       val id = NodeId.derived("c")
-      val viewing = Viewing(Selections.none, FetchSnapshot.empty)
+      val viewing = Viewing(FetchSnapshot.empty)
       val recorded = r.renderBodyTraced(at(v), viewing).own.values.head.values
       def values(s: String) = r.byteSlotValues(id, at(s), FetchSnapshot.empty)
       def bytes(s: String) = r.renderNodeById(id, at(s), viewing)
@@ -135,7 +137,7 @@ class ByteValuesPropertySuite extends HedgehogSuite {
     } yield {
       val r = Renderer.create(setDashboard(signal))
       val mid = NodeId.derived(r.members.memberIdOf(setId("c"), "alpha"))
-      val viewing = Viewing(Selections.none, FetchSnapshot.empty)
+      val viewing = Viewing(FetchSnapshot.empty)
       val recorded = r.renderBodyTraced(at(v), viewing).own.get(mid)
       def values(s: String) = r.byteSlotValues(mid, at(s), FetchSnapshot.empty)
       def bytes(s: String) = r.renderNodeById(mid, at(s), viewing)

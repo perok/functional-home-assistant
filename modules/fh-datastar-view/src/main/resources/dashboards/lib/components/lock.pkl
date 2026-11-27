@@ -12,6 +12,7 @@ import "../hass.pkl"
 import "../hass/lock.pkl" as hassLock
 import "control.pkl" as control
 import "base/button.pkl" as buttonMod
+import "popup.pkl" as popupMod
 import "base/text.pkl" as textMod
 import "entity.pkl" as entityMod
 import "tap.pkl" as verbs
@@ -24,7 +25,7 @@ function openLatch(l: hass.LockEntity): control.EntityButton =
   control
     .entityButton(l)
     .label("Open")
-    .tapAction(tapMod.openPopupInline(confirmOpen(l)))
+    .tapAction(popupMod.popup(popupMod.idFor("confirm_open", l), confirmOpen(l)))
     .icon("mdi:door-open")
     // The opener's own reason, since a popup carries no call; the press inside
     // refuses the same states through its call.
@@ -36,7 +37,7 @@ local function confirmOpen(l: hass.LockEntity): layout.Column = new layout.Colum
     // Pinned to the domain action: the default would open more-info on top.
     (entityMod.entityCard(l)) { tapAction = tapMod.byDomain(l) }
     buttonMod.button("Open the door", verbs.locks.openLatch(l))
-    buttonMod.button("Cancel", tapMod.closePopup())
+    buttonMod.button("Cancel", popupMod.closePopup())
   }
 }
 

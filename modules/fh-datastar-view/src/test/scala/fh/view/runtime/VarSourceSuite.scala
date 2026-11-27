@@ -12,8 +12,8 @@ import fh.view.testkit.TestCard
 import scala.collection.immutable.ListMap
 
 /** A node variable is a source (`Value.Var`): a leaf's value slot shows the
-  * viewer's value, and a write re-renders it. Everything decided once for every
-  * viewer, and every slot whose bytes are shared, refuses one.
+  * viewer's value, and a write re-renders it. Every slot whose bytes are shared
+  * refuses one.
   */
 class VarSourceSuite extends munit.FunSuite {
 
@@ -52,18 +52,14 @@ class VarSourceSuite extends munit.FunSuite {
       id = Some("panel")
     )
 
-  private def dash(
-      root: LayoutNode,
-      surfaces: Map[String, Surface] = Map.empty
-  ) =
-    Dashboard(cards = cards, card = root, surfaces = surfaces)
+  private def dash(root: LayoutNode) = Dashboard(cards = cards, card = root)
 
   private val key = VarKey(NodeId.derived("panel"), "window")
 
   private def body(r: Renderer, chosen: Map[VarKey, String]) =
     r.renderBodyTraced(
       Shared.of(Map.empty),
-      Viewing(Selections.none, FetchSnapshot.of(Map.empty, r.vars.env(chosen)))
+      Viewing(FetchSnapshot.of(Map.empty, r.vars.env(chosen)))
     ).html
 
   test("a value slot shows the declared value, then the viewer's") {
@@ -90,7 +86,6 @@ class VarSourceSuite extends munit.FunSuite {
   test("a write reaches the slot reading it, and takes any value") {
     val r = Renderer.create(dash(panel(plain(window))))
     val reader = LayoutNode.childId(
-      "",
       NodeId.derived("panel"),
       LayoutNode.Step(LayoutNode.DefaultRegion, 0),
       plain(window)
@@ -120,7 +115,6 @@ class VarSourceSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
     val id = LayoutNode.childId(
-      "",
       NodeId.derived("panel"),
       LayoutNode.Step(LayoutNode.DefaultRegion, 0),
       lit
@@ -133,7 +127,7 @@ class VarSourceSuite extends munit.FunSuite {
       r.renderNodeById(
         id,
         Shared.of(Map.empty),
-        Viewing(Selections.none, seven)
+        Viewing(seven)
       )
     assert(patched.exists(p => classAttr.findFirstIn(p).isEmpty), patched)
     assert(patched.exists(_.contains(bind)), patched)
@@ -201,54 +195,5 @@ class VarSourceSuite extends munit.FunSuite {
       )
     )
     refused(dash(panel(titled)), "holds regions")
-  }
-
-  test("a valueWhile refuses one: it is decided for every viewer") {
-    val gated = LayoutNode.Component(
-      "plain",
-      slots = Slots.values(
-        Map(
-          "name" -> TemplateSlot(
-            ValueExpr(Value.Cel("'x'")),
-            valueWhile = Some(isWindow("7d"))
-          )
-        )
-      )
-    )
-    refused(dash(panel(gated)), "valueWhile reads the variable 'window'")
-  }
-
-  test("a set's clause and order refuse one") {
-    val set = Sets.node(
-      candidates = List("light.a"),
-      members = Map(
-        "light.a" -> Sets.Member(
-          List(
-            Sets.Clause(
-              Some(isWindow("7d")),
-              plain(ValueExpr.literal("x"))
-            )
-          )
-        )
-      ),
-      orderBy = List(SortTerm(window))
-    )
-    refused(dash(panel(set)), "a set's clause reads the variable 'window'")
-    refused(dash(panel(set)), "a set's order reads the variable 'window'")
-  }
-
-  test("a choice's condition refuses a computed read of one") {
-    val d = dash(
-      panel(
-        LayoutNode.Component(
-          "box",
-          Map(
-            LayoutNode.DefaultRegion ->
-              Slots.iff(isWindow("7d"), plain(ValueExpr.literal("y")))
-          )
-        )
-      )
-    )
-    refused(d, "is chosen by a computed read of a variable")
   }
 }

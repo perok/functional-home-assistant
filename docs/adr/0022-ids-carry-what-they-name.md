@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-08-18
 - **Scope:** `model/Ids.scala`, and every signature in `fh/view/runtime` that
-  takes an id — `runtime/MemberGraph.scala`, `runtime/SurfaceGraph.scala`,
+  takes an id — `runtime/MemberGraph.scala`, `runtime/PickGraph.scala`,
   `runtime/Renderer.scala`, `runtime/Patches.scala`, `runtime/FragmentLog.scala`
 - **Refines:** ADR 0012, whose bake hosts created the first of these
   distinctions (a patch target is not a log key) but recorded it only in
@@ -26,7 +26,7 @@ and they are permanent.**
   the recorder maintains is not the element the browser has.
 - A member's **root** read from the static index for the same reason: the member
   reads as main-page, and its patch goes to every connected client whether or
-  not they have that surface open.
+  not they are shown its case.
 
 All three were real. Each was found by accident, and none of them could have
 been found by reading the code, because the code looks correct.
@@ -38,7 +38,7 @@ every consumer.** Six opaque types over `String` in `model/Ids.scala`:
 
 | type | names | derived by |
 |---|---|---|
-| `NodeId` | an addressable node — the log's key space | `LayoutNode.pathId`, `surfacePrefix`, `MemberGraph.memberIdOf` |
+| `NodeId` | an addressable node — the log's key space | `LayoutNode.pathId`, `MemberGraph.memberIdOf` |
 | `SetId <: NodeId` | a candidate-set container, at any nesting depth | `MemberGraph.setContainer` / `innerSetId` |
 | `MemberId <: NodeId` | a materialised set member | `MemberGraph.memberIdOf` |
 | `DomId` | an element a patch TARGETS (`c_2`, `popups`) | `Renderer.elementId`, `Renderer.hostId` |
@@ -63,7 +63,7 @@ forbids is the direction that matters: a bare `String`, or a `DomId`, where a
 `NodeId` is expected.
 
 **Narrowing is a PARSE, at one place.** The only way to turn an id that arrived
-from somewhere else — a log key, a mutation's container — into a `SetId` is
+from somewhere else — a log key, a host a session holds — into a `SetId` is
 `MemberGraph.setContainer`, whose `Some` is the answer and the proof together.
 A map keyed by the WIDE type is how that parse is implemented, which is why
 `MemberGraph.sources` and `MemberIndex.byId` are `Map[NodeId, _]` while

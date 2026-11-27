@@ -23,8 +23,12 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
     */
   def initialValueSignal: String = s"${committedSignal}__initialValue"
 
-  /** The URL mirror, which survives a refresh. */
-  def urlParam: String = s"${VarKey.ParamPrefix}$declarer.$name"
+  /** The URL mirror, which survives a refresh: `v.<declarer>.<name>`, or
+    * `v.<name>` on the page root, unambiguous since a node id has no `.`.
+    */
+  def urlParam: String =
+    if declarer == Dashboard.PageRootId then s"${VarKey.ParamPrefix}$name"
+    else s"${VarKey.ParamPrefix}$declarer.$name"
 
   /** Empties the ask once the commit agrees. Comparing to the commit, rather
     * than clearing in the frame, keeps tap A's response from clearing tap B's
@@ -42,8 +46,10 @@ final case class VarKey(declarer: NodeId, name: String) derives CanEqual:
   def urlMirrorAttr(d: Dashboard.Declaration): String = {
     val unchanged =
       if (d.initialTransform.isDefined) s"$$$initialValueSignal"
-      else s"'${Server.escapeHtml(Server.escapeJsString(d.default))}'"
-    s"""data-fh-url:$name="['$urlParam', $$$committedSignal, $unchanged]""""
+      else
+        s"'${Server.escapeHtml(Server.escapeJsString(d.default.getOrElse("")))}'"
+    val history = if (d.inHistory) "__history" else ""
+    s"""data-fh-url:$name$history="['$urlParam', $$$committedSignal, $unchanged]""""
   }
 
 object VarKey:
@@ -51,7 +57,8 @@ object VarKey:
   val ParamPrefix: String = "v."
   val SignalPrefix: String = "_var_"
 
-  /** `v.<declarer>.<name>`. Untrusted: the caller narrows it to declarations.
+  /** [[VarKey.urlParam]]'s spellings. Untrusted: the caller narrows it to
+    * declarations.
     */
   def fromParam(key: String): Option[VarKey] =
     Option
@@ -60,6 +67,8 @@ object VarKey:
         _.split('.').toList match {
           case node :: name :: Nil if node.nonEmpty && name.nonEmpty =>
             Some(VarKey(NodeId.derived(node), name))
+          case name :: Nil if name.nonEmpty =>
+            Some(VarKey(Dashboard.PageRootId, name))
           case _ => None
         }
       }
@@ -70,7 +79,7 @@ object VarKey:
       key.committedSignal -> Json.fromString(value)
     }*)
 
-/** Who sees which node variable, beside [[SurfaceGraph]] and [[MemberGraph]]:
+/** Who sees which node variable, beside [[PickGraph]] and [[MemberGraph]]:
   * scopes, a viewer's environment, and what a write reaches (ADR 0033).
   * `Renderer` renders with what it says and holds the write's check
   * ([[Renderer.refusals]]), which needs the fetches' parse.
@@ -80,6 +89,9 @@ object VarKey:
   *   member included under its own id.
   * @param panelsSelected
   *   each pick over a variable, by the variable deciding it.
+  * @param viewerReads
+  *   each pick computing over variables (and state), and each set whose guards
+  *   or order read them, by the variables it reads.
   * @param readsAt
   *   the variables a node reads, by its fetches or its slots, a member's whole
   *   subtree included.
@@ -87,6 +99,7 @@ object VarKey:
 private[runtime] final class VarGraph(
     scopes: Map[NodeId, Map[String, Dashboard.InScope]],
     panelsSelected: Map[NodeId, String],
+    viewerReads: Map[NodeId, Set[String]],
     readsAt: NodeId => Set[String]
 ):
 
@@ -95,8 +108,10 @@ private[runtime] final class VarGraph(
       VarKey(in.declarer, name) -> in.declaration
     }.toMap
 
-  /** Every declaration, with the value it holds before anyone chooses. */
-  val defaults: Map[VarKey, String] =
+  /** Every declaration, with the value it holds before anyone chooses (`None`:
+    * no value).
+    */
+  val defaults: Map[VarKey, Option[String]] =
     declarations.view.mapValues(_.default).toMap
 
   /** The declarations a session may open elsewhere. */
@@ -109,11 +124,16 @@ private[runtime] final class VarGraph(
   val mirroredInitials: Set[VarKey] =
     initialTransforms.keySet.filter(declarations(_).inUrl)
 
+  /** The declarations a URL names, which Back and Forward move. */
+  val inUrl: Set[VarKey] = declarations.keySet.filter(declarations(_).inUrl)
+
   /** Total over declarations, so a control never shows the declared value over
-    * a choice.
+    * a choice. No value is `''`, which no value a viewer can choose spells.
     */
   def committed(chosen: Map[VarKey, String]): Map[VarKey, String] =
-    defaults.map((key, default) => key -> chosen.getOrElse(key, default))
+    defaults.map((key, default) =>
+      key -> chosen.get(key).orElse(default).getOrElse("")
+    )
 
   // Every node under one declarer chain sees the same scope, so a page has a
   // handful of distinct ones however many nodes it has.
@@ -134,12 +154,18 @@ private[runtime] final class VarGraph(
   def env(chosen: Map[VarKey, String]): VarEnv =
     VarGraph.SharedEnv(
       scopeIndex,
-      distinctScopes.map(_.map { case (name, in) =>
-        name -> chosen.getOrElse(
-          VarKey(in.declarer, name),
-          in.declaration.default
-        )
-      })
+      distinctScopes.map { scope =>
+        // A builder, not `flatMap`: an `Option` per entry cost `env` 18%.
+        val held = Map.newBuilder[String, String]
+        scope.foreach { (name, in) =>
+          val v = chosen.getOrElse(
+            VarKey(in.declarer, name),
+            in.declaration.default.orNull
+          )
+          if v != null then held += name -> v
+        }
+        held.result()
+      }
     )
 
   /** Every node with a variable in scope, each set member's included. */
@@ -158,19 +184,30 @@ private[runtime] final class VarGraph(
         id
     }
 
-  /** The panels a write moves, swapped as a tab press is. A reader as much as a
-    * fetch is, so a write reaching one is not refused for lacking a fetch.
+  private def declaredAt(gid: NodeId, key: VarKey): Boolean =
+    scopes
+      .get(gid)
+      .flatMap(_.get(key.name))
+      .exists(_.declarer == key.declarer)
+
+  /** The panels a plain-variable write selects, whose every value must have a
+    * case ([[Renderer.refusals]]).
     */
   def panelsSelectedBy(key: VarKey): List[NodeId] =
     panelsSelected.toList.sortBy(_._1).collect {
-      case (gid, name)
-          if name == key.name &&
-            scopes
-              .get(gid)
-              .flatMap(_.get(name))
-              .exists(_.declarer == key.declarer) =>
-        gid
+      case (gid, name) if name == key.name && declaredAt(gid, key) => gid
     }
+
+  /** The hosts a write moves, planned as a tab press is: the panels it selects,
+    * the picks computing over it and the sets whose guards or order read it. A
+    * reader as much as a fetch is, so a write reaching one is not refused for
+    * lacking a fetch.
+    */
+  def picksDecidedBy(key: VarKey): List[NodeId] =
+    (panelsSelectedBy(key) ++
+      viewerReads.toList.sortBy(_._1).collect {
+        case (gid, names) if names(key.name) && declaredAt(gid, key) => gid
+      }).distinct
 
 private[runtime] object VarGraph {
 

@@ -17,9 +17,8 @@ local lamp: hass.LightEntity = new {
 }
 
 local function wheelIn(t: Any): wheelMod.ColourWheel? =
-  if (t is tapMod.OpenSurface)
-    let (popup = t.inlineSurfaces["self"].content)
-      popup.children.toList().first as wheelMod.ColourWheel
+  if (t is tapMod.SetVar && !t.carries.isEmpty)
+    t.carries.first.children.toList().first as wheelMod.ColourWheel
   else null
 
 facts {
@@ -27,22 +26,22 @@ facts {
     local w = wheelMod.colourWheel(lamp)
     (w.slotsByName["hue"].value as slotMod.Reading).steps.toList().last.src.contains("attr[?'hs_color']")
     // The server's reading paints nothing itself: the knob shows the client's
-    // copy, which the drag moves and a refusal, a dead stream, a cancelled
-    // pointer and a mount put back to the light's.
+    // copy, which the drag moves and a refusal, a cancelled pointer and a mount
+    // put back to the light's. A dead stream is the banner's alone.
     w.slotsByName["hue"].signal == slotMod.asHandler
     // The knob is the template; the wheel itself, which takes the pointer, the root.
     local knob = w.cardDef.template
     local root = w.cardDef.attrs
     knob.contains(#"data-style:--fh-h="$_{{id}}__h""#)
     knob.contains("data-on-signal-patch-filter=\"{include:/^\(tapMod.errorSig)$/}\"")
-    root.contains("data-effect=\"$_sse > 0 && (")
+    !root.contains("$_sse") && !knob.contains("$_sse")
     root.contains("data-on:pointercancel=")
     knob.contains("data-init=")
     // What sets that error: the guard's mechanism, on the element that posts.
     root.contains(tapMod.guardMechanism) && w.slotsByName["busy"].value == true
     w.declared["tap"].service == "light/turn_on"
     w.declared["tap"].data.keys == Set("hs_color")
-    root.contains("{payload: {conn: $conn, ui_popups: $ui_popups, posted: {'hs': $_{{id}}__hs}, seen: {{{tap.seen}}} } }")
+    root.contains("{retryMaxCount: 0, payload: {conn: $conn, posted: {'hs': $_{{id}}__hs}, seen: {{{tap.seen}}} } }")
     // A light with no colour mode has no wheel.
     module.catch(() -> wheelMod.colourWheel(new hass.LightEntity { entity_id = "light.dim" }).slots)
       .contains("colour != null")

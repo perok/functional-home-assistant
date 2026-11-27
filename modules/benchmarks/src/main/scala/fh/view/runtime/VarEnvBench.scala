@@ -76,15 +76,15 @@ class VarEnvBench {
         .resume(
           renderer,
           cache,
-          FragmentLog("bench").touched(FetchBench.PlainId, rot),
+          renderer.index
+            .ixsOf(FetchBench.PlainId)
+            .foldLeft(FragmentLog("bench"))(_.touched(_, rot)),
           Map.empty,
           st,
           _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.of(Map.empty)),
           renderer.vars.env(Map(window -> "7d")),
-          rot,
-          Set.empty,
-          Selections.none
+          rot
         )
         .unsafeRunSync()
     )
@@ -122,7 +122,7 @@ object VarEnvBench {
           List.tabulate(4)(i => chart(s"sensor.main_$i")))*
       ),
       id = Some("root"),
-      vars = List(Dashboard.Declaration("window", "24h"))
+      vars = List(Dashboard.Declaration("window", Some("24h")))
     )
   )
 }

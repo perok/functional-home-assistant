@@ -35,6 +35,7 @@ import fh.view.auth.{
   SessionStore
 }
 import api.homeassistant.ws.domain.HaUser
+import fh.view.history.ChartRenderer
 import fh.view.model.Dashboard
 import fs2.Stream
 import fs2.concurrent.{Signal, SignallingRef}
@@ -59,6 +60,8 @@ import org.http4s.server.middleware.Metrics as ServerMetrics
 import org.typelevel.log4cats.{LoggerFactory, SelfAwareStructuredLogger}
 import org.typelevel.otel4s.trace.Tracer
 import fs2.io.file.{Watcher, Path}
+
+import java.time.Instant
 
 /** The runtime phase: evaluates the workspace's `site.pkl` in memory into a
   * slug -> dashboard map (ADR 0021) and serves them live.
@@ -199,6 +202,7 @@ object ServerApp extends IOApp {
           meters = meters,
           sourceWatcher = SourceWatcher.default,
           sessionWindows = Server.SessionWindows.default,
+          chart = ChartRenderer.lazily(loggerFactory),
           minifier = minifier
         )
       )
@@ -243,8 +247,15 @@ object ServerApp extends IOApp {
       sourceWatcher: Resource[IO, SourceWatcher],
       // Not an edge: time, which a test shortens to watch a reap.
       sessionWindows: Server.SessionWindows,
+      // Not an edge: a JavaScript engine, which a test JVM booting hundreds of
+      // servers shares rather than starting one per server.
+      chart: Resource[IO, IO[ChartRenderer]],
       // Not an edge either: off where a test does not ask for it.
-      minifier: Minifier = Minifier.none
+      minifier: Minifier = Minifier.none,
+      // The wall clock a chart's window ends at; a test that compares two
+      // renders of one chart stops it, or a bucket boundary between them moves
+      // the axis.
+      historyClock: IO[Instant] = IO.realTimeInstant
   )
 
   /** Both act as a user, never as the machine-token feed nor at its address
@@ -431,7 +442,9 @@ object ServerApp extends IOApp {
         loggerFactory = loggerFactory,
         meters = meters,
         windows = edges.sessionWindows,
-        minifier = edges.minifier
+        chart = edges.chart,
+        minifier = edges.minifier,
+        historyClock = edges.historyClock
       )
       editor = new EditorRoutes(
         workspace,
@@ -575,12 +588,9 @@ object ServerApp extends IOApp {
               )
           }
           .flatTap { prepared =>
-            prepared.built.traverse_ { case (slug, renderer) =>
-              renderer.warnings.traverse_(w => log.warn(s"'$slug': $w"))
-            } *>
-              prepared.failed.traverse_ { case (slug, message) =>
-                log.error(s"Dashboard '$slug' failed to build: $message")
-              }
+            prepared.failed.traverse_ { case (slug, message) =>
+              log.error(s"Dashboard '$slug' failed to build: $message")
+            }
           }
     }
   }

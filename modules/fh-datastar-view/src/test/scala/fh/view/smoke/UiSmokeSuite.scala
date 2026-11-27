@@ -139,10 +139,13 @@ class UiSmokeSuite extends SmokeSuite {
     }
   }
 
-  test("tabs: a tap with nothing left to answer it ends when the stream does") {
-    // A down stream says no commit is coming, since the commit rides it. The
-    // POST is aborted, so no status and no `error` event. The stream is also
-    // cut server-side (`forgetConnections`): a `page.route` only meets new
+  test("tabs: a dead stream shows the banner and leaves a pending tap asked") {
+    // A down stream changes nothing but the banner (ADR 0025): the ask stays
+    // until a commit, a refusal or an error answers it. The banner is the sync
+    // point: it reads the same `_sse` the old sweep did, so by the time it shows
+    // a sweep would have run. The POST is held, never answered: an aborted one
+    // fails the tap at once (ADR 0024), which is not what this asks. The stream
+    // is cut server-side (`forgetConnections`): a `page.route` only meets new
     // requests, so the open stream would survive and the banner would assert a
     // healthy connection. The blocked reconnect keeps it failed.
     withPage(scene) { (page, ts) =>
@@ -155,10 +158,11 @@ class UiSmokeSuite extends SmokeSuite {
       for {
         _ <- ts.awaitLive()
         _ <- IO.blocking(page.route("**/sse/**", route => route.abort()))
-        // Wait for the POST to be issued. An aborted request has no response,
-        // and Playwright's Java client dispatches callbacks only while this
-        // thread is in one of its calls, so polling a buffer from `IO` waits
-        // forever.
+        // The later route wins; a handler that never answers holds the POST.
+        _ <- IO.blocking(page.route("**/sse/call/**", _ => ()))
+        // Wait for the POST to be issued. A held request has no response, and
+        // Playwright's Java client dispatches callbacks only while this thread
+        // is in one of its calls, so polling a buffer from `IO` waits forever.
         _ <- IO.blocking(
           page.waitForRequest("**/sse/call/**", () => climateTab.click())
         )
@@ -168,7 +172,7 @@ class UiSmokeSuite extends SmokeSuite {
         _ <- IO.blocking(
           assertThat(page.locator(".fh-offline-sse")).isVisible()
         )
-        _ <- IO.blocking(assertThat(climateTab).not().hasClass(active))
+        _ <- IO.blocking(assertThat(climateTab).hasClass(active))
         _ <- IO.blocking(assertThat(panel).containsText("Living Room"))
       } yield ()
     }
@@ -216,7 +220,7 @@ class UiSmokeSuite extends SmokeSuite {
         forgotten <- ts.forgetConnections
         _ <- ts.awaitNoConnections
         _ <- IO.blocking(
-          page.waitForResponse("**/sse/surface/**", () => kitchenCard.click())
+          page.waitForResponse("**/sse/call/**", () => kitchenCard.click())
         )
         _ <- IO.blocking(assertThat(popup).hasCount(0))
         _ <- IO.blocking(
@@ -250,13 +254,13 @@ class UiSmokeSuite extends SmokeSuite {
       for {
         _ <- IO.blocking(kitchenCard.click())
         _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
-        // The mirror wrote ?ui.popups=<id>, so the reload restores it the way a
+        // The mirror wrote ?v.popups=<id>, so the reload restores it the way a
         // tab selection is restored.
         _ <- IO.blocking(page.reload())
         _ <- IO.blocking(assertThat(popup).containsText("Kitchen Detail"))
-        // Baked into the chrome's popup hole, so there is no
+        // Rendered into the page card's popup host, so there is no
         // dialog-a-moment-later flash.
-        html <- ts.page("?ui.popups=detail")
+        html <- ts.page("?v.popups=detail")
       } yield assert(html.contains("Kitchen Detail"), clue = html)
     }
   }

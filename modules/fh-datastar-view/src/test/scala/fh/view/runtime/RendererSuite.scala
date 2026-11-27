@@ -5,6 +5,7 @@ import fh.view.testkit.Sets
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
+import fh.view.testkit.TestPage
 import fh.view.testkit.Conds
 import fh.view.testkit.{FixtureEntity, PklFixture}
 
@@ -17,6 +18,7 @@ import fh.view.model.{
   CardDef,
   Cell,
   Dashboard,
+  Ix,
   LayoutNode,
   NodeId,
   Op,
@@ -27,7 +29,6 @@ import fh.view.model.{
   Value,
   ValueExpr,
   TemplateSlot,
-  Surface,
   Theme
 }
 import fh.view.testkit.DashboardBuilders.{
@@ -44,9 +45,8 @@ import io.circe.Json
 class RendererSuite extends munit.FunSuite {
 
   extension (r: Renderer)
-    // The main page's: a root of `""`.
     private def affectedSets(changes: List[StateChange]): List[SetId] =
-      r.members.affectedSetsWithin(changes, _.isEmpty)
+      r.members.affectedSetsWithin(changes, _ == r.picks.pageRoot)
     private def affectedSetIds(change: StateChange): List[String] =
       r.affectedSets(List(change))
 
@@ -81,14 +81,15 @@ class RendererSuite extends munit.FunSuite {
       |""".stripMargin
   )
 
-  /** The viewer's values at the declared tab, which the shipped bar's buttons
-    * read outside the pick.
-    */
+  /** The viewer's values with `tab` chosen on the shipped bar, `c`'s. */
+  private def tabbedAt(r: Renderer, tab: String): VarEnv =
+    choosing(r, "c", "tab", tab)
+
   extension (r: Renderer)
     private def renderTabbed(
         states: Map[String, EntityState],
-        selections: Selections
-    ): String = r.renderBody(states, selections, r.vars.env(Map.empty))
+        tab: String
+    ): String = r.renderBody(states, vars = tabbedAt(r, tab))
 
   private def renderer(layout: LayoutNode): Renderer = {
     val d = Dashboard(cards, layout)
@@ -171,7 +172,7 @@ class RendererSuite extends munit.FunSuite {
       .renderNodeById(
         "c",
         Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
       .get
     assert(
@@ -207,7 +208,7 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c",
         Shared.of(Map("sensor.t" -> st("sensor.t", "21.46"))),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get
         .contains("<span>21.5</span>")
     )
@@ -216,7 +217,7 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c",
         Shared.of(Map("sensor.t" -> st("sensor.t", "unavailable"))),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get
         .contains("<span>unavailable</span>")
     )
@@ -246,7 +247,7 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c",
         Shared.of(Map("sensor.t" -> st("sensor.t", "unavailable"))),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get
         .contains("<span>unavailable!</span>"),
       clue = "transform should run, not be bypassed"
@@ -275,7 +276,7 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c",
         Shared.of(Map("switch.x" -> st("switch.x", state))),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get
     assert(shown("off").contains("<b>OFF</b>"), clue = shown("off"))
     EntityState.unavailableStates.foreach { s =>
@@ -310,7 +311,7 @@ class RendererSuite extends munit.FunSuite {
             "light.b" -> st("light.b", "on", "brightness" -> Json.fromInt(b))
           )
         ),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get
     assert(shown(10, 200).contains("<b>light.b!</b>"), clue = shown(10, 200))
     assert(shown(200, 10).contains("<b>light.a!</b>"), clue = shown(200, 10))
@@ -342,7 +343,7 @@ class RendererSuite extends munit.FunSuite {
         .renderNodeById(
           "c",
           Shared.of(Map.empty),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
         .get
         .contains("""href="scene/turn_on""""),
@@ -353,7 +354,7 @@ class RendererSuite extends munit.FunSuite {
         .renderNodeById(
           "c",
           Shared.of(Map.empty),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
         .get
         .contains("""href="homeassistant/toggle""""),
@@ -393,7 +394,7 @@ class RendererSuite extends munit.FunSuite {
         .renderNodeById(
           "c",
           Shared.of(Map("sensor.t" -> st("sensor.t", "one"))),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
         .get
     val b =
@@ -401,7 +402,7 @@ class RendererSuite extends munit.FunSuite {
         .renderNodeById(
           "c",
           Shared.of(Map("sensor.t" -> st("sensor.t", "two"))),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
         .get
     assert(a.contains("""href="one""""), clue = a)
@@ -413,7 +414,7 @@ class RendererSuite extends munit.FunSuite {
         .renderNodeById(
           "c",
           Shared.of(Map("sensor.t" -> st("sensor.t", "one"))),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
         .get
     val c2 =
@@ -421,7 +422,7 @@ class RendererSuite extends munit.FunSuite {
         .renderNodeById(
           "c",
           Shared.of(Map("sensor.t" -> st("sensor.t", "two"))),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
         .get
     assert(c1.contains("""href="one""""), clue = c1)
@@ -433,7 +434,7 @@ class RendererSuite extends munit.FunSuite {
         .renderNodeById(
           "c",
           Shared.of(Map("sensor.t" -> st("sensor.t", "one"))),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
         .get
     val d2 =
@@ -441,7 +442,7 @@ class RendererSuite extends munit.FunSuite {
         .renderNodeById(
           "c",
           Shared.of(Map("sensor.t" -> st("sensor.t", "two"))),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
         .get
     assert(d1.contains("""href="one""""), clue = d1)
@@ -459,7 +460,7 @@ class RendererSuite extends munit.FunSuite {
       .renderNodeById(
         "c",
         Shared.of(Map.empty),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
       .get
     assertEquals(
@@ -479,11 +480,10 @@ class RendererSuite extends munit.FunSuite {
       )
     val r = renderer(layout)
     val page = r.renderPage(Map.empty)
-    // With no theme.chrome, renderPage falls back to the minimal `#dashboard`
-    // frame, with no popup host.
+    // With no page card, the root renders with no frame.
     assertEquals(
       page,
-      """<style id="fh-theme"></style><main class="container" id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div></div></div></main>"""
+      """<style id="fh-theme"></style><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><div class="fh-row"><div class="fh-cell" id="c_0_0"><button>Go</button></div></div></div></div></div>"""
     )
     // A container is structure: addressable as an element for remove/insert,
     // but not rendered by id, since its bytes hold its children.
@@ -491,7 +491,7 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c_0",
         Shared.of(Map.empty),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       None
     )
@@ -499,7 +499,7 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c_0_0",
         Shared.of(Map.empty),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get,
       """<div class="fh-cell" id="c_0_0"><button>Go</button></div>"""
     )
@@ -529,7 +529,7 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c",
         Shared.of(Map.empty),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get,
       """<a class="tab hero" id="c" data-tab="c"><span>42</span></a>"""
     )
@@ -601,7 +601,7 @@ class RendererSuite extends munit.FunSuite {
         .renderNodeById(
           "c",
           Shared.of(Map.empty),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
         .get,
       """<div class="fh-cell fh-cols-3 hero" id="c"><button>Go</button></div>"""
@@ -634,107 +634,20 @@ class RendererSuite extends munit.FunSuite {
     )
   }
 
-  test(
-    "renderPage executes the theme's chrome around renderBody, popup host included"
-  ) {
-    val d = Dashboard(
-      cards,
-      col(LayoutNode.Component("btn", Slots.values(Map("label" -> lit("Go"))))),
-      theme = Theme(chrome =
-        """<main id="dashboard">{{{body}}}</main><dialog id="popups"><div id="popups-body"></div></dialog>"""
-      )
+  test("the page card frames the body and the popup host in its template") {
+    val d = TestPage.around(
+      Dashboard(
+        cards,
+        col(
+          LayoutNode.Component("btn", Slots.values(Map("label" -> lit("Go"))))
+        )
+      ),
+      """<main class="frame">{{{body}}}</main><aside>{{{popups}}}</aside>"""
     )
     val page = Renderer.create(d).renderPage(Map.empty)
     assertEquals(
       page,
-      """<style id="fh-theme"></style><main id="dashboard"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><button>Go</button></div></div></div></main><dialog id="popups"><div id="popups-body"></div></dialog>"""
-    )
-  }
-
-  test("renderPage bakes a restored popup into the chrome's popup hole") {
-    val d = Dashboard(
-      cards,
-      col(LayoutNode.Component("btn", Slots.values(Map("label" -> lit("Go"))))),
-      surfaces = Map(
-        "det" -> Surface(
-          LayoutNode.Component("btn", Slots.values(Map("label" -> lit("D"))))
-        )
-      ),
-      theme = Theme(chrome =
-        """<main id="dashboard">{{{body}}}</main><div id="popups">{{{popups}}}</div>"""
-      )
-    )
-    val r = Renderer.create(d)
-    // Baked equals what the connect would patch in, so the patch that follows
-    // is a no-op morph rather than a second paint.
-    val baked = r.renderPage(Map.empty, popupOpen("det"))
-    assert(
-      baked.contains(
-        s"""<div id="popups">${r
-            .renderSurfaceTraced(
-              "det",
-              Shared.of(Map.empty),
-              Viewing(Selections.none, FetchSnapshot.empty)
-            )
-            .map(_.html)
-            .get}</div>"""
-      ),
-      clue = baked
-    )
-    assert(r.renderPage(Map.empty).contains("""<div id="popups"></div>"""))
-    assert(
-      r.renderPage(Map.empty, r.surfaces.selections(Some("nope"), Map.empty))
-        .contains("""<div id="popups"></div>""")
-    )
-  }
-
-  test("a popup surface with nowhere to host is a warning, not an error") {
-    // Both fail silently in the browser (a tap that does nothing, a dialog that
-    // pops in late), so build time is the only place to attribute them.
-    val popup = Map(
-      "det" -> Surface(
-        LayoutNode.Component("btn", Slots.values(Map("label" -> lit("D"))))
-      )
-    )
-    val body =
-      col(LayoutNode.Component("btn", Slots.values(Map("label" -> lit("Go")))))
-    def warningsOf(chrome: String): List[String] =
-      Renderer
-        .create(
-          Dashboard(
-            cards,
-            body,
-            surfaces = popup,
-            theme = Theme(chrome = chrome)
-          )
-        )
-        .warnings
-
-    // The fallback frame has no host either.
-    assert(clue(warningsOf("")).exists(_.contains("never be shown")))
-    assert(
-      clue(warningsOf("""<main id="dashboard">{{{body}}}</main>"""))
-        .exists(_.contains("det"))
-    )
-    // A host but no hole works, and flashes on a refresh.
-    assert(
-      clue(
-        warningsOf(
-          """<main id="dashboard">{{{body}}}</main><div id="popups"></div>"""
-        )
-      ).exists(_.contains("{{{popups}}}"))
-    )
-    assertEquals(
-      warningsOf(
-        """<main id="dashboard">{{{body}}}</main><div id="popups">{{{popups}}}</div>"""
-      ),
-      Nil
-    )
-    assertEquals(
-      Renderer
-        .create(Dashboard(cards, body, theme = Theme(chrome = "")))
-        .warnings,
-      Nil
+      """<style id="fh-theme"></style><div class="" id="root"><main class="frame"><div class="fh-cell" id="c"><div class="fh-col"><div class="fh-cell" id="c_0"><button>Go</button></div></div></div></main><aside><div class="" id="popups"></div></aside></div>"""
     )
   }
 
@@ -764,7 +677,7 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c",
         Shared.of(Map.empty),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get,
       wrap("""<i>0</i>""")
     )
@@ -773,7 +686,7 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c",
         Shared.of(off),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get,
       wrap("""<i>0</i>""")
     )
@@ -783,7 +696,7 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c",
         Shared.of(on),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get,
       wrap("""<i>200</i>""")
     )
@@ -979,7 +892,7 @@ class RendererSuite extends munit.FunSuite {
       .renderNodeById(
         "c",
         Shared.of(Map.empty),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
       .get
     assert(html.contains("<button>Hi</button>"), clue = html)
@@ -1027,9 +940,9 @@ class RendererSuite extends munit.FunSuite {
     )
     val page = Renderer.create(d).renderPage(Map.empty)
     assert(
-      // Outside #dashboard, so a body repaint need not re-send it (ADR 0011).
+      // Outside the root, so a repaint need not re-send it (ADR 0011).
       page.startsWith(
-        """<style id="fh-theme">:root{color-scheme:light dark;--accent-color:#000;--primary-color:#bada55;}.card{color:red}</style><main class="container" id="dashboard">"""
+        """<style id="fh-theme">:root{color-scheme:light dark;--accent-color:#000;--primary-color:#bada55;}.card{color:red}</style><div class="fh-cell" id="c">"""
       ),
       clue = page
     )
@@ -1106,69 +1019,6 @@ class RendererSuite extends munit.FunSuite {
   }
 
   test(
-    "renderSurface returns bare content — no per-surface chrome (Surface's final 5 fields)"
-  ) {
-    // Surfaces are chrome-less: the frame a surface swaps into lives in
-    // theme.chrome or the tabs card's panel host.
-    val d = Dashboard(
-      cards,
-      col(),
-      surfaces = Map(
-        "detail" -> Surface(
-          LayoutNode.Component(
-            "card",
-            slots = Slots.values(
-              Map(
-                "state" -> TemplateSlot(
-                  ValueExpr(Value.Entity(Some("sensor.t")))
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-    val r = Renderer.create(d)
-    val states = Map("sensor.t" -> EntityState("sensor.t", "42", Map.empty))
-    val html = r
-      .renderSurfaceTraced(
-        "detail",
-        Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
-      )
-      .map(_.html)
-      .get
-    assert(!html.contains("<dialog"), clue = html)
-    assert(!html.contains("surface/close"), clue = html)
-    assert(html.contains("<span>42</span>"), clue = html)
-    assert(html.contains("""id="s_detail__c""""), clue = html)
-    assert(
-      r.renderNodeById(
-        "s_detail__c",
-        Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
-      ).get
-        .contains("<span>42</span>")
-    )
-    assert(
-      r.componentsFor("sensor.t").isEmpty,
-      clue = r.componentsFor("sensor.t")
-    )
-    assertEquals(
-      r.surfaceComponentsFor("detail", "sensor.t"),
-      Set("s_detail__c")
-    )
-    assertEquals(
-      r.renderSurfaceTraced(
-        "nope",
-        Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
-      ).map(_.html),
-      None
-    )
-  }
-
-  test(
     "tabs: the chosen panel is rendered into the tabs card; a panel renders without dialog chrome"
   ) {
     val rr = Renderer.create(tabsDashboard)
@@ -1176,11 +1026,13 @@ class RendererSuite extends munit.FunSuite {
       "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
-    val first = picking("c_panel_0" -> 0)
-    assertEquals(rr.surfaces.selectedSurfaces(first), Set("c_panel_0_0"))
+    assertEquals(
+      rr.picks.chosen(Shared.of(states).viewing(tabbedAt(rr, "0"))),
+      rr.picks.openOf(Set("c_panel_0_0"))
+    )
 
-    // Surface-namespaced ids, so a later switch-back is byte-identical.
-    val body = rr.renderTabbed(states, first)
+    // Each case keeps its ids, so a later switch-back is byte-identical.
+    val body = rr.renderTabbed(states, "0")
     assert(
       body.contains("""<div class="fh-tab-panel" id="c_panel_0">"""),
       clue = body
@@ -1190,12 +1042,13 @@ class RendererSuite extends munit.FunSuite {
     assert(!body.contains("<span>BB</span>"), clue = body)
 
     val panelB = rr
-      .renderShownTraced(
-        "c_panel_0_1",
+      .renderCaseTraced(
+        "c_panel_0",
+        1,
         Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
-      .map(_.html)
+      .map(_._2.html)
       .get
     assert(
       panelB.startsWith("""<div class="fh-cell fh-row" id="c_panel_0_1">"""),
@@ -1206,28 +1059,33 @@ class RendererSuite extends munit.FunSuite {
     assert(panelB.contains("<span>BB</span>"), clue = panelB)
 
     assertEquals(
-      rr.surfaceComponentsFor("c_panel_0_0", "sensor.a"),
+      rr.containerComponentsFor(
+        rr.picks.containersSpelled("c_panel_0_0").head,
+        "sensor.a"
+      ),
       Set("c_panel_0_0_0")
     )
     assertEquals(
-      rr.surfaceComponentsFor("c_panel_0_1", "sensor.b"),
+      rr.containerComponentsFor(
+        rr.picks.containersSpelled("c_panel_0_1").head,
+        "sensor.b"
+      ),
       Set("c_panel_0_1_0")
     )
   }
 
   test(
-    "selectedSurfaces picks the chosen member; none chosen is none"
+    "chosen picks the chosen member; none chosen is none"
   ) {
     val rr = Renderer.create(tabsDashboard)
     assertEquals(
-      rr.surfaces.selectedSurfaces(picking("c_panel_0" -> 1)),
-      Set("c_panel_0_1")
+      rr.picks.chosen(Shared.of(Map.empty).viewing(tabbedAt(rr, "1"))),
+      rr.picks.openOf(Set("c_panel_0_1"))
     )
-    // A session's selections are decided from its variables, which every
-    // declaration fills; no entry shows nothing.
-    assertEquals(
-      rr.surfaces.selectedSurfaces(Selections.none),
-      Set.empty[String]
+    // A session's values are filled by every declaration; no entry shows
+    // nothing.
+    assert(
+      rr.picks.chosen(Shared.of(Map.empty).viewing(Map.empty)).isEmpty
     )
   }
 
@@ -1239,7 +1097,7 @@ class RendererSuite extends munit.FunSuite {
       "sensor.a" -> EntityState("sensor.a", "AA", Map.empty),
       "sensor.b" -> EntityState("sensor.b", "BB", Map.empty)
     )
-    val body = rr.renderTabbed(states, picking("c_panel_0" -> 1))
+    val body = rr.renderTabbed(states, "1")
     assert(
       body.contains("""<div class="fh-tab-panel" id="c_panel_0">"""),
       clue = body
@@ -1249,14 +1107,22 @@ class RendererSuite extends munit.FunSuite {
     assert(!body.contains("<span>AA</span>"), clue = body)
   }
 
-  test("decideByViewer reads the chosen member, and none when none") {
-    // Deciding a variable's value is `SurfaceGraph.selections`'s.
+  test("decideByVariable reads the chosen member, and none when none") {
     val rr = Renderer.create(tabsDashboard)
     assertEquals(
-      rr.surfaces.decideByViewer("c_panel_0", picking("c_panel_0" -> 1)),
+      rr.picks.decideByVariable(
+        "c_panel_0",
+        Shared.of(Map.empty).viewing(tabbedAt(rr, "1"))
+      ),
       Some(1)
     )
-    assertEquals(rr.surfaces.decideByViewer("c_panel_0", Selections.none), None)
+    assertEquals(
+      rr.picks.decideByVariable(
+        "c_panel_0",
+        Shared.of(Map.empty).viewing(Map.empty)
+      ),
+      None
+    )
   }
 
   test(
@@ -1331,16 +1197,16 @@ class RendererSuite extends munit.FunSuite {
     * object; `core/node.pkl` names the default slot before it emits.
     *
     * Asserted through `Dashboard`'s own decoder, the path a real
-    * `dashboard.json` takes. A bare array must fail: while both were legal, the
-    * inline-surface hoist read only the array one and silently hoisted nothing
-    * below a slot-keyed node.
+    * `dashboard.json` takes. A bare array must fail: while both were legal, a
+    * walk reading only the array one silently missed everything below a
+    * slot-keyed node.
     */
   test("nodes slots decode from a slot object, and from nothing else") {
     def decode(slotsField: String) = io.circe.parser
       .decode[Dashboard](
         s"""{"cards":{"col":{"template":"<div>{{{children}}}</div>"},
            | "card":{"template":"<span>{{state}}</span>","slots":["state"]}},
-           | "card":{"kind":"Component","card":"col"$slotsField}}""".stripMargin
+           | "root":{"kind":"Component","card":"col"$slotsField}}""".stripMargin
       )
 
     val leaf =
@@ -1444,8 +1310,8 @@ class RendererSuite extends munit.FunSuite {
     assert(html.contains("""id="c_0""""), clue = html)
   }
 
-  /** An authored id need not avoid looking like another id's child: ancestry
-    * comes from `NodeAncestry`, not the id string.
+  /** An authored id need not avoid looking like another id's child: containment
+    * comes from the tree index, not the id string.
     */
   test("validate: an authored id must be a plain token, used once") {
     def two(a: String, b: String) = Dashboard(
@@ -1469,7 +1335,7 @@ class RendererSuite extends munit.FunSuite {
     * answers this wrongly, and the symptom is a fragment silently dropped from
     * one client's record.
     */
-  test("ancestry: a sibling whose id looks like a child is not one") {
+  test("containment: a sibling whose id looks like a child is not one") {
     val d = Dashboard(
       cards,
       col(
@@ -1487,15 +1353,19 @@ class RendererSuite extends munit.FunSuite {
       )
     )
     assertEquals(d.validate(), Nil)
-    val a = Renderer.create(d).ancestry
+    val index = Renderer.create(d).index
+    def ix(id: NodeId): Ix = index.ixsOf(id).head
 
-    assert(a.under("detail_0", Set[NodeId]("detail")), clue = "real child")
+    assert(index.contains(ix("detail"), ix("detail_0")), clue = "real child")
     // `startsWith("detail_")` would say otherwise.
     assert(
-      !a.under("detail_x", Set[NodeId]("detail")),
+      !index.contains(ix("detail"), ix("detail_x")),
       clue = "a sibling must not be swallowed by its neighbour's name"
     )
-    assertEquals(a.descendantsOf("detail"), Set[NodeId]("detail_0"))
+    assertEquals(
+      index.all.filter(index.contains(ix("detail"), _)).map(index.id).toSet,
+      Set[NodeId]("detail", "detail_0")
+    )
   }
 
   /** A structural card may not bind a live entity, since its patch would carry
@@ -1571,27 +1441,18 @@ class RendererSuite extends munit.FunSuite {
     assertEquals(card("tab2").validate(), Nil)
   }
 
-  test(
-    "validate: a non-empty theme.chrome lacking id=\"dashboard\" is a hard error"
-  ) {
-    val bad = Dashboard(
-      cards,
-      col(),
-      theme = Theme(chrome = """<main>{{{body}}}</main>""")
-    )
-    assert(
-      bad.validate().exists(_.contains("theme.chrome must contain")),
-      clue = bad.validate()
-    )
-
-    val ok = Dashboard(
-      cards,
-      col(),
-      theme = Theme(chrome = """<main id="dashboard">{{{body}}}</main>""")
-    )
-    assertEquals(ok.validate(), Nil)
-
-    assertEquals(Dashboard(cards, col()).validate(), Nil)
+  test("validate: `root` and `popups` are the page card's ids alone") {
+    def named(id: String) =
+      LayoutNode.Component(
+        "btn",
+        Slots.values(Map("label" -> lit("x"))),
+        id = Some(id)
+      )
+    for id <- List("root", "popups") do
+      val errs = Dashboard(cards, col(col(named(id)))).validate()
+      assert(errs.exists(_.contains(s"node id '$id' is reserved")), clue = errs)
+    // Its own are not refused.
+    assertEquals(TestPage.around(Dashboard(cards, col())).validate(), Nil)
   }
 
   test(
@@ -1618,7 +1479,7 @@ class RendererSuite extends munit.FunSuite {
       rr.renderNodeById(
         "c",
         Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       None
     )
@@ -1629,7 +1490,7 @@ class RendererSuite extends munit.FunSuite {
       rr.renderNodeById(
         "c_2",
         Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get
     assertEquals(
       patch,
@@ -1638,11 +1499,11 @@ class RendererSuite extends munit.FunSuite {
 
     // Which case shows lives on the document path alone, where the
     // selection still decides.
-    val dflt = rr.renderTabbed(states, picking("c_panel_0" -> 0))
+    val dflt = rr.renderTabbed(states, "0")
     assert(dflt.contains("<span>AA</span>"), clue = dflt)
     assert(!dflt.contains("<span>BB</span>"), clue = dflt)
 
-    val sel = rr.renderTabbed(states, picking("c_panel_0" -> 1))
+    val sel = rr.renderTabbed(states, "1")
     assert(sel.contains("<span>BB</span>"), clue = sel)
     assert(!sel.contains("<span>AA</span>"), clue = sel)
   }
@@ -1749,11 +1610,11 @@ class RendererSuite extends munit.FunSuite {
   ) {
     val r = Renderer.create(ifDashboard())
     assertEquals(
-      r.surfaces.decideByState("c", Shared.of(armedStates("armed"))),
+      r.picks.decideByState("c", Shared.of(armedStates("armed"))),
       Some(0)
     )
     assertEquals(
-      r.surfaces.decideByState("c", Shared.of(armedStates("disarmed"))),
+      r.picks.decideByState("c", Shared.of(armedStates("disarmed"))),
       Some(1)
     )
   }
@@ -1761,19 +1622,22 @@ class RendererSuite extends munit.FunSuite {
   test("decideByState: no member holds -> None; the host is empty") {
     val r = Renderer.create(ifDashboard(withElse = false))
     val states = armedStates("disarmed")
-    assertEquals(r.surfaces.decideByState("c", Shared.of(states)), None)
+    assertEquals(r.picks.decideByState("c", Shared.of(states)), None)
     // The host still renders, empty, so a branch matching later has its patch
     // target in the DOM. Through the document path: an If is structure, so
     // `renderNodeById` refuses it.
-    assertEquals(
-      r.renderBody(states),
-      """<div class="fh-cell fh-ifhost fh-cols-full" id="c"></div>"""
+    assert(
+      r.renderBody(states)
+        .contains(
+          """<main><div class="fh-cell fh-ifhost fh-cols-full" id="c"></div></main>"""
+        ),
+      clue = r.renderBody(states)
     )
     assertEquals(
       r.renderNodeById(
         "c",
         Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       None
     )
@@ -1795,31 +1659,31 @@ class RendererSuite extends munit.FunSuite {
 
     val anyR = Renderer.create(dash(s"$onSet.any()"))
     assertEquals(
-      anyR.surfaces.decideByState("c", Shared.of(mixed)),
+      anyR.picks.decideByState("c", Shared.of(mixed)),
       Some(0)
     )
     assertEquals(
-      anyR.surfaces.decideByState("c", Shared.of(allOff)),
+      anyR.picks.decideByState("c", Shared.of(allOff)),
       None
     )
 
     val noneR = Renderer.create(dash(s"$onSet.none()"))
     assertEquals(
-      noneR.surfaces.decideByState("c", Shared.of(allOff)),
+      noneR.picks.decideByState("c", Shared.of(allOff)),
       Some(0)
     )
     assertEquals(
-      noneR.surfaces.decideByState("c", Shared.of(mixed)),
+      noneR.picks.decideByState("c", Shared.of(mixed)),
       None
     )
 
     val allR = Renderer.create(dash(s"$onSet.all()"))
     assertEquals(
-      allR.surfaces.decideByState("c", Shared.of(allOn)),
+      allR.picks.decideByState("c", Shared.of(allOn)),
       Some(0)
     )
     assertEquals(
-      allR.surfaces.decideByState("c", Shared.of(mixed)),
+      allR.picks.decideByState("c", Shared.of(mixed)),
       None
     )
 
@@ -1829,17 +1693,17 @@ class RendererSuite extends munit.FunSuite {
       dash("""q.entity(dump.entities.l_a).stateIs("on")""")
     )
     assertEquals(
-      oneR.surfaces.decideByState("c", Shared.of(mixed)),
+      oneR.picks.decideByState("c", Shared.of(mixed)),
       Some(0)
     )
     assertEquals(
-      oneR.surfaces.decideByState("c", Shared.of(allOff)),
+      oneR.picks.decideByState("c", Shared.of(allOff)),
       None
     )
   }
 
   test(
-    "a choice over state shows by condition and never enter selectedSurfaces"
+    "a choice over state shows by condition"
   ) {
     val r = Renderer.create(ifDashboard())
     val bodyArmed = r.renderBody(armedStates("armed"))
@@ -1849,14 +1713,11 @@ class RendererSuite extends munit.FunSuite {
     val bodyElse = r.renderBody(armedStates("disarmed"))
     assert(bodyElse.contains("<span>B</span>"), clue = bodyElse)
     assert(!bodyElse.contains("<span>A</span>"), clue = bodyElse)
-    // State members never seed a session's open set; their liveness is the
-    // shared pass's job.
-    assertEquals(r.surfaces.selectedSurfaces(), Set.empty[String])
-    assertEquals(r.surfaces.statePicks, Set("c"))
-    assertEquals(r.surfaces.varPicks, Set.empty[String])
+    assertEquals(r.picks.statePicks, Set("c"))
+    assertEquals(r.picks.varPicks, Set.empty[String])
     val tabs = Renderer.create(tabsDashboard)
-    assertEquals(tabs.surfaces.varPicks, Set("c_panel_0"))
-    assertEquals(tabs.surfaces.statePicks, Set.empty[String])
+    assertEquals(tabs.picks.varPicks, Set("c_panel_0"))
+    assertEquals(tabs.picks.statePicks, Set.empty[String])
   }
 
   /** Without declaring the region, a template splicing `{{#children}}` reads as
@@ -1911,7 +1772,7 @@ class RendererSuite extends munit.FunSuite {
         .renderNodeById(
           "c",
           Shared.of(states),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         ),
       None
     )
@@ -1921,7 +1782,7 @@ class RendererSuite extends munit.FunSuite {
         .renderNodeById(
           "c_0",
           Shared.of(states),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
         .exists(_.contains("A0"))
     )
@@ -1976,7 +1837,7 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c_head_0",
         Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
     assert(head.exists(_.contains("A0")), clue = head)
     assert(!head.exists(_.contains("m")), clue = head)
@@ -1984,14 +1845,14 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c",
         Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       None
     )
   }
 
-  test("state surfaces are transparent to visibility, user surfaces are not") {
-    // Two chains off the main page, each two surfaces deep:
+  test("state picks are transparent to visibility, variable picks are not") {
+    // Two chains off the main page, each two picks deep:
     //   main -> c_0_panel_0_0 (tab) -> if host -> b0 (state)
     //   main -> c_1_branch_0 (state) -> tabs    -> u0 (tab)
     val d = PklFixture.snippet(
@@ -2005,7 +1866,11 @@ class RendererSuite extends munit.FunSuite {
     )
     val r = Renderer.create(d)
     def shown(id: String, open: Set[String]) =
-      r.surfaces.visibleNode(NodeId.derived(id), open, Shared.of(Map.empty))
+      r.picks.visibleNode(
+        NodeId.derived(id),
+        r.picks.openOf(open),
+        Shared.of(Map.empty)
+      )
 
     // A state case hides nothing, so b0 is shown exactly when the tab above it
     // is open, which its id cannot say.
@@ -2135,7 +2000,7 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c",
         Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       None
     )
@@ -2143,7 +2008,7 @@ class RendererSuite extends munit.FunSuite {
       r.renderNodeById(
         "c_bar_0",
         Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get
     assert(patch.contains("""id="c_bar_0""""), clue = patch)
     assert(patch.contains("21"), clue = patch)
@@ -2163,8 +2028,8 @@ class RendererSuite extends munit.FunSuite {
     val r = Renderer.create(tabsDashboard)
     assertEquals(r.hostId("c_panel_0"), r.elementId("c_panel_0"))
     assertEquals(
-      r.surfaces.surfacesAt(r.hostId("c_panel_0")),
-      Set("c_panel_0_0", "c_panel_0_1")
+      r.picks.cases("c_panel_0"),
+      Vector("c_panel_0_0", "c_panel_0_1")
     )
   }
 

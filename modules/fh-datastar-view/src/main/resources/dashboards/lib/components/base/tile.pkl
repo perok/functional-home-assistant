@@ -56,7 +56,7 @@ open class Tile extends nodeMod.ActiveNode {
   hidden glyph: (String|slotMod.Reading)? = null
   /// Null opts the card out of clicks entirely.
   hidden tapAction: tapMod.TapAction? = null
-  inlineSurfaces = if (tapAction != null) tapAction!!.inlineSurfaces else null
+  carries = tapAction?.carries ?? List()
   /// See `Button.subject`.
   hidden subject: String? = null
   /// Controls and readouts under the tile, HA's card features: nodes, each its

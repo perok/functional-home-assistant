@@ -26,7 +26,7 @@ Recorded elsewhere:
 
 **Question.** Would arrays or presized maps, in place of `List` and `Map`, cut memory where a
 collection's size is known when it is built? The candidates were the static indexes a renderer
-builds once (`MemberGraph`, `NodeAncestry`, `SurfaceGraph`, `allIndexed`) and the per-session
+builds once (`MemberGraph`, `NodeAncestry`, `PickGraph`, `allIndexed`) and the per-session
 `holds`.
 
 **How.** A throwaway `object` in `modules/benchmarks` (package `fh.view.runtime`) ran
@@ -92,7 +92,7 @@ the previous entry.
 
 Measured on #130, recorded here 2026-10-24. **Not worth doing.**
 
-**Question.** After a dashboard edit, `reloadRepaints` renders the body once per connected session,
+**Question.** After a dashboard edit, the swap's repaint renders the body once per connected session,
 and N browsers loading at once each render the whole page. Would one shared render (the cache, or
 one memoised body per set of viewer inputs) be worth having?
 

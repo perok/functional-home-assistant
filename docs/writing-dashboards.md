@@ -333,8 +333,16 @@ Each is a *variable*:
   `c.iff(view.valueIs(…))` shows its `then` at that value and its `else` at
   any other; with no `else` it shows nothing there.
   `c.iff(p).then(a).elif(q).then(b).`else`(x)` shows the first branch whose
-  condition holds; every condition in one chain reads live state, or all read
-  the same variable.
+  condition holds. A chain may mix `view.valueIs(…)` with conditions over live
+  state, each viewer getting the first branch that holds for their own value:
+  `c.iff(view.valueIs("detail")).then(a).elif(q.entity(e).stateIs("on")).then(b)`.
+  With no `else`, a viewer for whom none holds sees nothing there.
+- **A set can follow the choice too.** A `where` or `orderBy` may read
+  `view.valueIs(…)`, alone or with a condition on state:
+  `.where(q.any(List(view.valueIs("all"), q.eq(q.stateProp, "on"))))` shows
+  every light to a viewer on `all` and only the lit ones to the rest, and a key
+  built the same way gives each viewer their own order. Others on the page are
+  not moved when one viewer changes their choice.
 - **Any button can choose:** `c.button("Detail", view.choose("detail"))`, on a
   card at or below the one that declares `view`. `view.choose(null)` forgets
   the viewer's choice, so the variable is back where it started and leaves the
@@ -352,3 +360,33 @@ Each is a *variable*:
 - **A choice can stay out of the address**, for one a reload may forget, such
   as each light's control in a long list: `view.defaultingTo("simple").notInUrl()`.
   A link that names it still works.
+- **A choice can be a step for Back**, `view.defaultingTo("simple").inHistory()`:
+  each choice is a browser history entry, so Back returns to the previous one and
+  then leaves the dashboard. Back returns the whole previous address, so another
+  choice made since then in the address goes back with it. A choice kept out of
+  the address cannot be in history; the build says so.
+- **A choice can start empty**, `vars { view.startingEmpty() }`: until a viewer
+  chooses, `view.value` reads nothing and a `match` over it shows its otherwise,
+  or nothing.
+
+## Popups
+
+A popup is a dialog over the page, opened by a tap:
+
+```pkl
+c.button("Help", c.view.popup("help", new c.Column { children {
+  c.title("How this board works")
+  c.button("Close", c.view.closePopup())
+} }))
+```
+
+- **The id is the popup's name.** Any number of buttons may open `"help"`
+  with the same body; two different bodies under one id are a build error
+  that names it. A button inside a popup can open another.
+- **An entity's details are one too:** `c.view.moreInfo(e)`, which is what a
+  sensor's card, among others, opens when tapped.
+- **It is a choice like a tab's** (above): the open popup is kept in the
+  address as `?v.popups=help`, so a link or a bookmark opens it, and each open
+  is a step for Back, so Back closes it. `c.view.closePopup()` does the same.
+- **`popups` is taken.** The page declares that variable, so a card of yours
+  cannot declare one by that name; the build says so.

@@ -203,25 +203,32 @@ window.fhToast = showToast
  * redirect, a route that is gone, a proxy in the way — where the bundle drops
  * the body unread (`if (E !== 200) { … return }`) and `argsRaw` carries only
  * `{status}`. So a status code is all this branch can ever say, which is
- * exactly right for the failures that have no message to give.
+ * exactly right for the failures that have no message to give. A tap that
+ * never reached the server at all is `retries-failed` (a tap is sent once,
+ * `core/tap.pkl`'s `post`), and says so.
  *
  * The filter is the whole point. The persistent SSE stream is ALSO a Datastar
  * fetch (the `@get` on `<body>`), and ITS errors are already the `_sse` /
  * `haDown` banners' job — they arrive with `el` = `<body>`, which sits under no
- * `[data-on:click]`, so this listener toasts only action failures. Without the
+ * `[data-on:click]` and carries no `data-fh-node` (what a slider's commit, on
+ * `change`, has), so this listener toasts only action failures. Without the
  * filter a stream outage would toast "Command failed" over the banner.
  */
 document.addEventListener("datastar-fetch", (e: Event) => {
   const detail = (
     e as CustomEvent<{ type: string; el: Element | null; argsRaw: { status: string } }>
   ).detail
-  if (!detail || detail.type !== "error") return
+  if (!detail || (detail.type !== "error" && detail.type !== "retries-failed")) return
   const el = detail.el
   // The escaped colon is load-bearing: `data-on:click` is not a valid CSS
   // selector as written, and `closest` throws a SyntaxError on it — which
   // killed this listener (and the toast with it) before it ever ran.
-  if (!el || !el.closest("[data-on\\:click]")) return
-  showToast("Command failed (" + detail.argsRaw.status + ")")
+  if (!el || !el.closest("[data-on\\:click],[data-fh-node]")) return
+  showToast(
+    detail.type === "error"
+      ? "Command failed (" + detail.argsRaw.status + ")"
+      : "Could not be sent",
+  )
 })
 
 /**

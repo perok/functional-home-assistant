@@ -30,7 +30,7 @@ import "../core/tap.pkl" as tapMod
 import "../core/variable.pkl" as varMod
 import "../hass.pkl"
 import "base/button.pkl" as buttonMod
-import "base/surface.pkl" as surfaces
+import "base/tabs.pkl" as tabsMod
 
 typealias SelectStyle = "buttons"|"dropdown"|"cycle"
 
@@ -132,7 +132,7 @@ abstract class Select extends nodeMod.Node {
         if (cyc)
           // A view switch answers too fast for a spinner to mean anything.
           buttonMod.pill((t.choose(pick.value)) { icon = ch.icon; label = ch.label; busyVisual = false })
-        else surfaces.tabButton(t, ch.value, ch.label)
+        else tabsMod.tabButton(t, ch.value, ch.label)
       else if (cyc)
         buttonMod.pill((entityCall(t, pick.value)) { icon = ch.icon; label = ch.label })
           .cellClassWhen("fh-chosen", entityChosen(t, ch.value))
@@ -316,7 +316,7 @@ class EntityOption extends nodeMod.ActiveNode {
   card = "selectEntityOption"
   cardDef = new nodeMod.CardDef {
     // An anchor straight under the bar or the list, as a tab is, and no layout
-    // box for the same reason ([[surfaces.TabButton]]).
+    // box for the same reason ([[tabsMod.TabButton]]).
     tag = "a"
     layoutCell = false
     classes = "fh-select-opt"

@@ -17,6 +17,7 @@ import fh.view.model.{
   SlotKey,
   CardDef,
   Dashboard,
+  Ix,
   LayoutNode,
   NodeId,
   Op,
@@ -257,13 +258,13 @@ class ByteSlotKeySuite extends munit.FunSuite {
         .renderNodeById(
           id,
           Shared.of(a),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         ),
       renderer
         .renderNodeById(
           id,
           Shared.of(b),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         ),
       clue =
         s"$id keyed identically at steps $i and $j but rendered differently"
@@ -302,21 +303,21 @@ class ByteSlotKeySuite extends munit.FunSuite {
       rb = Renderer.create(dashboard)
       id = ra.members.memberIdOf(setId("c_3"), entity)
       key <- ra
-        .byteSlotValues(id, Shared.of(a), fragments = FetchSnapshot.empty)
+        .keyOf(id, Shared.of(a), fragments = FetchSnapshot.empty)
         .toList
       if rb
-        .byteSlotValues(id, Shared.of(b), fragments = FetchSnapshot.empty)
+        .keyOf(id, Shared.of(b), fragments = FetchSnapshot.empty)
         .contains(key)
     } assertEquals(
       ra.renderNodeById(
         id,
         Shared.of(a),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       rb.renderNodeById(
         id,
         Shared.of(b),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       clue =
         s"$entity keyed identically at steps $i and $j but rendered differently"
@@ -432,7 +433,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
       tabs.renderNodeById(
         "c",
         Shared.of(line.head),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       None
     )
@@ -452,7 +453,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
         .renderNodeById(
           "c_3",
           Shared.of(line.head),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         ),
       None
     )
@@ -464,7 +465,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
     */
   test("no cacheable node owns a pick") {
     def check(label: String, r: Renderer, states: Map[String, EntityState]) = {
-      val owners = r.surfaces.varPicks ++ r.surfaces.statePicks
+      val owners = r.picks.varPicks ++ r.picks.statePicks
       assert(owners.nonEmpty, s"$label exercises no pick at all")
       owners.foreach(id =>
         assertEquals(
@@ -519,12 +520,12 @@ class ByteSlotKeySuite extends munit.FunSuite {
       r.renderNodeById(
         id,
         at(state),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
     assertNotEquals(bytes("on"), bytes("off"))
     assertNotEquals(
-      r.byteSlotValues(id, at("on"), FetchSnapshot.empty),
-      r.byteSlotValues(id, at("off"), FetchSnapshot.empty)
+      r.keyOf(id, at("on"), FetchSnapshot.empty),
+      r.keyOf(id, at("off"), FetchSnapshot.empty)
     )
   }
 
@@ -548,13 +549,13 @@ class ByteSlotKeySuite extends munit.FunSuite {
       )
     )
     val id = NodeId.derived("c")
-    val viewing = Viewing(Selections.none, FetchSnapshot.empty)
+    val viewing = Viewing(FetchSnapshot.empty)
     def state(s: String) =
       Shared.of(Map("sensor.a" -> EntityState("sensor.a", s, Map.empty)))
     val cache = RenderCache.create.unsafeRunSync()
-    def morph(holds: Map[NodeId, Held], s: String) =
+    def morph(holds: Map[Ix, Held], s: String) =
       Patches.morph(r, cache, holds, state(s), viewing, id).unsafeRunSync()
-    val painted = r.renderBodyTraced(state("on"), viewing).own
+    val painted = r.renderBodyTraced(state("on"), viewing).painted
     val holds = painted.map((k, p) => k -> p.held)
     val onBytes = r.renderNodeById(id, state("on"), viewing)
     assertEquals(r.renderNodeById(id, state("playing"), viewing), onBytes)
@@ -563,7 +564,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
     sent.map(_.patch) match
       case Some(Patch.Morph(html)) => assertEquals(Some(html), onBytes)
       case other                   => fail(s"expected one morph, got $other")
-    val after = holds ++ sent.fold(Map.empty[NodeId, Held])(_.establishes)
+    val after = holds ++ sent.fold(Map.empty[Ix, Held])(_.establishes)
     assertEquals(morph(after, "playing"), None)
   }
 }

@@ -53,21 +53,17 @@ class ColourWheelSuite extends CatsEffectSuite {
       .use(f)
       .timeout(60.seconds)
 
-  private val opens = """sse/surface/[^/]+/open/([A-Za-z0-9_]+)""".r
-
   test("the wheel button opens the wheel, at the light's colour") {
     served { ts =>
       for {
         doc <- ts.load()
-        surface = opens
-          .findFirstMatchIn(doc.html)
-          .map(_.group(1))
-          .getOrElse(fail("no popup to open", clues(doc.html)))
         session <- ts.sessions.get(doc.conn)
-        status <- ts.post(
-          s"sse/surface/${ts.slug}/open/$surface",
-          body = s"""{"${Server.ConnSignal}":"${doc.conn}"}"""
+        result <- ts.choose(
+          doc.conn,
+          VarKey(fh.view.model.Dashboard.PageRootId, "popups"),
+          Some(s"wheel_${lamp.entityId.replace('.', '_')}")
         )
+        status = result._1
         queued <- session.fold(IO.pure(List.empty[SseFrame]))(_.takeBacklog)
       } yield {
         assertEquals(status, Status.NoContent)

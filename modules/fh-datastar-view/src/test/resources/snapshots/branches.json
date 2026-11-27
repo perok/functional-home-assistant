@@ -1,152 +1,470 @@
 {
-  "card" : {
-    "card" : "fhcol",
+  "cards" : {
+    "chooser" : {
+      "regions" : [
+        "bar",
+        "children"
+      ],
+      "template" : "<div class=\"fh-cell fh-col{{{cellClasses}}}\"{{{cell}}}>{{{bar}}}{{{children}}}</div>"
+    },
+    "fhcol" : {
+      "regions" : [
+        "children"
+      ],
+      "template" : "<div class=\"fh-cell fh-col{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
+    },
+    "fhrow" : {
+      "regions" : [
+        "children"
+      ],
+      "template" : "<div class=\"fh-cell fh-row{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
+    },
+    "group_div__false" : {
+      "layoutCell" : false,
+      "regions" : [
+        "children"
+      ],
+      "template" : "<div class=\"{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
+    },
+    "group_div_fh_tab_panel_false" : {
+      "layoutCell" : false,
+      "regions" : [
+        "children"
+      ],
+      "template" : "<div class=\"fh-tab-panel{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
+    },
+    "ifhost" : {
+      "regions" : [
+        "branch"
+      ],
+      "template" : "<div class=\"fh-cell fh-ifhost{{{cellClasses}}}\"{{{cell}}}>{{{branch}}}</div>"
+    },
+    "page" : {
+      "layoutCell" : false,
+      "regions" : [
+        "body",
+        "popups"
+      ],
+      "template" : "<div class=\"{{{cellClasses}}}\"{{{cell}}}><main>{{{body}}}</main>\n{{{popups}}}</div>"
+    },
+    "sectionTitle" : {
+      "template" : "<h2 class=\"fh-cell fh-section fh-text{{{cellClasses}}}\"{{{cell}}}><span class=\"fh-text-run\">{{label}}</span></h2>"
+    },
+    "selectButtons" : {
+      "regions" : [
+        "children"
+      ],
+      "template" : "<div class=\"fh-cell fh-tabs fh-select{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
+    },
+    "switch" : {
+      "template" : "<article class=\"fh-cell fh-card fh-toggle fh-tile-card{{{cellClasses}}}\"{{{cell}}} {{{switched.bind}}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}>  <div class=\"fh-tile\">{{#icon.has}}<span class=\"fh-badge fh-icon-shape  {{#onoff.has}}fh-onoff{{/onoff.has}}\"{{#busy.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/busyVisual.has}}{{/busy.has}}><i class=\"{{icon}}\" {{{icon.bind}}}></i></span>{{/icon.has}}<span class=\"fh-lines\"><span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></span>\n  <label class=\"fh-switch\">\n    <input type=\"checkbox\" value=\"on\" {{#checked}}checked{{/checked}} {{{checked.bind}}} data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#tap.has}}{{{tap.pending}}}@post('sse/call/{{dashboardSlug}}/{{{tap.callId}}}?node={{id}}', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {{{tap.seen}}} } }){{/tap.has}}{{^tap.has}}{{{onclick}}}{{/tap.has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}}{{#tapDisabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}} {{#checked.signal}}data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\" data-on-signal-patch=\"$_{{id}}__error && (${{checked.signal}} = {{{switched.jsValue}}})\"{{/checked.signal}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_{{id}}__error = 'Could not be sent') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}} />\n    <span></span>\n  </label></div></article>"
+    },
+    "tab" : {
+      "layoutCell" : false,
+      "template" : "<a class=\"{{{cellClasses}}}\"{{{cell}}} data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#tap.has}}{{{tap.pending}}}@post('sse/call/{{dashboardSlug}}/{{{tap.callId}}}?node={{id}}', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {{{tap.seen}}} } }){{/tap.has}}{{^tap.has}}{{{onclick}}}{{/tap.has}}\"{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_{{id}}__error = 'Could not be sent') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-after=\"$_{{id}}__busy_slow\"{{/busyVisual.has}}>{{label}}</a>"
+    },
+    "tabs" : {
+      "regions" : [
+        "children",
+        "panel"
+      ],
+      "template" : "<div class=\"fh-cell fh-col{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-tabs\">{{{children}}}</div>{{{panel}}}</div>"
+    }
+  },
+  "failedLabel" : "<span class=\"fh-label fh-label-error fh-text\"><span class=\"fh-text-run\">{{text}}</span></span>",
+  "root" : {
+    "card" : "page",
+    "id" : "root",
     "kind" : "Component",
     "vars" : [
+      {
+        "default" : {
+          
+        },
+        "inHistory" : true,
+        "inUrl" : true,
+        "name" : "popups"
+      }
     ],
     "wireSlots" : {
-      "children" : {
+      "body" : {
         "fill" : {
           "choice" : [
             {
-              "card" : "tabs",
-              "cell" : {
-                "layout" : [
-                  "fh-cols-full"
-                ]
-              },
+              "card" : "fhcol",
+              "id" : "c",
               "kind" : "Component",
               "vars" : [
-                {
-                  "default" : "0",
-                  "inUrl" : true,
-                  "name" : "tab"
-                }
               ],
               "wireSlots" : {
                 "children" : {
                   "fill" : {
                     "choice" : [
                       {
-                        "calls" : {
-                          "tap" : {
-                            "kind" : "SetVar",
-                            "value" : "0",
-                            "variable" : "tab"
-                          }
-                        },
-                        "card" : "tab",
+                        "card" : "tabs",
                         "cell" : {
-                          "classes" : {
-                            "fh-chosen" : {
-                              "source" : {
-                                "kind" : "Var",
-                                "name" : "tab"
-                              },
-                              "steps" : [
-                                {
-                                  "kind" : "Compare",
-                                  "op" : "eq",
-                                  "to" : "0"
-                                }
-                              ]
-                            }
-                          }
+                          "layout" : [
+                            "fh-cols-full"
+                          ]
                         },
                         "kind" : "Component",
                         "vars" : [
-                        ],
-                        "wireSlots" : {
-                          "busy" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "busyVisual" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "label" : {
-                            "kind" : "Value",
-                            "source" : "Light"
+                          {
+                            "default" : "0",
+                            "inHistory" : false,
+                            "inUrl" : true,
+                            "name" : "tab"
                           }
-                        }
-                      },
-                      {
-                        "calls" : {
-                          "tap" : {
-                            "kind" : "SetVar",
-                            "value" : "1",
-                            "variable" : "tab"
-                          }
-                        },
-                        "card" : "tab",
-                        "cell" : {
-                          "classes" : {
-                            "fh-chosen" : {
-                              "source" : {
-                                "kind" : "Var",
-                                "name" : "tab"
-                              },
-                              "steps" : [
-                                {
-                                  "kind" : "Compare",
-                                  "op" : "eq",
-                                  "to" : "1"
-                                }
-                              ]
-                            }
-                          }
-                        },
-                        "kind" : "Component",
-                        "vars" : [
-                        ],
-                        "wireSlots" : {
-                          "busy" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "busyVisual" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "label" : {
-                            "kind" : "Value",
-                            "source" : "Text"
-                          }
-                        }
-                      }
-                    ],
-                    "kind" : "Nodes"
-                  },
-                  "kind" : "Nodes"
-                },
-                "panel" : {
-                  "fill" : {
-                    "choice" : [
-                      {
-                        "card" : "group_div_fh_tab_panel_false",
-                        "kind" : "Component",
-                        "vars" : [
                         ],
                         "wireSlots" : {
                           "children" : {
                             "fill" : {
+                              "choice" : [
+                                {
+                                  "calls" : {
+                                    "tap" : {
+                                      "kind" : "SetVar",
+                                      "value" : "0",
+                                      "variable" : "tab"
+                                    }
+                                  },
+                                  "card" : "tab",
+                                  "cell" : {
+                                    "classes" : {
+                                      "fh-chosen" : {
+                                        "source" : {
+                                          "kind" : "Var",
+                                          "name" : "tab"
+                                        },
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "eq",
+                                            "to" : "0"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "kind" : "Component",
+                                  "vars" : [
+                                  ],
+                                  "wireSlots" : {
+                                    "busy" : {
+                                      "kind" : "Value",
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "busyVisual" : {
+                                      "kind" : "Value",
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "label" : {
+                                      "kind" : "Value",
+                                      "source" : "Light"
+                                    }
+                                  }
+                                },
+                                {
+                                  "calls" : {
+                                    "tap" : {
+                                      "kind" : "SetVar",
+                                      "value" : "1",
+                                      "variable" : "tab"
+                                    }
+                                  },
+                                  "card" : "tab",
+                                  "cell" : {
+                                    "classes" : {
+                                      "fh-chosen" : {
+                                        "source" : {
+                                          "kind" : "Var",
+                                          "name" : "tab"
+                                        },
+                                        "steps" : [
+                                          {
+                                            "kind" : "Compare",
+                                            "op" : "eq",
+                                            "to" : "1"
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "kind" : "Component",
+                                  "vars" : [
+                                  ],
+                                  "wireSlots" : {
+                                    "busy" : {
+                                      "kind" : "Value",
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "busyVisual" : {
+                                      "kind" : "Value",
+                                      "source" : true,
+                                      "type" : "bool"
+                                    },
+                                    "label" : {
+                                      "kind" : "Value",
+                                      "source" : "Text"
+                                    }
+                                  }
+                                }
+                              ],
+                              "kind" : "Nodes"
+                            },
+                            "kind" : "Nodes"
+                          },
+                          "panel" : {
+                            "fill" : {
+                              "choice" : [
+                                {
+                                  "card" : "group_div_fh_tab_panel_false",
+                                  "kind" : "Component",
+                                  "vars" : [
+                                  ],
+                                  "wireSlots" : {
+                                    "children" : {
+                                      "fill" : {
+                                        "choice" : {
+                                          "by" : {
+                                            "source" : {
+                                              "kind" : "Var",
+                                              "name" : "tab"
+                                            },
+                                            "steps" : [
+                                            ]
+                                          },
+                                          "cases" : [
+                                            {
+                                              "is" : "0",
+                                              "value" : [
+                                                {
+                                                  "card" : "fhrow",
+                                                  "kind" : "Component",
+                                                  "vars" : [
+                                                  ],
+                                                  "wireSlots" : {
+                                                    "children" : {
+                                                      "fill" : {
+                                                        "choice" : [
+                                                          {
+                                                            "calls" : {
+                                                              "tap" : {
+                                                                "kind" : "Service",
+                                                                "service" : "light/toggle",
+                                                                "target" : {
+                                                                  "entity_id" : [
+                                                                    "light.kitchen"
+                                                                  ]
+                                                                }
+                                                              }
+                                                            },
+                                                            "card" : "switch",
+                                                            "cell" : {
+                                                              "classes" : {
+                                                                "fh-active" : {
+                                                                  "source" : {
+                                                                    "kind" : "Entity"
+                                                                  },
+                                                                  "steps" : [
+                                                                    {
+                                                                      "cases" : {
+                                                                        "on" : true
+                                                                      },
+                                                                      "kind" : "Match",
+                                                                      "otherwise" : false
+                                                                    }
+                                                                  ]
+                                                                }
+                                                              }
+                                                            },
+                                                            "kind" : "Component",
+                                                            "vars" : [
+                                                            ],
+                                                            "wireSlots" : {
+                                                              "busy" : {
+                                                                "kind" : "Value",
+                                                                "source" : true,
+                                                                "type" : "bool"
+                                                              },
+                                                              "busyVisual" : {
+                                                                "kind" : "Value",
+                                                                "source" : true,
+                                                                "type" : "bool"
+                                                              },
+                                                              "checked" : {
+                                                                "default" : "",
+                                                                "kind" : "Value",
+                                                                "signal" : {
+                                                                  "kind" : "Bind"
+                                                                },
+                                                                "source" : {
+                                                                  "kind" : "Entity"
+                                                                },
+                                                                "steps" : [
+                                                                  {
+                                                                    "cases" : {
+                                                                      "on" : "on"
+                                                                    },
+                                                                    "kind" : "Match",
+                                                                    "otherwise" : ""
+                                                                  }
+                                                                ]
+                                                              },
+                                                              "entity_id" : {
+                                                                "kind" : "Value",
+                                                                "source" : "light.kitchen"
+                                                              },
+                                                              "icon" : {
+                                                                "kind" : "Value",
+                                                                "source" : "mdi mdi-lightbulb",
+                                                                "steps" : [
+                                                                  {
+                                                                    "kind" : "ThemeClasses"
+                                                                  }
+                                                                ]
+                                                              },
+                                                              "label" : {
+                                                                "kind" : "Value",
+                                                                "source" : "Kitchen"
+                                                              },
+                                                              "onoff" : {
+                                                                "kind" : "Value",
+                                                                "source" : true,
+                                                                "type" : "bool"
+                                                              },
+                                                              "switched" : {
+                                                                "default" : "",
+                                                                "kind" : "Value",
+                                                                "signal" : {
+                                                                  "kind" : "Attr",
+                                                                  "name" : "data-switched"
+                                                                },
+                                                                "source" : {
+                                                                  "kind" : "Entity"
+                                                                },
+                                                                "steps" : [
+                                                                  {
+                                                                    "cases" : {
+                                                                      "on" : "on"
+                                                                    },
+                                                                    "kind" : "Match",
+                                                                    "otherwise" : ""
+                                                                  }
+                                                                ]
+                                                              },
+                                                              "tapDisabled" : {
+                                                                "kind" : "Value",
+                                                                "signal" : {
+                                                                  "kind" : "Handler"
+                                                                },
+                                                                "source" : {
+                                                                  "kind" : "Entity"
+                                                                },
+                                                                "steps" : [
+                                                                  {
+                                                                    "cases" : {
+                                                                      "unavailable" : true
+                                                                    },
+                                                                    "kind" : "Match",
+                                                                    "otherwise" : false
+                                                                  }
+                                                                ],
+                                                                "type" : "bool"
+                                                              }
+                                                            }
+                                                          }
+                                                        ],
+                                                        "kind" : "Nodes"
+                                                      },
+                                                      "kind" : "Nodes"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            },
+                                            {
+                                              "is" : "1",
+                                              "value" : [
+                                                {
+                                                  "card" : "fhrow",
+                                                  "kind" : "Component",
+                                                  "vars" : [
+                                                  ],
+                                                  "wireSlots" : {
+                                                    "children" : {
+                                                      "fill" : {
+                                                        "choice" : [
+                                                          {
+                                                            "card" : "sectionTitle",
+                                                            "kind" : "Component",
+                                                            "vars" : [
+                                                            ],
+                                                            "wireSlots" : {
+                                                              "label" : {
+                                                                "kind" : "Value",
+                                                                "source" : "Text"
+                                                              }
+                                                            }
+                                                          }
+                                                        ],
+                                                        "kind" : "Nodes"
+                                                      },
+                                                      "kind" : "Nodes"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          ],
+                                          "kind" : "Chosen"
+                                        },
+                                        "kind" : "Nodes"
+                                      },
+                                      "kind" : "Nodes"
+                                    }
+                                  }
+                                }
+                              ],
+                              "kind" : "Nodes"
+                            },
+                            "kind" : "Nodes"
+                          }
+                        }
+                      },
+                      {
+                        "card" : "ifhost",
+                        "cell" : {
+                          "layout" : [
+                            "fh-cols-full"
+                          ]
+                        },
+                        "kind" : "Component",
+                        "vars" : [
+                        ],
+                        "wireSlots" : {
+                          "branch" : {
+                            "fill" : {
                               "choice" : {
                                 "by" : {
                                   "source" : {
-                                    "kind" : "Var",
-                                    "name" : "tab"
+                                    "kind" : "Entity",
+                                    "of" : "light.kitchen"
                                   },
                                   "steps" : [
+                                    {
+                                      "kind" : "Compare",
+                                      "op" : "eq",
+                                      "to" : "on"
+                                    }
                                   ]
                                 },
                                 "cases" : [
                                   {
-                                    "is" : "0",
+                                    "is" : true,
                                     "value" : [
                                       {
                                         "card" : "fhrow",
@@ -292,461 +610,6 @@
                                         }
                                       }
                                     ]
-                                  },
-                                  {
-                                    "is" : "1",
-                                    "value" : [
-                                      {
-                                        "card" : "fhrow",
-                                        "kind" : "Component",
-                                        "vars" : [
-                                        ],
-                                        "wireSlots" : {
-                                          "children" : {
-                                            "fill" : {
-                                              "choice" : [
-                                                {
-                                                  "card" : "sectionTitle",
-                                                  "kind" : "Component",
-                                                  "vars" : [
-                                                  ],
-                                                  "wireSlots" : {
-                                                    "label" : {
-                                                      "kind" : "Value",
-                                                      "source" : "Text"
-                                                    }
-                                                  }
-                                                }
-                                              ],
-                                              "kind" : "Nodes"
-                                            },
-                                            "kind" : "Nodes"
-                                          }
-                                        }
-                                      }
-                                    ]
-                                  }
-                                ],
-                                "kind" : "Chosen"
-                              },
-                              "kind" : "Nodes"
-                            },
-                            "kind" : "Nodes"
-                          }
-                        }
-                      }
-                    ],
-                    "kind" : "Nodes"
-                  },
-                  "kind" : "Nodes"
-                }
-              }
-            },
-            {
-              "card" : "ifhost",
-              "cell" : {
-                "layout" : [
-                  "fh-cols-full"
-                ]
-              },
-              "kind" : "Component",
-              "vars" : [
-              ],
-              "wireSlots" : {
-                "branch" : {
-                  "fill" : {
-                    "choice" : {
-                      "by" : {
-                        "source" : {
-                          "kind" : "Entity",
-                          "of" : "light.kitchen"
-                        },
-                        "steps" : [
-                          {
-                            "kind" : "Compare",
-                            "op" : "eq",
-                            "to" : "on"
-                          }
-                        ]
-                      },
-                      "cases" : [
-                        {
-                          "is" : true,
-                          "value" : [
-                            {
-                              "card" : "fhrow",
-                              "kind" : "Component",
-                              "vars" : [
-                              ],
-                              "wireSlots" : {
-                                "children" : {
-                                  "fill" : {
-                                    "choice" : [
-                                      {
-                                        "calls" : {
-                                          "tap" : {
-                                            "kind" : "Service",
-                                            "service" : "light/toggle",
-                                            "target" : {
-                                              "entity_id" : [
-                                                "light.kitchen"
-                                              ]
-                                            }
-                                          }
-                                        },
-                                        "card" : "switch",
-                                        "cell" : {
-                                          "classes" : {
-                                            "fh-active" : {
-                                              "source" : {
-                                                "kind" : "Entity"
-                                              },
-                                              "steps" : [
-                                                {
-                                                  "cases" : {
-                                                    "on" : true
-                                                  },
-                                                  "kind" : "Match",
-                                                  "otherwise" : false
-                                                }
-                                              ]
-                                            }
-                                          }
-                                        },
-                                        "kind" : "Component",
-                                        "vars" : [
-                                        ],
-                                        "wireSlots" : {
-                                          "busy" : {
-                                            "kind" : "Value",
-                                            "source" : true,
-                                            "type" : "bool"
-                                          },
-                                          "busyVisual" : {
-                                            "kind" : "Value",
-                                            "source" : true,
-                                            "type" : "bool"
-                                          },
-                                          "checked" : {
-                                            "default" : "",
-                                            "kind" : "Value",
-                                            "signal" : {
-                                              "kind" : "Bind"
-                                            },
-                                            "source" : {
-                                              "kind" : "Entity"
-                                            },
-                                            "steps" : [
-                                              {
-                                                "cases" : {
-                                                  "on" : "on"
-                                                },
-                                                "kind" : "Match",
-                                                "otherwise" : ""
-                                              }
-                                            ]
-                                          },
-                                          "entity_id" : {
-                                            "kind" : "Value",
-                                            "source" : "light.kitchen"
-                                          },
-                                          "icon" : {
-                                            "kind" : "Value",
-                                            "source" : "mdi mdi-lightbulb",
-                                            "steps" : [
-                                              {
-                                                "kind" : "ThemeClasses"
-                                              }
-                                            ]
-                                          },
-                                          "label" : {
-                                            "kind" : "Value",
-                                            "source" : "Kitchen"
-                                          },
-                                          "onoff" : {
-                                            "kind" : "Value",
-                                            "source" : true,
-                                            "type" : "bool"
-                                          },
-                                          "switched" : {
-                                            "default" : "",
-                                            "kind" : "Value",
-                                            "signal" : {
-                                              "kind" : "Attr",
-                                              "name" : "data-switched"
-                                            },
-                                            "source" : {
-                                              "kind" : "Entity"
-                                            },
-                                            "steps" : [
-                                              {
-                                                "cases" : {
-                                                  "on" : "on"
-                                                },
-                                                "kind" : "Match",
-                                                "otherwise" : ""
-                                              }
-                                            ]
-                                          },
-                                          "tapDisabled" : {
-                                            "kind" : "Value",
-                                            "signal" : {
-                                              "kind" : "Handler"
-                                            },
-                                            "source" : {
-                                              "kind" : "Entity"
-                                            },
-                                            "steps" : [
-                                              {
-                                                "cases" : {
-                                                  "unavailable" : true
-                                                },
-                                                "kind" : "Match",
-                                                "otherwise" : false
-                                              }
-                                            ],
-                                            "type" : "bool"
-                                          }
-                                        }
-                                      }
-                                    ],
-                                    "kind" : "Nodes"
-                                  },
-                                  "kind" : "Nodes"
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      ],
-                      "kind" : "Chosen",
-                      "otherwise" : [
-                        {
-                          "card" : "fhrow",
-                          "kind" : "Component",
-                          "vars" : [
-                          ],
-                          "wireSlots" : {
-                            "children" : {
-                              "fill" : {
-                                "choice" : [
-                                  {
-                                    "card" : "sectionTitle",
-                                    "kind" : "Component",
-                                    "vars" : [
-                                    ],
-                                    "wireSlots" : {
-                                      "label" : {
-                                        "kind" : "Value",
-                                        "source" : "Off"
-                                      }
-                                    }
-                                  }
-                                ],
-                                "kind" : "Nodes"
-                              },
-                              "kind" : "Nodes"
-                            }
-                          }
-                        }
-                      ]
-                    },
-                    "kind" : "Nodes"
-                  },
-                  "kind" : "Nodes"
-                }
-              }
-            },
-            {
-              "card" : "chooser",
-              "cell" : {
-                "layout" : [
-                  "fh-cols-full"
-                ]
-              },
-              "kind" : "Component",
-              "vars" : [
-                {
-                  "default" : "simple",
-                  "inUrl" : true,
-                  "name" : "view"
-                }
-              ],
-              "wireSlots" : {
-                "bar" : {
-                  "fill" : {
-                    "choice" : [
-                      {
-                        "card" : "selectButtons",
-                        "kind" : "Component",
-                        "vars" : [
-                        ],
-                        "wireSlots" : {
-                          "children" : {
-                            "fill" : {
-                              "choice" : [
-                                {
-                                  "calls" : {
-                                    "tap" : {
-                                      "kind" : "SetVar",
-                                      "value" : "simple",
-                                      "variable" : "view"
-                                    }
-                                  },
-                                  "card" : "tab",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-chosen" : {
-                                        "source" : {
-                                          "kind" : "Var",
-                                          "name" : "view"
-                                        },
-                                        "steps" : [
-                                          {
-                                            "kind" : "Compare",
-                                            "op" : "eq",
-                                            "to" : "simple"
-                                          }
-                                        ]
-                                      }
-                                    }
-                                  },
-                                  "kind" : "Component",
-                                  "vars" : [
-                                  ],
-                                  "wireSlots" : {
-                                    "busy" : {
-                                      "kind" : "Value",
-                                      "source" : true,
-                                      "type" : "bool"
-                                    },
-                                    "busyVisual" : {
-                                      "kind" : "Value",
-                                      "source" : true,
-                                      "type" : "bool"
-                                    },
-                                    "label" : {
-                                      "kind" : "Value",
-                                      "source" : "simple"
-                                    }
-                                  }
-                                },
-                                {
-                                  "calls" : {
-                                    "tap" : {
-                                      "kind" : "SetVar",
-                                      "value" : "detail",
-                                      "variable" : "view"
-                                    }
-                                  },
-                                  "card" : "tab",
-                                  "cell" : {
-                                    "classes" : {
-                                      "fh-chosen" : {
-                                        "source" : {
-                                          "kind" : "Var",
-                                          "name" : "view"
-                                        },
-                                        "steps" : [
-                                          {
-                                            "kind" : "Compare",
-                                            "op" : "eq",
-                                            "to" : "detail"
-                                          }
-                                        ]
-                                      }
-                                    }
-                                  },
-                                  "kind" : "Component",
-                                  "vars" : [
-                                  ],
-                                  "wireSlots" : {
-                                    "busy" : {
-                                      "kind" : "Value",
-                                      "source" : true,
-                                      "type" : "bool"
-                                    },
-                                    "busyVisual" : {
-                                      "kind" : "Value",
-                                      "source" : true,
-                                      "type" : "bool"
-                                    },
-                                    "label" : {
-                                      "kind" : "Value",
-                                      "source" : "detail"
-                                    }
-                                  }
-                                }
-                              ],
-                              "kind" : "Nodes"
-                            },
-                            "kind" : "Nodes"
-                          }
-                        }
-                      }
-                    ],
-                    "kind" : "Nodes"
-                  },
-                  "kind" : "Nodes"
-                },
-                "children" : {
-                  "fill" : {
-                    "choice" : [
-                      {
-                        "card" : "ifhost",
-                        "cell" : {
-                          "layout" : [
-                            "fh-cols-full"
-                          ]
-                        },
-                        "kind" : "Component",
-                        "vars" : [
-                        ],
-                        "wireSlots" : {
-                          "branch" : {
-                            "fill" : {
-                              "choice" : {
-                                "by" : {
-                                  "source" : {
-                                    "kind" : "Var",
-                                    "name" : "view"
-                                  },
-                                  "steps" : [
-                                  ]
-                                },
-                                "cases" : [
-                                  {
-                                    "is" : "detail",
-                                    "value" : [
-                                      {
-                                        "card" : "fhrow",
-                                        "kind" : "Component",
-                                        "vars" : [
-                                        ],
-                                        "wireSlots" : {
-                                          "children" : {
-                                            "fill" : {
-                                              "choice" : [
-                                                {
-                                                  "card" : "sectionTitle",
-                                                  "kind" : "Component",
-                                                  "vars" : [
-                                                  ],
-                                                  "wireSlots" : {
-                                                    "label" : {
-                                                      "kind" : "Value",
-                                                      "source" : "Detail"
-                                                    }
-                                                  }
-                                                }
-                                              ],
-                                              "kind" : "Nodes"
-                                            },
-                                            "kind" : "Nodes"
-                                          }
-                                        }
-                                      }
-                                    ]
                                   }
                                 ],
                                 "kind" : "Chosen",
@@ -768,7 +631,7 @@
                                               "wireSlots" : {
                                                 "label" : {
                                                   "kind" : "Value",
-                                                  "source" : "Simple"
+                                                  "source" : "Off"
                                                 }
                                               }
                                             }
@@ -786,6 +649,244 @@
                             "kind" : "Nodes"
                           }
                         }
+                      },
+                      {
+                        "card" : "chooser",
+                        "cell" : {
+                          "layout" : [
+                            "fh-cols-full"
+                          ]
+                        },
+                        "kind" : "Component",
+                        "vars" : [
+                          {
+                            "default" : "simple",
+                            "inHistory" : false,
+                            "inUrl" : true,
+                            "name" : "view"
+                          }
+                        ],
+                        "wireSlots" : {
+                          "bar" : {
+                            "fill" : {
+                              "choice" : [
+                                {
+                                  "card" : "selectButtons",
+                                  "kind" : "Component",
+                                  "vars" : [
+                                  ],
+                                  "wireSlots" : {
+                                    "children" : {
+                                      "fill" : {
+                                        "choice" : [
+                                          {
+                                            "calls" : {
+                                              "tap" : {
+                                                "kind" : "SetVar",
+                                                "value" : "simple",
+                                                "variable" : "view"
+                                              }
+                                            },
+                                            "card" : "tab",
+                                            "cell" : {
+                                              "classes" : {
+                                                "fh-chosen" : {
+                                                  "source" : {
+                                                    "kind" : "Var",
+                                                    "name" : "view"
+                                                  },
+                                                  "steps" : [
+                                                    {
+                                                      "kind" : "Compare",
+                                                      "op" : "eq",
+                                                      "to" : "simple"
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            },
+                                            "kind" : "Component",
+                                            "vars" : [
+                                            ],
+                                            "wireSlots" : {
+                                              "busy" : {
+                                                "kind" : "Value",
+                                                "source" : true,
+                                                "type" : "bool"
+                                              },
+                                              "busyVisual" : {
+                                                "kind" : "Value",
+                                                "source" : true,
+                                                "type" : "bool"
+                                              },
+                                              "label" : {
+                                                "kind" : "Value",
+                                                "source" : "simple"
+                                              }
+                                            }
+                                          },
+                                          {
+                                            "calls" : {
+                                              "tap" : {
+                                                "kind" : "SetVar",
+                                                "value" : "detail",
+                                                "variable" : "view"
+                                              }
+                                            },
+                                            "card" : "tab",
+                                            "cell" : {
+                                              "classes" : {
+                                                "fh-chosen" : {
+                                                  "source" : {
+                                                    "kind" : "Var",
+                                                    "name" : "view"
+                                                  },
+                                                  "steps" : [
+                                                    {
+                                                      "kind" : "Compare",
+                                                      "op" : "eq",
+                                                      "to" : "detail"
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            },
+                                            "kind" : "Component",
+                                            "vars" : [
+                                            ],
+                                            "wireSlots" : {
+                                              "busy" : {
+                                                "kind" : "Value",
+                                                "source" : true,
+                                                "type" : "bool"
+                                              },
+                                              "busyVisual" : {
+                                                "kind" : "Value",
+                                                "source" : true,
+                                                "type" : "bool"
+                                              },
+                                              "label" : {
+                                                "kind" : "Value",
+                                                "source" : "detail"
+                                              }
+                                            }
+                                          }
+                                        ],
+                                        "kind" : "Nodes"
+                                      },
+                                      "kind" : "Nodes"
+                                    }
+                                  }
+                                }
+                              ],
+                              "kind" : "Nodes"
+                            },
+                            "kind" : "Nodes"
+                          },
+                          "children" : {
+                            "fill" : {
+                              "choice" : [
+                                {
+                                  "card" : "ifhost",
+                                  "cell" : {
+                                    "layout" : [
+                                      "fh-cols-full"
+                                    ]
+                                  },
+                                  "kind" : "Component",
+                                  "vars" : [
+                                  ],
+                                  "wireSlots" : {
+                                    "branch" : {
+                                      "fill" : {
+                                        "choice" : {
+                                          "by" : {
+                                            "source" : {
+                                              "kind" : "Var",
+                                              "name" : "view"
+                                            },
+                                            "steps" : [
+                                            ]
+                                          },
+                                          "cases" : [
+                                            {
+                                              "is" : "detail",
+                                              "value" : [
+                                                {
+                                                  "card" : "fhrow",
+                                                  "kind" : "Component",
+                                                  "vars" : [
+                                                  ],
+                                                  "wireSlots" : {
+                                                    "children" : {
+                                                      "fill" : {
+                                                        "choice" : [
+                                                          {
+                                                            "card" : "sectionTitle",
+                                                            "kind" : "Component",
+                                                            "vars" : [
+                                                            ],
+                                                            "wireSlots" : {
+                                                              "label" : {
+                                                                "kind" : "Value",
+                                                                "source" : "Detail"
+                                                              }
+                                                            }
+                                                          }
+                                                        ],
+                                                        "kind" : "Nodes"
+                                                      },
+                                                      "kind" : "Nodes"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          ],
+                                          "kind" : "Chosen",
+                                          "otherwise" : [
+                                            {
+                                              "card" : "fhrow",
+                                              "kind" : "Component",
+                                              "vars" : [
+                                              ],
+                                              "wireSlots" : {
+                                                "children" : {
+                                                  "fill" : {
+                                                    "choice" : [
+                                                      {
+                                                        "card" : "sectionTitle",
+                                                        "kind" : "Component",
+                                                        "vars" : [
+                                                        ],
+                                                        "wireSlots" : {
+                                                          "label" : {
+                                                            "kind" : "Value",
+                                                            "source" : "Simple"
+                                                          }
+                                                        }
+                                                      }
+                                                    ],
+                                                    "kind" : "Nodes"
+                                                  },
+                                                  "kind" : "Nodes"
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        "kind" : "Nodes"
+                                      },
+                                      "kind" : "Nodes"
+                                    }
+                                  }
+                                }
+                              ],
+                              "kind" : "Nodes"
+                            },
+                            "kind" : "Nodes"
+                          }
+                        }
                       }
                     ],
                     "kind" : "Nodes"
@@ -798,68 +899,25 @@
           "kind" : "Nodes"
         },
         "kind" : "Nodes"
+      },
+      "popups" : {
+        "fill" : {
+          "choice" : [
+            {
+              "card" : "group_div__false",
+              "id" : "popups",
+              "kind" : "Component",
+              "vars" : [
+              ],
+              "wireSlots" : {
+                
+              }
+            }
+          ],
+          "kind" : "Nodes"
+        },
+        "kind" : "Nodes"
       }
     }
-  },
-  "cards" : {
-    "chooser" : {
-      "regions" : [
-        "bar",
-        "children"
-      ],
-      "template" : "<div class=\"fh-cell fh-col{{{cellClasses}}}\"{{{cell}}}>{{{bar}}}{{{children}}}</div>"
-    },
-    "fhcol" : {
-      "regions" : [
-        "children"
-      ],
-      "template" : "<div class=\"fh-cell fh-col{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
-    },
-    "fhrow" : {
-      "regions" : [
-        "children"
-      ],
-      "template" : "<div class=\"fh-cell fh-row{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
-    },
-    "group_div_fh_tab_panel_false" : {
-      "layoutCell" : false,
-      "regions" : [
-        "children"
-      ],
-      "template" : "<div class=\"fh-tab-panel{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
-    },
-    "ifhost" : {
-      "regions" : [
-        "branch"
-      ],
-      "template" : "<div class=\"fh-cell fh-ifhost{{{cellClasses}}}\"{{{cell}}}>{{{branch}}}</div>"
-    },
-    "sectionTitle" : {
-      "template" : "<h2 class=\"fh-cell fh-section fh-text{{{cellClasses}}}\"{{{cell}}}><span class=\"fh-text-run\">{{label}}</span></h2>"
-    },
-    "selectButtons" : {
-      "regions" : [
-        "children"
-      ],
-      "template" : "<div class=\"fh-cell fh-tabs fh-select{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
-    },
-    "switch" : {
-      "template" : "<article class=\"fh-cell fh-card fh-toggle fh-tile-card{{{cellClasses}}}\"{{{cell}}} {{{switched.bind}}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}>  <div class=\"fh-tile\">{{#icon.has}}<span class=\"fh-badge fh-icon-shape  {{#onoff.has}}fh-onoff{{/onoff.has}}\"{{#busy.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/busyVisual.has}}{{/busy.has}}><i class=\"{{icon}}\" {{{icon.bind}}}></i></span>{{/icon.has}}<span class=\"fh-lines\"><span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span></span>\n  <label class=\"fh-switch\">\n    <input type=\"checkbox\" value=\"on\" {{#checked}}checked{{/checked}} {{{checked.bind}}} data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#tap.has}}{{{tap.pending}}}@post('sse/call/{{dashboardSlug}}/{{{tap.callId}}}?node={{id}}', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {{{tap.seen}}} } }){{/tap.has}}{{^tap.has}}{{{onclick}}}{{/tap.has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}}{{#tapDisabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}} {{#checked.signal}}data-on-signal-patch-filter=\"{include:/^_{{id}}__error$/}\" data-on-signal-patch=\"$_{{id}}__error && (${{checked.signal}} = {{{switched.jsValue}}})\"{{/checked.signal}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}} />\n    <span></span>\n  </label></div></article>"
-    },
-    "tab" : {
-      "layoutCell" : false,
-      "template" : "<a class=\"{{{cellClasses}}}\"{{{cell}}} data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#tap.has}}{{{tap.pending}}}@post('sse/call/{{dashboardSlug}}/{{{tap.callId}}}?node={{id}}', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {{{tap.seen}}} } }){{/tap.has}}{{^tap.has}}{{{onclick}}}{{/tap.has}}\"{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#busyVisual.has}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-after=\"$_{{id}}__busy_slow\"{{/busyVisual.has}}>{{label}}</a>"
-    },
-    "tabs" : {
-      "regions" : [
-        "children",
-        "panel"
-      ],
-      "template" : "<div class=\"fh-cell fh-col{{{cellClasses}}}\"{{{cell}}}><div class=\"fh-tabs\">{{{children}}}</div>{{{panel}}}</div>"
-    }
-  },
-  "failedLabel" : "<span class=\"fh-label fh-label-error fh-text\"><span class=\"fh-text-run\">{{text}}</span></span>",
-  "surfaces" : {
-    
   }
 }

@@ -1,4 +1,4 @@
-# ADR 0007 — State-activated surfaces: if/else as an activation mode, not a node kind
+# ADR 0007 — If/else: a pick over state, not a node kind
 
 - **Status:** Accepted
 - **Date:** 2026-07-10
@@ -20,7 +20,7 @@ gated on live entity state. The requirements that shaped the design:
 ## The decision: reuse the tabs machinery literally
 
 A tabs group already has the exact shape an if/else needs: **one stable host
-element, N alternative subtrees registered as surfaces, exactly one rendered in,
+element, N alternative subtrees as the cases of one pick, exactly one rendered in,
 the inactive ones not rendered and not streamed** (ADR 0002). The tab *bar*
 and its URL mirror are authoring-layer composition the `tabs` card adds, and
 its selection is a node variable (ADR 0033). So an if/else is a choice whose
@@ -31,15 +31,14 @@ case is picked by a **condition** instead of a viewer's value:
   `.fh-ifhost:empty` collapses it when no branch holds). Each branch is a node
   of the tree, and the index records the case holding every node below it, so
   hidden-branch silence is **structural**: a node in a case nobody is shown is
-  never in what a tick patches or a page fetches (`SurfaceGraph`), not a guard
+  never in what a tick patches or a page fetches (`PickGraph`), not a guard
   bolted onto the patch loop.
-- **A choice is not a kind of surface.** `Surface.activation` is a popup's
-  alone (`User(defaultOpen)`; an absent one decodes to `User(false)`). A
-  choice's cases are nodes, and one **pick** decides them all (`Ready.Pick`):
-  `by` read once, its case looked up. So a case cannot be both
-  default-open and conditional, and one choice cannot mix a variable and state
-  member by member: `by` is one expression, and `validate` refuses one reading
-  both until R4d of `docs/plan-regions.md`.
+- **One pick decides a choice.** A choice's cases are nodes, and one **pick**
+  decides them all (`Ready.Pick`): `by` read once, its case looked up. A popup
+  is such a case too, of the page's `popups` variable (ADR 0002), so there is
+  no second kind of conditional subtree. One choice can read a variable and state
+  together, since `by` is one expression: it is decided per viewer, at the
+  values that viewer holds (below).
 
 ### Selection semantics
 
@@ -52,11 +51,11 @@ holding, with cases `0..n`, so the first to hold wins; `else` is the
 
 **The condition is SUBJECT-FREE**, and that is what removed the quantifier. A
 condition (ADR 0004) normally reads whichever entity supplies its subject — a
-set member, a card — but a surface supplies none. So every read in a state
+set member, a card — but an `If` supplies none. So every read in a state
 condition names its own entity (`Value.Entity.of`) and a count carries its own
 candidates (`Value.Present`); `Dashboard.validate` rejects one that does not
 (`ValueExpr.readsMissingSubject`), with a located message. Evaluating a
-condition is then a handful of lookups (`SurfaceGraph.decideByState` runs the
+condition is then a handful of lookups (`PickGraph.decideByState` runs the
 compiled `by` with no subject, which nothing reads), and the index of what each
 pick reads is exact rather than a heuristic: its `by` reads a known entity set,
 so a change outside it cannot move the selection.
@@ -72,26 +71,33 @@ ADR 0003.
 ### Shared-pass placement (the cache consequence)
 
 Because a state selection is server truth, a pick over state is identical for
-every viewer. `SurfaceGraph` splits its picks into `varPicks`/`statePicks`, and
-`selectedSurfaces` does not seed a pick over state's cases into a session's open
-set — their liveness is the shared
-pass's job, not a client's.
+every viewer. `PickGraph` splits its picks three ways: `statePicks` (state
+alone), `varPicks` (the plain variable, a lookup of the viewer's value) and
+`viewerPicks` (anything else reading a variable, alone or with state). A
+state pick's liveness is the shared pass's job, a variable pick's the viewer's
+values (`PickGraph.chosen`).
+
+A viewer pick is the one place a pick is both: its `by` reads state and the
+viewer's variables, so the case is made per viewer, at that viewer's values
+(`PickGraph.decideByViewer`, kept per values by `Shared.branchAt`, ADR 0033),
+and the `If` is a flip for exactly the viewers whose case it moves. A value no
+case takes, with no `else`, shows nothing: only the plain variable's declared
+value is held to a case, since a computed `by` has no such value to check.
 
 That distinction outlived the split it was written for. Everything now rides one
 shared per-slug pass (ADR 0002), so the question is no longer *which pass* but
-**who a patch is addressed to**: a state surface is TRANSPARENT to the
-per-connection filter. It is never in anyone's `open` set, so tagging a node with
-one would hide it from everybody; a node inside an `If` branch nested in a tab
-panel is tagged with the tab panel instead.
+**who a patch is addressed to**: a state pick's case is a container like any
+other, shown to everyone while its pick holds it, so the per-connection filter
+asks the visibility chain (below) of it as of a tab panel.
 
 Per state change, the recording pass does two things:
 
-1. **Flips** (`SurfaceGraph.affectedStateGroups`): found from the changed
+1. **Flips** (`PickGraph.affectedStateGroups`): found from the changed
    entities, through an index of what each pick's `by` reads, so a frame
    that touches no condition costs a lookup per entity however many `If`s the
    page holds. A pick flips when its case differs before and after and it
    is shown both times: its root visible past no other pick flipping
-   (`SurfaceGraph.visibleSurface`), and, inside a set member, the member
+   (`PickGraph.visibleContainer`), and, inside a set member, the member
    present in that clause. A member arriving or switching clause is
    placed whole with the branch its state picks, and a pick below another that
    flips is inside that one's fill, so neither is a flip. Record where the
@@ -99,29 +105,34 @@ Per state change, the recording pass does two things:
    Hidden-branch churn deliberately leaves stale cache entries; the flip-prune
    is what makes that correct.
 
-   The fill itself is `Patches.fillHost` — the same primitive a tab switch and
-   a popup open use, since all three evict a host and overwrite what it holds
-   (ADR 0012). It arrives as one `Inner` at the host element, not a morph of the
+   A viewer pick flips per values (`PickGraph.affectedViewerGroups`): the
+   same test, once per distinct values live sessions hold, each against the
+   containers on screen for the sessions holding them. It is a flip if it moves
+   for some, logged by its host and the case arriving for each; for the others
+   nothing is logged, and it cuts no one's visibility, since a node under its
+   case still ticks for a viewer it did not move.
+
+   The fill itself is a `Patch.Fill` of the host — what a tab switch and a
+   popup open send too, since each is a pick changing case (ADR 0012). It arrives as one `Inner` at the host element, not a morph of the
    node: the node's own HTML embeds the branch, so morphing it would weld host
    to content, which is exactly what the leaf/structure split prevents (ADR
    0008).
-2. **Active-member liveness** (`SurfaceGraph.visibleSurface`, per surface
-   binding a changed entity): a surface contributes its affected components and
+2. **Active-member liveness** (`PickGraph.visibleContainer`, per container
+   binding a changed entity): a container contributes its affected components and
    sets only if it is visible and no pick above it is flipping. A set member's
-   bindings and a set's moves are asked the same of the surface they sit in,
-   so a frame asks only what reads a changed entity, never every active
-   surface. Page open asks it of every surface (`shownSurfaces`), and a
+   bindings and a set's moves are asked the same of the case they sit in,
+   so a frame asks only what reads a changed entity, never every shown
+   case. Page open asks it of every case (`shownCases`), and a
    member's placement renders the branch its state picks.
    Inactive STATE members are never consulted — that IS the no-updates
    guarantee, and it is structural: their ids never enter the selection.
 
-   Structural silence covers state members directly. A *user*-selected surface
+   Structural silence covers state members directly. A variable's case
    nested inside an inactive branch — a tab panel inside a hidden `If` — needs
-   one more step, because `selectedSurfaces` reports a selection for every pick
-   over a variable whether or not it is on screen, so `open` alone would keep recording
-   it. The recorder therefore filters each session's open set through
-   `SurfaceGraph.visibleSurface`, the visibility CHAIN (ADR 0012): every user
-   surface above a node selected AND every state surface above it active, and
+   one more step, because `PickGraph.chosen` names the case a viewer's value
+   picks whether or not it is on screen. The recorder therefore asks
+   `PickGraph.onScreen` (`visibleContainer` per container), the visibility
+   CHAIN (ADR 0012): every pick above a node holding the case it sits in, and
    inside a set member, the member in that clause. It is the one test of
    "shown": the flips, the liveness above and page open all ask it. A
    pick in an unopened tab is not merely unsent — it is never planned.
@@ -130,8 +141,8 @@ The one crossing edge: a pick over state whose case holds a pick over a
 variable (tabs inside an `If`). Its flip places a branch whose HTML is not one
 thing but one thing per selection, so it cannot be rendered once for everyone.
 That stopped being a case at all when the session became the thing that renders
-(ADR 0012): the flip is RECORDED as a mutation, and whichever session pulls it
-performs the placement with its own selections. It arrives as ONE complete patch,
+(ADR 0012): the flip is LOGGED as its host and arriving case, and whichever session pulls it
+performs the placement with its own values. It arrives as ONE complete patch,
 with that viewer's panel already inside it — the same shape the old
 render-rather-than-bytes machinery produced, with nothing left to key or defer.
 
@@ -178,17 +189,19 @@ conditions is `by = List(Bool, [p, q]) |> IndexOfTrue` with cases `0..n`, a
 lone one `by = p` with the case `true`, and the `else` the `otherwise` (none
 while empty, over state). A chain whose conditions all read one variable
 (`valueIs`) is a match on the variable's value, one case per value; one mixing a
-variable with live state, or two variables, is a Pkl error naming R4d of
-`docs/plan-regions.md`, where a decision reading both arrives. A node holds one
-choice until then, and a case is one node (several sit in a row).
+variable with live state, or reading two variables, lowers to the same
+first-true position, decided per viewer, and its empty `else` is no case. A
+node holds one choice, and a case is one node (several sit in a row).
 
 `iff` also takes a node variable at one value, `c.iff(window.valueIs("30d"))`
 (#510). Then the pick is per viewer like a `c.select`'s panels, so the branch is
 each viewer's own and no flip is involved: `then` is the case at the value, and
 `else` the otherwise. The otherwise is always there, empty without an `else`, so
-the If shows something at every value. `valueIs` is not a predicate, so a condition
-cannot mix a variable with entity state; that would need the flip machinery to
-know which viewers a flip reaches, and stays undesigned until a dashboard asks.
+the If shows something at every value. `valueIs` is not a predicate, so one
+condition cannot combine it with entity state, but a chain may take one
+`elif` of each (`c.iff(mode.valueIs("a")).then(x).elif(q.entity(e).stateIs("on")).then(y)`):
+that is a viewer pick, and a state change moving the case for some viewers flips it
+for those alone (`Patches.plan`'s viewer flips).
 
 A choice over a node variable that is not an `If` is `nodeMod.match(v.value,
 cases)`: one case per key (`t0`, `t1`, … in the cases' order) and
@@ -214,18 +227,17 @@ branches pass `new Listing {…}` or use the amend form). Demo entry:
 ## Rejected along the way
 
 - **A dedicated `LayoutNode.If`** (quantified condition + one children array
-  with a then/else split index): workable, and the split-index trick kept the
-  generic hoist/pathId untouched — but it duplicated the surface concept
-  (lazily-activated subtree, stable host, render-on-select) as a second
+  with a then/else split index): workable, but it duplicated the pick
+  (lazily rendered subtree, stable host, render on select) as a second
   mechanism, needed a per-node ancestor-guard map to silence hidden children,
   and left branch nodes in the main reverse index to be filtered at patch
-  time. The surface reuse gets silence structurally and inherits the hoist,
-  lazy rendering, and id namespacing for free.
-- **Riding the user-surface session machinery** (a condition as a synthetic
+  time. Reusing the pick gets silence structurally and inherits lazy
+  rendering and the case ids for free.
+- **Riding the per-session selection machinery** (a condition as a synthetic
   "click"): renders every branch once per connection and turns a global state
   flip into a walk over every session's open set — contorting per-client
   machinery to carry server truth.
-- **A flat `defaultOpen` + optional `condition` on `Surface`**:
+- **A flat `defaultOpen` + optional `condition` per subtree**:
   representable nonsense (both set at once) and an implicit mode. So was the
   activation sum that replaced it (`User | Var | State` per member, with a
   `bakeIndex` order), once a choice became one `by` with keyed cases: a
@@ -236,11 +248,11 @@ branches pass `new Listing {…}` or use the amend form). Demo entry:
 
 - An inactive branch costs nothing: no render, no patch, no membership scan.
   The flip repaint is the reconciliation point (morph + cache prune).
-- Surfaces are the single "conditionally shown subtree" primitive with two
-  activation modes: user-triggered selections are per-client truth and decide
-  who a patch reaches, state-driven ones are server truth and reach everyone.
-  New conditional UI should pick a mode, not a new mechanism.
+- The pick is the single "conditionally shown subtree" primitive, decided two
+  ways: by a viewer's values (a tab, a popup), which are per-client truth and
+  decide who a patch reaches, or by state, which is server truth and reaches
+  everyone. New conditional UI should pick one, not a new mechanism.
 - Verified by `RendererSuite` (selection/counting/owner split),
   `ServerSuite` (hidden-branch silence, flip morph + prune, nesting, popup
-  containment), `BuildPhaseSuite` (activation decode/validate/hoist) and
+  containment), `BuildPhaseSuite` (choice decode/validate) and
   `PklBuildSuite` (full-pipeline If entries + the `pkl-if` snapshot).

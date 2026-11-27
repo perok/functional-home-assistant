@@ -64,7 +64,7 @@ object Scene {
     new Scene(Vector.empty, Some(dashboard), Vector.empty)
 
   /** Slot `entityId`s, subject `entity_id`s and set candidates, across the
-    * layout and every surface.
+    * layout and every case.
     */
   private def referencedEntityIds(d: Dashboard): List[String] = {
     def fromSlots(
@@ -84,8 +84,6 @@ object Scene {
           c.set.toList.flatMap((_, s) => s.candidates ++ s.nodes.flatMap(walk))
     }
 
-    (walk(d.card) ++ d.surfaces.values.toList.flatMap(s =>
-      walk(s.content)
-    )).distinct
+    walk(d.card).distinct
   }
 }

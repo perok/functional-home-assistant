@@ -58,8 +58,6 @@ facts {
     w.otherwise!!.length == 1
     // Its card places the host and declares the slot.
     h.nodesDeclared == Set("branch")
-    // A choice is a fill, not a surface.
-    h.inlineSurfaces == null
   }
   ["a lone condition is the key itself, and no else is no otherwise"] {
     local w = chosen(new Host { choice = nodeMod.iff(isOn(lamp)).then(c.title("a")) })
@@ -89,13 +87,24 @@ facts {
     // A variable shows something at every value, so the else is there empty.
     (w.otherwise!![0] as layout.Row).children.isEmpty
   }
-  ["a chain reading a variable and live state is an error naming R4d"] {
-    module.catch(() -> chosen(new Host {
+  ["a chain reading a variable and live state is a first-true position, as one over state is"] {
+    local w = chosen(new Host {
       choice = nodeMod.iff(mode.valueIs("a")).then(c.title("a")).elif(isOn(fan)).then(c.title("b"))
-    })).contains("R4d")
-    module.catch(() -> chosen(new Host {
-      choice = nodeMod.iff(mode.valueIs("a")).then(c.title("a")).elif(other.valueIs("b")).then(c.title("b"))
-    })).contains("R4d")
+    })
+    w.by is predMod.FirstTrue
+    (w.by as predMod.FirstTrue).items.length == 2
+    ((w.by as predMod.FirstTrue).items[0].source as slotMod.VarRead).name == "mode"
+    keys(w) == List(0, 1)
+    // An else that is empty is no case, there being no variable-alone value to cover.
+    w.otherwise == null
+  }
+  ["a chain over two variables is a first-true position, and its else is the otherwise"] {
+    local w = chosen(new Host {
+      choice = nodeMod.iff(mode.valueIs("a")).then(c.title("a")).elif(other.valueIs("b")).then(c.title("b")).`else`(c.title("x"))
+    })
+    w.by is predMod.FirstTrue
+    keys(w) == List(0, 1)
+    w.otherwise!!.length == 1
   }
   ["a match over a variable has a case per key, in order, and the otherwise at any other"] {
     local w = chosen(new Host {
@@ -125,11 +134,17 @@ facts {
     w.by.steps.isEmpty
     w.otherwise != null
   }
-  ["a match over a variable run through steps is an error naming R4d"] {
-    module.catch(() -> nodeMod.match(
-      new slotMod.Reading { source = new slotMod.VarRead { name = "mode" }; steps { simpleMod.cel("value + 'x'") } },
-      new Mapping { ["a"] = c.title("x") }
-    )).contains("R4d")
+  ["a match over a variable run through steps keys its cases by the steps' result"] {
+    local w = chosen(new Host {
+      choice = nodeMod.match(
+        new slotMod.Reading { source = new slotMod.VarRead { name = "mode" }; steps { simpleMod.cel("value + 'x'") } },
+        new Mapping { ["ax"] = c.title("x") }
+      )
+    })
+    (w.by.source as slotMod.VarRead).name == "mode"
+    w.by.steps.length == 1
+    keys(w) == List("ax")
+    w.otherwise == null
   }
   ["a tab bar is a match over its variable, filling a group the bar places beside its buttons"] {
     local t = (c.tabs) { tabs { ["A"] { c.title("a") }; ["B"] { c.title("b") } } }

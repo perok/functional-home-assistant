@@ -7,7 +7,6 @@ import fh.view.testkit.Conds
 import fh.view.model.{
   SortTerm,
   Access,
-  Activation,
   CallDecl,
   CardDef,
   Case,
@@ -64,7 +63,7 @@ class WireShapeSuite extends munit.FunSuite {
         |import "@fh-dashboard/core/node.pkl" as nodeMod
         |import "@fh-dashboard/core/slot.pkl" as slotMod
         |import "@fh-dashboard/core/choice.pkl" as choiceMod
-        |import "@fh-dashboard/core/surface.pkl" as surfaceMod
+        |import "@fh-dashboard/components/base/popup.pkl" as popupBase
         |import "@fh-dashboard/core/tap.pkl" as tapMod
         |import "@fh-dashboard/core/predicate.pkl" as pred
         |import "@fh-dashboard/core/simple.pkl" as simpleMod
@@ -80,7 +79,7 @@ class WireShapeSuite extends munit.FunSuite {
         |// "does this module own the ancestor" true across a module boundary
         |// (`Node extends LayoutNode` spans two files).
         |local mods: List<Module> =
-        |  List(nodeMod, slotMod, choiceMod, surfaceMod, tapMod, pred, simpleMod, accessMod, varMod, historyProv, chartMod, themeMod) + c.modules
+        |  List(nodeMod, slotMod, choiceMod, popupBase, tapMod, pred, simpleMod, accessMod, varMod, historyProv, chartMod, themeMod) + c.modules
         |local own: Map<String, reflect.Class> =
         |  mods.fold(Map(), (acc, m) -> acc + reflect.Module(m).classes)
         |
@@ -172,20 +171,18 @@ class WireShapeSuite extends munit.FunSuite {
   test("the component node agrees on both sides") {
     // `wireSlots` is emitted and decoded, while the authored `children` and
     // `slots` are `hidden`. If only one side moved, every container's children
-    // would decode to `Map.empty`. `inlineSurfaces` is Pkl-only: a build-phase marker
-    // `DashboardBuild.hoistInlineSurfaces` lifts and removes. Scala's `inputs`
-    // is Pkl's `wireInputs`, since Pkl's `inputs` is the author's hidden one,
+    // would decode to `Map.empty`. Scala's `inputs` is Pkl's `wireInputs`, since Pkl's `inputs` is the author's hidden one,
     // and `slots` is `wireSlots` for the same reason.
     check(
       "Node",
       LayoutNode.Component("card"),
       scalaOnly = Set("inputs", "slots"),
-      pklOnly = Set("inlineSurfaces", "wireInputs", "wireSlots")
+      pklOnly = Set("wireInputs", "wireSlots")
     )
   }
 
   test("a node variable's declaration agrees on both sides") {
-    check("Declaration", Dashboard.Declaration("view", "plain"))
+    check("Declaration", Dashboard.Declaration("view", Some("plain")))
     check("InitialTransform", Dashboard.InitialTransform("light.a", "'x'"))
   }
 
@@ -345,9 +342,6 @@ class WireShapeSuite extends munit.FunSuite {
       caseNames[LayoutNode] -> Set("Node"),
       caseNames[Slot] -> Set("Slot", "NodesSlot"),
       caseNames[Fill] -> Set("NodesFill", "SetFill"),
-      // Only popups are written as surfaces; a choice's branches are a nodes
-      // slot's `Chosen` fill, from which Scala derives the other cases.
-      caseNames[Activation] -> Set("UserActivation"),
       caseNames[Value] ->
         Set(
           "EntityRead",

@@ -201,10 +201,7 @@ class SlotTypeSuite extends munit.FunSuite {
       .create(d)
       .renderBodyTraced(
         Shared.of(Map.empty),
-        Viewing(
-          Selections.none,
-          FetchSnapshot.of(Map(read -> Staged(1L, """{"points":[]}""")))
-        )
+        Viewing(FetchSnapshot.of(Map(read -> Staged(1L, """{"points":[]}"""))))
       )
       .html
     assert(html.contains("&quot;points&quot;"), clue = html)

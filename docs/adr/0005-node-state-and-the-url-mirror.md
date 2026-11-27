@@ -59,25 +59,22 @@ filled at render; *state* is a named, node-scoped value mutated by
 interaction) but its realization stays as-is: the signal name is
 `<state>_<id>`, composed in the authoring layer from the backend-derived
 stable id. The backend must not regress into holding *authoring* signal-name
-literals; the `ui_` prefix below is a different thing — a framework protocol
-name, like `conn`.
+literals; `conn` and the node variables' signals are framework protocol names.
 
 ### 2. Signals are the live carrier; the URL is their mirror
 
-- **The signal is the truth.** The open popup is `ui_popups`, an ordinary
-  unprefixed Datastar signal, so it rides every request the client makes — the
-  SSE reconnect included — and `Server.popupOf` reads it. A tab bar's
-  selection is a node variable instead (decision 4): the session holds it, and
-  its committed signal `_var_<id>__tab` rides only the SSE GET, which is all a
-  forgotten session needs to adopt it (ADR 0033).
+- **The signal is the truth.** A tab bar's selection and the open popup are
+  node variables (decision 4): the session holds them, and their committed
+  signals (`_var_<id>__tab`, `_var_root__popups`) ride only the SSE GET, which
+  is all a forgotten session needs to adopt them (ADR 0033).
 - **Only the server writes it** (ADR 0025). A tap records what it ASKED for in
-  a separate pending signal; the committed one moves when the swap that serves
+  a separate pending signal; the committed one moves when the write that serves
   the tap moves it. That is what makes "the signal is the truth" a fact rather than a
   hope: the URL below mirrors a value no client ever asserted on its own.
 - **The URL mirrors it**, via `history.replaceState` from the
   `data-fh-url="['<param>', $signal]"` attribute (`src/js/datastar.ts`, built
   into the page's Datastar module, `Server.DatastarScript`), as
-  `?ui.popups=<id>` or `?v.<id>.tab=<n>`.
+  `?v.popups=<id>` or `?v.<id>.tab=<n>`.
   That is a hand-rolled `data-query-string` — the Pro plugin that would do this
   for us and which we don't have. The reverse direction needs no script: the
   page is server-rendered, so the server reads its own GET's query and bakes
@@ -117,28 +114,43 @@ should leave the dashboard, not step back through tab clicks. (The Datastar tao
 warns against "custom history management"; the target of that warning is faking
 navigation, not keeping a URL honest about the view it names.)
 
-**A popup is the exception: each one is a history entry.** A popup that offers
-more detail opens another, and with one popup at a time (ADR 0002) the only way
-out of the second was out of both. So the popup's mirror carries `__history`
-and PUSHES each popup the server opens; the browser's history is the stack, and
-the server keeps showing one.
+**A variable can opt in to history** (`v.defaultingTo(x).inHistory()`,
+`Declaration.inHistory`): its mirror carries `__history`, so each choice is an
+entry. Only a variable in the URL can, since an entry is a URL; Pkl refuses
+`.notInUrl().inHistory()`. The page's `popups` is one: a popup that offers more
+detail opens another, and with one popup at a time (ADR 0002) the only way out
+of the second was out of both, so the browser's history is the stack and the
+server keeps showing one.
 
-- **Closing is going back.** The ✕, Escape, a tap on the backdrop and
+- **Closing a popup is going back.** The ✕, Escape, a tap on the backdrop and
   `c.view.closePopup` are all `history.back()`, to the popup before or to the
   dashboard. The backdrop also keeps a tap beside the popup from reaching the
   page under it, which the non-modal dialog alone did not.
-- **One `popstate` listener** (`Server.page`) asks the server to show what the
-  URL now names: open that popup, or close. So Forward reopens.
 - **A value the URL already names is not pushed.** That is what tells a
-  server-confirmed open from one that Back or Forward asked for, with no flag.
-  The entry is pushed on the server's commit, not on the tap, so a refused open
+  server-confirmed choice from one that Back or Forward asked for, with no flag.
+  The entry is pushed on the server's commit, not on the tap, so a refused one
   leaves none.
-- **A page that loads with a popup open** (a shared link, a refresh) gets a
-  dashboard entry inserted beneath it, so a close never leaves the dashboard.
+- **A page that loads with a history value set** (a shared link, a refresh) gets
+  a dashboard entry inserted beneath it, so a close never leaves the dashboard.
   A refresh of an entry the mirror pushed keeps its marker in `history.state`
   and inserts nothing.
 - Nothing resets on a close. The session still holds a window chosen in the
   popup, and the entry going back to restores the URL it had.
+
+- **Back returns the whole previous URL.** On a `popstate` the shell posts the
+  page's query string once (`POST /sse/history/<slug>`), and the server reads
+  every `v.` param again as a page load does: a refused value dropped, an
+  absent param the declared value, and whatever moved re-rendered as a press
+  would. So a choice made since then to a variable in the URL but not in history
+  (a window chooser) goes back too. A variable kept out of the URL is left
+  alone, since its absent param would read as its declared value.
+- **The mirror marks the entries it made, not by key.** A mark naming one key
+  erased a second history variable's param from that one's own entry, and a link
+  naming two pushed one entry each, so Back reopened one. Now an entry the mirror
+  did not make loses every history param before the first push, which keeps them
+  all, so a link naming two is one entry above the dashboard. That first push
+  waits a microtask, since a mirror applied later in the same Datastar scan is a
+  history param the strip must know.
 
 Tiering discipline (do not blur it):
 
@@ -182,31 +194,16 @@ input, clamped at the boundary:
   swaps the panel and commits `_var_<id>__tab`, which the panel host mirrors to
   `v.<id>.tab`. A value is untrusted and refused unless a case of every panel it
   decides takes it (`Renderer.refusals`), so a hand-edited URL can never
-  render a non-existent surface; an old `ui.<id>` link is not read and lands on
+  render a non-existent case; an old `ui.<id>` link is not read and lands on
   the declared tab. The restore is flash-free because the GET renders the
-  picked case directly, and the SSE connect seeds the open set from the
+  picked case directly, and the SSE connect reads the cases from the
   session's variables so it streams live from the first paint.
-- **Open popup.** `ui_<PopupHostId>`, mirrored to `ui.<PopupHostId>`,
-  committed by the open/close swaps (ADR 0025). It carries no pending twin, because nothing on the page DISPLAYS a
-  popup selection — the dialog itself is what the swap patches in, so there is
-  no highlight to keep instant. Only the VALUE differs in kind — a surface id rather than
-  a tab's index — because the popup host is not a choice: any registered
-  surface can appear there, one at a time. `Renderer.openPopup` clamps it,
-  ignoring a claim naming a surface this dashboard does not host, which is the
-  popup's equivalent of a pick taking only the values its cases key.
-
-  It is not a node variable because no node can declare it: the popup host
-  lives in `theme.chrome`, outside every node, so the page shell declares and
-  mirrors it. ADR 0033's root declaration is what would let it become one.
-
-  The signal is authoritative **whenever it is present, `""` included** — that is
-  how a client says "I closed it" — and only its absence (the one signal-less
-  connect above) falls back to the param, so a stale URL cannot resurrect a
-  dismissed dialog on every retry. That is the ordinary signals-beat-query
-  precedence, not a popup rule. This reverses the original decision that popups are transient and
-  "must not resurrect on reload": if you have a dialog open and you refresh,
-  you expect it back — and on a phone, backgrounding the tab is how you read a
-  notification, not how you dismiss a dialog.
+- **Open popup.** The page's `popups` (ADR 0002), declared on the node `root`,
+  so its parameter is `v.popups`, which no `v.<declarer>.<name>` can be, since
+  a node id has no `.` (`VarKey.urlParam`). It holds no value while closed, an
+  absent parameter. A refresh with a popup open brings it back: on a phone,
+  backgrounding the tab is how you read a notification, not how you dismiss a
+  dialog. An old `ui.popups` link is not read.
 
 ## Other candidates this tier serves
 
@@ -226,14 +223,13 @@ Explicit **non-candidate**: slider/value positions (the entity is truth).
   unprefixed `tab_<id>` signal on every Datastar request *and* an `fhui_<id>`
   cookie on every request to the origin. There is now one carrier; the URL
   costs nothing per request because it is never sent.
-- The read path is small and bounded to the HTTP layer (`popupOf` = the
-  popup's signal, else its query param; `varChoicesOf` for `v.`); the write path is
-  one `data-fh-url` attribute per selection.
+- The read path is small and bounded to the HTTP layer (`varChoicesOf` for
+  `v.`); the write path is one `data-fh-url` attribute per variable.
 - **Datastar specifics (verified against v1.0.4):** `data-query-string` and
   `data-persist` are Pro; the free bundle has neither, and `data-persist`
   targets storage the server never sees anyway. Re-verify on upgrade — if
   `data-query-string` becomes available, it replaces `data-fh-url`, except for
-  the popup's history entries.
+  the history entries.
 - The tao's "Restrained Signal Usage" sanctions a tab index as an appropriate
-  signal — `_var_<id>__tab` and `ui_popups` are not an anti-pattern; the URL
+  signal — `_var_<id>__tab` and `_var_root__popups` are not an anti-pattern; the URL
   mirror is the orthogonal persistence layer.

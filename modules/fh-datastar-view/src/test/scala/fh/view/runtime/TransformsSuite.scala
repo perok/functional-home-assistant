@@ -131,7 +131,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
           "slots" -> Json.arr(Json.fromString("v"))
         )
       ),
-      "card" -> Json.obj(
+      "root" -> Json.obj(
         "kind" -> Json.fromString("Component"),
         "card" -> Json.fromString("c"),
         "wireSlots" -> Json.obj(
@@ -280,7 +280,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
     )
   }
 
-  // A tap URL built as a CEL transform, the way a surface tap's is: slug and
+  // A tap URL built as a CEL transform, the way a library tap's is: slug and
   // entity from bindings, `noSignals` inside the string.
   private val tapUrl =
     "\"@post('sse/action/\" + dashboard_slug + \"/\" + 'light/toggle' " +
@@ -329,7 +329,7 @@ class TransformsSuite extends munit.CatsEffectSuite {
           "slots" -> Json.arr(Json.fromString("onclick"))
         )
       ),
-      "card" -> Json.obj(
+      "root" -> Json.obj(
         "kind" -> Json.fromString("Component"),
         "card" -> Json.fromString("c"),
         "wireSlots" -> Json.obj(

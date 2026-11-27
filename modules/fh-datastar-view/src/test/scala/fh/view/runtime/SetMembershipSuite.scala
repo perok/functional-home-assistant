@@ -17,11 +17,11 @@ import fh.view.model.{
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.st
-import fh.view.testkit.FixtureEntity
+import fh.view.runtime.RendererTestOps.ixOf
+import fh.view.testkit.{FixtureEntity, PklFixture}
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 
@@ -31,6 +31,8 @@ import io.circe.Json
   * in place are `SetSuite`'s and `DashboardBehaviourSuite`'s.
   */
 class SetMembershipSuite extends ServerHarness {
+
+  private val dyn = Renderer.create(dynDash)
 
   private def viewing(dash: Dashboard, states: Map[String, EntityState])(
       f: TestServer.Viewer => IO[Unit]
@@ -174,8 +176,8 @@ class SetMembershipSuite extends ServerHarness {
   private def lit(ids: String*) =
     lights.map(id => id -> (if (ids.contains(id)) on(id) else off(id))).toMap
 
-  test("membership change on a not-yet-logged group falls back to a fill") {
-    // With an empty log the group is not established, so it fills to set a
+  test("a departure from a group nothing has logged yet is one remove") {
+    // The page's own list is held from the load, so no fill is needed to set a
     // base.
     viewing(dynDash, lit("light.a", "light.b", "light.c", "light.d")) { v =>
       for {
@@ -183,11 +185,23 @@ class SetMembershipSuite extends ServerHarness {
         held <- v.session.state.map(_.holds)
       } yield {
         assertEquals(patches.size, 1, clue = patches)
-        assert(patches.head.contains("mode inner"), clue = patches)
-        assert(patches.head.contains("selector #c"), clue = patches)
-        // Established by its members' entries, and by no entry of its own.
-        assert(held.contains("c_light_a"), clue = held)
-        assert(!held.contains("c"), clue = held)
+        assert(patches.head.contains("mode remove"), clue = patches)
+        assert(patches.head.contains("selector #c_light_b"), clue = patches)
+        // Established by its members' entries; the host's own entry holds only
+        // what it shows, in order.
+        assert(held.contains(dyn.ixOf("c_light_a")), clue = held)
+        assertEquals(
+          held.get(dyn.ixOf("c")).map(h => (h.values, h.shows.map(_.toList))),
+          Some(
+            (
+              None,
+              Some(
+                List("c_light_a", "c_light_c", "c_light_d").map(dyn.ixOf(_))
+              )
+            )
+          ),
+          clue = held
+        )
       }
     }
   }
@@ -210,14 +224,16 @@ class SetMembershipSuite extends ServerHarness {
         assert(p.contains("mode remove"), clue = p)
         assert(p.contains("selector #c_light_b"), clue = p)
         assert(!p.contains("data: elements"), clue = p)
-        assert(!held.contains("c"), clue = held)
+        assertEquals(
+          held.get(dyn.ixOf("c")).map(h => (h.values, h.shows.map(_.toList))),
+          Some((None, Some(List(dyn.ixOf("c_light_a"))))),
+          clue = held
+        )
       }
     }
   }
 
-  test("the LAST member leaving fills, because the fill carries nothing") {
-    // Everything left, so there is no survivor for a fill to re-send, and an
-    // empty `inner` leaves the host unambiguously empty.
+  test("the LAST member leaving is a remove, and the host shows nothing") {
     viewing(dynDash, lit("light.a")) { v =>
       for {
         // Establishes the host, and puts it back at one member.
@@ -228,17 +244,43 @@ class SetMembershipSuite extends ServerHarness {
       } yield {
         assertEquals(patches.size, 1, clue = patches)
         val p = patches.head
-        assert(p.contains("mode inner"), clue = p)
-        assert(p.contains("selector #c"), clue = p)
-        assert(!p.contains("""id="c_light_a""""), clue = p)
-        assert(!held.contains("c_light_a"), clue = held)
+        assert(p.contains("mode remove"), clue = p)
+        assert(p.contains("selector #c_light_a"), clue = p)
+        assert(!held.contains(dyn.ixOf("c_light_a")), clue = held)
       }
     }
   }
 
-  /** '''A client is never sent a surface it is not viewing.''' Each viewer
-    * renders against its own open set. The second direction stops this passing
-    * if nobody were sent anything.
+  // The oracle's runs reach no `Place`: every membership change in them fills.
+  test(
+    "a member arriving between two is placed before its successor, held so"
+  ) {
+    viewing(dynDash, lit("light.a", "light.c")) { v =>
+      for {
+        // Establishes the host, and puts it back at two members.
+        _ <- step(v, on("light.d"))
+        _ <- step(v, off("light.d"))
+        patches <- step(v, on("light.b"))
+        held <- v.session.state.map(_.holds)
+      } yield {
+        // An arrival is one insert: the list this viewer holds says it was
+        // not on the page.
+        assertEquals(patches.size, 1, clue = patches)
+        val p = patches.last
+        assert(p.contains("mode before"), clue = p)
+        assert(p.contains("selector #c_light_c"), clue = p)
+        assertEquals(
+          held.get(dyn.ixOf("c")).flatMap(_.shows).map(_.toList),
+          Some(List("c_light_a", "c_light_b", "c_light_c").map(dyn.ixOf(_))),
+          clue = held
+        )
+      }
+    }
+  }
+
+  /** '''A client is never sent a case it is not viewing.''' Each viewer renders
+    * against its own open set. The second direction stops this passing if
+    * nobody were sent anything.
     */
   test(
     "a tab nobody is viewing is not pushed to them; the viewer still gets it"
@@ -270,8 +312,12 @@ class SetMembershipSuite extends ServerHarness {
   /** The member card reads an attribute, so the member ticks without leaving
     * the set.
     */
-  private def surfaceDynDash = Dashboard(
-    cards = Sets.cards ++ Map(
+  private lazy val tabs = PklFixture.shape(
+    """card = (c.tabs) { tabs { ["A"] { t.hole("a") } ["B"] { t.hole("b") } } }"""
+  )
+
+  private def caseDynDash = Dashboard(
+    cards = tabs.cards ++ Sets.cards ++ Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Set("children")
@@ -280,24 +326,22 @@ class SetMembershipSuite extends ServerHarness {
         "<span>{{state}}/{{level}}</span>"
       )
     ),
-    card = LayoutNode.Component("col"),
-    surfaces = Map(
-      "det" -> Surface(
-        onSet(
-          List("light.a", "light.b"),
-          List(
-            (
-              None,
-              "dot",
-              Map(
-                "state" -> TemplateSlot(ValueExpr(Value.Entity(None))),
-                "level" -> TemplateSlot(
-                  ValueExpr(
-                    Value.Entity(None, Part.Whole),
-                    List(
-                      Step.Cel(
-                        "'level' in value.attr ? value.attr['level'] : ''"
-                      )
+    card = tabs.fill(
+      "b" -> LayoutNode.Component("col"),
+      "a" -> onSet(
+        List("light.a", "light.b"),
+        List(
+          (
+            None,
+            "dot",
+            Map(
+              "state" -> TemplateSlot(ValueExpr(Value.Entity(None))),
+              "level" -> TemplateSlot(
+                ValueExpr(
+                  Value.Entity(None, Part.Whole),
+                  List(
+                    Step.Cel(
+                      "'level' in value.attr ? value.attr['level'] : ''"
                     )
                   )
                 )
@@ -309,66 +353,65 @@ class SetMembershipSuite extends ServerHarness {
     )
   )
 
-  test("a set inside an open surface gets the same per-member treatment") {
+  test("a set inside a shown case gets the same per-member treatment") {
     live(
-      surfaceDynDash,
+      caseDynDash,
       Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
     ) { ts =>
       for {
-        v <- ts.viewer(s"?ui.${Dashboard.PopupHostId}=det")
+        v <- ts.viewer()
         batch <- v.change(
           st("light.b", "on", "level" -> Json.fromString("2"))
         )
       } yield {
         val patches = elementPatches(batch)
         assertEquals(patches.size, 1, clue = patches)
-        // One child morph, not the whole surface group.
-        assertEquals(
-          batch.head.elements,
-          Some(
-            """<div class="fh-cell" id="s_det__c_light_b"><span>on/2</span></div>"""
-          )
+        // One child morph, not the whole case.
+        val morph = batch.head.elements.getOrElse("")
+        assert(
+          morph.matches(
+            """<div class="fh-cell" id="c_[a-z0-9_]+_light_b"><span>on/2</span></div>"""
+          ),
+          clue = batch.map(_.render)
         )
       }
     }
   }
 
-  /** A set nested inside a member, inside a surface: a tile per room, on a tab.
+  /** A set nested inside a member, inside a case: a tile per room, on a tab.
     * Only the outer set is in the static index, so a `root` read from it
     * answered `""`, the main page, and every inner member's patch reached every
     * client. `MemberGraphSuite` pins `Member.root`; this pins the property.
     */
-  private def nestedSurfaceDash = Dashboard(
-    cards = Sets.cards ++ Map(
+  private def nestedCaseDash = Dashboard(
+    cards = tabs.cards ++ Sets.cards ++ Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
         regions = Set("children")
       ),
       "dot" -> TestCard("<span>{{state}}</span>")
     ),
-    card = LayoutNode.Component("col"),
-    surfaces = Map(
-      "det" -> Surface(
-        Sets.node(
-          candidates = List("area.stue"),
-          members = Map(
-            "area.stue" -> Sets.Member(
-              List(
-                Sets.Clause(
-                  None,
-                  LayoutNode.Component(
-                    "col",
-                    slots = Slots.kids(
-                      onSet(
-                        List("light.a", "light.b"),
-                        List(
-                          (
-                            None,
-                            "dot",
-                            Map(
-                              "state" -> TemplateSlot(
-                                ValueExpr(Value.Entity(None))
-                              )
+    card = tabs.fill(
+      "b" -> LayoutNode.Component("col"),
+      "a" -> Sets.node(
+        candidates = List("area.stue"),
+        members = Map(
+          "area.stue" -> Sets.Member(
+            List(
+              Sets.Clause(
+                None,
+                LayoutNode.Component(
+                  "col",
+                  slots = Slots.kids(
+                    onSet(
+                      List("light.a", "light.b"),
+                      List(
+                        (
+                          None,
+                          "dot",
+                          Map(
+                            "state" -> TemplateSlot(
+                              ValueExpr(Value.Entity(None))
                             )
                           )
                         )
@@ -380,33 +423,32 @@ class SetMembershipSuite extends ServerHarness {
             )
           )
         )
-      ),
-      "other" -> Surface(LayoutNode.Component("col"))
+      )
     )
   )
 
-  test("a member of a set nested in a surface never reaches a closed tab") {
+  test("a member of a set nested in a case never reaches a closed tab") {
     live(
-      nestedSurfaceDash,
+      nestedCaseDash,
       Map("light.a" -> on("light.a"), "light.b" -> on("light.b"))
     ) { ts =>
       for {
-        watching <- ts.viewer(s"?ui.${Dashboard.PopupHostId}=det")
-        elsewhere <- ts.viewer(s"?ui.${Dashboard.PopupHostId}=other")
+        watching <- ts.viewer()
+        elsewhere <- ts.viewer("?v.c.tab=1")
         // Establish the inner host, so the last frame takes the per-member
         // delta: the path that must get `root` right per member.
         _ <- step(watching, off("light.b"))
         _ <- step(watching, on("light.b"))
         seen <- watching.change(off("light.b")).map(_.map(_.render))
-        // One pull over every frame: the open set is the only difference.
+        // One pull over every frame: the tab is the only difference.
         unseen <- elsewhere.pull.map(_.map(_.render))
       } yield {
         // Without this half the assertion below passes if nobody got anything.
         assert(
-          seen.exists(_.contains("s_det__c_area_stue_0_0_light_b")),
+          seen.exists(_.contains("area_stue_0_0_light_b")),
           clue = seen
         )
-        assert(!unseen.exists(_.contains("s_det__c_area_stue")), clue = unseen)
+        assert(!unseen.exists(_.contains("area_stue")), clue = unseen)
       }
     }
   }

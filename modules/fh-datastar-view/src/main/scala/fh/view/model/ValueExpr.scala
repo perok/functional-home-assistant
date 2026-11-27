@@ -192,7 +192,7 @@ final case class ValueExpr(
       inputs.filter((n, _) => read.contains(n))
 
   /** Why it cannot decide where a bool is required, read with no inputs: a
-    * clause, a guard, a state surface.
+    * clause, a guard, a state pick.
     */
   def boolError: Option[String] =
     typed(Nil) match

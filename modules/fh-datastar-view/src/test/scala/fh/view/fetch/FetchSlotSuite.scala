@@ -21,16 +21,16 @@ import fh.view.model.{
   SlotAsk,
   SlotRead,
   Ready,
+  TreeIndex,
   SlotShape,
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import fh.view.history.{ChartStyle, History, SeriesSource, Window, Windows}
-import fh.view.runtime.{EntityState, Evaluator, Renderer, Selections, sharedOf}
+import fh.view.runtime.{EntityState, Evaluator, Renderer, choosing, viewedOf}
 import io.github.iltotore.iron.*
 import fh.view.FHError
 import fh.view.testkit.{FixtureEntity, PklFixture}
@@ -44,8 +44,10 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
 
   private object compile:
     private val walk = Ready.Compile(Evaluator.Scope(""))
-    def component(c: LayoutNode.Component): Ready.Component =
-      Conds.compiled(walk.component(c))
+    def component(c: LayoutNode.Component): Ready.Component = {
+      val i = TreeIndex.of(c)
+      Conds.compiled(walk.node(i, i.root))
+    }
 
   /** A window written down resolves to itself in any environment, so the
     * assertions stay about the fetch slot, not variables. Named by preset.
@@ -317,68 +319,6 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
     }
   }
 
-  test("a surface's fetches are found before it is rendered") {
-    // More-info is a triggered surface, so what it reads must be answerable
-    // from the static tree: a render is a synchronous string build, a provider
-    // `IO`.
-    val d = Dashboard(
-      cards = Map(
-        "chart" -> TestCard("""<div>{{{chart}}}</div>"""),
-        "col" -> TestCard(
-          """<div>{{{children}}}</div>""",
-          regions = Set("children")
-        )
-      ),
-      card = LayoutNode.Component(card = "col"),
-      surfaces = Map(
-        "popup" -> Surface(
-          content = LayoutNode.Component(
-            card = "col",
-            slots = Slots.nodes(
-              Map(
-                "children" -> List(
-                  LayoutNode.Component(
-                    card = "chart",
-                    slots = Slots.values(
-                      Map(
-                        "chart" -> TemplateSlot(
-                          ValueExpr(
-                            Value.Fetch(chart()),
-                            List(drawnStep())
-                          ),
-                          `type` = SlotType.TextRaw
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-    val r = Renderer.create(d)
-    assertEquals(
-      r.fetchesForSurface(
-        "popup",
-        sharedOf(Map.empty),
-        Selections.none,
-        Map.empty
-      ),
-      List(read())
-    )
-    assertEquals(
-      r.fetchesForSurface(
-        "nope",
-        sharedOf(Map.empty),
-        Selections.none,
-        Map.empty
-      ),
-      Nil
-    )
-  }
-
   test("a page resolves the tab it shows and the branch state picks, only") {
     // An unselected tab is fetched by its own switch and an inactive branch is
     // off screen; resolving either draws charts nobody sees.
@@ -413,8 +353,9 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
     )
     def light(s: String) =
       Map("light.a" -> EntityState("light.a", s, Map.empty))
-    def windows(selected: String, states: Map[String, EntityState]) =
-      r.fetchesForPage(Set(selected), sharedOf(states), Map.empty)
+    def windows(tab: String, states: Map[String, EntityState]) = {
+      val env = choosing(r, "tabs", "tab", tab)
+      r.fetchesForPage(viewedOf(states, env), env)
         .map(r =>
           Windows.presets
             .collectFirst {
@@ -423,8 +364,9 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
             .getOrElse(fail(s"not a preset: ${r.fetch}"))
         )
         .toSet
-    assertEquals(windows("tabs_panel_0_0", light("on")), Set("1h", "24h"))
-    assertEquals(windows("tabs_panel_0_1", light("off")), Set("7d", "30d"))
+    }
+    assertEquals(windows("0", light("on")), Set("1h", "24h"))
+    assertEquals(windows("1", light("off")), Set("7d", "30d"))
   }
 
   private def dashboard(src: TemplateSlot) =

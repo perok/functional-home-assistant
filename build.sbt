@@ -590,6 +590,9 @@ lazy val `fh-datastar-view` = project
       "qa.hedgehog" %% "hedgehog-core" % hedgehodVersion % Test,
       "qa.hedgehog" %% "hedgehog-runner" % hedgehodVersion % Test,
       "qa.hedgehog" %% "hedgehog-munit" % hedgehodVersion % Test,
+      // The model-based oracle's fake page: the page GET parsed and patched by
+      // id as the browser would, to compare with a fresh render.
+      "org.jsoup" % "jsoup" % "1.24.1" % Test,
       // TestControl.executeEmbed: simulated time for ServerHarness suites
       // (issue #109 item 3) so IO.sleep-based polling in test bodies costs
       // nothing in wall clock instead of needing to be sped up.

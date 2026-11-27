@@ -92,7 +92,7 @@ class MemberNodesSuite extends ServerHarness {
       r.renderNodeById(
         id,
         Shared.of(allOn),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).isDefined
     )
     // Two leaves per member, each renderable on its own.
@@ -100,7 +100,7 @@ class MemberNodesSuite extends ServerHarness {
     painted.foreach { id =>
       val known = leaves.contains(id) ||
         r.members.setContainer(NodeId.derived(id)).isDefined ||
-        r.ancestry.ancestorsOf(NodeId.derived(id)).nonEmpty
+        r.index.ixsOf(NodeId.derived(id)).exists(r.index.parent(_).nonEmpty)
       assert(known, clue = s"'$id' is painted but nothing knows it: $html")
     }
   }
@@ -134,7 +134,7 @@ class MemberNodesSuite extends ServerHarness {
         _ <- step(v, off("light.a"))
         patches <- step(v, on("light.a"))
       } yield {
-        assertEquals(patches.size, 2, clue = patches)
+        assertEquals(patches.size, 1, clue = patches)
         val p = patches.last
         assert(p.contains("mode before"), clue = p)
         List("c_light_a", "c_light_a_0", "c_light_a_1").foreach(id =>
@@ -213,8 +213,14 @@ class MemberNodesSuite extends ServerHarness {
   test("a choice inside a member shows this viewer's member") {
     assertEquals(tabbed.validate(), Nil)
     val r = Renderer.create(tabbed)
-    val html =
-      r.renderBody(twoOn, picking("c_0_light_a_k0" -> 1, "c_0_light_b_k0" -> 0))
+    // Each member's pick reads its own scope's value.
+    val html = r.renderBody(
+      twoOn,
+      vars = Map(
+        NodeId.derived("c_0_light_a_k0") -> Map("tab" -> "1"),
+        NodeId.derived("c_0_light_b_k0") -> Map("tab" -> "0")
+      )
+    )
     assert(html.contains("A second") && !html.contains("A first"), clue = html)
     assert(html.contains("B first") && !html.contains("B second"), clue = html)
     // The member's root hosts its panel.
@@ -260,5 +266,53 @@ class MemberNodesSuite extends ServerHarness {
       twoLights*
     )
     assertEquals(flipping.validate(), Nil)
+  }
+
+  test(
+    "a member holding nodes that leaves and returns in one pull is sent whole"
+  ) {
+    // The page may hold the old subtree's ids, which nothing says changed.
+    live(columns, allOn) { ts =>
+      for {
+        v <- ts.viewer()
+        _ <- ts.record(FixtureEntity("light.a", "off"))
+        _ <- ts.record(FixtureEntity("light.a", "on"))
+        patches <- v.pull.map(elementPatches)
+      } yield {
+        assertEquals(patches.size, 2, clue = patches)
+        assert(patches(0).contains("mode remove"), clue = patches)
+        assert(patches(0).contains("selector #c_light_a\n"), clue = patches)
+        List("c_light_a", "c_light_a_0", "c_light_a_1").foreach(id =>
+          assert(patches(1).contains(s"""id="$id""""), clue = patches)
+        )
+      }
+    }
+  }
+
+  test("a leaf member that leaves and returns in one pull is only morphed") {
+    val notOff = Conds.cmp("state", Op.Ne, Json.fromString("off"))
+    val leaves = Dashboard(
+      cards = cards,
+      card = Sets.node(
+        candidates = lights,
+        members = lights.map { id =>
+          id -> Sets.Member(List(Sets.Clause(Some(notOff), tile(id))))
+        }.toMap
+      )
+    )
+    live(leaves, allOn) { ts =>
+      for {
+        v <- ts.viewer()
+        _ <- ts.record(FixtureEntity("light.a", "off"))
+        _ <- ts.record(FixtureEntity("light.a", "idle"))
+        patches <- v.pull.map(elementPatches)
+      } yield {
+        assertEquals(patches.size, 1, clue = patches)
+        assert(patches.head.contains("idle"), clue = patches)
+        assert(patches.head.contains("""id="c_light_a""""), clue = patches)
+        assert(!patches.head.contains("mode remove"), clue = patches)
+        assert(!patches.head.contains("mode before"), clue = patches)
+      }
+    }
   }
 }

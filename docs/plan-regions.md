@@ -22,8 +22,8 @@ it as `Activation.Var`.
 
 **State:** direction agreed in chat (2026-11-10); the prework is on main (below); R1 is built
 (`slot-classes`), R2 is built (`set-fill`), R3 is built (`choices-in-pkl`), R4a and R4b are built
-(`one-runtime-path`), R4c is built (`root-hosts`), R4d onward not. The opening describes the shape before
-R1.
+(`one-runtime-path`), R4c is built (`root-hosts`), R4d's D0–D5 are built (`the-planner`), D6
+not; R5 is built (`the-planner`), its smoke tests waiting on CI. The opening describes the shape before R1.
 
 ## What this builds on
 
@@ -265,9 +265,10 @@ A host is filled by one mechanism, a **pick**: keys, each with its `Choice`, an 
 A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
 - **Deciding** happens on every send, as a selection is resolved per send today: each key's `by`
   is evaluated where its sources live, by the evaluator slots use, and its case looked up. A `by`
-  that is a `Var` is a read and a lookup, however many cases it has. A state-only `by` is decided
-  once per version, in the renderer's `Shared` (the pipeline doc, §1); one that reads a variable,
-  per session.
+  that is a `Var` is a read and a lookup, however many cases it has. Every decision has a level
+  the renderer knows from what it reads: one reading no variable is made once per version for
+  every viewer, one reading variables once per version and the values they hold, both in the
+  renderer's `Shared` (the pipeline doc, §1) and carried by the same dirty rule (D5).
 - **A case no viewer shows costs nothing:** it is not rendered, fetched or logged, today's rule for
   a surface nobody has open, which matters once every popup is a case of one match. Its fetches are
   read only once it is chosen, the rule a reading's `valueWhile` already has (`Fetching.Gate`); the
@@ -277,9 +278,11 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
   session:
   - The log keeps only `fragments`, which node or host changed at which version; `mutations`,
     `horizon` and the set refill go (ADR 0011). `completeFrom`, for a gap nobody watched, stays.
-  - A session's `holds` keeps, beside each node's inputs and signals, each host's keys in the
-    order sent. That is one reference per member per session, bounded by the static ids, where
-    the log's `mutations` grew until pruned.
+  - A session's `holds` keeps, beside each node's inputs and signals, what each host shows, in
+    the order sent: the `Ix` of each shown root, which is the key and its case in one int (a
+    member's clauses and a pick's cases each have their own). That is one int per member per
+    session, bounded by the index, where the log's `mutations` grew until pruned. `holds` is
+    keyed by `Ix` and stamped with the renderer it was painted by (D2a).
   - On a pull or a variable write, each touched host's decided keys are compared with its held
     ones, skipped when equal. One planner turns the difference into `Remove`/`Before`/`Append`
     per key, a switch replacing what a key shows, sent back to front so each anchor is on the
@@ -288,21 +291,43 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
   - A key that leaves takes its nodes' entries and its inner hosts' key lists with it, so an
     absent entry always means "not on the page, send it whole". `holds` is trusted only when the
     cursor is at or above `told`, as today.
-  - A set's key is its member's root, `<host>_<key>`; nodes inside get ids per case.
+  - A set's key is its member's root, `<host>_<key>`. Its clauses keep sharing DOM ids:
+    `holds` and the render cache tell them apart by `Ix`, so no id changes.
   - Not chosen: the log recording which members' order inputs changed, so only those are placed
     again, with no search. Cheaper, but right only if the log never misses one, and a write to a
     variable an order reads moves members it cannot name. Worth it only if the bench shows the
     search costs.
-- **Popups** are one `nodeMod.match(popups, …)` on the root, in the chrome's `#popups` (the one host
-  that is not a card's root; `validate` already checks the chrome writes it): one case per popup
-  on the dashboard, nothing otherwise. What the spike (step 0) settled:
-  - **The root declares `popups`, and a popup's content starts with the root's scope**: the root
-    is above every place a popup opens from, so an opener inside a popup (the colour wheel in a
-    more-info) resolves the variable. Today a popup is its own scope root (`Dashboard.varScopes`,
-    `scopeOf`); after this every root variable reaches popups, a root window chooser included.
-    The name is reserved: `validate` refuses an author's declaration of `popups`, which would hide
-    the root's from every opener below it (ADR 0033 records a `root.` reference as the
-    alternative, should an author ever need to reach past a nearer declaration).
+- **Popups** are a library layer on ordinary nodes slots (agreed 2026-11-24); nothing in `core/`
+  or on the wire says "popup":
+  - **The page is a card.** `core/page.pkl`'s page card has two nodes slots: `body`, holding the
+    dashboard's root card (`card`, which keeps the id `c`, so no id below it moves), and `popups`.
+    The theme's `chrome` is its template, placing `\(body)` and `\(popups)` (the theme still
+    imports nothing), so Pkl's "nodes slot is never placed" check replaces `validate`'s chrome
+    check, and Scala's default `<main id="dashboard">` frame becomes the card's default template.
+    `entry.pkl` builds the page node with the authored id `root`, and a repaint targets it. `root`
+    and `popups` are reserved node ids, refused by name.
+  - **The root declares `popups`** (`components/popup.pkl`), a reserved name: `validate` refuses an
+    author's declaration of it, which would hide the root's from every opener below (ADR 0033
+    records a `root.` reference as the alternative). Its default is no value; it is in history. A
+    variable the root declares spells its URL parameter `v.<name>` (`v.popups=moreinfo_light_kitchen`),
+    which cannot be confused with `v.<declarer>.<name>` since a node id has no `.`; `VarKey` owns
+    the spelling.
+  - **A popup is a node with an authored id**, required: `c.view.popup("help", body)`. The
+    library's own derive theirs from the entity (`moreinfo_<domain>_<object id>`, the lock's
+    confirm, the colour wheel). The variable's value is that id.
+  - **An open is a `SetVar` on `popups` choosing the id.** The tap carries the popup's node as a
+    `hidden` property, so the wire has only the call. `entry.pkl` collects every opened popup from
+    `body`, recursing into each popup's content and stopping at an id already collected, into
+    `popups`: a group with the id `popups` holding `nodeMod.match(popups, …)`, one case per id.
+    Equal content under one id is one case (two cards for one entity share its more-info, and
+    whatever is chosen inside it); different content is a Pkl error. Since Pkl is lazy, a popup
+    holding its own opener is a reference, and `moreinfo.pkl`'s pinned tap goes.
+  - **A close is a clear** of `popups`, the pick's ordinary leave: a `remove` of the popup's own root
+    (`#<id>`), the host staying for the next open to fill. The slot shows one case, so one popup is on screen at a time, and
+    a popup may hold another's opener.
+  - **A popup's content starts with the root's scope**: it is a case of the page node's match, the
+    rule a tab panel already has, so ADR 0033's rule 6 exception goes, and every root variable
+    reaches popups.
   - **No value is `null`**, the value language's own (ADR 0035): `Match` takes `otherwise`,
     `valueIs` does not hold, and every step passes it on, whatever the variable's type. Scala
     holds it as no value (`Option`). The wire drops a `null` (ADR 0006), so a declaration's
@@ -312,10 +337,6 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
     an absent URL parameter, which no chosen value can be. The build declares `popups` with `{}`,
     and a clear reads the default again. ADR 0033's future-work entry on "no value" takes this
     answer, and its pointer to `core/stage.pkl`, which does not exist, goes.
-  - **An open** is a `SetVar` call choosing the popup's id, a lookup and one patch. Inline ids are
-    tokens already (`<set>_<entity>_self`, `s_<panel>__c_0_self`, spliced before decode); a
-    registered `surfaces` key is typed `varMod.Value`. A close chooses nothing, the pick's
-    ordinary leave, the `remove` on `#popups > *` a close already sends (#684).
   - **Back and Forward:** a declaration opts in to history (`.inHistory()`, name open): its URL
     mirror pushes an entry per choice (`data-fh-url__history`, which only `ui.popups` uses
     today). On a popstate the shell posts the page's query string once, and the server re-reads
@@ -328,28 +349,34 @@ A `Fill.Nodes` with a `Chosen` is one key; a `Set` is one key per candidate.
     and to strip every history parameter from an entry it did not make before its first push.
     Today `history.state.fhPushed` names one key, so a link naming two builds entries where Back
     reopens one, and changing one while on the other's entry erases it there.
-  - **The URL parameter is the variable's own**, `v.<root>.popups`, so a load seeds the variable
-    as it does every other; the spike kept `ui.popups`, and a refresh left the variable empty with
-    the popup shown. `?ui.popups=` links stop working (agreed). The call body's `ui_popups` goes,
+  - **The URL parameter is the variable's own**, `v.popups`, so a load seeds the variable as it
+    does every other; the spike kept `ui.popups`, and a refresh left the variable empty with the
+    popup shown. `?ui.popups=` links stop working (agreed). The call body's `ui_popups` goes,
     since the session holds the open popup.
   - **A popup outlives its opener**: a set member leaving, or a tab switching away, keeps its
     popup open and the variable holding it, as today.
-  `c.view.openPopup` and `openPopupInline` build the calls; `tapMod.OpenSurface`'s click,
-  `Selections.popup`, the popup case in `committedSelection`, `ui_popups`/`ui.popups`, the
-  shell's `popupFromUrl` and the `/sse/surface/…/open` and `/sse/popup/…/close` routes go; the
-  build collects every popup in the tree into the match, as the inline-surface hoist collects
-  them today.
+  - **Goes:** the `surfaces` registry, `openPopup`, `openPopupInline`, `inlineSurfaces`, the hoist
+    and `@@NODE_ID@@` (whose only user it is), `defaultOpen` and `Activation.User`,
+    `tapMod.OpenSurface`, `Selections.popup`, the popup case in `committedSelection`,
+    `ui_popups`/`ui.popups`, the shell's `popupFromUrl`, and the `/sse/surface/…/open` and
+    `/sse/popup/…/close` routes. `core/surface.pkl` goes, its `Popup` card moving to
+    `components/base/`; "surface" leaves the vocabulary (a container and a pick's case remain).
+  - **Not built:** a popup that state shows, through the slot's own choice (its close would be a
+    second variable); opening one at the start; an entity chosen by a variable (ADR 0033, "Why
+    not": the typed bodies, the written-down reads, signals, calls and fetches all rely on it).
 - `SurfaceGraph`'s bake groups became picks in R4b; `MemberGraph`'s special nesting
   (`WalkAt.InMember`, `innerSetId`, `groupAt`) goes into the one path in R4c/R4d;
   `SurfaceGraph`'s popup half and the inline-surface hoist in R5.
 
 ### 8. Markup Scala stops writing
 
-The rule: Scala renders markup Pkl wrote and fills only values it owns. What is left is the set's
-root (§5, `Renderer.groupOpen`). What stays in Scala, as the contract: the page shell, the root
-`<div data-signals…>` with its seeds, the toast and reload handlers, the error page, and the
-default `<main id="dashboard">` chrome. The back-button handler becomes the shell's one popstate
-post of the query string (§7).
+The rule: Scala renders markup Pkl wrote and fills only values it owns. The set's root, the last
+exception, became the `group` card in R2. What stays in Scala, as the contract: the page shell
+(`Server.scala`), the root `<div data-signals…>` with its seeds, the toast, reload and
+pending-sweep handlers, and the error page, plus `Renderer`'s head parts a patch targets (the
+theme `<style>`, the theme-color `<meta>`s); the frame is the page card's template (R5.2), and
+the back-button handler is the shell's one popstate post of the query string (§7). ADR 0006
+decision 7 states the rule.
 
 ## Steps
 
@@ -474,39 +501,498 @@ Stacked branches, each its own PR on the one before. The local workspaces outsid
        does; R5 moves popups onto the pick.
      - Scala's `validate` refuses a choice on a card placing another region, as it does a set;
        the exact "whole template" comparison is Pkl's (the wire template carries the root).
-     - `MemberKey.Surface` and ADRs' "state surface" still name a case by its old word.
-   - **R4d, the planner.** `holds` keeps each host's keys; the log down to `fragments` (below);
-     the variable-read refusals of §4 go, the mixed `by` and set guards included, with a test of
-     one guard reading a variable and a state, two viewers on different values.
-   - Left for R4d: the planner (§7); `MemberGraph`'s nesting cases; the shared decisions'
-     variable refusals (§4). Popups stay on today's swap.
-   - A test that a case no viewer shows costs nothing: a state change that only an unchosen tab
-     panel or If branch reads renders and sends nothing.
-   - The planner as §7 has it, the log down to `fragments`. Tests:
-     - a model-based one: random state changes and variable writes over two sessions, each
-       session's patches applied to a fake page and compared with a fresh full render;
-     - a page returning within the linger, its position ahead of its cursor included, gets only
-       the members that changed and no set repaint (`FragmentLogSuite`'s refill assertions are
-       rewritten to this);
-     - A → B → A sends A whole.
-   - Bench everything R2 measured, `publishSetOrdered` also with many sessions, and the size of
-     one session's `holds`. Then look at `validated`'s allocation: R2 left it ~6% above R1 on the
-     starter (1.56 → 1.66 MB/op), the `group` card's template and each set validated as a card;
-     build-time only, so left until the model stops moving.
-5. **R5, popups on the pick.**
-   - Popups as §7 has them, their taps `SetVar` calls on `popups`: the root's `popups`, its name
-     reserved, a popup
-     starting with the root's scope (`NodeVariablesSuite`'s "a SURFACE is its own scope root"
-     becomes "a popup starts with the root's scope", agreed 2026-11-15), a default of no value
-     (`varMod.noValue`, `{}` on the wire),
-     `.inHistory()`, the popstate re-read of the URL and the mirror's own-entry marking, and the
-     `v.<root>.popups` parameter. Also check why two of the spike's pulls sent nothing (a member
-     leaving, a tab switch, both on a session with no stream).
-   - Smoke tests (CI) for Back and Forward over a popup, over two history variables, and from a
-     link naming both.
-   - R4's costs-nothing test for a popup. Bench a popup open and close, and state changes with
-     many popups unopened, on the largest test dashboard.
-6. **R6, markup.** A test that no Scala source writes markup outside the contract in §8.
+     - ADRs' "state surface" still name a case by its old word.
+   - **R4d, the planner**, branch `the-planner` on `pkl-fixtures` (F, #725). Agreed
+     2026-11-19. D0 first, a refactor with no behaviour change, then D1, D2a, D2b, D3, D5 (D5.0–D5.5), D6 (D4 merged into D3).
+     - **D0.1, one tree index.** Today about eight walks mint ids themselves (`Dashboard.picks`,
+       `Dashboard.varScopes`, `Validate.walk`/`walkIds`, `Renderer.Index`, `Member.subtree`,
+       `MemberGraph`'s nested-set walk, the build's JSON hoist), and R4c added a second spelling,
+       `LayoutNode.innerCaseId`. One `TreeIndex`, a `lazy val index` on the wire `Dashboard`,
+       numbers every node in pre-order: the page's tree, then each popup's in id order, every
+       clause of every candidate and every case included. A node is its number, an opaque `Ix`
+       over `Int`. By `Ix`, in arrays, the index holds the node's DOM id, parent, step, tree,
+       member context (member, clause, path), container, a case's pick and index, and `end`:
+       `[ix, end(ix))` is its subtree, so whether one node is inside another is one comparison
+       and a subtree is a range, not a walk. A DOM id names a place, not a node: two clauses of
+       one member share theirs, which is what keeps a viewer's choice when the member moves to
+       its other clause (`varScopes`). So `ids(id)` answers every `Ix` with that id, more than
+       one only under clauses.
+       `Ix` belongs to one renderer. What crosses a dashboard swap (`SessionState`, a URL, a
+       signal, the log) keeps DOM ids, since a session can meet the new renderer without a
+       repaint (`Server.checked`); the opt-in stable names (Later, `.urlName(…)`) are for those,
+       never `Ix`.
+       `Ready.Compile` walks the index beside the wire tree, minting nothing, and puts each
+       node's `Ix` and id on its `Ready.Component`; the render walk reads them. Done when only the
+       index (and the JSON hoist, until R5) calls `childId`/`childIdWithin`/`innerSetId`/
+       `memberSegment`/`innerCaseId`; `WalkAt.InMember`, `innerSetId` and `groupAt` fold into
+       it. The spike's comparison stays as the index's test: its ids are the ones the renderer
+       writes, its containers the ones `SurfaceGraph` answers.
+       Built. Two visible changes, both in `validate`: its messages name a member's nodes by
+       their runtime id (where they said `<set>_<i>`), and an authored id on a set's host is
+       accepted, where the old walk gave its members the host's id and refused it as repeated.
+       `AuthoredIdSuite` holds the
+       authored-id rules.
+       Spike (2026-11-20, a throwaway suite): one index built from the wire tree works.
+       - One walk of the WIRE tree (`Dashboard.picks`' shape: `childIdWithin`, members by
+         `memberSegment`, a popup under its prefix) gave every id the runtime renders (body,
+         every popup, every case) and the container `SurfaceGraph.rootOf` answers for every
+         node, with no disagreement. Checked on the 12 test dashboards, the starter, and a
+         snippet with a set nested in a member and an If in a member.
+       - Ids are not unique per node: two clauses of one member mint the same ids for their
+         content. Hence `Ix`.
+       - The compile is 1:1 with wire nodes: members are compiled per candidate and clauses
+         stay a `Vector` of nodes. So `Ready.Compile` can walk the index beside the wire tree
+         and put each node's id on its `Ready.Component`. The render walk then reads it, where
+         `tracedInto` concatenates every child's id on every render today. That is an
+         allocation the D0 bench round should show going.
+       - `validate` reads the index, so it is built from trees `validate` will refuse and
+         records what it finds (a repeated authored id) rather than failing. That makes it a
+         `lazy val index` on the wire `Dashboard`, read by `picks`, `varScopes`, `Validate` and
+         `Ready.Compile`.
+       - A popup's container is its bare id today (`"detail"`), which an authored node id can
+         equal; D0.3 changes that spelling, not any node id.
+     - **D0.2, the compiled node mirrors the wire's union.** `Ready.Component.content: Content =
+       Fixed(regions) | Live(slot, LiveFill)`, `LiveFill = Pick(by, variable, byKey, cases,
+       otherwise) | Set(SetFill)`; `isChoice`, `choices`, `set` and `SetFill.region` go, and
+       `Ready.Pick`'s host, slot, prefix, within and case ids move to the index. Built.
+     - **D0.3, containers are nodes.** A container is the root node of the page, of a popup's
+       content, or of a case, and nothing about it says popup or panel. Inside a renderer it is
+       that node's `Ix` (`TreeIndex.container`) and an open set is a `BitSet`. `SurfaceGraph`
+       and the hot paths (`Patches.plan`'s `shown`, `visibleNode`, `selectionsIn`) read node
+       `Ix`s, the entity reverse index included, so they allocate nothing per id; a `NodeId` is
+       spelled only where bytes are written. `containerOfIndexed`, `caseAt` and `surfaceParent`
+       become index lookups.
+       Where a container crosses a swap (`SessionState.open`, `Mutation.container`, the
+       recorder's `Sessions.watching`) it is spelled by its root's DOM id, read into `Ix` once per step:
+       a popup is `s_detail__c`, not its key `detail`. Under clauses one id reads as one
+       `Ix` per clause, which is what `caseAt` means today. One kind of name needs no prefix
+       rule: `validate` already refuses an authored id equal to any other id in the index,
+       popups' included.
+       The wire does not move: `ui_popups`, its URL parameter and the open route keep the
+       surface key, read into its root at the route. The popup branches that remain
+       (`Selections.popup`, `committedSelection`, the popup host in `surfacesAt`) are what R5
+       deletes, so D0.3 does not rewrite them first. Bench round with `-XX:-DoEscapeAnalysis`.
+       Built. `Ready.Dashboard` carries the index and every compiled node its `Ix`; the graphs
+       read containers off it, so `MemberGraph`'s `rootOfMember`/`rootOfSet`, `Member.root` and
+       its case map went too. The visibility walk reads arrays by `Ix`. `selectionsIn`
+       and `committedSelections` still read the spelled set: they answer the
+       wire's questions, and R5 removes them with `open`.
+     - D0's gate: goldens byte-identical, suites green, `page`/`tickRender`/`publishSet*` equal
+       or better. Render time and allocation come first; `validated` may pay for a structure
+       that is strictly better (D0.1 + D0.2: `page` −5%, `publishSetOrdered` −8%, `validated`
+       +0.2% for the index, accepted 2026-11-21). Authoring stays as §2 has it: a fill plus the
+       whole-template rule, so an author's own card can be the host.
+     - **D1, a model-based oracle.** Built: `OracleSuite`, `testkit/FakePage`,
+       `FakeBrowser`. What it holds, whatever D2–D5 change: everything a viewer was sent,
+       applied to its page in order, is the page a fresh render gives now. A red is a bug
+       report, not a silent fix.
+       - The real server, in process: `TestServer.resource`, one per run, so a shrunk run
+         replays from the same state. `FakeBrowser` opens every stream through the real route
+         (the opening block up to its cursor, a reload followed) and plays the connection loop
+         by hand in between: `Server.pull`, then the session's backlog, which holds every
+         step's frames in the order they ran.
+       - Two viewers. Steps (hedgehog, up to 15; the size grows over the 50 runs, so a run
+         averages about 4): an entity changes or leaves (and may come back), a viewer presses a
+         choice or a popup its page shows, a stream drops and reconnects with what its page
+         carries, every session is forgotten.
+       - The fake page: the page GET in jsoup (a test-only dependency), `patch-elements` by
+         mode, `patch-signals` merged into a signal map. A seed applies when its element
+         arrives or its text changes, since the bundle's morph sets only an attribute that
+         differs. A refresh is made at the URL its `data-fh-url` mirrors write; a reconnect
+         carries the signals `data-init`'s filter lets through.
+       - Equal: once the run settles, each page against a fresh GET at its own URL,
+         `#dashboard` and the popup host node for node, every binding painted from the signal
+         map (a pending-or-committed read as committed). Left out: the seeds themselves
+         (folded into the map), whatever an expression the fake page cannot read paints, a
+         binding on a signal some handler assigns (the fake page runs none; `_e.*` and a
+         pending ask excepted), a `data-bind` control's `value` and `checked`. A patch with no
+         target fails the run.
+       - Dashboards: `sets`, `branches`, `taps`, `slider-groups`, `light-controls`, `charts`,
+         and one in the suite with a set nested in a member and an If in a member; 50 runs
+         each.
+       - **Found and fixed: a forgotten page's stale signal.** A page whose session was
+         forgotten (an idle tab past its linger, a restart) reconnects to a body repaint, and
+         a seed that comes back with the text the element already carries is not applied
+         again: a light goes off, every session is forgotten, it comes back on, and the page
+         showed it off. `Patches.repaint` now also sends the body's signal values as a frame.
+         The property finds it only in some seeds (a run with the fix disabled passed), so
+         `OracleSuite` keeps the run that found it as a plain test. A host fill morphs onto
+         members the page already has the same way, reachable after D2b; D3.4's `Fill` sends
+         its subtree's signal values in the batch's frame, as `repaint` does.
+       - **Also found:** a first connect read as a reconnect (the shell seeds `conn` and
+         `ui_popups`), logging "no readable cursor" on every page load and resuming from V.
+         Fixed in D3.2: a reconnect is a store holding `_cursor` (`Server.isReconnect`).
+       - **Time: 16 s locally, aim 20 s on CI.** It was 28 s: each `charts` run's first chart
+         started a GraalJS engine and ECharts (~270 ms), now one per suite through
+         `ServerApp.Edges.chart`; and `TestServer.record` took 15.5 ms, `poll` sleeping 5 ms
+         before each check, now 1.3 ms. What is left is ~25 ms per run (a boot, two loads, two
+         fresh GETs); fewer, longer runs would cut it, kept at 50 × 15 for now.
+     - Order agreed 2026-11-21: nothing merges before the whole lands, so no step builds what a
+       later one replaces. The `Ix` key is decided now rather than measured in D6, D3 and D4 are
+       one step, and nothing popup-specific is written before R5.
+     - **D2a, `holds` and the render cache keyed by `Ix`; `holds` stamped.** BUILT (7bbddf2a,
+       4b631ce0, 2da72f6f, 7c5464d8). Goldens byte-identical; non-Slow 1429 green.
+       - `holds: Map[Ix, Held]`, and `RenderCache` keys by `Ix` + generation + `ByteValues`;
+         `ByteValues.clause` is gone. The suites that pinned "a member's clause is in its key"
+         pin it on `(Ix, ByteValues)`.
+       - `Renderer.generation` is a `Renderer.Stamp` (head and style hashes, popup spellings),
+         and `SessionState.painter` is `Unpainted | By(stamp) | Reloading(installed)`. Every
+         step (pull, press, opening) compares it first (`Server.swapAnswer`): under another
+         renderer a reload when the head moved or to/from the error page, else the repaint,
+         never a diff. A session told to reload sends nothing more until the next swap; a press
+         on the replaced page is repainted and refused (`DashboardChangedMessage`, ADR 0024). `install` rings the doorbell at the same
+         version; `reloadRepaints` and `sameRenderer` are gone.
+       - The check-first finding: the new renderer cannot read a popup it lacks (its spelling
+         maps to no surface key there), so `orphanedPopup` would never fire. The stamp carries
+         the painter's popup spellings, and the repaint reads `open` through it.
+       - Bench (B/op, EA off, vs 4a2f793f): `page` −0.1%, `pageSet` −0.2%, `tickRender` −0.4%,
+         `resumeMorphs` −0.2%, `resumeMorphsFanout` −0.5%, `publishSet`/`publishSetOrdered`
+         equal; times within error.
+     - **D2b, `holds` keeps what each host shows**, in the order sent (§7), written and not yet
+       read. BUILT (0e9e2f61, c16033d2); two items open. Goldens byte-identical; non-Slow 1430
+       green.
+       - `Held.shows: Option[IArray[Ix]]` on the host node (one host per node, §2).
+       - The structural patches name their host and key, so one value gives the bytes and the
+         change to `holds`: `Patch.Fill(host, target, html, shows)` (inner), `Place(host,
+         target, html, shown, before)` (before/append), `Leave(host, key: NodeId)` (remove,
+         every clause of the key, since a caller cannot say which one the client holds).
+         `applied`: a `Fill` drops what is under the host and sets its list; a `Place` inserts
+         before its anchor, an anchor the list lacks making it `None`; a `Leave` drops each
+         clause's subtree (by `[ix, end)`) and the key. `Patch.Remove` is gone; `Patch.Insert`
+         and `invalidates` stay only for `#popups` (R5).
+       - The `Trace` walk records each live hole's shown roots, so fills and placed members bring
+         their inner hosts' lists.
+       - Oracle: after every settle and at the end, each list a session holds is its host's
+         children on the fake page, in order. Found: the oracle's runs reach no `Place` (every
+         membership change in them fills), so `SetMembershipSuite` places a member between two.
+       - A list is known or absent, never assumed. A forgotten page resumes with empty `holds`
+         (ADR 0011), so its hosts have no list until one is sent again, and D3's planner fills a
+         host it has no list for when it next looks at it. So "every host has a list" does not
+         hold by design; D3.4 adds the check that each list held equals a fresh page load's.
+       - Bench (B/op, EA off, vs 4457da90): `page` +1.7%, `pageSet` +1.3%, over the 1% gate,
+         accepted 2026-11-22 as the lists' cost and profiled in D6. `tickRender`, `publishSet`,
+         `publishSetOrdered` equal; `resumeMorphs` +0.04%, `resumeMorphsFanout` +0.08%; times
+         within error.
+     - **D3, the planner, and the log down to `fragments`** (§7): the planner makes the replay
+       dead, so it goes here. Per session from the start (`Shared` decisions and the viewer's),
+       and a variable write goes through it too, so a tab stops using `hostFill`. BUILT
+       2026-11-22: D3.1 02fadc5a, D3.2 c0423ba3, D3.3 15c7b570, D3.4 42263d7d, a review fix
+       164ecdea (`install` keeps a log its renderer already numbers), D3.5 9c96c8f5, D3.6
+       01f4c81c. Goldens byte-identical; non-Slow green. The bench gate is missed and open,
+       below.
+       Check-first: a log is never written by two renderers, but it is read under one that did
+       not number it, since `install` sets the renderer and the publisher rotates the log later.
+       In that window today a frame is lost: the new arm's seed is recorded nowhere, so a session
+       painted at P before a seed at T never gets P+1..T (#726's red ResumeSuite test).
+       - **D3.1, the log carries the stamp of the renderer that numbers it**, one per log (one
+         renderer's recorder writes it). `install` rotates first, to a fresh id with the new
+         stamp that reaches no cursor yet, then sets the renderer, empties the cache and rings.
+         The arm's seed makes the log complete from the version after it and rings at that
+         version. The recorder writes, and rings, only into a log stamped with its own renderer;
+         the first-arm rule (`arm > 0`) goes. A reader takes the log only under the renderer that
+         stamped it and where it reaches the session's position: the opening as today, and now
+         the pull, which repaints otherwise. That closes the swap gap and the same one at boot.
+         Files: `FragmentLog`, `Server` (`LiveSlug.install`, `publisherFor`, `recordFrame`,
+         `owed`, `openingPatches`, `repaint`). Tests: the swap test green on CI; a pull from a
+         position the log does not reach repaints; an old arm's write is dropped and rings
+         nothing. Core: `install`, the arm's seed, `owed`'s gate. Docs: ADR 0011 (`logId`, the
+         boot window), the pipeline doc §5.
+       - **D3.2, `hasSignals` reads `_cursor`** (D1's finding). `_cursor` is never in the
+         document, so a store holding one is a page this server streamed to: a first connect
+         resumes from V + 1 and warns of nothing, and `cursorAnomaly` keeps only a `_cursor` that
+         does not decode. `Server.hasSignals`; a `ServerRoutesSuite` test of each case.
+       - **D3.3, the planner, pure:** `Patches.planHost(host, held: Option[IArray[Ix]], decided:
+         IArray[Ix], again: Ix => Boolean)`. No list held, or no key kept, is one `Fill` (of
+         nothing: a `remove` of the host's children). Otherwise a `Leave` per key gone, then, back
+         to front, a `Place` per key arriving, sent `again`, or outside a longest increasing run
+         of held positions, a move leaving first. Replaces `Patches.reordered`. A property suite:
+         the plan applied to `held` gives `decided`; each anchor is on the page when its `Place`
+         runs; moves are n minus that run; a key sent `again` is never kept.
+       - **D3.4, the planner on the pull and the resume; the log keeps `fragments`.** The
+         recorder logs three things, each with its version: a node whose bytes changed, a host
+         whose decided keys changed (`Shared` decisions: sets and state picks), and the root of
+         each key that arrived. `owing`'s candidates are the hosts and nodes logged at `>= v` plus
+         those of open containers. Each host's keys are decided (`Renderer.decidedKeys(host,
+         shared, env)`, a variable pick per viewer) and planned against `holds`. A key held and
+         decided is sent `again` when its root was logged at `>= v` and has no rendering of its
+         own: it left and came back while the viewer was away (A → B → A); a leaf root's entry is
+         its morph. A root that is also a host is sent whole when its inner keys change: bytes,
+         not staleness. Nothing inside a range a `Fill` or `Place` sends is morphed as well
+         (`TreeIndex.contains`, the node itself excluded). A `Fill` sends its subtree's signal
+         values in the batch's frame, as `repaint` does (D1's seed skip).
+         Goes: `Mutation`, `MemberKey` (a member's key is its entity), `Resume`'s `moved` and
+         `refill`, `horizon`, `pruned` and `Sessions.floor` (nothing is left to prune: `fragments`
+         is bounded by the index), `filled`, `removed`, `placed`, `invalidateOf`/`Where`,
+         `holdsAnyOf`, `coveredByMutation`, `recordFlip` and `recordSet`'s replay,
+         `branchFills`, `branchPatch`, `insertInto`, `NodeAncestry`, `Renderer.ancestry`,
+         `MemberGraph.parentEdges`, `TestAncestry`. `MemberGraph.deltas` stays as the
+         incremental decision (it decides `next`'s sets from the touched entities, which
+         `publishSet*` measure) but answers which sets' keys moved; `MemberDelta`, `replaced`
+         and `clauseMoved` go, since a clause switch is another key.
+         Tests: an A → B → A test, a pick and a set member each within one pull, sends A whole.
+         `FragmentLogSuite`'s refill assertions become "a returning page, its position ahead of
+         its cursor included, gets only the members that changed, no set repaint" (a move the
+         plan sanctions; the commit says so). The tests of the deleted mechanism are rewritten
+         onto the planner where the property survives (anchors, back to front, no morph under a
+         key sent whole, a node never covers itself, a key that left is not inserted) and deleted
+         where it is the mechanism's own (a rejoin is one `Mutation`, a member key's kind,
+         pruning below the floor, the horizon); the commit lists both. `ResumePatchesSuite`
+         builds `holds` where it built mutations; `StateSurfaceSuite`'s flip asserts the host
+         and the arriving case's root are logged. Oracle: each list a session holds equals the
+         one a fresh page load's session holds for that host, a case's `Ix` included, which the
+         page's ids cannot show; a missing list is allowed (D2b).
+         Core: `Patches.plan` and `record`, `owing`, `decidedKeys`, the `again` rule. Docs: ADR
+         0011 (the change ledger, pruning, structural changes, the away table), ADR 0012, the
+         pipeline doc §5, terminology (floor and horizon go).
+       - **D3.5, a variable write through the planner.** `setVar` plans each shown host its
+         variable decides against `holds`, reading no log, and `open` follows from the
+         variables as `repaint` computes it. `swapHost` and `hostFill` keep only `#popups` (R5);
+         their pick half, `hostIxShowing` and `renderShownTraced`'s case half go. Tests: a tab
+         switch leaves the host's list holding the new case and drops the old one's entries; the
+         oracle's tab presses.
+       - **D3.6, the log keys by `Ix`**, safe under D3.1's stamp: `fragments: Map[Ix, Long]`,
+         the recorder resolving each node to its `Ix` under `next` (a member's clause), so two
+         clauses of one member are logged apart. Test: a change to a node in one clause sends
+         nothing to a viewer shown the other. Found: `nodeAt` cannot resolve a set nested in a
+         member (`Member.subtree` drops it), so `Renderer.ixAt` falls back to the index's `Ix`
+         for a set container, as `hostIx` does.
+       - **Bench (B/op, EA off, vs 95a929f0), after the profile fix:** `page`, `pageSet`,
+         `tickRender` equal; `publishSet` 40080 → 37272 (−7.0%), `publishSetOrdered` −48%
+         (436 → 111 µs); over the gate and accepted 2026-11-22: `resumeMorphs` 130311 → 133323
+         (+2.3%), `resumeMorphsFanout` 609785 → 632096 (+3.7%); times within error. D3.6 first
+         read `publishSet` +21.4%, `resumeMorphs*` +5.8%/+11.2%. An allocation profile
+         (async-profiler) found a member decision per touched node in `record` (`ixAt`), the
+         same per logged place in `owing`, and `since` boxing a `Set[Ix]` per pull; the fix
+         decides only a clause-split id and makes `since` a `BitSet`. What is left is D3.4's
+         planner, ~2.1 KB per client (`covered`, `hostsAt`, `owe`'s closures): slimmed in the
+         finishing pass (D6).
+     - **D5, one decision mechanism; the variable-read refusals go:** BUILT, D5.0–D5.5
+       (ebb77d83 … c474a1ff, fed719aa). The mixed `by`, a computed
+       read of a variable, set guards, order keys and `valueWhile` (§4), with a test of one guard
+       reading a variable and a state, two viewers on different values. Agreed 2026-11-22: one
+       mechanism whose level the renderer knows in advance, not deciders beside the shared ones,
+       so R5 adds popups to it rather than replacing what D5 builds.
+       - **A decision's level comes from what it reads**, found once per renderer, since variable
+         scopes are static: `Version` when it reads only state, fetches and literals,
+         `Viewer(keys)` when it also reads the variables `keys`, each a `VarKey` resolved where
+         the decision is read (a pick's host, a set's node, a gated slot's node). A set's guards
+         read at the set's node, since a member's own declarations exist only once it does. A
+         decision below one decided per viewer keeps its own level; only whether it is on screen
+         depends on the viewer.
+       - **One memo per version, in `Shared`.** A `Viewer` decision is kept under its own key and
+         the values its `keys` hold, nested by decision so a dirty decision drops every values'
+         entry in one removal; viewers with equal values share one entry. Both levels carry by
+         the same dirty rule, so a decision is made again only when something it reads changed;
+         the check is the reverse-index lookup the version level already pays per changed
+         entity. An entry whose values no live session holds is dropped when the live values
+         change, which bounds the memo by the sessions. A decision that is a lookup (a pick over
+         the plain variable) is not kept, since finding it costs more than making it.
+         `Shared.Run` carries the viewer's values (`VarEnv`), so every reader taking a `Shared`
+         (the walk, visibility, `decidedKeys`, `readsForPull`, the render key) decides for that
+         viewer; a `Viewer` decision asked with no viewer raises.
+       - **The recorder decides once per distinct live values**, extending the fold
+         `recordFrame` already makes over every session's open set: the version level once, and
+         per distinct values among live sessions, the `Viewer` decisions the frame dirtied or
+         whose containers it asks about. It logs the union: each host whose keys moved for some
+         values, each key that arrived for some, each node on some session's screen. So `deltas`
+         runs per values, the A → B → A rule keeps working (a key that came back for one values
+         is resent to a viewer holding it under others: bytes, rare), nothing hidden from every
+         viewer is logged, and the pulls read the decisions it made. A write reveals its new
+         values before it reads the store, as `reveal` widens `open` today, so a frame recorded
+         meanwhile covers both.
+       - **Measured, not assumed:** D5.0's bench before and after each step, and a miss
+         profiled (async-profiler, D3's method) before anything is redesigned. Found in the
+         check: a live pull took every node of each open container as a candidate (`owing`'s
+         `fromOpen`), ~86% of `viewerPull`'s allocation and ~80% of its time at D5.0. Narrowed
+         after D5.1 (`Patches.Coverage`): a live pull takes the log alone, since the recorder
+         covers every watched session's screen and a node it misses is a recorder bug the sweep
+         would hide; only a reconnect sweeps, its screen being one no frame may have covered.
+       - **Stays refused:** a decision's fetch whose window a variable chooses
+         (`decisionFetchErrors`, reworded: a decision asks for its fetches every version). To
+         lift it, the decision's fetches resolve at the viewer's values
+         (the memo key already carries them) and `Server.decisionAnswers` answers with the
+         viewer's env; reopen when a card needs a decision over a chosen window. The note goes in
+         ADR 0034 beside the rule.
+       Sub-steps, each a green commit with the oracle green. A new `FixtureEntries` dashboard,
+       `viewer-decisions` (a `c.select` of `mode`, and each shape below as its step adds it),
+       joins the oracle's list; its snapshot and golden are new files, every other one
+       byte-identical. OracleSuite's time (18–21 s locally) is measured with it.
+       - **D5.0, the bench, on the base.** BUILT (ebb77d83). `RenderBench` gains a dashboard with a tab bar over a
+         variable, N sessions on two of its values and one state change per op, through the
+         recorder and each session's pull, and a page load. Committed before any code moves, so
+         its base numbers exist; it also gives `fromOpen`'s share. D5.2–D5.4 add their shape to
+         it, measured from then on (their shapes are refused at the base).
+       - **D5.1, the mechanism, and tab bars onto it; nothing lifted, nothing visible moves.**
+         BUILT (fa044e89); the viewer's env rides on `Shared` (`viewing`), not `Run`.
+         The levels, the memo, carry and pruning, `Run`'s viewer, the recorder per live values,
+         a write's reveal of its values. A pick over the plain variable is decided from the
+         viewer's value: `Selections.panels`, the pick half of `selectionsIn`, `selectionsShown`
+         and the pick cases in `open` go (`open` keeps popups until R5), and `owing`'s open
+         candidates are the containers on the viewer's screen under a variable pick or a popup,
+         as `open` gave them. Files: `Shared`, `Renderer`, `SurfaceGraph`, `VarGraph`, `Patches`,
+         `Server`, `Sessions`. Check first: every reader of `open`'s pick half or
+         `Selections.panels` (`Server`'s pull, opening, popup routes, `setVar` and page load;
+         `SurfaceGraph`; `Renderer.pickedCase`), and the suites asserting them (`SurfaceGraphSuite`,
+         `RendererSuite`, `LiveStreamSuite`, `FetchDriftSuite`, `TabVariableSuite`, …),
+         rewritten where the property survives (a tab shows its value's case) and deleted where
+         it is `open`'s own; the commit lists both. Tests: the memo (equal values decided once,
+         others apart, a dirty decision dropped for every values, an entry pruned once no session
+         holds its values, no viewer raises); two viewers on two tabs, a state change in one tab
+         reaching only its viewer; a write racing a frame. Core: the memo and its carry,
+         `recordFrame` and `plan` per values, `shownUpTo`. Gate: goldens byte-identical, the
+         usual benches equal, D5.0's within 1%. Docs: ADR 0011 (what the recorder reads), 0033
+         (where a choice is decided), the pipeline doc §1a (the levels), §2, §5
+         (`SessionState.open`), §7's table, terminology (`Shared`, pick, `Viewing`, level).
+       - **D5.2, a pick computing over a variable or reading state too.** BUILT. Before it, the
+         oracle was made to drive variables (its press regex never matched a `?node=` URL, and
+         viewer 1 never acted) and to run each step's IO when the step runs (built ahead, a
+         check read the page before the press), which found a reconnect taking the request's
+         popup over the backlog it had just flushed; fixed in that commit. OracleSuite: 25 s
+         locally with `viewer-decisions`. Its level is `Viewer`;
+         the recorder compares its case per values at `prev` and `next` and logs the host and
+         the arriving case, as a flip. Goes: `choiceFillErrors`' "by state together" and "a
+         computed read of a variable", and Pkl's throws in `Iff.wire` and `match` (a chain mixing
+         a variable and state, or over two variables, is a `FirstTrue` as one over state is, an
+         empty `else` no case). Files: `SurfaceGraph`, `Patches`, `Validate`, `core/choice.pkl`.
+         Tests deleted, each the refusal's own: `ChosenFillSuite` "validate refuses one decision
+         reading a variable and state", `VarSourceSuite` "a choice's condition refuses a computed
+         read of one", `choice.test.pkl`'s two "an error naming R4d". New: an If over
+         `mode == "a"`, else a light on, two viewers on different `mode`: different cases at one
+         version; the light moving changes one viewer's case and sends the other nothing; a
+         write re-plans its writer's host alone. `choice.test.pkl`: a mixed chain's `by` and
+         cases, a match through steps. Docs: ADR 0007 (selection semantics), 0033, the pipeline
+         doc §4, terminology (flip), writing-dashboards.md (an If mixing a variable and state),
+         writing-components.md, the doc comments in `choice.pkl` and `variable.pkl`.
+       - **D5.3, a set whose guard or order reads a variable.** BUILT (2f4d36ab). A `where` over
+         `v.valueIs(x)` and state is one guard (`ValueIs` is a `slotMod.Expr`, folded into one
+         `PAnd`/`POr`); an order key's variables ride on `Evaluator.Keys`. Such a set is kept
+         per values at the set's node (`Shared.setAt`, a `ByValues` beside the picks'), and a
+         member of it is its set's decision. Since it decides what is on the page below it (a
+         pick's `groupShown`, a nested set's `ownerPresent`, `binding`, `record`'s keys), the
+         recorder runs `plan` + `record` once per distinct live values, each as that viewer
+         with its screens, logging the union; a dashboard without one keeps the single pass. A
+         write re-plans the set host for its writer (`VarGraph.picksDecidedBy` takes the set).
+         The set's clause and order left `decisionVarErrors`; their variables are checked
+         against the set's scope. `viewer-decisions` holds the guard set and the ordered set,
+         so the oracle's property runs both; directed oracle tests cover each per viewer.
+       - **D5.4, a `valueWhile` reading a variable.** BUILT (bd5c7a9c). Its gate is kept per
+         values at the slot's node (`Shared.holdsAt`), and the pre-read views the version at the
+         viewer's env, so its fetch is asked only while it holds; a variable-only gate stays a
+         gate rather than ungated. The gated node reads the variable, so a write re-renders it
+         for its writer. `decisionVarErrors` is gone (a call keeps its refusal in `callErrors`);
+         a gated slot is held to `slotVarErrors`' rules; `decisionFetchErrors` is reworded, the
+         revisit note in ADR 0034.
+       - **D5.5, the bench and a sweep.** BUILT (73ab1fa8, c474a1ff). Against 4d4dedaf (EA
+         off, B/op): page +0.02%, pageSet +0.01%, publishSet −1.47%, publishSetOrdered −0.21%,
+         resumeMorphs +0.21%, resumeMorphsFanout +0.04%, tickRender +0.6%; `viewerPull`
+         230,271 and `viewerPage` 159,680 are the new base, their dashboard having gained the
+         set and the gate. First run: publishSet +1.8%, profiled to carrying the two new,
+         empty per-values tables each frame; an empty table now carries nothing. The sweep
+         found one stale sentence (writing-components.md).
+     - **D6, benches**, after R6 so they measure the final shape, on a branch stacked on
+       `the-planner`. Order: one profiling pass over every item below, the items grouped by
+       cause and the fixes agreed (sharing compiled cards discussed first), then each fix built
+       with its own gate. The items: spanning steps, everything R2 measured, `publishSetOrdered` also with
+       many sessions, one session's `holds` size, and a profile of D2b's `page` +1.7% (the
+       lists' arrays, `Trace.held`'s second map), and D3.4's planner closures on the pull
+       (`resumeMorphs*` +2.3%/+3.7%, accepted 2026-11-22; the allocation profile's method is
+       in D3's bench line), and R5.3's `publishManyPopups` +4.5% (the closed popups' nodes now
+       cases of one match). Each step keeps its own bench gate.
+       Then `validated`, measured 2026-11-21 on the starter (EA off): 1.65 MB/op, 39% the
+       Mustache compile of the cards, 39% validate, 16% `Ready.Compile`, the index 1.3%. R2's
+       +6% is its three group nodes walked, not the group card's template; R5 added +7% on
+       `cards` (R5.2's page card +1.9%, R5.3's collection of every more-info onto the page +5%),
+       while `taps` fell 13% with the hoist. Build: one
+       `Validate.labelled` per node, not ~8 (~7%), and an allocation-free
+       `Templates.View.parse` (~8%). Explore: sharing a compiled card across dashboards and
+       reloads. Each `validated` compiles each card once, but nothing is shared between two
+       dashboards or across a reload or dump refresh (up to ~39%). Judge it by what it does to
+       the render phase and whether compiled templates are still freed with their renderer, not
+       by validate's own time.
+     - Docs in each step's commit. Folded in where cheap: the ADRs' "state surface" wording.
+5. **R5, popups on the pick.** The design is §7's "Popups" (agreed 2026-11-24). Each step is green,
+   has its bench gate against the step before, and carries its docs.
+   - **R5.0, the base and two spikes.** BUILT. `RenderBench` gained `popupOpen`, `popupClose`
+     and `publishManyPopups` (the page bench's 200 leaves, a registered more-info each, none
+     open). On fb1e8714 (EA off, B/op): `popupOpen` 192,421, `popupClose` 214,953 (it evicts
+     every popup's nodes), `publishManyPopups` 21,032 against `publish`'s 18,408, so a popup
+     nobody has open costs the recorder 14% today; `ValidateBench` `taps` 4,075,563 and `cards`
+     4,084,893, their snapshots 166,858 and 152,510 bytes (`.agent/r5/base.json`). The page node
+     needs nothing new: the index derives an id from its parent (`TreeIndex.scala:171`) and an
+     authored child takes its own (`Dashboard.scala:870`), so `root` above an authored `c` moves
+     no id. Pkl's collection (spiked on the 0.32 CLI) merges two openers, collects a popup opened
+     inside a popup, stops at a more-info that opens itself, and refuses two contents under one
+     id; plain `==` terminates on the self-reference. The spike's two empty pulls were the
+     spike's: `PopupOutlivesOpenerSuite` pins both cases on today's popups, each pull sending the
+     opener's patch and keeping the popup open.
+   - **R5.1, no value and history.** No value is BUILT (R5.1a): `varMod.noValue` /
+     `v.startingEmpty()` (`{}` on the wire, `Option` in Scala, absent from a viewer's
+     environment so a read is `null`, `''` in the committed signal and no URL parameter; a choice
+     over it showing nothing is not refused; ADR 0033 records it, its future-work entry gone;
+     `NoValueSuite`). Its gate (EA off, B/op, against 3aeffa8e): `VarEnvBench` `env` 440 → 376,
+     `pullPlain` 6,600 → 6,536, `refusals` 40,648 → 40,520, `viewerPull` 230,272 → 230,208,
+     `viewerPage` 159,680 → 159,584, `publish` equal; `env` builds each scope with a builder, since
+     a `flatMap` over `Option`s first cost it 18%. History is BUILT (R5.1b): `.inHistory()`
+     (`inHistory` on the wire, refused in Pkl with `notInUrl()`), the shell's popstate post of
+     the query string (`POST /sse/history/<slug>`, beside the popup's own until R5.3),
+     `Server.fromHistory` reading every URL variable again through `Renderer.adopt` and the
+     press's commit (`setVar` split into `reached` and `commitVars`), and the mirror marking its
+     own entries (`fhPushed: true`) and stripping every history parameter from a foreign entry
+     in one push a microtask later; `VarHistorySuite`, `FakePageSuite`'s two history cases, ADR
+     0005. No bench: nothing on a render, pull or validate path moved.
+   - **R5.2, the page card.** BUILT. `core/page.pkl` with `body` (the author's card, given the
+     id `c` unless it names one) and `popups` (an empty `groupMod.inner` with the id `popups`,
+     which today's popup swap still fills), the theme's `chrome` its template and off the wire
+     (`hidden`), `entry.pkl` building the page node `root` as the wire's `root` (the author's
+     `card` hidden; Scala's `Dashboard.card` decodes from it). Pkl refuses a frame missing a hole
+     or writing `id="root"`/`id="popups"`; `validate` refuses `root` and `popups` as an author's
+     ids; `VarKey` spells `v.<name>` on the root. Scala's frame (`chromeTemplate`, the default
+     `<main id="dashboard">`, the chrome check, the popup-host warnings) is gone. A page load and
+     a repaint are one walk of the root, the open popup baked into `popups`
+     (`Renderer.popupsHost`, until R5.3); a repaint is one outer morph, `selector #root`, where it
+     was an inner `#dashboard` patch plus a popup frame. Tests: `page.test.pkl`, `TestPage` for a
+     Scala fixture that needs the host, the reserved-id case. Bench (EA off, B/op): render
+     benches equal (`viewerPage` 159,584 → 159,192); `validated` +1.9% (taps 4,075,560 →
+     4,152,872, cards 4,085,540 → 4,168,446), the page card's two nodes. ADRs 0002, 0005,
+     0011, 0018, 0020, 0033, terminology (the page card), the pipeline doc.
+   - **R5.3, popups as a variable.** BUILT. Bench (EA off, B/op, against R5.2): `popupOpen`
+     192,421 → 26,568 and `popupClose` 214,953 → 15,320 (a write to `popups` now, the close a
+     pick's leave of one root, `remove #<id>`, rather than an eviction of every popup's claims);
+     `publish` equal; `publishManyPopups` 21,032 → 21,984 (+4.5%, the closed popups' nodes now
+     cases of one match); `viewerPage` equal; `validated` taps 4,155,329 → 3,534,305 (the hoist
+     gone), cards 4,170,461 → 4,380,866 (+5%, every more-info now collected onto the page).
+     Tests: `PopupVariableSuite`,
+     `popup.test.pkl`; `SurfaceTapSuite` is `SessionActionSuite`. As agreed:
+     `components/popup.pkl`: `popups` on the root, required ids
+     (`c.view.popup`, the library's derived ones), the hidden node and its collection into the
+     match, a close as a clear, a popup starting with the root's scope (`NodeVariablesSuite`'s "a
+     SURFACE is its own scope root" becomes "a popup starts with the root's scope"), Back and
+     Forward through `.inHistory()`, and `v.popups`. In the same step everything §7 lists under
+     "Goes", `defaultOpen` included, and the popup's own patching: `PopupHostId`,
+     `Server.swapPopup`, `Patch.Insert`, `invalidates` and repaint's popup case; the oracle's list
+     check covers the host. Docs: `writing-dashboards.md`, `writing-components.md`, ADRs 0002,
+     0005, 0006, 0007, 0033 (rule 6, the future-work entries on the root and on `@@NODE_ID@@`,
+     and "Why not": an entity chosen by a variable), terminology (surface out, root, the page
+     card), the pipeline doc.
+   - **R5.4, `SessionState.open` goes.** BUILT. With the popup a variable, every container a
+     viewer shows follows from its variables and the state, so each step computes D0.3's `BitSet`
+     from them (`PickGraph.chosen`; `screen` and `openOf` are gone, `openOf` living on as a test
+     helper). Nothing spelled as a container crosses a swap, only `VarKey`s, which `recheck`
+     checks; `reveal` takes only values and the recorder reads a session's values
+     (`Watching` is gone). `FetchBench` opens its tab by the declared variable. No bench of its
+     own: it removes a union with an empty set, and R5.5 measures against the base.
+   - **R5.5, smoke and the bench.** BUILT. `PopupHistorySmokeSuite`'s page gains a tab in
+     history beside `popups`: Back and Forward step through a tab choice and a popup as two
+     entries, and a link naming both is one entry above the dashboard, so a close shows the
+     default tab and Forward both again (CI only: no browser driver here). The costs-nothing
+     test is `PopupVariableSuite`'s: a popup nobody has open renders, sends and logs nothing for
+     its entity's churn. R5 against R5.0's base (EA off, B/op): `popupOpen` 192,421 → 26,569,
+     `popupClose` 214,952 → 15,320, `publish` 18,408 equal, `publishManyPopups` 21,032 → 21,984
+     (+4.5%, R5.3's), `validated` taps 4,075,562 → 3,534,316 and cards 4,084,892 → 4,380,868
+     (+7%, R5.2's page card and R5.3's collection); R5.4 moved none of them.
+6. **R6, markup.** BUILT. The contract in §8 is stated as a decision in ADR 0006 (decision 7),
+   not pinned by a test. Nothing was left to move: a grep of main Scala for markup literals finds
+   only `Server`'s shell and error page and `Renderer`'s two head parts.
 
 Docs go in each step's commit: ADRs 0002 (popups), 0003 (sets), 0005/0025/0033 (the popup
 variable, a popup's scope, the reserved name, the history mirror), 0007
@@ -544,13 +1030,10 @@ variables and the tap routes. This plan is deleted when the work lands.
   run-time half: decided once at set level, an unchanged answer touches no member, where today a
   change to the entity it names re-decides every one (`publishSetNamedGuard`, about 0.9 µs a
   member). Raise after R4, with a real dashboard's numbers.
-- **Stable popup ids and variable URL names.** An inline popup is sugar for one in the root's
-  collection, hoisted there by the build, so its id is the build's: its position, which moves when
-  a card is inserted above it, and after R5 that id is the `popups` value a link or a held session
-  names. Derive it from what the popup shows (a more-info's from its entity, merging equal ones),
-  with an opt-in `.named(…)` for the rest. A variable's URL name, `v.<declarer id>.<name>`, moves
-  the same way; an opt-in `.urlName(…)`, unique per dashboard, would keep tab links working while
-  node ids stay derived.
+- **Variable URL names.** A variable's URL name, `v.<declarer id>.<name>`, moves when its
+  declarer does; the root's are `v.<name>` (R5). Check before adding `.urlName(…)`: the
+  declarer is spelled by its node id, so an authored id on it already makes the URL
+  position-free, and one name could be the DOM id and the URL prefix.
 
 ## Open questions
 

@@ -13,6 +13,7 @@ import fh.view.model.{
   SlotType,
   CardDef,
   Dashboard,
+  Ix,
   LayoutNode,
   NodeId,
   Reads,
@@ -23,11 +24,10 @@ import fh.view.model.{
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.{asComponent, st}
-import fh.view.testkit.FixtureEntity
+import fh.view.testkit.{FixtureEntity, PklFixture}
 import fh.view.testkit.TestIds.given
 
 /** Signal slots (ADR 0017). The contract is negative, so every test asserts
@@ -132,7 +132,7 @@ class SignalSlotSuite extends ServerHarness {
         .renderNodeById(
           leaf,
           Shared.of(at("21.4")),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         )
         .get
     assertEquals(patch.contains("21.4"), false, clue = patch)
@@ -161,7 +161,7 @@ class SignalSlotSuite extends ServerHarness {
       r.renderNodeById(
         leaf,
         Shared.of(at("21.4")),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ).get
     assert(patch.contains(assigned), clue = patch)
     val plain =
@@ -176,7 +176,7 @@ class SignalSlotSuite extends ServerHarness {
     val signalled =
       renderer.renderBodyTraced(
         Shared.of(at("21.4")),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
     val signalledId = signalled.own.keys.head
     assertEquals(
@@ -195,7 +195,7 @@ class SignalSlotSuite extends ServerHarness {
       .renderNodeById(
         signalledId,
         Shared.of(at("21.4")),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
       .get
     assert(signalled.html.contains("21.4"), clue = signalled.html)
@@ -206,9 +206,9 @@ class SignalSlotSuite extends ServerHarness {
   private def documentHolds(
       r: Renderer,
       states: Map[String, EntityState]
-  ): Map[NodeId, Held] =
-    r.renderPageTraced(states).own.map { case (id, p) =>
-      id -> p.held
+  ): Map[Ix, Held] =
+    r.renderPageTraced(states).painted.map { case (ix, p) =>
+      ix -> p.held
     }
 
   private def resumeFrom(
@@ -216,16 +216,8 @@ class SignalSlotSuite extends ServerHarness {
       was: Map[String, EntityState],
       now: Map[String, EntityState]
   ): List[Addressed] = {
-    val log = FragmentLog("test").touched(leaf, 1L)
-    resumeNow(
-      r,
-      log,
-      documentHolds(r, was),
-      now,
-      1L,
-      Set.empty,
-      Selections.none
-    )
+    val log = FragmentLog("test").touched(r.ixOf(leaf), 1L)
+    resumeNow(r, log, documentHolds(r, was), now, 1L)
   }
 
   test("a signal-only change sends a frame and NO element patch") {
@@ -618,16 +610,14 @@ class SignalSlotSuite extends ServerHarness {
     val holds = r.renderPageHolds(
       Sink.buffer(r.pageBytesHint),
       Shared.of(lit(40)),
-      Viewing(Selections.none, FetchSnapshot.empty)
+      Viewing(FetchSnapshot.empty)
     )
     val out = resumeNow(
       r,
-      FragmentLog("test").touched(leaf, 1L),
+      FragmentLog("test").touched(r.ixOf(leaf), 1L),
       holds,
       lit(41),
-      1L,
-      Set.empty,
-      Selections.none
+      1L
     )
     assertEquals(
       out.map(_.patch),
@@ -637,17 +627,15 @@ class SignalSlotSuite extends ServerHarness {
 
   test("a brightness tick moves four values and sends no element patch") {
     val r = Renderer.create(sliderish)
-    val log = FragmentLog("test").touched(leaf, 1L)
+    val log = FragmentLog("test").touched(r.ixOf(leaf), 1L)
     val out = resumeNow(
       r,
       log,
-      r.renderPageTraced(lit(40)).own.map { case (id, p) =>
-        id -> p.held
+      r.renderPageTraced(lit(40)).painted.map { case (ix, p) =>
+        ix -> p.held
       },
       lit(41),
-      1L,
-      Set.empty,
-      Selections.none
+      1L
     )
     assertEquals(
       out.map(_.patch),
@@ -745,17 +733,15 @@ class SignalSlotSuite extends ServerHarness {
 
   test("locking moves the service signal and sends NO element patch") {
     val r = Renderer.create(lockish)
-    val log = FragmentLog("test").touched(leaf, 1L)
+    val log = FragmentLog("test").touched(r.ixOf(leaf), 1L)
     val out = resumeNow(
       r,
       log,
-      r.renderPageTraced(lock("locked")).own.map { case (id, p) =>
-        id -> p.held
+      r.renderPageTraced(lock("locked")).painted.map { case (ix, p) =>
+        ix -> p.held
       },
       lock("unlocked"),
-      1L,
-      Set.empty,
-      Selections.none
+      1L
     )
     assertEquals(
       out.map(_.patch),
@@ -803,17 +789,9 @@ class SignalSlotSuite extends ServerHarness {
     // frame twice.
     val r = Renderer.create(twiceOver)
     val log = FragmentLog("test")
-      .touched(NodeId.derived("c_0"), 1L)
-      .touched(NodeId.derived("c_1"), 1L)
-    val out = resumeNow(
-      r,
-      log,
-      documentHolds(r, at("21.4")),
-      at("21.5"),
-      1L,
-      Set.empty,
-      Selections.none
-    )
+      .touched(r.ixOf("c_0"), 1L)
+      .touched(r.ixOf("c_1"), 1L)
+    val out = resumeNow(r, log, documentHolds(r, at("21.4")), at("21.5"), 1L)
     assertEquals(
       out.map(_.patch),
       List(frame(sig("sensor.a") -> "21.5")),
@@ -879,7 +857,7 @@ class SignalSlotSuite extends ServerHarness {
       )
     )
     val log = List("c_0", "c_1", "c_2").foldLeft(FragmentLog("test"))((l, id) =>
-      l.touched(NodeId.derived(id), 1L)
+      l.touched(r.ixOf(id), 1L)
     )
     // All three readings move; a fixture where only one moved would prove
     // nothing about sharing.
@@ -897,9 +875,7 @@ class SignalSlotSuite extends ServerHarness {
       log,
       documentHolds(r, lightAt(40, "on", "warm")),
       lightAt(41, "dim", "cool"),
-      1L,
-      Set.empty,
-      Selections.none
+      1L
     )
     val entries = out.map(_.patch).collect { case s: Patch.Signals => s.values }
     assertEquals(entries.map(_.size), List(3), clue = entries)
@@ -907,14 +883,16 @@ class SignalSlotSuite extends ServerHarness {
   }
 
   test("a fill seeds an entity the page has never shown") {
-    // Why the seed cannot move to one document-level `data-signals`: a surface
+    // Why the seed cannot move to one document-level `data-signals`: a case
     // can introduce an entity nothing on the page reads, so no frame is coming
     // and the fill's own bytes are the only way to make it correct (ADR 0017).
+    val tabs = PklFixture.shape(
+      """card = (c.tabs) { tabs { ["A"] { t.hole("a") } ["B"] { t.hole("b") } } }"""
+    )
     val r = Renderer.create(
       Dashboard(
-        cards,
-        gauge("sensor.a"),
-        surfaces = Map("panel" -> Surface(gauge("sensor.unseen")))
+        cards ++ tabs.cards,
+        tabs.fill("a" -> gauge("sensor.a"), "b" -> gauge("sensor.unseen"))
       )
     )
     val states = at("21.4") ++
@@ -928,12 +906,13 @@ class SignalSlotSuite extends ServerHarness {
     val page = r.renderPage(states)
     assertEquals(page.contains("sensor.unseen"), false, clue = page)
     val fill = r
-      .renderSurfaceTraced(
-        "panel",
+      .renderCaseTraced(
+        "c_panel_0",
+        1,
         Shared.of(states),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
-      .map(_.html)
+      .map(_._2.html)
       .get
     assert(fill.contains("data-text=\"$_e.sensor.unseen.state\""), clue = fill)
     assert(
@@ -953,13 +932,13 @@ class SignalSlotSuite extends ServerHarness {
     // one HA frame are one frame.
     val r = Renderer.create(twoNodes)
     val log = FragmentLog("test")
-      .touched(NodeId.derived("c_0"), 1L)
-      .touched(NodeId.derived("c_1"), 1L)
-    val held = r.renderPageTraced(both("1", "2")).own.map { case (id, p) =>
-      id -> p.held
+      .touched(r.ixOf("c_0"), 1L)
+      .touched(r.ixOf("c_1"), 1L)
+    val held = r.renderPageTraced(both("1", "2")).painted.map { case (ix, p) =>
+      ix -> p.held
     }
     val out =
-      resumeNow(r, log, held, both("9", "8"), 1L, Set.empty, Selections.none)
+      resumeNow(r, log, held, both("9", "8"), 1L)
     assertEquals(
       out.map(_.patch),
       List(
@@ -977,15 +956,15 @@ class SignalSlotSuite extends ServerHarness {
     // selects from `position + 1`, not the version it woke for, and the log
     // holds versions, never values, so a frame renders the current snapshot.
     val r = renderer
-    val log = FragmentLog("test").touched(leaf, 1L).touched(leaf, 2L)
+    val log = FragmentLog("test")
+      .touched(r.ixOf(leaf), 1L)
+      .touched(r.ixOf(leaf), 2L)
     val out = resumeNow(
       r,
       log,
       documentHolds(r, at("21.4")),
       at("21.6"), // where it ended up, two moves later
-      1L,
-      Set.empty,
-      Selections.none
+      1L
     )
     assertEquals(
       out.map(_.patch),
@@ -1098,13 +1077,9 @@ class SignalSlotSuite extends ServerHarness {
     val prev = Shared.of(on)
     val next = Shared.of(gone, 1L)
     val sets = List(SetId.of(NodeId.derived("c"), Sets.fill()))
-    val held = r.renderPageTraced(on).own.map { case (id, p) =>
-      id -> p.held
-    }
+    val held = r.renderPageTraced(on).claims
     val seededLog = List("c_light_a", "c_light_b")
-      .foldLeft(FragmentLog("test"))((l, id) =>
-        l.touched(NodeId.derived(id), 0L)
-      )
+      .foldLeft(FragmentLog("test"))((l, id) => l.touched(r.ixOf(id), 0L))
     val delta = r.members.deltas(
       sets,
       List(
@@ -1122,17 +1097,16 @@ class SignalSlotSuite extends ServerHarness {
       seededLog,
       Patches.DiffRequest(
         staticIds = Nil,
-        sets = sets,
+        sets = delta,
         flips = Nil,
         prev = prev,
-        next = next,
-        membership = delta
+        next = next
       )
     )
-    val out = resumeNow(r, log, held, gone, 1L, Set.empty, Selections.none)
+    val out = resumeNow(r, log, held, gone, 1L)
     assertEquals(
-      out.map(_.patch),
-      List(Patch.Remove(r.elementId("c_light_a"))),
+      out.map(_.patch.toSse),
+      List(Datastar.remove(r.elementId("c_light_a").selector)),
       clue = events(out).map(_.render)
     )
   }
@@ -1389,9 +1363,9 @@ class SignalSlotSuite extends ServerHarness {
   test("a change to structure's signal sends a frame and patches nothing") {
     val r = Renderer.create(structural)
     val holds = documentHolds(r, tinted("red"))
-    val log = FragmentLog("test").touched("c", 1L)
+    val log = FragmentLog("test").touched(r.ixOf("c"), 1L)
     val out =
-      resumeNow(r, log, holds, tinted("blue"), 1L, Set.empty, Selections.none)
+      resumeNow(r, log, holds, tinted("blue"), 1L)
     assertEquals(
       out.map(_.patch),
       List(frame(sig("sensor.a", tintRead) -> "blue")),

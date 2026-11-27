@@ -6,7 +6,7 @@ import fs2.Stream
 import cats.syntax.all.*
 import cats.effect.std.{Queue, Supervisor}
 import fh.view.FHError
-import fh.view.model.NodeId
+import fh.view.model.Ix
 import fs2.concurrent.SignallingRef
 import org.typelevel.log4cats.Logger
 
@@ -31,14 +31,15 @@ enum Tenure derives CanEqual {
   * written only where bytes are sent to this client, never from what another
   * client or a shared structure believes.
   *
-  *   - `open`: selected tab panels and popup; only these are recorded and
-  *     rendered, so a closed popup costs nothing.
   *   - `vars`: the viewer's node-variable choices, here because a pull has no
-  *     request to read them off (issue #209).
+  *     request to read them off (issue #209). Every case the viewer is shown
+  *     follows from them and the state ([[PickGraph.chosen]]), so only
+  *     `VarKey`s cross a renderer swap, which [[Renderer.recheck]] checks.
   *   - `initialValues`: where the document opened a variable that has an
   *     initial transform, decided once from the state it was rendered on. Not a
   *     choice: no `v.` param, and a reconnect does not carry it.
-  *   - `holds`: per node, what this DOM was last sent.
+  *   - `holds`: per node's `Ix`, what this DOM was last sent; a member's
+  *     clauses share DOM ids, not an entry.
   *   - `position`: how far this session has been served; its pull resumes from
   *     here.
   *   - `told`: the newest cursor put on its wire, the most it could echo back
@@ -46,21 +47,22 @@ enum Tenure derives CanEqual {
   *     leaves this low, which loses the check rather than breaking anything.
   *   - `checkedBy`: the [[Renderer.generation]] `vars` and `initialValues` were
   *     last checked against ([[Renderer.recheck]]).
+  *   - `painter`: what `holds` was painted under ([[Painter]]).
   *
   * '''`position` may run ahead of the client's cursor''' (the signal can ride
   * the keepalive). Safe because the client's cursor is the authority at
-  * reconnect (ADR 0011), and the extra pruning [[Sessions.floor]] allows costs
-  * at most one container refill: [[FragmentLog.pruned]] leaves `fragments`
-  * alone, and `skipped` needs zero sessions.
+  * reconnect (ADR 0011), and the log keeps every place's latest version: a
+  * cursor behind the position still finds what moved, and `skipped` needs zero
+  * sessions.
   */
 final case class SessionState(
-    open: Set[String],
     vars: Map[VarKey, String],
-    holds: Map[NodeId, Held],
+    holds: Map[Ix, Held],
     position: Long,
     told: Long,
     initialValues: Map[VarKey, String] = Map.empty,
-    checkedBy: Option[AnyRef] = None
+    checkedBy: Option[AnyRef] = None,
+    painter: Painter = Painter.Unpainted
 ) {
 
   /** What this viewer is shown: a choice, else the start; [[VarGraph]] fills
@@ -69,10 +71,26 @@ final case class SessionState(
   def values: Map[VarKey, String] = initialValues ++ vars
 }
 
+/** What a session's `holds` was painted under. A step under any other installed
+  * renderer answers as a swap does, a repaint or a reload, and never diffs: an
+  * `Ix` is one renderer's ([[Server.swapAnswer]]).
+  */
+enum Painter {
+
+  /** Nothing yet: `holds` is empty. */
+  case Unpainted
+  case By(stamp: Renderer.Stamp)
+
+  /** Told to reload while `installed` was (a renderer's stamp or a failure);
+    * `holds` is empty, and nothing more is sent until that changes.
+    */
+  case Reloading(installed: AnyRef)
+}
+
 object SessionState {
   // -1: 0 is a real version a client could hold.
   val initial: SessionState =
-    SessionState(Set.empty, Map.empty, Map.empty, 0L, -1L)
+    SessionState(Map.empty, Map.empty, 0L, -1L)
 }
 
 /** A stream's mailbox: the owner appends a step's frames, the stream takes
@@ -128,7 +146,7 @@ final class Session private (
     val haDown: Ref[IO, Option[Boolean]],
     val tenure: SignallingRef[IO, Tenure],
     inbox: Queue[IO, Session.Command],
-    published: Ref[IO, SessionState],
+    published: Ref[IO, Session.Published],
     stopped: Deferred[IO, Unit]
 ) {
   import Session.{Command, Step}
@@ -157,22 +175,30 @@ final class Session private (
   def update(f: SessionState => SessionState): IO[Unit] =
     run(s => IO.pure(Step(f(s), Nil, ())))
 
-  /** The last state a step left (and any [[reveal]] since). For readers that
-    * must not wait on the owner — the recorder, pruning; never the base of a
-    * change, which is [[run]]'s.
+  /** The last state a step left. For readers that must not wait on the owner —
+    * the recorder, pruning; never the base of a change, which is [[run]]'s.
     */
-  def state: IO[SessionState] = published.get
+  def state: IO[SessionState] = published.get.map(_.state)
 
-  /** Show the recorder `surfaces` before the running step reads the store: a
+  /** What the recorder reads of this session: its values, and each revealed
+    * since its last step.
+    */
+  def watching: IO[List[Map[VarKey, String]]] =
+    published.get.map(p => (p.state.values :: p.revealed).distinct)
+
+  /** Show the recorder `values` before the running step reads the store: a
     * frame recorded in between without them would never reach the panel being
     * filled. Wider than the state is safe (it records a little more), and the
-    * step's end, or its failure, publishes the exact set.
+    * step's end, or its failure, publishes the exact state.
     */
-  def reveal(surfaces: Set[String]): IO[Unit] =
-    published.update(s => s.copy(open = s.open ++ surfaces))
+  def reveal(values: Map[VarKey, String]): IO[Unit] =
+    published.update(p => p.copy(revealed = values :: p.revealed))
 
   /** Deliver to `outlet` from now on, the backlog first. */
-  def attach(outlet: Outlet): IO[Unit] = submit(Command.Attach(outlet))
+  def attach(outlet: Outlet): IO[Unit] =
+    Deferred[IO, Unit].flatMap(reply =>
+      submit(Command.Attach(outlet, reply)) *> reply.get
+    )
 
   /** A no-op unless `outlet` is still the one attached, so a displaced stream's
     * end does not detach its successor. What it never took goes back to the
@@ -248,10 +274,12 @@ final class Session private (
     command match {
       case run: Command.Run[?] =>
         step(current, backlog, outlet, run).map((s, b) => (s, b, outlet))
-      case Command.Attach(next) =>
+      case Command.Attach(next, reply) =>
         outlet
           .foldMapM(_.takeAll)
-          .flatMap(left => next.put(left ++ backlog))
+          .map(_ ++ backlog)
+          .flatTap(next.put)
+          .flatMap(_ => reply.complete(()))
           .as((current, Vector.empty, Some(next)))
       case Command.Detach(gone) if outlet.exists(_ eq gone) =>
         gone.takeAll.map(left => (current, left ++ backlog, None))
@@ -271,16 +299,23 @@ final class Session private (
         val frames = done.frames.toVector
         outlet
           .fold(IO.pure(backlog ++ frames))(_.put(frames).as(backlog))
-          .flatTap(_ => published.set(done.next))
+          .flatTap(_ => published.set(Session.Published(done.next, Nil)))
           .flatTap(_ => run.reply.complete(Right(done.answer)))
           .tupleLeft(done.next)
       case Left(e) =>
-        (published.set(current) *> run.reply.complete(Left(e)))
+        (published.set(Session.Published(current, Nil)) *>
+          run.reply.complete(Left(e)))
           .as(current -> backlog)
     }
 }
 
 object Session {
+
+  /** The last state a step left, and the values revealed since. */
+  final case class Published(
+      state: SessionState,
+      revealed: List[Map[VarKey, String]]
+  )
 
   /** One step of a session: the state it leaves, the frames that tell its
     * client, in order, and the caller's answer.
@@ -296,7 +331,7 @@ object Session {
         step: SessionState => IO[Step[A]],
         reply: Deferred[IO, Either[Throwable, A]]
     )
-    case Attach(outlet: Outlet)
+    case Attach(outlet: Outlet, reply: Deferred[IO, Unit])
     case Detach(outlet: Outlet)
     case TakeBacklog(reply: Deferred[IO, List[SseFrame]])
 
@@ -304,7 +339,7 @@ object Session {
     def refuse: IO[Unit] = this match {
       case run: Run[?]        => run.reply.complete(Left(ended)).void
       case TakeBacklog(reply) => reply.complete(Nil).void
-      case Attach(_)          => IO.unit
+      case Attach(_, reply)   => reply.complete(()).void
       case Detach(_)          => IO.unit
     }
   }
@@ -332,7 +367,7 @@ object Session {
       initial: SessionState = SessionState.initial
   ): IO[Session] =
     for {
-      published <- Ref[IO].of(initial)
+      published <- Ref[IO].of(Session.Published(initial, Nil))
       inbox <- Queue.unbounded[IO, Command]
       // A stream-minted session told nothing; assume no banner state.
       haDown <- Ref[IO].of(Option.empty[Boolean])
@@ -388,19 +423,11 @@ final class Sessions(ref: SignallingRef[IO, Map[String, Session]]) {
   def forSlug(slug: String): IO[List[Session]] =
     ref.get.map(_.values.filter(_.slug == slug).toList)
 
-  /** The slowest session's position ([[FragmentLog.pruned]]). A session still
-    * rendering its document reads 0, which keeps history — the safe direction,
-    * and the one a step's lag is in too: a position is published after the
-    * frames that reach it are queued.
-    */
-  def floor(slug: String): IO[Option[Long]] =
-    forSlug(slug).flatMap(_.traverse(_.state.map(_.position))).map(_.minOption)
-
   /** Separately: visibility is one client's chain, and a union would mix one
     * client's tab with another's branch.
     */
-  def openSets(slug: String): IO[List[Set[String]]] =
-    forSlug(slug).flatMap(_.traverse(_.state.map(_.open)))
+  def watching(slug: String): IO[List[Map[VarKey, String]]] =
+    forSlug(slug).flatMap(_.flatTraverse(_.watching))
 }
 
 object Sessions {

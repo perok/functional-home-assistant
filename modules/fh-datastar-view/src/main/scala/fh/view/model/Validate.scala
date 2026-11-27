@@ -7,6 +7,8 @@ import fh.view.runtime.{Cel, Steps, Templates}
   */
 private[model] object Validate:
 
+  private val PopupsVar = "popups"
+
   def errors(
       d: Dashboard,
       locateTransform: String => Option[String],
@@ -97,7 +99,7 @@ private[model] object Validate:
         nodeId: String,
         cardName: String,
         slots: Map[SlotKey, BoundSlot],
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       labelled(slots).flatMap { case (key, name, src) =>
         val stepErrors =
@@ -182,7 +184,7 @@ private[model] object Validate:
         nodeId: String,
         name: String,
         template: FetchTemplate,
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       val at = s"$nodeId: slot '$name'"
       val problems = template.window.all
@@ -204,7 +206,7 @@ private[model] object Validate:
         what: String,
         the: String,
         c: Choice.Chosen[?],
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       val Choice.Chosen(by, cases, _) = c
       val refErrors = by.variables.sorted
@@ -248,7 +250,10 @@ private[model] object Validate:
         )
         .toList
       val declared =
-        if (refErrors.nonEmpty || keyType.isLeft || !c.refusesUntaken) Nil
+        if (
+          refErrors.nonEmpty || keyType.isLeft || !c.refusesUntaken ||
+          by.variables.exists(scope.get(_).contains(None))
+        ) Nil
         else
           val read = FetchTemplate.atDeclared(scope)(by)
           val reads =
@@ -273,7 +278,7 @@ private[model] object Validate:
         nodeId: String,
         name: String,
         src: BoundSlot,
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       src.fetch.toList.flatMap { template =>
         val stageError = src.expr.steps match
@@ -466,20 +471,19 @@ private[model] object Validate:
       * rendered per viewer: a leaf's value slot. A signal is named by what it
       * reads and shared by every viewer, and structure is never re-rendered.
       * The exception is `v.valueIs(x)` in a bool signal, on any card, which the
-      * browser reads off the variable's own signals. A decision's are
-      * [[decisionVarErrors]]'.
+      * browser reads off the variable's own signals. A `valueWhile` is read as
+      * part of its slot: decided at the viewer's values, it makes the slot the
+      * viewer's too.
       */
     def slotVarErrors(
         nodeId: String,
         cardName: String,
         slots: Map[SlotKey, BoundSlot],
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       val structural = cards.get(cardName).exists(_.isStructure)
       labelled(slots).flatMap { (_, name, s) =>
-        val read = (s.expr.variables ++ s.inputs.values.flatMap(
-          _.variables
-        )).distinct.sorted
+        val read = s.variables.sorted
         val where = read.map(v => s"'$v'").mkString(", ")
         read
           .filterNot(scope.contains)
@@ -599,7 +603,16 @@ private[model] object Validate:
         }
         .toList
         .sorted ++ vars.sortBy(_.name).flatMap { d =>
+        // The page's own (`components/popup.pkl`): one below it would hide the
+        // page's from every opener under it.
         Option
+          .when(
+            d.name == PopupsVar && nodeId != Dashboard.PageRootId.toString
+          )(
+            s"$nodeId: the variable name '$PopupsVar' is the page's, which " +
+              "holds the open popup — name it something else"
+          )
+          .toList ++ Option
           .when(!d.name.matches("[A-Za-z][A-Za-z0-9_]*"))(
             s"$nodeId: variable '${d.name}' is not a plain name " +
               "([A-Za-z][A-Za-z0-9_]*) — it is spelled into signal names and " +
@@ -627,15 +640,16 @@ private[model] object Validate:
         .sorted
         .map(n => s"$nodeId: '$n' is both a slot and a call — rename one")
 
-    /** A nodes slot's choice: keys typed by `by`, one node per case, and a `by`
-      * a pick can decide: a viewer's variable read alone, or state alone. A
-      * variable's declared value no case takes would show nothing before anyone
-      * chooses.
+    /** A nodes slot's choice: keys typed by `by`, one node per case. A `by`
+      * reading variables and state decides per viewer, and a value no case
+      * takes shows nothing; only the plain variable's declared value is held to
+      * a case, since it would show nothing before anyone chooses. One declared
+      * with no value means to.
       */
     def choiceFillErrors(
         nodeId: String,
         c: LayoutNode.Component,
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       c.chosen.toList.sortBy(_._1).flatMap { (n, k) =>
         val at = s"$nodeId: nodes slot '$n'"
@@ -647,24 +661,11 @@ private[model] object Validate:
               "row)"
           )
           .distinct
-        val reads =
-          if (k.by.variables.nonEmpty && k.by.entities.nonEmpty)
-            List(
-              s"$at is chosen by a viewer's variable and by state together, " +
-                "which is not built yet (R4d of docs/plan-regions.md)"
-            )
-          else if (
-            k.by.variables.nonEmpty && Choice.plainVariable(k.by).isEmpty
-          )
-            List(
-              s"$at is chosen by a computed read of a variable; until R4d it " +
-                "is the variable's own value (`v.value`)"
-            )
-          else Nil
         val unshown = Choice.plainVariable(k.by) match
           case Some(v) if k.otherwise.isEmpty =>
             scope
               .get(v)
+              .flatten
               .filterNot(d => k.cases.exists(_.is == Lit.Text(d)))
               .map(d =>
                 s"$at is chosen by '$v', declared '$d', which no case takes " +
@@ -674,14 +675,14 @@ private[model] object Validate:
               .toList
           case _ => Nil
         chosenErrors(at, "its nodes", "its nodes", k, scope) ++ lengths ++
-          reads ++ unshown
+          unshown
       }
 
     /** A choice is of the variable as this node reads it. */
     def choiceErrors(
         nodeId: String,
         c: LayoutNode.Component,
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
       c.calls.toList.sortBy(_._1).collect {
         case (n, CallDecl.SetVar(v, _)) if !scope.contains(v) =>
@@ -755,15 +756,8 @@ private[model] object Validate:
               " — the value would stop updating"
           )
 
-    def childErrors(
-        kids: Map[String, List[LayoutNode]],
-        prefix: String,
-        id: NodeId,
-        scope: Map[String, String]
-    ): List[String] =
-      LayoutNode.steps(kids).flatMap { case (step, n) =>
-        walk(n, prefix, LayoutNode.childId(prefix, id, step, n), scope)
-      }
+    def childErrors(ix: Ix, scope: Dashboard.Declared): List[String] =
+      index.children(ix).filter(index.step(_).isDefined).flatMap(walk(_, scope))
 
     // Interpolated into a `class` attribute unescaped.
     def classTokenErrors(nodeId: String, cls: String): List[String] =
@@ -829,13 +823,9 @@ private[model] object Validate:
     ): List[(SlotKey, String, BoundSlot)] =
       slots.toList.map((k, s) => (k, SlotKey.label(k), s)).sortBy(_._2)
 
-    def walk(
-        node: LayoutNode,
-        prefix: String,
-        nodeId: NodeId,
-        scope: Map[String, String]
-    ): List[String] =
-      node match
+    def walk(ix: Ix, scope: Dashboard.Declared): List[String] =
+      val nodeId = index.id(ix)
+      index.node(ix) match
         case c @ LayoutNode.Component(card, _, cell, _, vars, _, _) =>
           val layoutErrors = Option
             .when(
@@ -867,16 +857,15 @@ private[model] object Validate:
             valueWhileErrors(nodeId, c.bound) ++
             typeErrors(nodeId, checked) ++
             cellErrors(nodeId, cell) ++
-            layoutErrors ++ childErrors(c.slotNodes, prefix, nodeId, here) ++
-            setErrors(nodeId, c, prefix, scope)
+            layoutErrors ++ childErrors(ix, here) ++ setErrors(ix, c, scope)
 
     // A set's members are complete nodes, validated as ordinary ones.
     def setErrors(
-        setId: NodeId,
+        ix: Ix,
         c: LayoutNode.Component,
-        prefix: String,
-        scope: Map[String, String]
+        scope: Dashboard.Declared
     ): List[String] =
+      val setId = index.id(ix)
       val sets = c.fills.toList.sortBy(_._1).collect { case (n, s: Fill.Set) =>
         n -> s
       }
@@ -947,6 +936,18 @@ private[model] object Validate:
                       s"'${Steps.text(k.is.raw)}' twice"
                   )
         }
+        // Read at the set's node, as a pick's are at its host: a member's own
+        // declarations exist only once it does.
+        val undeclared =
+          (s.orderBy.flatMap(_.by.variables) ++ s.members.values.flatMap {
+            case Choice.Chosen(by, _, _) => by.variables
+            case Choice.Fixed(_)         => Nil
+          }).distinct.sorted
+            .filterNot((scope ++ c.defaults).contains)
+            .map(v =>
+              s"$setId: a set's guard or order reads the variable '$v', " +
+                "which no node at or above the set declares"
+            )
         val unmembered = s.candidates.filterNot(s.members.contains).map { cd =>
           s"$setId: candidate '$cd' has no member entry — it could never " +
             "render, so the build dropped it inconsistently"
@@ -971,21 +972,12 @@ private[model] object Validate:
             s"$setId: a member is itself a set — put the set inside a card " +
               "the member renders"
         }.distinct
-        val inside = s.clauseNodes.flatMap { (_, i, n) =>
-          walk(
-            n,
-            prefix,
-            LayoutNode.childId(
-              prefix,
-              setId,
-              LayoutNode.Step(LayoutNode.DefaultRegion, i),
-              n
-            ),
-            scope
-          )
-        }
-        whole ++ order ++ members ++ unmembered ++ readsMember ++ bare ++ inside
-      }
+        whole ++ order ++ members ++ undeclared ++ unmembered ++ readsMember ++
+          bare
+      } ++ index
+        .children(ix)
+        .filter(index.step(_).isEmpty)
+        .flatMap(walk(_, scope))
 
     // Structure is never a patch target, so a live bytes slot on it never
     // reaches the DOM; a signal slot needs no patch target (ADR 0017). The Pkl
@@ -1009,9 +1001,7 @@ private[model] object Validate:
           here ++ c.allChildren.flatMap(walk) ++
             c.set.toList.flatMap((_, s) => s.nodes.flatMap(walk))
       }
-      (walk(card) ++ surfaces.toList
-        .sortBy(_._1)
-        .flatMap(s => walk(s._2.content))).distinct
+      walk(card).distinct
     }
 
     // A region renders its children under fixed ids, so it is placed exactly
@@ -1096,50 +1086,39 @@ private[model] object Validate:
         }
       }
 
-    /** What an authored `id` has to satisfy: a plain token, used once, and not
-      * inside a candidate set's clause.
+    /** What an authored `id` has to satisfy: a plain token, used once, not
+      * inside a candidate set's clause, and not one of the page card's.
       *
       * Deliberately NOT a rule: that an id must not read as another node's
-      * descendant. Ancestry comes from [[fh.view.runtime.NodeAncestry]], which
+      * descendant. Containment is the index's ([[TreeIndex.contains]]), which
       * asks the tree, so `detail` and `detail_0` may be unrelated.
       */
     val authoredIdErrors: List[String] = {
-      def walkIds(
-          node: LayoutNode,
-          prefix: String,
-          id: NodeId,
-          inSet: Boolean
-      ): List[(NodeId, Boolean, Option[String])] =
-        (id, inSet, node.authoredId) :: (node match {
-          case c: LayoutNode.Component =>
-            LayoutNode.steps(c.slotNodes).flatMap { case (step, ch) =>
-              walkIds(
-                ch,
-                prefix,
-                LayoutNode.childId(prefix, id, step, ch),
-                inSet
-              )
-            } ++
-              // A member node renders once per candidate, so every one would
-              // claim its id.
-              c.set.toList.flatMap((_, s) =>
-                s.nodes.flatMap(walkIds(_, prefix, id, true))
-              )
-        })
-
-      val all =
-        walkIds(card, "", LayoutNode.rootId("", card), false) ++
-          surfaces.toList.sortBy(_._1).flatMap { case (sid, s) =>
-            val p = LayoutNode.surfacePrefix(sid)
-            walkIds(s.content, p, LayoutNode.rootId(p, s.content), false)
-          }
-      val authored = all.collect { case (id, inSet, Some(name)) =>
-        (id, inSet, name)
+      val all = index.all.toList.map(ix =>
+        (
+          ix,
+          index.id(ix),
+          index.within(ix).isDefined,
+          index.node(ix).authoredId
+        )
+      )
+      val authored = all.collect { case (ix, id, inSet, Some(name)) =>
+        (ix, id, inSet, name)
       }
-      val ids = all.map(_._1)
+      val ids = all.map(_._2)
 
-      val shape = authored.flatMap { case (id, inSet, name) =>
-        if (inSet)
+      val shape = authored.flatMap { case (ix, id, inSet, name) =>
+        // The page card's own (`core/page.pkl`): the root, and its popup host.
+        val reserved = name match
+          case "root"   => ix != Ix(0)
+          case "popups" => !index.parent(ix).contains(Ix(0))
+          case _        => false
+        if (reserved)
+          List(
+            s"node id '$name' is reserved for the page card's own node — " +
+              "name it something else"
+          )
+        else if (inSet)
           List(
             s"node id '$name' is inside a candidate set's clause, which is " +
               "rendered once per member — every member would claim the name"
@@ -1157,15 +1136,6 @@ private[model] object Validate:
       shape.distinct
     }
 
-    val chromeErrors: List[String] =
-      Option
-        .when(
-          theme.chrome.nonEmpty && !theme.chrome.contains("id=\"dashboard\"")
-        )(
-          "theme.chrome must contain an element with id=\"dashboard\" wrapping {{{body}}}"
-        )
-        .toList
-
     // Given a tone and a text, nothing else: any other name would print empty.
     val failedLabelErrors: List[String] = label.fold(
       msg => List(s"failedLabel does not compile: $msg"),
@@ -1176,23 +1146,21 @@ private[model] object Validate:
         )
     )
 
-    // A choice over state is decided once for every viewer, about no subject.
+    // A choice is decided about no subject, over state, variables or both.
     val unboundConditions: List[String] =
       picks.toList.sortBy(_._1).flatMap { (gid, p) =>
         val by = p.choice.by
-        if (by.variables.nonEmpty) Nil
-        else
-          by.bypassError(ownMay = false)
-            .map(e =>
-              s"the choice at '$gid' is decided by a value that does not decide: $e"
+        by.bypassError(ownMay = false)
+          .map(e =>
+            s"the choice at '$gid' is decided by a value that does not decide: $e"
+          )
+          .orElse(
+            Option.when(by.readsMissingSubject)(
+              s"the choice at '$gid' compares an unnamed entity; a choice " +
+                "over state must name the entity each comparison reads"
             )
-            .orElse(
-              Option.when(by.readsMissingSubject)(
-                s"the choice at '$gid' compares an unnamed entity; a choice " +
-                  "over state must name the entity each comparison reads"
-              )
-            )
-            .toList
+          )
+          .toList
       }
 
     // A call runs at the press as a decision: for no viewer, about no subject.
@@ -1253,15 +1221,20 @@ private[model] object Validate:
           fieldErrors ++ dataKeyErrors
         }
 
-    // A decision's reads are what it asks every version, so its window is
-    // written down: one chosen by state would be a pick per version.
+    // A decision's reads are what it asks every version, whoever is viewing,
+    // so its window is written down: one chosen by state would be a pick per
+    // version, and one a viewer's variable chooses would be asked per viewer.
+    // Lifting it: resolve the decision's fetches at the viewer's values (the
+    // memo's key already carries them) and answer them with the viewer's env
+    // (`Server.decisionAnswers`); reopen when a card needs a decision over a
+    // chosen window.
     val decisionFetchErrors: List[String] =
       decisionFetches.flatMap((where, f) =>
         f.window match
           case Choice.Chosen(by, _, _) if by.variables.nonEmpty =>
             by.variables.map(v =>
-              s"$where reads the fetch '${f.key}': a decision is made for " +
-                s"every viewer at once, so its fetch cannot read the variable '$v'"
+              s"$where reads the fetch '${f.key}': a decision asks for its " +
+                s"fetches every version, so its window cannot read the variable '$v'"
             )
           case _: Choice.Chosen[?] =>
             List(
@@ -1271,39 +1244,17 @@ private[model] object Validate:
           case Choice.Fixed(_) => Nil
       )
 
-    val decisionVarErrors: List[String] =
-      decisionExprs
-        .flatMap((where, e) =>
-          e.variables.map(v =>
-            s"$where reads the variable '$v': a decision is made for every " +
-              "viewer at once, so it cannot read a viewer's value — a " +
-              "variable chooses a branch through c.iff(v.valueIs(x))"
-          )
-        )
-        .distinct
-
     authoredIdErrors ++
       callErrors ++
       decisionFetchErrors ++
-      decisionVarErrors ++
       structureLiveSlotErrors ++
       regionHoleErrors ++
       viewErrors ++
       regionNameErrors ++
-      chromeErrors ++
       failedLabelErrors ++
       theme.classes.errors ++
       unboundConditions ++
-      walk(card, "", LayoutNode.rootId("", card), Map.empty) ++
-      surfaces.toList.sortBy(_._1).flatMap { case (sid, surface) =>
-        val p = LayoutNode.surfacePrefix(sid)
-        walk(
-          surface.content,
-          p,
-          LayoutNode.rootId(p, surface.content),
-          Map.empty
-        ).map(err => s"surface '$sid': $err")
-      }
+      walk(index.root, Map.empty)
 
   /** A clause's condition: a bool that bypasses nothing. */
   private def conditionError(e: ValueExpr): Option[String] =

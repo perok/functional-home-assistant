@@ -15,7 +15,7 @@ import "../core/simple.pkl" as simpleMod
 import "../core/slot.pkl" as slotMod
 import "../hass.pkl"
 import "../query.pkl" as q
-import "base/surface.pkl" as surfaces
+import "base/iff.pkl" as iffMod
 import "bar.pkl" as barMod
 import "defaults.pkl" as defaultsMod
 import "entity.pkl" as entityMod
@@ -82,7 +82,7 @@ class ProgressCard extends entityMod.EntityCard {
       else null)
       if (bar == null) new Listing {}
       else if (percent?.device_class == "battery" || running == true) new Listing { bar }
-      else new Listing { surfaces.iff(running).then(bar!!) }
+      else new Listing { iffMod.iff(running).then(bar!!) }
 
   function percent(p: hass.SensorEntity): this = (this) { percent = p }
   /// Also drops a found [[percent]], so the bar is the one asked for.

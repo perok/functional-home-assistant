@@ -8,7 +8,6 @@ import "../../core/badge.pkl" as badgeMod
 import "../../core/group.pkl" as groupMod
 import "../../core/icon.pkl" as icons
 import "../../core/node.pkl" as nodeMod
-import "../../core/shell.pkl"
 import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
@@ -109,7 +108,6 @@ const local rangeInput: String = """
         data-signals__ifmissing="{ \(slideSig): \(valueSlot.jsValue) }"
         data-bind="\(slideSig)"
         \(adoptCommitted)
-        \(restoreOnDeadStream)
         \(tapMod.busyAttrsChange)
         data-on:input="\(dragPaint)"
         data-on:change="\(commitOnRelease)" />
@@ -122,15 +120,12 @@ const local toggleButton: String = """
         \(tapMod.busyAttrsChange)></button>
   """
 
-/// The two ways an ask ends with no commit coming (ADR 0025): the stream is
-/// down, or the server refused (ADR 0024).
+/// A refusal ends an ask with no commit coming (ADR 0024, 0025). A dead stream
+/// does not roll back: it shows the banner, and the reconnect brings the truth.
 ///
-/// On two elements on purpose. Merged into the input's one
-/// `data-on-signal-patch`, the refusal half would run when `failedOn` clears the
-/// error at the NEXT commit's start, and snap the thumb back under the finger.
-const local restoreOnDeadStream: String =
-  #"data-effect="\#(shell.streamDown) && (\#(rollbackToCommitted))""#
-
+/// On the track, not the input: merged into the input's one
+/// `data-on-signal-patch`, it would run when `failedOn` clears the error at the
+/// NEXT commit's start, and snap the thumb back under the finger.
 const local restoreOnRefusal: String =
   #"data-on-signal-patch-filter="{include:/^\#(tapMod.errorSig)$/}" data-on-signal-patch="$\#(tapMod.errorSig) && (\#(rollbackToCommitted))""#
 

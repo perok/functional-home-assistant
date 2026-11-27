@@ -7,7 +7,6 @@ import "node.pkl" as nodeMod
 import "predicate.pkl" as pred
 import "slot.pkl" as slotMod
 import "simple.pkl" as simpleMod
-import "surface.pkl" as surfaceMod
 import "../hass.pkl"
 import "../hass/actions.pkl" as hassActions
 
@@ -42,11 +41,12 @@ abstract class TapAction {
   /// The dashboard a navigate goes to, so a card can mark the one already open
   /// ([[currentSlots]]).
   hidden page: String? = null
-  /// An inline popup's content; the card copies it onto the node for the hoist.
-  inlineSurfaces: Mapping<String, surfaceMod.SurfaceDef>? = null
+  /// Nodes this tap brings onto the page from elsewhere: the popup it opens. The
+  /// card copies them onto its node ([[nodeMod.Node.carries]]).
+  hidden carries: List<nodeMod.Node> = List()
   /// While this tap's POST is in flight a second click is a no-op (ADR 0019).
   /// Set by the KIND of tap, never by a card: a navigate is a document load and
-  /// the popup close sends no request.
+  /// a popup's close sends no request.
   busy: Boolean = false
   /// Whether the in-flight window also dims and spins. `false` keeps the
   /// re-click guard, for a control whose action answers too fast for a flicker
@@ -111,12 +111,6 @@ open class Click extends TapAction {
   onclick: slotMod.Reading|String
 }
 
-/// Guarded like a [[Call]]: the open answers only once the surface's fetches
-/// have resolved, and a chart's history fetch is a wait worth showing (#412).
-class OpenSurface extends Click {
-  busy = true
-}
-
 /// A choice of a node variable (`varMod.Variable.choose`), declared at the
 /// nearest node above that declares it. It answers once its readers have
 /// re-rendered.
@@ -133,13 +127,18 @@ class SetVar extends Press {
 // template, `dashboard_slug` in a transform, whose output is inserted raw.
 
 /// The press of the call `s` names: its pending ask, its id, and as the body (a
-/// `payload`, which the bundle sends instead of the signals) the page's `conn`
-/// and popup, which a choice is made in, then each of `posts` beside its key
+/// `payload`, which the bundle sends instead of the signals) the page's `conn`,
+/// whose session a choice is made in, then each of `posts` beside its key
 /// and what the node shows of the call. `posts` are the card's, since one
 /// template serves every node of it; each node's call says how its value is
 /// typed.
+///
+/// Sent once (`retryMaxCount: 0`): the bundle retries an unreachable server for
+/// minutes by default, holding the control busy, and a retry that lands posts a
+/// value the control has since let go of. One that cannot be sent fails at
+/// once ([[failedOn]]).
 const function post(s: slotMod.CallSlot, posts: List<slotMod.PostedRead>): String =
-  "\(s.pending)@post('sse/call/{{dashboardSlug}}/\(s.callId)?node={{id}}', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {"
+  "\(s.pending)@post('sse/call/{{dashboardSlug}}/\(s.callId)?node={{id}}', {retryMaxCount: 0, payload: {conn: $conn, posted: {"
     + posts.map((p) -> "'\(p.key)': \(p.js)").join(", ")
     + "}, seen: \(s.seen) } })"
 
@@ -220,9 +219,10 @@ const errorSig: String = "_{{id}}__error"
 ///
 /// The bundle dispatches `datastar-fetch` on `document` for EVERY fetch, the
 /// SSE stream included, hence the `evt.detail.el === el` filter. `finished` is
-/// not a clear: it also fires after `error`.
+/// not a clear: it also fires after `error`. A post that never reached the
+/// server is `retries-failed`, not `error`: [[post]] does not retry.
 const local function failedOn(sig: String): String =
-  #"data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($\#(sig) = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($\#(sig) = ''))""#
+  #"data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($\#(sig) = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($\#(sig) = 'Could not be sent') : evt.detail.type === 'started' && ($\#(sig) = ''))""#
 
 /// `fh-error` is the base stylesheet's to paint (`core/css.pkl`).
 const local function failedClass(sig: String): String =
@@ -404,15 +404,6 @@ const function clickSlot(transformExpr: String): slotMod.Reading = new {
   source = new slotMod.CelRead { src = transformExpr }
 }
 
-// A transform rather than a constant, because only a transform can read
-// `dashboard_slug`.
-const local function openSurfaceOnclick(surfaceId: String): slotMod.Reading =
-  clickSlot(
-    // `"\""`, not `#"""#`, which would open a multi-line string.
-    #""@post('sse/surface/""# + #" + dashboard_slug + "/open/"# + surfaceId +
-      #"')""#
-  )
-
 /// `call("scene/turn_on", dump.entities.scene_kveld)`. An area or floor target
 /// reaches entities the dashboard never names, so the server allows only the
 /// exact (service, target) pairs the dashboard declares (ADR 0023).
@@ -487,26 +478,3 @@ const function currentSlots(t: TapAction): Listing<slotMod.Slot> = new {
 /// after a space, then the attribute.
 const currentClass: String = current.ifTrue("fh-current-dashboard")
 const currentAttr: String = current.ifTrue(#" aria-current="page""#)
-
-/// Dismiss the open popup, as its ✕ does.
-function closePopup(): Click =
-  new {
-    onclick = surfaceMod.closeExpr
-  }
-
-/// Open the popup registered under `surfaceId` in the entry's `surfaces`.
-// No pending assignment: nothing on the page displays a popup selection.
-function openPopup(surfaceId: String): OpenSurface =
-  new {
-    onclick = openSurfaceOnclick(surfaceId)
-  }
-
-/// Open `body` in a popup of this node's own; the hoist mints its id
-/// (`<NODE_ID>_self`). A separate function from [[openPopup]] because Pkl
-/// cannot dispatch on String|Node (ADR 0006).
-function openPopupInline(body: nodeMod.LayoutNode): OpenSurface = new {
-  onclick = openSurfaceOnclick("\(nodeMod.NODE_ID)_self")
-  inlineSurfaces = new Mapping {
-    ["self"] = new surfaceMod.SurfaceDef { content = new surfaceMod.Popup { children { body } } }
-  }
-}

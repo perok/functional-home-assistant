@@ -435,10 +435,17 @@ object FetchTemplate:
   /** A `by` read at the declared values `scope`, over no state, as the build
     * reads one: a read of an entity is null there, so it decides no case.
     */
-  def atDeclared(scope: Map[String, String]): ValueExpr => Any = by =>
+  def atDeclared(scope: Dashboard.Declared): ValueExpr => Any = by =>
     Evaluator
       .compile(by, Evaluator.Scope(""))
-      .fold(_ => null, _.run(null, Map.empty, Evaluator.Lookup.of(scope)))
+      .fold(
+        _ => null,
+        _.run(
+          null,
+          Map.empty,
+          Evaluator.Lookup.of(scope.collect { case (n, Some(v)) => n -> v })
+        )
+      )
 
   given Decoder[FetchTemplate] = Decoder.instance { c =>
     c.get[String]("provider").flatMap {
@@ -498,6 +505,11 @@ object Fetching:
   final case class Gate(valueWhile: Ready.Slot, entity: Option[String]):
     lazy val reads: Set[SlotRead] =
       SlotAsk.decision(valueWhile.bound.fetches.map(_.fetch))
+
+    /** The node variables it reads: it is decided at the viewer's values of
+      * them, in the order they are kept by, or once a version with none.
+      */
+    lazy val variables: List[String] = valueWhile.bound.variables.sorted
 
     /** By content, so two slots gated alike share one decision. */
     lazy val key: String = s"${entity.getOrElse("")}|${valueWhile.valueKey}"
@@ -707,13 +719,6 @@ object Op:
       .toRight(s"unknown op: $s")
   )
 
-/** How a popup becomes visible: by a tap, optionally from the first paint. The
-  * selection is per connection (ADR 0005). A choice's case is shown by its pick
-  * ([[Dashboard.picks]]), not by this; R5 moves popups onto one too.
-  */
-enum Activation derives ConfiguredDecoder:
-  case User(defaultOpen: Boolean = false)
-
 sealed trait LayoutNode extends LayoutNode.Identified
     derives ConfiguredDecoder {
 
@@ -819,10 +824,10 @@ object LayoutNode:
     def allChildren: List[LayoutNode] =
       slotNodes.toList.sortBy(_._1).flatMap(_._2)
 
-    /** Each declared name and its default. A repeated name keeps the last;
-      * `validate` rejects one.
+    /** Each declared name and its default, `None` for no value. A repeated name
+      * keeps the last; `validate` rejects one.
       */
-    lazy val defaults: Map[String, String] =
+    lazy val defaults: Map[String, Option[String]] =
       vars.map(d => d.name -> d.default).toMap
 
     /** `validate` holds `entity_id` to a literal. */
@@ -833,9 +838,7 @@ object LayoutNode:
 
   /** The default region contributes only its index, keeping a tab URL's
     * `ui.<id>` short. `validate` rejects an all-digit region name, so the two
-    * shapes cannot be confused. Public because the build's inline-surface hoist
-    * must reach the same ids; a second spelling fails silently, with
-    * `@@NODE_ID@@` reaching the DOM.
+    * shapes cannot be confused.
     */
   def segment(s: Step): String =
     if s.region == DefaultRegion then s.index.toString
@@ -850,24 +853,13 @@ object LayoutNode:
   def pathId(path: List[Step]): NodeId =
     NodeId.derived(if path.isEmpty then "c" else s"c_${segments(path)}")
 
-  def rootId(prefix: String, node: Identified): NodeId =
-    NodeId.derived(prefix + node.authoredId.getOrElse("c"))
+  def rootId(node: Identified): NodeId =
+    NodeId.derived(node.authoredId.getOrElse("c"))
 
-  /** An authored id still carries `prefix`: the runtime attributes a node to
-    * its surface by prefix, and two surfaces could otherwise share a name.
-    */
-  def childId(
-      prefix: String,
-      parent: NodeId,
-      step: Step,
-      child: Identified
-  ): NodeId =
-    child.authoredId.fold(NodeId.derived(s"${parent}_${segment(step)}"))(a =>
-      NodeId.derived(prefix + a)
+  def childId(parent: NodeId, step: Step, child: Identified): NodeId =
+    child.authoredId.fold(NodeId.derived(s"${parent}_${segment(step)}"))(
+      NodeId.derived
     )
-
-  def nodeId(prefix: String, path: List[Step]): NodeId =
-    NodeId.derived(prefix + pathId(path))
 
   /** Name order, for a reproducible walk; each step names its own region. */
   def steps[N](children: Map[String, List[N]]): List[(Step, N)] =
@@ -910,9 +902,7 @@ object LayoutNode:
     (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
       (c >= '0' && c <= '9') || c == '_'
 
-  /** Also spelled by the build's inline-surface hoist, which sees JSON; no
-    * clause index, since one case of a member renders.
-    */
+  /** No clause index, since one case of a member renders. */
   def memberSegment(setId: String, key: String): String =
     s"${setId}_${sanitize(key)}"
 
@@ -933,7 +923,6 @@ object LayoutNode:
     * [[innerSetId]], everything else's [[childId]].
     */
   def childIdWithin(
-      prefix: String,
       parent: NodeId,
       step: Step,
       child: LayoutNode,
@@ -942,14 +931,8 @@ object LayoutNode:
     (child, within) match {
       case (c: Component, Some((member, clause, path))) if c.set.isDefined =>
         innerSetId(member, clause, path :+ step)
-      case _ => childId(prefix, parent, step, child)
+      case _ => childId(parent, step, child)
     }
-
-  def surfaceRootId(surfaceId: String): String = s"s_${sanitize(surfaceId)}"
-
-  /** `s_<id>__c_0`; the same scheme as the build-phase hoist. */
-  def surfacePrefix(surfaceId: String): String =
-    s"${surfaceRootId(surfaceId)}__"
 
 /** All presentation, so the server is tied to no CSS framework.
   *
@@ -960,10 +943,7 @@ object LayoutNode:
   *     what the layout survives without (an icon font).
   *   - `scripts`: module scripts, run after first paint.
   *   - `inlineScripts`: classic, run before first paint (document listeners the
-  *     first element needs). Emitted verbatim, like `styles` and `chrome`.
-  *   - `chrome`: the frame, with the `#dashboard` swap target around
-  *     `{{{body}}}` (checked by `validate`) and any popup host. Empty falls
-  *     back to a bare `<main id="dashboard">`.
+  *     first element needs). Emitted verbatim, like `styles`.
   *   - `offlineBanners`: the connection banners' markup, placed in the page
   *     shell; empty shows none.
   *   - `classes`: what the theme adds to, or puts in place of, an `fh-` class
@@ -977,43 +957,15 @@ case class Theme(
     scripts: List[String] = Nil,
     inlineScripts: List[String] = Nil,
     styles: String = "",
-    chrome: String = "",
     offlineBanners: String = "",
     classes: ThemeClasses = ThemeClasses.empty
 ) derives ConfiguredDecoder
 
-/** A popup, rendered only while open, into the theme's popup host
-  * ([[Dashboard.PopupHostId]]). Chrome-less: the frame around it lives in the
-  * theme or card. A choice's case is a node, not a surface
-  * ([[Dashboard.picks]]).
-  */
-case class Surface(
-    content: LayoutNode,
-    activation: Activation = Activation.User(false)
-) derives ConfiguredDecoder
-
-object Surface:
-
-  /** A pick's id: its host's, and inside a set member's clause
-    * `<host>_k<clause>`, since every clause of a member gives its nodes the
-    * same ids, so two clauses' sliders would pool their heads into one pick
-    * (#556). No derived node id has a lone `k<n>` segment, since a step is an
-    * index or `<region>_<index>` ([[LayoutNode.segment]]) and an entity id
-    * carries a `.`.
-    */
-  def groupId(host: NodeId, clause: Option[Int]): NodeId =
-    clause.fold(host)(k => NodeId.derived(s"${host}_k$k"))
-
-  /** What a variable-selected group's members are selected at, for a message:
-    * an index group as the range an author thinks of.
-    */
-  def membersText(values: List[String]): String =
-    if (values == values.indices.map(_.toString).toList)
-      s"a member index (0..${values.size - 1})"
-    else s"one of its members' values (${values.mkString(", ")})"
-
 /** The build phase's artifact.
   *
+  *   - `card`: the tree's root, a built dashboard's page card (`core/page.pkl`,
+  *     the node `root`). A dashboard a test writes in Scala may root at any
+  *     card, rendered with no frame.
   *   - `slug`: the site's `dashboards` key, applied by `DashboardBuild.decode`
   *     before validation.
   *   - `css`: the base every dashboard gets, here rather than on [[Theme]] so a
@@ -1027,7 +979,6 @@ case class Dashboard(
     cards: Map[String, CardDef],
     card: LayoutNode,
     theme: Theme = Theme(),
-    surfaces: Map[String, Surface] = Map.empty,
     slug: String = "dashboard",
     title: Option[String] = None,
     css: String = "",
@@ -1036,8 +987,8 @@ case class Dashboard(
 ):
 
   /** Every registered card, not only those used: pruning would have to account
-    * for surfaces and set clauses (ADR 0020's open work). Distinct, since a
-    * card's variants (`button`, `buttonLink`) share one stylesheet.
+    * for unshown cases and set clauses (ADR 0020's open work). Distinct, since
+    * a card's variants (`button`, `buttonLink`) share one stylesheet.
     */
   lazy val cardCss: String =
     cards.toList
@@ -1074,7 +1025,7 @@ case class Dashboard(
           )
     }
 
-    (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content))).toSet
+    walk(card).toSet
   }
 
   /** Every call a node of this dashboard places, by id: the allowlist for the
@@ -1087,7 +1038,7 @@ case class Dashboard(
           c.set.toList.flatMap((_, s) => s.nodes.flatMap(walk))
     }
 
-    (walk(card) ++ surfaces.values.toList.flatMap(s => walk(s.content)))
+    walk(card)
       .map(d => d.id -> d)
       .toMap
   }
@@ -1111,68 +1062,34 @@ case class Dashboard(
     // A call is evaluated at the press, and an entity only a call or a set
     // call's guard names would otherwise be missing from the store.
     referencedEntities ++ calls.values.flatMap(_.all.flatMap(_.entities)) ++
-      deciders(card) ++ surfaces.values.toList.flatMap(s =>
-        deciders(s.content)
-      ) ++ picks.values.flatMap(_.choice.by.entities)
+      deciders(card) ++ picks.values.flatMap(_.choice.by.entities)
   }
 
-  /** Every nodes slot's `Chosen` fill, by its id ([[Surface.groupId]]), with
+  /** Every nodes slot's `Chosen` fill, by its id ([[Dashboard.pickId]]), with
     * its cases' node ids: case `i` has the id a fixed node at index `i` of the
     * slot would, the otherwise after the cases
     * ([[LayoutNode.Component.slotNodes]]). The build's hoist walks the cases
     * under the same ids.
     */
   lazy val picks: Map[NodeId, Dashboard.Pick] =
-    def walk(
-        node: LayoutNode,
-        prefix: String,
-        id: NodeId,
-        within: Dashboard.Within
-    ): List[Dashboard.Pick] = node match
-      case c: LayoutNode.Component =>
-        val own = c.chosen.toList.sortBy(_._1).map { (slot, k) =>
+    index.all
+      .flatMap { ix =>
+        val kids = index.children(ix)
+        index.node(ix).chosen.toList.sortBy(_._1).map { (slot, k) =>
           Dashboard.Pick(
-            id,
+            index.id(ix),
             slot,
             k,
-            prefix,
-            within,
-            c.slotNodes(slot)
-              .zipWithIndex
-              .map((ch, i) =>
-                LayoutNode.childIdWithin(
-                  prefix,
-                  id,
-                  LayoutNode.Step(slot, i),
-                  ch,
-                  within
-                )
-              )
+            index.within(ix),
+            kids.filter(index.step(_).exists(_.region == slot)).map(index.id)
           )
         }
-        val below = LayoutNode.steps(c.slotNodes).flatMap { (step, ch) =>
-          walk(
-            ch,
-            prefix,
-            LayoutNode.childIdWithin(prefix, id, step, ch, within),
-            within.map((m, cl, path) => (m, cl, path :+ step))
-          )
-        }
-        val members = c.set.toList.flatMap { (_, s) =>
-          s.members.toList.flatMap { (entityId, m) =>
-            val member = NodeId.derived(LayoutNode.memberSegment(id, entityId))
-            m.indexed.flatMap((ci, n) =>
-              walk(n, prefix, member, Some((member, ci, Nil)))
-            )
-          }
-        }
-        own ++ below ++ members
-    val fromCard = walk(card, "", LayoutNode.rootId("", card), None)
-    val fromPopups = surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
-      val p = LayoutNode.surfacePrefix(sid)
-      walk(s.content, p, LayoutNode.rootId(p, s.content), None)
-    }
-    (fromCard ++ fromPopups).map(p => p.group -> p).toMap
+      }
+      .map(p => p.group -> p)
+      .toMap
+
+  /** Every node, the one walk minting ids ([[TreeIndex]]). */
+  lazy val index: TreeIndex = TreeIndex.of(card)
 
   /** Human-readable errors, empty when valid. `locateTransform` maps a
     * transform to a source location for the message.
@@ -1205,35 +1122,13 @@ case class Dashboard(
       Set.empty
     )
 
-  /** Problems that still build but are silent in the browser, both about the
-    * popup host only the theme can place (ADR 0002).
-    */
-  def warnings: List[String] = {
-    val popupSurfaces = surfaces.keys.toList.sorted
-    val host = s"id=\"${Dashboard.PopupHostId}\""
-    if (popupSurfaces.isEmpty) Nil
-    else if (!theme.chrome.contains(host))
-      List(
-        s"theme.chrome has no <div $host> host, so these popup surfaces can " +
-          s"never be shown: ${popupSurfaces.mkString(", ")}"
-      )
-    else if (!theme.chrome.contains("{{{popups}}}"))
-      List(
-        s"theme.chrome's <div $host> host has no {{{popups}}} hole, so a popup " +
-          "restored on a refresh arrives only once the stream connects"
-      )
-    else Nil
-  }
-
   def allFetches: List[SlotRead] =
-    (fetchesIn(card) ++ surfaces.values.toList.flatMap(s =>
-      fetchesIn(s.content)
-    )).distinct
+    fetchesIn(card)
 
   /** Every expression a decision reads, beside where it is read: a set's
-    * clauses and order, a `valueWhile` and the inputs it reads, a state
-    * surface, a set a press acts on. Made once for every viewer, so none may
-    * read a viewer's variable.
+    * clauses and order, a `valueWhile` and the inputs it reads, a choice over
+    * state, a set a press acts on. Each asks its fetches every version, so none
+    * reads a window a variable chooses.
     */
   lazy val decisionExprs: List[(String, ValueExpr)] = {
     def walk(n: LayoutNode): List[(String, ValueExpr)] = n match
@@ -1251,73 +1146,41 @@ case class Dashboard(
             } ++ s.nodes.flatMap(walk)
         }
 
-    // A choice over a variable is decided per viewer; one over state too
-    // (refused until R4d) would be named twice.
+    // A choice reading a variable is decided per viewer, so it is left out
+    // (and reads no fetch: `chosenErrors`).
     walk(card) ++ picks.toList.sortBy(_._1).collect {
       case (gid, p) if p.choice.by.variables.isEmpty =>
         s"the choice at '$gid'" -> p.choice.by
-    } ++ surfaces.toList.sortBy(_._1).flatMap((_, s) => walk(s.content)) ++
-      calls.toList
-        .sortBy(_._1)
-        .flatMap((_, d) => d.all.map(d.named -> _))
+    } ++ calls.toList
+      .sortBy(_._1)
+      .flatMap((_, d) => d.all.map(d.named -> _))
   }
 
   /** Every fetch a decision reads ([[decisionExprs]]), beside where. */
   lazy val decisionFetches: List[(String, FetchTemplate)] =
     decisionExprs.flatMap((where, e) => e.fetches.map(where -> _)).distinct
 
-  /** Node variables in scope at every node, by name (issue #209). A popup is
-    * its own scope root, since one content may be opened from many places. A
-    * choice's case is a node below its host, so a chooser above a tab bar
-    * reaches the charts in its panels. A set member is walked under its own id
+  /** Node variables in scope at every node, by name (issue #209). A choice's
+    * case is a node below its host, so a chooser above a tab bar reaches the
+    * charts in its panels. A set member is walked under its own id
     * ([[LayoutNode.memberSegment]], static since the candidates are), starting
     * from the set's scope, so a clause's declaration is that member's own
     * (#556). Every clause of a candidate shares the id, so their scopes merge:
     * a choice survives the member moving to another clause.
     */
   lazy val varScopes: Map[NodeId, Map[String, Dashboard.InScope]] = {
-    type Scope = Map[String, Dashboard.InScope]
-    // `within`: the member a walk is below, its clause and the steps down.
-    def walk(
-        node: LayoutNode,
-        prefix: String,
-        id: NodeId,
-        scope: Scope,
-        within: Option[(NodeId, Int, List[LayoutNode.Step])]
-    ): List[(NodeId, Scope)] =
-      node match
-        case c: LayoutNode.Component =>
-          // A nested declaration replacing the entry is shadowing.
-          val here = scope ++ c.vars.map { d =>
-            d.name -> Dashboard.InScope(id, d)
-          }
-          (id -> here) :: (LayoutNode.steps(c.slotNodes).flatMap {
-            case (step, ch) =>
-              walk(
-                ch,
-                prefix,
-                LayoutNode.childIdWithin(prefix, id, step, ch, within),
-                here,
-                within.map((m, cl, path) => (m, cl, path :+ step))
-              )
-          } ++ c.set.toList.flatMap { (_, s) =>
-            s.members.toList.flatMap { (entityId, m) =>
-              val member =
-                NodeId.derived(LayoutNode.memberSegment(id, entityId))
-              m.indexed.flatMap((ci, n) =>
-                walk(n, prefix, member, here, Some((member, ci, Nil)))
-              )
-            }
-          })
-    def merged(xs: List[(NodeId, Scope)]): Map[NodeId, Scope] =
-      xs.groupMapReduce(_._1)(_._2)(_ ++ _)
-    merged(
-      walk(card, "", LayoutNode.rootId("", card), Map.empty, None) ++
-        surfaces.toList.sortBy(_._1).flatMap { (sid, s) =>
-          val p = LayoutNode.surfacePrefix(sid)
-          walk(s.content, p, LayoutNode.rootId(p, s.content), Map.empty, None)
-        }
-    )
+    val scopes =
+      scala.collection.mutable.ArrayBuffer.empty[Map[String, Dashboard.InScope]]
+    // Pre-order: a parent's scope is in before its children's.
+    index.all.foreach { ix =>
+      // A nested declaration replacing the entry is shadowing.
+      scopes += index.parent(ix).fold(Map.empty)(p => scopes(p.toInt)) ++
+        index
+          .node(ix)
+          .vars
+          .map(d => d.name -> Dashboard.InScope(index.id(ix), d))
+    }
+    index.all.toList.groupMapReduce(index.id)(ix => scopes(ix.toInt))(_ ++ _)
   }
 
   /** At declared values. A clause that will not match still contributes: the
@@ -1325,7 +1188,7 @@ case class Dashboard(
     */
   def fetchesIn(
       n: LayoutNode,
-      start: Map[String, String] = Map.empty
+      start: Dashboard.Declared = Map.empty
   ): List[SlotRead] =
     scopedSlots(n, start).flatMap { case (s, scope) =>
       s.fetches.flatMap(_.resolve(FetchTemplate.atDeclared(scope)))
@@ -1335,9 +1198,8 @@ case class Dashboard(
     * decision's window is written down (`validate`), so a slot's are all.
     */
   lazy val choiceBys: List[ValueExpr] =
-    (scopedSlots(card, Map.empty) ++ surfaces.values.toList.flatMap(s =>
-      scopedSlots(s.content, Map.empty)
-    )).flatMap(_._1.fetches)
+    scopedSlots(card, Map.empty)
+      .flatMap(_._1.fetches)
       .collect { case SlotAsk(FetchTemplate(_, Choice.Chosen(by, _, _)), _) =>
         by
       }
@@ -1346,8 +1208,8 @@ case class Dashboard(
   /** `scope` is where a tree starts. */
   private def scopedSlots(
       n: LayoutNode,
-      scope: Map[String, String]
-  ): List[(BoundSlot, Map[String, String])] = n match
+      scope: Dashboard.Declared
+  ): List[(BoundSlot, Dashboard.Declared)] = n match
     case c: LayoutNode.Component =>
       val here = scope ++ c.defaults
       c.bound.values.toList.map(_ -> here) ++
@@ -1384,20 +1246,71 @@ case class Dashboard(
 
 object Dashboard:
 
+  /** A pick's id: its host's, and inside a set member's clause
+    * `<host>_k<clause>`, since every clause of a member gives its nodes the
+    * same ids, so two clauses' sliders would pool their heads into one pick
+    * (#556). No derived node id has a lone `k<n>` segment, since a step is an
+    * index or `<region>_<index>` ([[LayoutNode.segment]]) and an entity id
+    * carries a `.`.
+    */
+  def pickId(host: NodeId, clause: Option[Int]): NodeId =
+    clause.fold(host)(k => NodeId.derived(s"${host}_k$k"))
+
+  /** What a variable-selected group's members are selected at, for a message:
+    * an index group as the range an author thinks of.
+    */
+  def membersText(values: List[String]): String =
+    if (values == values.indices.map(_.toString).toList)
+      s"a member index (0..${values.size - 1})"
+    else s"one of its members' values (${values.mkString(", ")})"
+
   /** A node variable as seen from a node: who declared it, and how. */
   final case class InScope(declarer: NodeId, declaration: Declaration)
 
-  /** One node's declaration of a node variable: its default, whether a choice
-    * is mirrored into the URL (ADR 0005), and where a session opens it instead
-    * of at the default, evaluated once as the session opens and never followed,
-    * so a head does not move under the viewer's finger.
+  /** The variables in scope at a node, by name, each at its declared value
+    * (`None`: no value).
+    */
+  type Declared = Map[String, Option[String]]
+
+  /** One node's declaration of a node variable: its default (`None`: it holds
+    * no value until a viewer chooses), whether a choice is mirrored into the
+    * URL (ADR 0005) and pushed as a history entry, and where a session opens it
+    * instead of at the default, evaluated once as the session opens and never
+    * followed, so a head does not move under the viewer's finger.
     */
   final case class Declaration(
       name: String,
-      default: String,
+      default: Option[String],
       inUrl: Boolean = true,
-      initialTransform: Option[InitialTransform] = None
-  ) derives ConfiguredDecoder
+      initialTransform: Option[InitialTransform] = None,
+      inHistory: Boolean = false
+  )
+
+  object Declaration:
+    /** The wire's `default` is a value or `{}`, since a `null` is dropped (ADR
+      * 0006); an absent one is still an error.
+      */
+    private given Decoder[Option[String]] = Decoder.instance(c =>
+      c.as[String]
+        .map(Some(_))
+        .orElse(c.as[io.circe.JsonObject].map(_ => None))
+    )
+
+    given Decoder[Declaration] = Decoder.instance(c =>
+      for
+        name <- c.get[String]("name")
+        default <- c
+          .downField("default")
+          .success
+          .toRight(
+            io.circe.DecodingFailure("a declaration has no default", c.history)
+          )
+          .flatMap(_.as[Option[String]])
+        inUrl <- c.getOrElse[Boolean]("inUrl")(true)
+        initial <- c.get[Option[InitialTransform]]("initialTransform")
+        inHistory <- c.getOrElse[Boolean]("inHistory")(false)
+      yield Declaration(name, default, inUrl, initial, inHistory)
+    )
 
   /** Where a session opens a node variable: CEL over one entity's state. */
   final case class InitialTransform(entityId: String, transform: String)
@@ -1418,7 +1331,15 @@ object Dashboard:
   /** A CSS custom property name; a plain property would fight the theme. */
   val CustomProperty: scala.util.matching.Regex = "--[A-Za-z0-9_-]+".r
 
-  given Decoder[Dashboard] = ConfiguredDecoder.derived[Dashboard]
+  // `card` is the page here and `root` on the wire, where `card` is the
+  // author's, the page's body.
+  given Decoder[Dashboard] = {
+    given Configuration = summon[Configuration].withTransformMemberNames {
+      case "card" => "root"
+      case other  => other
+    }
+    ConfiguredDecoder.derived[Dashboard]
+  }
 
   /** Constructed only by [[Dashboard.validated]]: the type is the proof, so its
     * constructor, `apply` and `copy` are private to the model.
@@ -1438,30 +1359,27 @@ object Dashboard:
   /** What a failed read gives [[Dashboard.failedLabel]]. */
   val FailedLabelHoles: Set[String] = Set("text")
 
-  /** The theme's popup host. The dialog is a `popup` card composed into the
-    * surface's content, so the backend renders every surface bare.
-    */
-  val PopupHostId: DomId = DomId.derived("popups")
+  /** The page card's node, the root of a built dashboard's tree. */
+  val PageRootId: NodeId = NodeId.derived("root")
 
   /** Where a walk is below a set member: the member, its clause and the steps
     * down from it, which a nested set's id spells ([[LayoutNode.innerSetId]]).
     */
   type Within = Option[(NodeId, Int, List[LayoutNode.Step])]
 
-  /** The choice filling `host`'s nodes slot `slot`, in the tree of id prefix
-    * `prefix` and `within` a set member's clause where it is in one, and its
-    * cases' node ids in order, the otherwise's last.
+  /** The choice filling `host`'s nodes slot `slot`, `within` a set member's
+    * clause where it is in one, and its cases' node ids in order, the
+    * otherwise's last.
     */
   final case class Pick(
       host: NodeId,
       slot: String,
       choice: Choice.Chosen[List[LayoutNode]],
-      prefix: String,
       within: Within,
       cases: List[NodeId]
   ):
     def clause: Option[Int] = within.map(_._2)
-    def group: NodeId = Surface.groupId(host, clause)
+    def group: NodeId = Dashboard.pickId(host, clause)
 
   /** The vars the renderer gives every node, a pure function of its id. Here
     * rather than in `Renderer` so [[injectedStatic]] is derived from it.

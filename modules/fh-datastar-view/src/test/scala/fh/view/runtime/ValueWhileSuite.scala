@@ -75,8 +75,7 @@ class ValueWhileSuite extends munit.FunSuite {
   )
 
   private def idOf(d: Dashboard, i: Int) = LayoutNode.childId(
-    "",
-    LayoutNode.rootId("", d.card),
+    LayoutNode.rootId(d.card),
     LayoutNode.Step(LayoutNode.DefaultRegion, i),
     node(peak(None))
   )
@@ -91,7 +90,7 @@ class ValueWhileSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
     assertEquals(
-      r.fetchesForPage(Set.empty, Shared.of(states("0")), Map.empty),
+      r.fetchesForPage(Shared.of(states("0")), Map.empty),
       Nil
     )
     // Unanswered, and still renders: the transform never ran.
@@ -102,7 +101,7 @@ class ValueWhileSuite extends munit.FunSuite {
       List("")
     )
     assertEquals(
-      r.fetchesForPage(Set.empty, Shared.of(states("46")), Map.empty),
+      r.fetchesForPage(Shared.of(states("46")), Map.empty),
       List(read)
     )
     assertEquals(
@@ -157,7 +156,6 @@ class ValueWhileSuite extends munit.FunSuite {
     val r = Renderer.create(d)
     def asked(a: String, b: String) =
       r.fetchesForPage(
-        Set.empty,
         Shared.of(
           Map(
             "light.a" -> EntityState("light.a", a, Map.empty),
@@ -184,11 +182,11 @@ class ValueWhileSuite extends munit.FunSuite {
     assertEquals(d.validate(), Nil)
     val r = Renderer.create(d)
     assertEquals(
-      r.fetchesForPage(Set.empty, Shared.of(states("0")), Map.empty),
+      r.fetchesForPage(Shared.of(states("0")), Map.empty),
       Nil
     )
     assertEquals(
-      r.fetchesForPage(Set.empty, Shared.of(states("46")), Map.empty),
+      r.fetchesForPage(Shared.of(states("46")), Map.empty),
       List(read)
     )
   }
