@@ -580,41 +580,27 @@ private[runtime] object Patches {
       )
       placing <- o.plans.flatTraverse(structural)
     } yield {
-      // Every one, held or not: a fill morphs onto what the page has, and the
-      // morph re-applies a seed only where its text changed.
-      val seeded = placing
-        .collect { case Addressed(_: Patch.Fill, claims) => claims }
-        .flatMap(_.valuesIterator.flatMap(_.signals))
-        .map((name, value) => name -> SlotValue.json(value))
-        .toMap
-      withSignals(
-        signalFrame(renderer, holds, shared, viewing.fragments, o.touched),
-        seeded
-      ) ++ morphs ++ leaves ++ placing
+      val fills = placing.collect { case Addressed(_: Patch.Fill, claims) =>
+        claims
+      }
+      signalFrame(renderer, holds, shared, viewing.fragments, o.touched, fills)
+        ++ morphs ++ leaves ++ placing
     }
   }
 
-  private def withSignals(
-      frame: List[Addressed],
-      values: Map[SignalId, Json]
-  ): List[Addressed] =
-    if (values.isEmpty) frame
-    else
-      frame match
-        case Addressed(Patch.Signals(diffed), held) :: Nil =>
-          List(Addressed(Patch.Signals(diffed ++ values), held))
-        case _ => List(Addressed(Patch.Signals(values)))
-
-  /** The batch's one signal frame (ADR 0017), diffed against `holds`. First,
-    * because an inserted member's patch-form bytes carry no seed, so the frame
-    * is its only value.
+  /** The batch's one signal frame (ADR 0017), diffed against `holds`, plus
+    * every signal the `fills` claim, held or not: a fill morphs onto what the
+    * page has, and the morph re-applies a seed only where its text changed.
+    * First, because an inserted member's patch-form bytes carry no seed, so the
+    * frame is its only value.
     */
   private def signalFrame(
       renderer: Renderer,
       holds: Map[Ix, Held],
       shared: Shared,
       fragments: FetchSnapshot,
-      ids: List[NodeId]
+      ids: List[NodeId],
+      fills: List[Map[Ix, Held]]
   ): List[Addressed] = {
     // Per session and per signal, so no tuple, `Some` or builder that a
     // lookup or a pair-taking `+=` would allocate: this was most of an extra
@@ -647,7 +633,14 @@ private[runtime] object Patches {
           }
         case None => ()
     }
-    if (!anyMoved) Nil
+    var seeded = false
+    fills.foreach(_.foreachEntry { (_, h) =>
+      h.signals.foreachEntry { (name, value) =>
+        payload.addOne(name, SlotValue.json(value))
+        seeded = true
+      }
+    })
+    if (!anyMoved && !seeded) Nil
     else List(Addressed(Patch.Signals(payload.result()), heldB.result()))
   }
 
