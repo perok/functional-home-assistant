@@ -15,7 +15,6 @@ import fh.view.model.{
   CardDef,
   Dashboard,
   LayoutNode,
-  Op,
   SignalBind,
   Choice,
   FetchTemplate,
@@ -27,16 +26,14 @@ import fh.view.model.{
   Value,
   ValueExpr,
   TemplateSlot,
-  Slot,
   Surface
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
 import fh.view.history.{ChartStyle, History, SeriesSource, Window, Windows}
 import fh.view.runtime.{EntityState, Evaluator, Renderer, Selections, sharedOf}
-import io.circe.Json
 import io.github.iltotore.iron.*
 import fh.view.FHError
-import fh.view.testkit.DashboardBuilders.declared
+import fh.view.testkit.{FixtureEntity, PklFixture}
 
 import java.time.Instant
 
@@ -390,32 +387,27 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
         card = "chart",
         slots = Slots.values(Map("chart" -> chartSource(w)))
       )
-    def host(id: String, panel: Slot) =
-      LayoutNode.Component(card = "host", Map("panel" -> panel), id = Some(id))
-    val lightOn =
-      Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
+    val library = PklFixture.shape(
+      """card = (c.column) {
+        |  children {
+        |    (c.tabs) { id = "tabs"; tabs { ["A"] { t.hole("1h") } ["B"] { t.hole("7d") } } }
+        |    (c.iff(q.entity(dump.entities.light_a).stateIs("on"))
+        |      .then(t.hole("24h")).`else`(t.hole("30d"))) { id = "branch" }
+        |  }
+        |}
+        |""".stripMargin,
+      FixtureEntity("light.a", "on")
+    )
     val r = Renderer.create(
       Dashboard(
-        cards = Map(
-          "chart" -> TestCard(
-            """<div>{{{chart}}}</div>"""
-          ),
-          "col" -> TestCard(
-            """<div>{{{children}}}</div>""",
-            regions = Set("children")
-          ),
-          "host" -> TestCard(
-            """{{{panel}}}""",
-            regions = Set("panel")
-          )
-        ),
-        card = LayoutNode.Component(
-          card = "col",
-          slots = Slots.kids(
-            host("tabs", Slots.tabs("tab", panel("1h"), panel("7d")))
-              .copy(vars = declared("tab" -> "0")),
-            host("branch", Slots.iff(lightOn, panel("24h"), Some(panel("30d"))))
-          )
+        cards = library.cards + ("chart" -> TestCard(
+          """<div>{{{chart}}}</div>"""
+        )),
+        card = library.fill(
+          "1h" -> panel("1h"),
+          "7d" -> panel("7d"),
+          "24h" -> panel("24h"),
+          "30d" -> panel("30d")
         )
       )
     )
@@ -431,8 +423,8 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
             .getOrElse(fail(s"not a preset: ${r.fetch}"))
         )
         .toSet
-    assertEquals(windows("tabs_panel_0", light("on")), Set("1h", "24h"))
-    assertEquals(windows("tabs_panel_1", light("off")), Set("7d", "30d"))
+    assertEquals(windows("tabs_panel_0_0", light("on")), Set("1h", "24h"))
+    assertEquals(windows("tabs_panel_0_1", light("off")), Set("7d", "30d"))
   }
 
   private def dashboard(src: TemplateSlot) =

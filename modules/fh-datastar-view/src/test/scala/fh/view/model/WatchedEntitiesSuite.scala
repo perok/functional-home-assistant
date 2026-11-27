@@ -6,6 +6,7 @@ import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
+import fh.view.testkit.{FixtureEntity, PklFixture}
 
 import io.circe.Json
 
@@ -100,22 +101,23 @@ class WatchedEntitiesSuite extends munit.FunSuite {
     )
   }
 
-  private val host = Map(
-    "host" -> TestCard(
-      """{{{armed}}}""",
-      Set("armed")
+  /** The shipped `If` showing `shown` while `entity` is on. */
+  private def ifOn(entity: String, shown: LayoutNode) = {
+    val key = entity.replace('.', '_')
+    val shape = PklFixture.shape(
+      s"""card = c.iff(q.entity(dump.entities.$key).stateIs("on")).then(t.hole("shown"))""",
+      FixtureEntity(entity, "on")
     )
-  )
-
-  private def hostOf(cond: ValueExpr, shown: LayoutNode) =
-    LayoutNode.Component("host", Map("armed" -> Slots.iff(cond, shown)))
+    shape.cards -> shape.fill("shown" -> shown)
+  }
 
   test("a choice's deciding entity is watched") {
     // It chooses which case is shown and is rendered by nothing at all.
     val alarm = "alarm_control_panel.house"
+    val (hostCards, hostNode) = ifOn(alarm, tileNode("light.b"))
     val dash = Dashboard(
-      cards = Sets.cards ++ tile ++ host,
-      card = hostOf(onEntity(alarm), tileNode("light.b"))
+      cards = Sets.cards ++ tile ++ hostCards,
+      card = hostNode
     )
 
     assert(dash.watchedEntities.contains(alarm), clue = dash.watchedEntities)
@@ -126,8 +128,10 @@ class WatchedEntitiesSuite extends munit.FunSuite {
   }
 
   test("watchedEntities is a superset of referencedEntities") {
+    val (hostCards, hostNode) =
+      ifOn("alarm_control_panel.p", tileNode("light.c"))
     val dash = Dashboard(
-      cards = Sets.cards ++ tile ++ host ++ Map(
+      cards = Sets.cards ++ tile ++ hostCards ++ Map(
         "col" -> TestCard("{{{children}}}", Set("children"))
       ),
       card = LayoutNode.Component(
@@ -149,7 +153,7 @@ class WatchedEntitiesSuite extends munit.FunSuite {
               )
             )
           ),
-          hostOf(onEntity("alarm_control_panel.p"), tileNode("light.c"))
+          hostNode
         )
       )
     )

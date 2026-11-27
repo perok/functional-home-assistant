@@ -21,7 +21,7 @@ import fh.view.model.{
 }
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.testkit.TestIds.given
-import fh.view.testkit.DashboardBuilders.declared
+import fh.view.testkit.PklFixture
 
 /** A pull asks for the reads of what it renders, and nothing else — most pulls
   * move a plain card and ask none.
@@ -56,26 +56,18 @@ class PullReadsSuite extends munit.FunSuite {
       id = id
     )
 
-  private def host(id: String) =
-    LayoutNode.Component(
-      "tabs",
-      Map("panel" -> Slots.tabs("tab", chart("sensor.tab", None))),
-      id = Some(id),
-      vars = declared("tab" -> "0")
-    )
+  private val tabs = PklFixture.shape(
+    """card = (c.tabs) { id = "charted"; tabs { ["A"] { t.hole("p") } } }"""
+  )
 
   private val renderer = Renderer.create(
     Dashboard(
-      cards = Map(
+      cards = tabs.cards ++ Map(
         "dot" -> TestCard("<span>{{state}}</span>"),
         "chart" -> TestCard("<div>{{{chart}}}</div>"),
         "col" -> TestCard(
           "<div>{{{children}}}</div>",
           regions = Set("children")
-        ),
-        "tabs" -> TestCard(
-          """{{{panel}}}""",
-          regions = Set("panel")
         )
       ),
       card = LayoutNode.Component(
@@ -83,7 +75,7 @@ class PullReadsSuite extends munit.FunSuite {
         slots = Slots.kids(
           plain("plain"),
           chart("sensor.main", Some("chart")),
-          host("charted")
+          tabs.fill("p" -> chart("sensor.tab", None))
         )
       )
     )
@@ -93,7 +85,11 @@ class PullReadsSuite extends munit.FunSuite {
   private def asked(log: FragmentLog, open: Set[String] = Set.empty) = {
     val snapshot = FetchSnapshot.of(
       renderer
-        .fetchesForPage(Set("charted_panel_0"), Shared.of(Map.empty), Map.empty)
+        .fetchesForPage(
+          Set("charted_panel_0_0"),
+          Shared.of(Map.empty),
+          Map.empty
+        )
         .map(_ -> Staged(1L, "<svg/>"))
         .toMap
     )
@@ -136,7 +132,7 @@ class PullReadsSuite extends munit.FunSuite {
     assertEquals(
       asked(
         FragmentLog("test").touched("plain", 1L),
-        open = Set("charted_panel_0")
+        open = Set("charted_panel_0_0")
       ),
       Set("sensor.tab")
     )

@@ -1,7 +1,6 @@
 package fh.view.testkit
 
 import fh.view.model.{
-  CardDef,
   Case,
   Choice,
   Fill,
@@ -13,7 +12,11 @@ import fh.view.model.{
   ValueExpr
 }
 
-/** A hand-built component's `slots`, for fixtures that name the two kinds. */
+/** A hand-built component's `slots`, for fixtures that name the two kinds. A
+  * suite wanting a shape the library builds (tabs, an If, a choice in a group)
+  * takes it from `PklFixture.snippet`; [[chosen]] and its two spellings are for
+  * the benches and for shapes the library does not write.
+  */
 object Slots:
 
   def values(m: Map[String, TemplateSlot]): Map[String, Slot] =
@@ -27,35 +30,8 @@ object Slots:
     if cs.isEmpty then Map.empty
     else nodes(Map(LayoutNode.DefaultRegion -> cs.toList))
 
-  /** The card [[inGroup]] puts a choice in: its one nodes slot is its whole
-    * template, as `core/group.pkl`'s.
-    */
-  val GroupCard: String = "group"
-  val groupCard: CardDef =
-    TestCard(
-      s"{{{${LayoutNode.DefaultRegion}}}}",
-      Set(LayoutNode.DefaultRegion)
-    )
-
-  /** `choice` beside other content: a live fill is its card's whole template,
-    * so it sits in a [[GroupCard]] node, whose root is the host.
-    */
-  def inGroup(choice: Slot): Slot =
-    Slot.Nodes(
-      Fill.Nodes(
-        Choice.Fixed(
-          List(
-            LayoutNode.Component(
-              GroupCard,
-              Map(LayoutNode.DefaultRegion -> choice)
-            )
-          )
-        )
-      )
-    )
-
-  /** A nodes slot filled with a choice: case `i` is served as the surface
-    * `<host>_t<i>`, the otherwise as `<host>_else`.
+  /** A nodes slot filled with a choice: case `i` is the node a fixed node at
+    * index `i` of that slot would be, the otherwise index `n` after the cases.
     */
   def chosen(
       by: ValueExpr,

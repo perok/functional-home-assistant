@@ -1,7 +1,6 @@
 package fh.view.runtime
 
 import fh.view.testkit.TestCard
-import fh.view.testkit.Slots
 import fh.view.runtime.RendererTestOps.*
 
 import cats.effect.IO
@@ -21,7 +20,6 @@ import fh.view.model.{
   ValueExpr,
   ValueType
 }
-import fh.view.testkit.DashboardBuilders.declared
 import fh.view.testkit.PklFixture
 import io.circe.JsonObject
 import scala.collection.immutable.ListMap
@@ -82,7 +80,7 @@ class ServerRoutesSuite extends ServerHarness {
     val selections = r.surfaces.selections(None, env)
     assertEquals(r.surfaces.selectedSurfaces(selections), Set("c_panel_0_1"))
     assert(
-      r.renderBody(Map.empty, selections)
+      r.renderBody(Map.empty, selections, env)
         .contains("""id="c_panel_0_1"""")
     )
     assert(
@@ -100,7 +98,7 @@ class ServerRoutesSuite extends ServerHarness {
     val env = r.vars.env(Map(VarKey(NodeId.derived("c"), "tab") -> "abc"))
     val selections = r.surfaces.selections(None, env)
     assertEquals(r.surfaces.selectedSurfaces(selections), Set.empty[String])
-    assert(!r.renderBody(Map.empty, selections).contains("c_panel_0_"))
+    assert(!r.renderBody(Map.empty, selections, env).contains("c_panel_0_"))
     assertEquals(r.surfaces.selectionAnomalies(env).size, 1)
   }
 
@@ -640,17 +638,13 @@ class ServerRoutesSuite extends ServerHarness {
 
   test("openPopup adopts only a surface this dashboard can actually host") {
     val base = titleDash("home", None)
+    val tabs = PklFixture.shape(
+      """card = (c.tabs) { tabs { ["A"] { t.hole("p") } } }"""
+    )
     val r = Renderer.create(
       base.copy(
-        cards = base.cards + ("tabs" -> TestCard(
-          """{{{panel}}}""",
-          regions = Set("panel")
-        )),
-        card = LayoutNode.Component(
-          "tabs",
-          Map("panel" -> Slots.tabs("tab", LayoutNode.Component("col"))),
-          vars = declared("tab" -> "0")
-        ),
+        cards = base.cards ++ tabs.cards,
+        card = tabs.fill("p" -> LayoutNode.Component("col")),
         surfaces = Map("det" -> Surface(LayoutNode.Component("col")))
       )
     )

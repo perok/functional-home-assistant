@@ -12,8 +12,7 @@ import fh.view.model.{
   Value,
   ValueExpr,
   ValueType,
-  TemplateSlot,
-  Slot
+  TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
 import io.circe.Json
@@ -142,40 +141,31 @@ object FixtureDashboard {
       "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e.entityId))))
     )
 
-  /** It names its entity: a state condition has no subject to supply (ADR
-    * 0007).
-    */
-  private def entityIs(id: String, state: String): ValueExpr =
-    Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
-
-  /** An `ifhost` root ("c") showing `c_t0` while `condEntity` holds
-    * `activeState`, and `c_else` otherwise (ADR 0007). The condition entity is
-    * named in no slot, so a [[Scene]] seeds it with `.entity(..)`.
+  /** The shipped `If` as the root ("c"), showing `thenBranch` while
+    * `condEntity` holds `activeState` and `elseBranch` otherwise (ADR 0007).
+    * The condition entity is named in no slot, so a [[Scene]] seeds it with
+    * `.entity(..)`.
     */
   def ifElse(
       condEntity: String,
       activeState: String,
       thenBranch: LayoutNode.Component,
       elseBranch: LayoutNode.Component
-  ): Dashboard =
+  ): Dashboard = {
+    val shape = PklFixture.shape(
+      s"""card = c.iff(q.entity(dump.entities.${condEntity.replace(
+          '.',
+          '_'
+        )}).stateIs("$activeState")).then(t.hole("then")).`else`(t.hole("else"))""",
+      FixtureEntity(condEntity, activeState)
+    )
     Dashboard(
-      cards = Sets.cards ++ cards + ("ifhost" -> TestCard(
-        template = """{{{branch}}}""",
-        regions = Set("branch")
-      )),
-      card = LayoutNode.Component(
-        "ifhost",
-        Map(
-          "branch" -> Slots.iff(
-            entityIs(condEntity, activeState),
-            thenBranch,
-            Some(elseBranch)
-          )
-        )
-      ),
+      cards = Sets.cards ++ cards ++ shape.cards,
+      card = shape.fill("then" -> thenBranch, "else" -> elseBranch),
       slug = "ifhome",
       title = Some("If Home")
     )
+  }
 
   def build(
       root: LayoutNode,

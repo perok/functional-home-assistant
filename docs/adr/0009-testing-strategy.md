@@ -73,9 +73,19 @@ The dashboard under test is *built*, two tiers:
   pipeline against a `HouseFixture`-derived `lib/dump.pkl` (`PklFixture`,
   `SmokeDashboard`). The truest end-to-end: Pkl → model → renderer → SSE, no live
   fetch.
+  `PklFixture.snippet(body)` is the small form: a `card = …` body over the
+  library and `fixture-leaves.pkl`'s test leaves, cached per JVM by source and
+  sharing one evaluator, a few ms warm. `PklFixture.shape(body).fill(…)` puts
+  hand-built nodes (a chart, a fetch-reading leaf) into a library-built host.
 - **Tier B** — a hand-built `Dashboard` via `FixtureDashboard` + the shared
   `DashboardBuilders` combinators. Lower fidelity, zero Pkl ceremony — for a test
   whose point is one render path.
+
+A shape the LIBRARY builds — a tab bar, an If, a match, a choice in a group, a
+set — comes from Tier A, never a hand copy: hand copies drifted from what the
+library writes and kept testing hosts it no longer made. Tier B keeps leaves,
+graphs of fake pieces, refused shapes (better: a Tier-A shape with one piece
+broken) and the shapes the library does not write; the benches stay hand-built.
 
 ### 3. `Scene` keeps the world minimal and self-consistent
 

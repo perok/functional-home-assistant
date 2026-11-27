@@ -1,17 +1,7 @@
 package fh.view.runtime
 
-import fh.view.testkit.{Sets, Slots}
-
-import fh.view.model.{
-  Dashboard,
-  LayoutNode,
-  Lit,
-  Value,
-  ValueExpr,
-  TemplateSlot,
-  Surface
-}
-import fh.view.testkit.FixtureEntity
+import fh.view.model.Dashboard
+import fh.view.testkit.{FixtureEntity, PklFixture}
 import fh.view.testkit.TestIds.given
 import io.circe.Json
 
@@ -41,7 +31,7 @@ class StateSurfaceSuite extends ServerHarness {
         shown <- step(v, es("sensor.a", "A1"))
       } yield {
         assertEquals(shown.size, 1, clue = shown)
-        assert(shown.head.contains("""id="c_0_branch_0""""), clue = shown)
+        assert(shown.head.contains("""id="c_0_branch_0_0""""), clue = shown)
         assert(shown.head.contains("A1"), clue = shown)
       }
     }
@@ -154,25 +144,16 @@ class StateSurfaceSuite extends ServerHarness {
   }
 
   test("a match over a state's text switches its case for every viewer") {
-    val dash = Dashboard(
-      cards = Sets.cards ++ ifCards,
-      card = LayoutNode.Component(
-        "col",
-        slots = Slots.kids(
-          LayoutNode.Component(
-            "ifhost",
-            Map(
-              "branch" -> Slots.chosen(
-                ValueExpr(Value.Entity(Some("input_select.m"))),
-                List(
-                  Lit.Text("heat") -> branchCard("sensor.a"),
-                  Lit.Text("cool") -> branchCard("sensor.b")
-                )
-              )
-            )
-          )
-        )
-      )
+    val dash = PklFixture.snippet(
+      """card = (c.column) {
+        |  children {
+        |    groupMod.group("div", "", nodeMod.match(
+        |      (simpleMod.state()) { entityId = "input_select.m" },
+        |      new Mapping { ["heat"] = t.state("sensor.a"); ["cool"] = t.state("sensor.b") }
+        |    ))
+        |  }
+        |}
+        |""".stripMargin
     )
     live(
       dash,
@@ -264,25 +245,21 @@ class StateSurfaceSuite extends ServerHarness {
         reveal <- step(v, es("sensor.a", "on"))
       } yield {
         assertEquals(reveal.size, 1, clue = reveal)
-        assert(reveal.head.contains("""id="c_0_branch_0""""), clue = reveal)
+        assert(reveal.head.contains("""id="c_0_branch_0_0""""), clue = reveal)
         assert(reveal.head.contains("on"), clue = reveal)
       }
     }
   }
 
   test("a candidate set inside an INACTIVE branch stays silent") {
-    val dyn = onSet(
-      List("light.x", "light.y", "light.z"),
-      List(
-        (
-          None,
-          "dot",
-          Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None))))
-        )
-      )
-    )
+    val lights = List("light.x", "light.y", "light.z")
+    val dyn =
+      lights
+        .map(l => s"dump.entities.${l.replace('.', '_')}")
+        .mkString("q.from(List(", ", ", "))") +
+        """.where(q.eq(q.stateProp, "on")).render((e) -> t.dot(e.entity_id)).build()"""
     live(
-      ifDash(thenContent = dyn),
+      ifDash(thenContent = dyn, extras = lights.map(FixtureEntity(_, "on"))),
       Map(
         "alarm.h" -> es("alarm.h", "armed"),
         "light.x" -> es("light.x", "on"),
@@ -308,27 +285,14 @@ class StateSurfaceSuite extends ServerHarness {
   }
 
   test("nested state groups: inner flips patch only inside the ACTIVE branch") {
-    // The inner host lives at the case's content path s_c_0_t0__c_0; its
+    // The inner If is the outer branch's row's one node, "c_0_branch_0_0"; its
     // cases nest a level deeper.
-    val innerHost =
-      LayoutNode.Component(
-        "col",
-        slots = Slots.kids(
-          ifHost(
-            entityIs("mode.h", "night"),
-            branchCard("sensor.x"),
-            Some(branchCard("sensor.y"))
-          )
-        )
-      )
-    val d = Dashboard(
-      cards = ifCards,
-      card = LayoutNode.Component(
-        "col",
-        slots = Slots.kids(
-          ifHost(armedCond, innerHost, Some(branchCard("sensor.b")))
-        )
-      )
+    val inner =
+      """c.iff(q.entity(dump.entities.mode_h).stateIs("night"))""" +
+        """.then(t.state("sensor.x")).`else`(t.state("sensor.y"))"""
+    val d = ifDash(
+      thenContent = inner,
+      extras = List(FixtureEntity("mode.h", "night"))
     )
     live(
       d,
@@ -369,23 +333,11 @@ class StateSurfaceSuite extends ServerHarness {
     // A flip is a function of entity state, the same for every client that can
     // see it, so it is rendered once for the slug and addressed to "det".
     // Someone having the popup open is what makes it worth rendering.
-    val d = Dashboard(
-      cards = ifCards,
-      card = LayoutNode.Component("col"),
-      surfaces = Map(
-        "det" -> Surface(
-          LayoutNode.Component(
-            "col",
-            slots = Slots.kids(
-              ifHost(
-                armedCond,
-                branchCard("sensor.a"),
-                Some(branchCard("sensor.b"))
-              )
-            )
-          )
-        )
-      )
+    val d = PklFixture.snippet(
+      s"""card = new c.Column {}
+         |surfaces { ["det"] { body { ${ifSnippet()} } } }
+         |""".stripMargin,
+      alarm
     )
     live(
       d,

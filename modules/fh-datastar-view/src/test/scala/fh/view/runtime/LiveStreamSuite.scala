@@ -6,23 +6,18 @@ import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
   CardDef,
-  Cell,
   Dashboard,
   LayoutNode,
-  Lit,
   NodeId,
-  Op,
-  Step,
   Value,
   ValueExpr,
   TemplateSlot,
   Surface
 }
-import fh.view.testkit.FixtureEntity
+import fh.view.testkit.{FixtureEntity, PklFixture}
 import fh.view.testkit.TestIds.given
 import RendererTestOps.heldFor
 import io.circe.Json
-import scala.collection.immutable.ListMap
 
 /** End to end over the real stream, with several clients: what one connection
   * is sent is half the contract, and what the others are not sent cannot be
@@ -101,49 +96,19 @@ class LiveStreamSuite extends ServerHarness {
     * yanking viewers off the tab they picked.
     */
 
-  private def tabsInBranchDash = Dashboard(
-    cards = Map(
-      "col" -> TestCard(
-        "<div>{{{children}}}</div>",
-        regions = Set("children")
-      ),
-      "card" -> TestCard("<span>{{state}}</span>"),
-      "ifhost" -> TestCard(
-        template = """{{{branch}}}""",
-        regions = Set("branch")
-      ),
-      "tabs" -> TestCard(
-        template = """{{{panel}}}""",
-        regions = Set("panel")
-      )
-    ),
-    card = LayoutNode.Component(
-      "col",
-      slots = Slots.kids(
-        LayoutNode.Component(
-          "card",
-          slots = Slots.values(
-            Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.shared")))
-              )
-            )
-          )
-        ),
-        ifHost(
-          armedCond,
-          LayoutNode.Component(
-            "tabs",
-            Map(
-              "panel" -> Slots
-                .tabs("tab", branchCard("sensor.a"), branchCard("sensor.b"))
-            ),
-            vars = TabDeclared
-          ),
-          Some(branchCard("sensor.z"))
-        )
-      )
-    )
+  private def tabsInBranchDash = PklFixture.snippet(
+    s"""card = (c.column) {
+       |  children {
+       |    t.state("sensor.shared")
+       |    ${ifSnippet(
+        thenContent =
+          """(c.tabs) { tabs { ["A"] { t.state("sensor.a") } ["B"] { t.state("sensor.b") } } }""",
+        elseContent = Some("""t.state("sensor.z")""")
+      )}
+       |  }
+       |}
+       |""".stripMargin,
+    alarm
   )
 
   /** Structure is refused by id: its rendering holds hosts, and the log is per
@@ -151,42 +116,23 @@ class LiveStreamSuite extends ServerHarness {
     * failure it caused: a client on tab 1 reconnected and was morphed onto tab 0.
     */
 
-  private def barePopupTabsDash = Dashboard(
-    cards = Map(
-      // Pure structure, like the shipped `Column`: no markup of its own to
-      // fingerprint.
-      "col" -> TestCard(
+  private def barePopupTabsDash = {
+    val bar = PklFixture.shape(
+      """card = (c.tabs) { tabs { ["A"] { t.state("sensor.a") } ["B"] { t.state("sensor.b") } } }"""
+    )
+    Dashboard(
+      cards = bar.cards + ("col" -> TestCard(
         template = "<div>{{{children}}}</div>",
         regions = Set("children")
-      ),
-      "card" -> TestCard("<span>{{state}}</span>"),
-      "tabs" -> TestCard(
-        template = """<div>bar</div>{{{panel}}}""",
-        regions = Set("panel")
-      ),
-      Slots.GroupCard -> Slots.groupCard
-    ),
-    card = LayoutNode.Component("col"),
-    surfaces = Map(
-      "det" -> Surface(
-        LayoutNode.Component(
-          "col",
-          slots = Slots.kids(
-            LayoutNode.Component(
-              "tabs",
-              Map(
-                "panel" -> Slots.inGroup(
-                  Slots
-                    .tabs("tab", branchCard("sensor.a"), branchCard("sensor.b"))
-                )
-              ),
-              vars = TabDeclared
-            )
-          )
+      )),
+      card = LayoutNode.Component("col"),
+      surfaces = Map(
+        "det" -> Surface(
+          LayoutNode.Component("col", slots = Slots.kids(bar.fill()))
         )
       )
     )
-  )
+  }
 
   test("a fill records what it put there, so the next tick suppresses") {
     // Opening a surface teaches the session each node's bytes from the same
@@ -269,12 +215,7 @@ class LiveStreamSuite extends ServerHarness {
     // The host must survive: every later fill targets it by id, and a patch at
     // a missing id is a silent no-op, so the group would go dead for that
     // client.
-    val d = ifDash().copy(card =
-      LayoutNode.Component(
-        "col",
-        slots = Slots.kids(ifHost(armedCond, branchCard("sensor.a")))
-      )
-    )
+    val d = ifDash(elseContent = None)
     live(d, armedAB - "sensor.b") { ts =>
       for {
         v <- ts.viewer()
@@ -301,26 +242,7 @@ class LiveStreamSuite extends ServerHarness {
     // A fill re-supplies a whole subtree, so the session must know what it put
     // in each node. A claim under the branch root, a bare container, could
     // never be resolved.
-    val d = Dashboard(
-      cards = ifCards ++ Map(
-        "col" -> TestCard(
-          template = "<div>{{{children}}}</div>",
-          regions = Set("children")
-        )
-      ),
-      card = LayoutNode.Component(
-        "col",
-        slots = Slots.kids(
-          ifHost(
-            armedCond,
-            LayoutNode.Component(
-              "col",
-              slots = Slots.kids(branchCard("sensor.a"))
-            )
-          )
-        )
-      )
-    )
+    val d = ifDash(elseContent = None)
     val r = Renderer.create(d)
     val armed = Map(
       "alarm.h" -> es("alarm.h", "armed"),
@@ -364,7 +286,7 @@ class LiveStreamSuite extends ServerHarness {
       "sensor.a" -> es("sensor.a", "A0"),
       "sensor.b" -> es("sensor.b", "B0")
     )
-    val host: NodeId = "c_0_bar_0"
+    val host: NodeId = "c_0_2"
     val mine = Selections(None, Map(NodeId.derived("c_0_panel_0") -> 1))
     // Recorded as holding what a tab-0 connect left behind.
     val log = FragmentLog("w23").touched(host, 5L)
@@ -534,54 +456,18 @@ class LiveStreamSuite extends ServerHarness {
   // The class as the document form writes it; the patch form binds it instead.
   private val LitClass = s"fh-cell $Lit1"
 
-  private def tabIs(v: String) =
-    ValueExpr(
-      Value.Var("tab"),
-      List(Step.Compare(Op.Eq, Value.Literal(Lit.Text(v))))
-    )
-
-  private def serverHighlightDash = Dashboard(
-    cards = Map(
-      "col" -> TestCard(
-        template = "<div>{{{children}}}</div>",
-        regions = Set("children")
-      ),
-      "card" -> TestCard("<span>{{state}}</span>"),
-      "tabs" -> TestCard(
-        template = """<div>{{{bar}}}</div>{{{panel}}}""",
-        regions = Set("bar", "panel")
-      ),
-      "bar" -> TestCard("""<div>{{title}}</div>"""),
-      Slots.GroupCard -> Slots.groupCard
-    ),
-    card = LayoutNode.Component(
-      "col",
-      slots = Slots.kids(
-        LayoutNode.Component(
-          "tabs",
-          slots = Slots.nodes(
-            Map(
-              "bar" -> List(
-                LayoutNode.Component(
-                  "bar",
-                  slots = Slots.values(
-                    Map(
-                      "title" -> TemplateSlot(
-                        ValueExpr(Value.Entity(Some("sensor.title")))
-                      )
-                    )
-                  ),
-                  cell = Some(Cell(classes = ListMap(Lit1 -> tabIs("1"))))
-                )
-              )
-            )
-          ) + ("panel" -> Slots.inGroup(
-            Slots.tabs("tab", branchCard("sensor.a"), branchCard("sensor.b"))
-          )),
-          vars = TabDeclared
-        )
-      )
-    )
+  private def serverHighlightDash = PklFixture.snippet(
+    s"""card = (c.column) {
+       |  children {
+       |    (c.tabs) {
+       |      tabs { ["A"] { t.state("sensor.a") } ["B"] { t.state("sensor.b") } }
+       |      children {
+       |        (t.state("sensor.title")).cellClassWhen("$Lit1", c.variable("tab").valueIs("1"))
+       |      }
+       |    }
+       |  }
+       |}
+       |""".stripMargin
   )
 
   test(
@@ -643,7 +529,12 @@ class LiveStreamSuite extends ServerHarness {
         onT0 <- world.connect()
         onT1 <- world.connect(onTabs("c_0" -> 1))
         _ <- onT0.drain
-        _ <- onT1.drain
+        open1 <- onT1.drain
+        // Not vacuous: the document form does write the class for tab 1.
+        _ = assert(
+          open1.exists(_.renderString.contains(LitClass)),
+          clue = open1
+        )
         _ <- world.change("sensor.title", "T1")
         a <- onT0.drain
         b <- onT1.drain
@@ -680,7 +571,7 @@ class LiveStreamSuite extends ServerHarness {
     ) { world =>
       for {
         onT0 <- world.connect()
-        onT1 <- world.connect(onTabs("c_1_branch_0" -> 1))
+        onT1 <- world.connect(onTabs("c_1_branch_0_0" -> 1))
         open0 <- onT0.drain
         open1 <- onT1.drain
         _ = assert(
@@ -837,7 +728,7 @@ class LiveStreamSuite extends ServerHarness {
         firstOnT0 <- world.connect()
         secondOnT0 <- world.connect()
         // So the shared verdict is not simply "everyone".
-        onT1 <- world.connect(onTabs("c_1_branch_0" -> 1))
+        onT1 <- world.connect(onTabs("c_1_branch_0_0" -> 1))
         _ <- firstOnT0.drain
         _ <- secondOnT0.drain
         _ <- onT1.drain
@@ -921,10 +812,11 @@ class LiveStreamSuite extends ServerHarness {
         "sensor.b" -> es("sensor.b", "B0")
       )
     ) { (world, client) =>
-      // The fixture's branch content is one card, so the branch root is the
-      // node (the shipped `If` wraps in a Row).
+      // The branch root is the Row the shipped `If` wraps its content in.
       def branch(id: String, inner: String) =
-        Some(s"""<div class="fh-cell" id="$id"><span>$inner</span></div>""")
+        Some(
+          s"""<div class="fh-cell fh-row" id="$id"><div class="fh-cell" id="${id}_0"><span>$inner</span></div></div>"""
+        )
       for {
         // 1. No cursor, since it never loaded a document, so the whole body
         // once.
@@ -944,7 +836,7 @@ class LiveStreamSuite extends ServerHarness {
               "outer",
               None,
               Some(
-                """<div class="fh-cell" id="c_0_branch_0"><span>A1</span></div>"""
+                """<div class="fh-cell" id="c_0_branch_0_0"><span>A1</span></div>"""
               )
             )
           ),

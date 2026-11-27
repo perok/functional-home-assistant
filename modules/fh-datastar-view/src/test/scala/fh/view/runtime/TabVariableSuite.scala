@@ -1,14 +1,11 @@
 package fh.view.runtime
 
-import fh.view.testkit.Slots
-
-import fh.view.testkit.TestCard
 import cats.effect.IO
 import cats.syntax.all.*
-import fh.view.model.{CardDef, Dashboard, LayoutNode, NodeId, Slot}
+import fh.view.model.{LayoutNode, NodeId}
 import fh.view.testkit.FixtureEntity
-import fh.view.testkit.DashboardBuilders
 import fh.view.testkit.DashboardBuilders.declared
+import fh.view.testkit.PklFixture
 import org.http4s.*
 
 import scala.concurrent.duration.*
@@ -19,42 +16,22 @@ import scala.concurrent.duration.*
   */
 class TabVariableSuite extends ServerHarness {
 
-  private val barCard = TestCard(
-    """<div>{{{buttons}}}{{{panel}}}</div>""",
-    regions = Set("panel", "buttons")
+  /** The shipped tab bar, named "bar": tab `0` shows "PanelOne" and a button
+    * choosing a tab past the bar, `1` "PanelTwo".
+    */
+  private val dash = PklFixture.snippet(
+    """card = (c.tabs) {
+      |  id = "bar"
+      |  tabs {
+      |    ["A"] { t.label("PanelOne") c.button("Past", c.variable("tab").choose("5")) }
+      |    ["B"] { t.label("PanelTwo") }
+      |  }
+      |}
+      |""".stripMargin
   )
-  private val textCard = TestCard("<p>{{text}}</p>")
 
-  private def text(t: String) =
-    LayoutNode.Component("text", slots = Slots.values(Map("text" -> lit(t))))
-
-  private def lit(s: String) =
-    fh.view.model.TemplateSlot(fh.view.model.ValueExpr.literal(s))
-
-  /** With a button per tab, and one past them, where it declares `tab`. */
-  private def barNode(vars: Map[String, String]) =
-    LayoutNode.Component(
-      "bar",
-      id = Some("bar"),
-      vars = declared(vars.toList*),
-      slots = Slots.nodes(
-        if (vars.contains("tab"))
-          Map("buttons" -> DashboardBuilders.choices("tab", "0", "1", "5"))
-        else Map.empty
-      ) + ("panel" -> Slots.inGroup(
-        Slots.tabs("tab", text("first"), text("second"))
-      ))
-    )
-
-  private val dash = Dashboard(
-    cards = Map(
-      "bar" -> barCard,
-      "text" -> textCard,
-      Slots.GroupCard -> Slots.groupCard,
-      DashboardBuilders.ChoiceCard -> DashboardBuilders.choiceCard
-    ),
-    card = barNode(Map("tab" -> "0"))
-  )
+  private val bar = dash.card match
+    case c: LayoutNode.Component => c
 
   private def served[A](f: TestServer => IO[A]): IO[A] =
     TestServer
@@ -87,12 +64,12 @@ class TabVariableSuite extends ServerHarness {
           open.map(_.intersect(Set("bar_panel_0_0", "bar_panel_0_1"))),
           Some(Set("bar_panel_0_1"))
         )
-        assert(sent.contains("second"), clue = sent)
+        assert(sent.contains("PanelTwo"), clue = sent)
         assert(sent.contains("\"_var_bar__tab\":\"1\""), clue = sent)
         assert(!sent.contains("ui_bar"), clue = sent)
         // The commit rides after the panel, so the highlight agrees only once
         // the panel is in.
-        assert(sent.indexOf("second") < sent.indexOf("_var_bar__tab"), sent)
+        assert(sent.indexOf("PanelTwo") < sent.indexOf("_var_bar__tab"), sent)
       }
     }
   }
@@ -143,23 +120,29 @@ class TabVariableSuite extends ServerHarness {
     served(ts =>
       (ts.page(), ts.page("?v.bar.tab=1"), ts.page("?ui.bar=1")).mapN {
         (plain, linked, old) =>
-          assert(plain.contains("first") && !plain.contains("second"), plain)
-          assert(linked.contains("second") && !linked.contains("first"), linked)
+          assert(
+            plain.contains("PanelOne") && !plain.contains("PanelTwo"),
+            plain
+          )
+          assert(
+            linked.contains("PanelTwo") && !linked.contains("PanelOne"),
+            linked
+          )
           // An old `ui.` link lands on the declared tab.
-          assert(old.contains("first") && !old.contains("second"), old)
+          assert(old.contains("PanelOne") && !old.contains("PanelTwo"), old)
       }
     )
   }
 
   test("a bar's variable must be declared at the bar, at a value a tab takes") {
-    val undeclared = dash.copy(card = barNode(Map.empty))
+    val undeclared = dash.copy(card = bar.copy(vars = Nil))
     assert(
       undeclared
         .validate()
         .exists(_.contains("which no ancestor declares")),
       clue = undeclared.validate()
     )
-    val outside = dash.copy(card = barNode(Map("tab" -> "2")))
+    val outside = dash.copy(card = bar.copy(vars = declared("tab" -> "2")))
     assert(
       outside
         .validate()

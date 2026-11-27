@@ -6,6 +6,7 @@ import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
+import fh.view.testkit.{FixtureEntity, PklFixture}
 
 import fh.view.model.{
   Part,
@@ -29,7 +30,7 @@ import fh.view.model.{
   TemplateSlot,
   Surface
 }
-import fh.view.testkit.DashboardBuilders.{classes, declared}
+import fh.view.testkit.DashboardBuilders.classes
 import io.circe.{parser, Json}
 
 import scala.collection.immutable.ListMap
@@ -802,24 +803,25 @@ class BuildPhaseSuite extends munit.FunSuite {
     LayoutNode.Component("ok", Map("branch" -> branch), vars = vars)
 
   test("a choice over a variable needs a case or an otherwise at its default") {
-    def dash(otherwise: Option[LayoutNode]) = Dashboard(
-      cards = ok,
-      // Declared at a value only the otherwise takes.
-      card = choosing(
-        Slots.byVar(
-          "window",
-          List("30d" -> LayoutNode.Component("ok")),
-          otherwise
-        ),
-        declared("window" -> "24h")
-      )
+    // Declared at a value only the otherwise takes.
+    def dash(otherwise: Boolean) = PklFixture.snippet(
+      s"""local window = c.variable("window")
+         |card = (c.column) {
+         |  vars { window.defaultingTo("24h") }
+         |  children {
+         |    groupMod.group("div", "", nodeMod.match(window.value, new Mapping { ["30d"] = t.label("x") })${
+          if (otherwise) """.otherwise(t.label("y"))""" else ""
+        })
+         |  }
+         |}
+         |""".stripMargin
     )
-    assertEquals(dash(Some(LayoutNode.Component("ok"))).validate(), Nil)
+    assertEquals(dash(otherwise = true).validate(), Nil)
     assert(
-      dash(None)
+      dash(otherwise = false)
         .validate()
         .exists(_.contains("declared '24h', which no case takes")),
-      clue = dash(None).validate()
+      clue = dash(otherwise = false).validate()
     )
   }
 
@@ -937,16 +939,25 @@ class BuildPhaseSuite extends munit.FunSuite {
   }
 
   test("validate rejects a choice in a slot its card does not declare") {
-    def dash(regions: Set[String]) = Dashboard(
-      cards = Map("ok" -> TestCard("<i>{{{branch}}}</i>", regions = regions)),
-      card = choosing(Slots.iff(Conds.and(Nil), LayoutNode.Component("ok")))
+    val library = PklFixture.snippet(
+      """card = c.iff(q.entity(dump.entities.alarm_h).stateIs("armed")).then(t.label("x"))""",
+      FixtureEntity("alarm.h", "armed")
+    )
+    // The shipped If with its card's regions dropped.
+    def dash(keep: Boolean) = library.copy(
+      cards = library.cards.map((n, d) =>
+        n -> (if (keep || n != "ifhost") d
+              else d.copy(regions = Set.empty))
+      )
     )
     assert(
-      dash(Set.empty).validate().exists(_.contains("fills region 'branch'")),
-      clue = dash(Set.empty).validate()
+      dash(keep = false)
+        .validate()
+        .exists(_.contains("fills region 'branch'")),
+      clue = dash(keep = false).validate()
     )
     // Non-vacuous.
-    assertEquals(dash(Set("branch")).validate(), Nil)
+    assertEquals(dash(keep = true).validate(), Nil)
   }
 
   /** A placeholder decodes, validates and renders verbatim; the first symptom

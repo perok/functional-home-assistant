@@ -7,6 +7,7 @@ import fh.view.testkit.Slots
 import fh.view.testkit.DashboardBuilders
 
 import fh.view.testkit.TestCard
+import fh.view.testkit.PklFixture
 import io.github.iltotore.iron.autoRefine
 import fh.view.model.*
 import fh.view.history.{ChartStyle, Window, Windows}
@@ -253,20 +254,24 @@ class NodeVariablesSuite extends munit.FunSuite {
     // A tab panel or an `If` branch has exactly one host, so the reason a popup
     // is a scope root does not apply: a chooser above a tab bar reaches the
     // charts in its panels.
-    val d = dash(
-      box(
-        Map("window" -> "7d"),
-        box(Map("tab" -> "0")).copy(slots =
-          Map(LayoutNode.DefaultRegion -> Slots.tabs("tab", chartNode()))
-        )
-      )
+    val library = PklFixture.shape(
+      """local window = c.variable("window")
+        |card = (c.column) {
+        |  vars { window.defaultingTo("7d") }
+        |  children { (c.tabs) { tabs { ["A"] { t.hole("chart") } } } }
+        |}
+        |""".stripMargin
+    )
+    val d = Dashboard(
+      cards = library.cards + ("chart" -> chartCard),
+      card = library.fill("chart" -> chartNode())
     )
     val errs = d.validate()
     assert(!errs.exists(_.contains("no ancestor declares")), clue = errs)
     assertEquals(windowOf(d.allFetches), List("7d"))
     assertEquals(
       d.varScopes
-        .get(NodeId.derived("c_0_0"))
+        .get(NodeId.derived("c_0_panel_0_0_0"))
         .flatMap(_.get("window"))
         .map(_.declarer),
       Some(NodeId.derived("c"))
