@@ -93,7 +93,8 @@ class PullReadsSuite extends munit.FunSuite {
   private def asked(
       log: FragmentLog,
       env: VarEnv = Map.empty,
-      coverage: Patches.Coverage = Patches.Coverage.Logged
+      coverage: (FragmentLog, Long) => Patches.Coverage =
+        Pulled.from(renderer, _, _)
   ) = {
     val snapshot = FetchSnapshot.of(
       renderer
@@ -116,8 +117,7 @@ class PullReadsSuite extends munit.FunSuite {
         noDecisionFetches,
         reads => seen.update(_ ++ reads).as(snapshot),
         env,
-        0L,
-        coverage
+        coverage(log, 0L)
       )
       reads <- seen.get
     } yield reads.map { case SlotRead(FetchRequest.History(e, _), _) =>
@@ -127,14 +127,14 @@ class PullReadsSuite extends munit.FunSuite {
 
   test("a pull that moves only a plain card asks for nothing") {
     assertEquals(
-      asked(FragmentLog("test").touched(renderer.ixOf("plain"), 1L)),
+      asked(Pulled.log(renderer).touched(renderer.ixOf("plain"), 1L)),
       Set.empty
     )
   }
 
   test("a pull that renders a chart asks for that chart") {
     assertEquals(
-      asked(FragmentLog("test").touched(renderer.ixOf("chart"), 1L)),
+      asked(Pulled.log(renderer).touched(renderer.ixOf("chart"), 1L)),
       Set("sensor.main")
     )
   }
@@ -146,9 +146,9 @@ class PullReadsSuite extends munit.FunSuite {
     // read's version, so both are asked though only a light moved.
     assertEquals(
       asked(
-        FragmentLog("test").touched(renderer.ixOf("plain"), 1L),
+        Pulled.log(renderer).touched(renderer.ixOf("plain"), 1L),
         env = onTab,
-        coverage = Patches.Coverage.Swept
+        coverage = (_, v) => Patches.Coverage.Swept(v)
       ),
       Set("sensor.main", "sensor.tab")
     )

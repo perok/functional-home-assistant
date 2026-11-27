@@ -834,10 +834,11 @@ class Server(
       )
     }
 
-  /** A log another renderer numbers, or one that does not reach the position (a
-    * recorder's seed above it, a stretch nobody watched), cannot say what this
-    * session missed: it repaints. The log can be newer than `installed` (a
-    * second swap in flight); the ring that swap sends repaints again.
+  /** A log that cannot say what this session missed ([[Patches.Watched]]:
+    * another renderer numbers it, or a recorder's seed or a stretch nobody
+    * watched is above the position) repaints. The log can be newer than
+    * `installed` (a second swap in flight); the ring that swap sends repaints
+    * again.
     */
   private def owed(
       live: Server.LiveSlug,
@@ -855,11 +856,12 @@ class Server(
         store <- OptionT.liftF(stateStore.current)
       yield (renderer, s, log, store))
         .semiflatMap { (renderer, s, log, store) =>
-          if (log.numberedBy(renderer.generation) && log.reaches(s.position))
-            resumed(live, renderer, s, log, store, version)
-          else
-            repaint(live, session, renderer.generation, renderer)(was)
-              .map(st => Session.Step(st.next, st.frames, st.frames))
+          Patches.Watched.of(log, s.painter, s.position) match
+            case Some(watched) =>
+              resumed(live, renderer, s, log, store, version, watched)
+            case None =>
+              repaint(live, session, renderer.generation, renderer)(was)
+                .map(st => Session.Step(st.next, st.frames, st.frames))
         }
         .getOrElse(Session.Step(was, Nil, Nil))
 
@@ -869,7 +871,8 @@ class Server(
       s: SessionState,
       log: FragmentLog,
       store: StoreState,
-      version: Long
+      version: Long,
+      watched: Patches.Watched
   ): IO[Session.Step[List[SseFrame]]] = {
     val env = renderer.vars.env(s.values)
     Patches
@@ -882,10 +885,7 @@ class Server(
         decisionAnswers,
         answer(_, env),
         env,
-        s.position + 1,
-        // Only reached when the log reaches `position`, and this session
-        // has been watched since its page.
-        Patches.Coverage.Logged
+        Patches.Coverage.Logged(watched)
       )
       .map { patches =>
         // The cursor rides LAST, which makes it an ack: a client echoing it
@@ -974,10 +974,7 @@ class Server(
                 decisionAnswers,
                 answer(_, env),
                 env,
-                Server.resumeFrom(req, c),
-                // A reconnect: this screen may be one no frame was recorded
-                // against.
-                Patches.Coverage.Swept
+                Patches.Coverage.Swept(Server.resumeFrom(req, c))
               )
             )
           // Traced, so the repaint claims what it painted; clearing `holds`

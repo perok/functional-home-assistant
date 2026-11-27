@@ -5,7 +5,7 @@ runtime throw, a gap in the oracle and in two benches, and two things a popup ca
 put the rules where a mistake cannot be written and close the test gaps; G and H are the popup
 work. Each step is a commit (or a few) that is green on its own.
 
-**State:** planned 2026-11-26; A built (with its leaning dashboard and the Back reload). Branch `after-regions`, stacked on `d6-benches`
+**State:** planned 2026-11-26; A built (with its leaning dashboard and the Back reload); B built. Branch `after-regions`, stacked on `d6-benches`
 (#731).
 
 ## Working this plan
@@ -60,10 +60,13 @@ message.
 owed. Passed where the log does not reach the session's position, the page silently misses
 nodes. Only a comment at the one call site (`Server.resumed`) keeps that from happening.
 
-**Shape.** `Coverage.Logged` carries a value with a private constructor, minted by one function
-where both facts are known: the log reaches the session's position (`FragmentLog.reaches`) and the
-session has been watched since its page (the decision that reaches `Server.resumed`). Tests and
-benches mint it the same way. `FetchBench.pull`'s default coverage goes.
+**Shape.** `Coverage.Logged(Watched)`, `Watched` with a private constructor, minted only by
+`Watched.of(log, painter, position)`, which checks both facts: the log reaches the session's
+position (`FragmentLog.reaches`) and the session has been watched since its page, i.e. painted
+(`Painter.By`) under the renderer that numbers the log, since a session registers before it is
+painted. The cursor moves into the coverage (`Swept(cursor)`, `Logged` from `position + 1`), so
+evidence cannot be paired with another start. Tests and benches mint it the same way
+(`Pulled`, test sources). `FetchBench.pull`'s default coverage goes.
 
 **Test.** The mint refuses a log that does not reach the position.
 

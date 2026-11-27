@@ -720,7 +720,8 @@ class RenderBench {
         )
       }
       .unsafeRunSync()
-    val log = req.foldLeft(FragmentLog("bench"))(Patches.record(viewers, _, _))
+    val log = req.foldLeft(Pulled.log(viewers))(Patches.record(viewers, _, _))
+    val logged = Pulled.from(viewers, log, version)
     viewerStates = states
     viewerShared = next
     viewerSessions.toList
@@ -734,8 +735,7 @@ class RenderBench {
           _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.of(Map.empty, s.env)),
           s.env,
-          version,
-          Patches.Coverage.Logged
+          logged
         )
       }
       .unsafeRunSync()
@@ -1452,7 +1452,8 @@ class RenderBench {
     val at = flipRot.toLong
     val log = List(FlipContainer, FlipElse)
       .flatMap(flipped.index.ixsOf)
-      .foldLeft(FragmentLog("bench"))(_.touched(_, at))
+      .foldLeft(Pulled.log(flipped))(_.touched(_, at))
+    val logged = Pulled.from(flipped, log, at)
     (1 to clients).toList
       .traverse(_ =>
         Patches.resume(
@@ -1464,8 +1465,7 @@ class RenderBench {
           _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
-          at,
-          coverage = Patches.Coverage.Logged
+          logged
         )
       )
       .unsafeRunSync()
@@ -1562,6 +1562,7 @@ class RenderBench {
   def publishSetOrderedFanout(bh: Blackhole): Unit = {
     pubRot += 1
     val log = publishPass(setOrdered, pubFrames(pubRot % 4))
+    val logged = Pulled.from(setOrdered, log, pubRot.toLong)
     val shared = heldBy(setOrdered)
     heldOrdered = heldOrdered.map { holds =>
       val patches = Patches
@@ -1574,8 +1575,7 @@ class RenderBench {
           _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
-          pubRot.toLong,
-          Patches.Coverage.Logged
+          logged
         )
         .unsafeRunSync()
       bh.consume(patches)
@@ -1817,7 +1817,7 @@ class RenderBench {
       changes,
       scala.collection.immutable.BitSet.empty
     )
-    Patches.record(renderer, FragmentLog("bench"), req)
+    Patches.record(renderer, Pulled.log(renderer), req)
   }
 
   /** The batch [[storeIngestDedup]] replays — the store's own seeded values, so
@@ -1920,7 +1920,8 @@ class RenderBench {
     val at = wireRot.toLong
     val log = nodeIds
       .flatMap(renderer.index.ixsOf)
-      .foldLeft(FragmentLog("bench"))(_.touched(_, at))
+      .foldLeft(Pulled.log(renderer))(_.touched(_, at))
+    val logged = Pulled.from(renderer, log, at)
     // One per version, as `Renderer.shared` hands every session.
     val shared = Shared.of(moved)
     (1 to clients).toList
@@ -1934,8 +1935,7 @@ class RenderBench {
           _ => IO.pure(FetchSnapshot.empty),
           _ => IO.pure(FetchSnapshot.empty),
           Map.empty,
-          at,
-          Patches.Coverage.Logged
+          logged
         )
       }
       .unsafeRunSync()

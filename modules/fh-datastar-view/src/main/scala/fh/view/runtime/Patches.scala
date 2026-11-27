@@ -305,10 +305,10 @@ private[runtime] object Patches {
     )
   }
 
-  /** Everything a client at cursor `v` is owed (ADR 0011) — also the live path,
-    * since a pull is a resume from `position + 1`.
+  /** Everything a client is owed from `coverage.from` (ADR 0011) — also the
+    * live path, since a pull is a resume from `position + 1`.
     *
-    * Candidates are the nodes logged at `>= v`, where the log's place is the
+    * Candidates are the nodes logged at `>= from`, where the log's place is the
     * one shown now, and under [[Coverage.Swept]] every node and host of a
     * container on the viewer's screen, a case its values pick. A node is sent
     * when its byte-slot values differ from what this viewer holds. A host's
@@ -328,13 +328,12 @@ private[runtime] object Patches {
       decisions: Set[SlotRead] => IO[FetchSnapshot],
       answers: List[SlotRead] => IO[FetchSnapshot],
       env: VarEnv,
-      v: Long,
       coverage: Coverage
   ): IO[List[Addressed]] =
     renderer
       .decide(decisions) { run =>
         val at = shared.asking(run).viewing(env)
-        val o = owing(renderer, log, holds, at, v, coverage)
+        val o = owing(renderer, log, holds, at, coverage)
         (
           at,
           o,
@@ -347,21 +346,46 @@ private[runtime] object Patches {
         )
       }
 
-  /** What the log is trusted to name for a resume's viewer. */
+  /** Where a resume starts, and what the log is trusted to name for its viewer.
+    */
   enum Coverage {
 
-    /** Every frame since the cursor was recorded against this viewer's screen,
-      * so the log names all it is owed: a live session's pull, since its page
-      * registers before it renders ([[Server.recordFrame]]) and a press renders
-      * what arrives itself. A node it misses is a recorder bug, which [[Swept]]
-      * would hide; `OracleSuite` is what catches one.
+    /** The log names all this viewer is owed. A node it misses is a recorder
+      * bug, which [[Swept]] would hide; `OracleSuite` is what catches one.
       */
-    case Logged
+    case Logged(watched: Watched)
 
     /** The screen may be one no frame was recorded against (a reconnect, an
       * adopted session), so every node on it is a candidate too.
       */
-    case Swept
+    case Swept(cursor: Long)
+
+    def from: Long = this match
+      case Logged(w)  => w.position + 1
+      case Swept(cur) => cur
+  }
+
+  /** Every frame after `position` was recorded against this session's screen.
+    */
+  final class Watched private (val position: Long)
+
+  object Watched {
+
+    /** Painted under the renderer numbering `log`: a session is registered
+      * before it is painted, a page before its snapshot is read
+      * ([[Server.recordFrame]]), so every frame since was recorded against its
+      * screen, and a press renders what arrives itself. And `log` still
+      * describes everything after `position` ([[FragmentLog.reaches]]).
+      */
+    def of(
+        log: FragmentLog,
+        painter: Painter,
+        position: Long
+    ): Option[Watched] =
+      painter match
+        case Painter.By(p) if log.numberedBy(p) && log.reaches(position) =>
+          Some(new Watched(position))
+        case _ => None
   }
 
   /** A host's steps, `host` as `shared` has it inside a member. */
@@ -386,15 +410,14 @@ private[runtime] object Patches {
       log: FragmentLog,
       holds: Map[Ix, Held],
       shared: Shared,
-      v: Long,
       coverage: Coverage
   ): Owing = {
     val index = renderer.index
     val open = renderer.picks.chosen(shared)
-    val logged = log.since(v)
+    val logged = log.since(coverage.from)
     val fromOpen = coverage match
-      case Coverage.Logged => Iterator.empty
-      case Coverage.Swept  =>
+      case Coverage.Logged(_) => Iterator.empty
+      case Coverage.Swept(_)  =>
         // The page's own container is no pick's case, so not in `open`.
         (Iterator.single(index.root) ++ open.iterator
           .map(Ix(_))

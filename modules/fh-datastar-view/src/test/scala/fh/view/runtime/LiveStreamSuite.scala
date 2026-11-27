@@ -355,16 +355,16 @@ class LiveStreamSuite extends ServerHarness {
         moved,
         2L,
         mine,
-        Patches.Coverage.Logged
+        Pulled.from(r, _, _)
       ).map(_.patch.toSse.render)
 
     // A change the recorder missed stays missed: no sweep of the screen hides
     // it, so the oracle sees it.
-    val unlogged = pull(FragmentLog("w30"))
+    val unlogged = pull(Pulled.log(r))
     assertEquals(unlogged, Nil, clue = unlogged)
     val logged =
       pull(
-        panel.foldLeft(FragmentLog("w30"))((l, id) => l.touched(r.ixOf(id), 2L))
+        panel.foldLeft(Pulled.log(r))((l, id) => l.touched(r.ixOf(id), 2L))
       )
     assert(logged.exists(_.contains("B1")), clue = logged)
   }
