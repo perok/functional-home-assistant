@@ -82,13 +82,13 @@ object FixtureDashboard {
   def set(
       candidates: List[String],
       guard: Option[ValueExpr] = None
-  ): LayoutNode.SetNode =
-    LayoutNode.SetNode(
+  ): LayoutNode.Component =
+    Sets.node(
       candidates = candidates,
       members = candidates.map { id =>
-        id -> LayoutNode.SetMember(
+        id -> Sets.Member(
           List(
-            LayoutNode.SetClause(
+            Sets.Clause(
               when = guard,
               node = LayoutNode.Component(
                 "member",
@@ -163,7 +163,7 @@ object FixtureDashboard {
       elseBranch: LayoutNode.Component
   ): Dashboard =
     Dashboard(
-      cards = cards + ("ifhost" -> TestCard(
+      cards = Sets.cards ++ cards + ("ifhost" -> TestCard(
         template = """<div class="ifhost" id="{{hostId}}">{{{branch}}}</div>""",
         regions = Map("branch" -> Region(Region.Baked))
       )),
@@ -193,7 +193,12 @@ object FixtureDashboard {
       slug: String = "home",
       title: String = "Test Home"
   ): Dashboard =
-    Dashboard(cards = cards, card = root, slug = slug, title = Some(title))
+    Dashboard(
+      cards = Sets.cards ++ cards,
+      card = root,
+      slug = slug,
+      title = Some(title)
+    )
 
   /** The whole house at once, for the render/live smoke suites. */
   val dashboard: Dashboard =

@@ -139,8 +139,6 @@ class Renderer(validated: Dashboard.Validated) {
   val access: Access = validated.access
 
   val themeClasses: ThemeClasses = dashboard.theme.classes
-  private val groupOpen =
-    s"""<div class="${themeClasses.expandAll("fh-cell fh-group")}"""
   // A cell's classes are fixed, so each is swapped once per renderer rather
   // than per paint: `expand` allocates for every class the theme leaves alone.
   private val cellClassTexts =
@@ -159,7 +157,6 @@ class Renderer(validated: Dashboard.Validated) {
               val cid = LayoutNode.childId(idPrefix, id, step, ch)
               (cid -> id) :: walk(ch, cid)
             }
-          case _: Ready.SetNode => Nil
         }
       walk(root, LayoutNode.rootId(idPrefix, root)).toMap
     }
@@ -169,11 +166,10 @@ class Renderer(validated: Dashboard.Validated) {
         val self = id -> node
         node match {
           case c: Ready.Component =>
+            // A set's members are addressed by `memberId`, not a path.
             self :: LayoutNode.steps(c.regions).flatMap { case (step, ch) =>
               walk(ch, LayoutNode.childId(idPrefix, id, step, ch))
             }
-          // A leaf here: its members are addressed by `memberId`, not a path.
-          case _: Ready.SetNode => List(self)
         }
       }
       walk(root, LayoutNode.rootId(idPrefix, root)).toMap
@@ -181,12 +177,13 @@ class Renderer(validated: Dashboard.Validated) {
 
     // So a render's reads cost the charts, not the tree.
     val fetching: List[(NodeId, Fetching)] =
-      indexed.toList.sortBy(_._1).flatMap {
-        case (id, c: Ready.Component) => c.fetching.map(id -> _)
-        case _                        => Nil
+      indexed.toList.sortBy(_._1).flatMap { case (id, c) =>
+        c match { case c: Ready.Component => c.fetching.map(id -> _) }
       }
     val setIds: List[NodeId] =
-      indexed.toList.collect { case (id, _: Ready.SetNode) => id }.sorted
+      indexed.toList.collect {
+        case (id, c: Ready.Component) if c.set.isDefined => id
+      }.sorted
 
     val byEntity: Map[String, Set[NodeId]] =
       indexed.toList
@@ -255,11 +252,10 @@ class Renderer(validated: Dashboard.Validated) {
   private lazy val gatesReading: Map[String, Set[String]] = {
     def components(n: Ready.Node): Iterator[Ready.Component] = n match
       case c: Ready.Component =>
-        Iterator(c) ++ c.allChildren.iterator.flatMap(components)
-      case s: Ready.SetNode =>
-        s.members.values.iterator
-          .flatMap(_.clauses)
-          .flatMap(cl => components(cl.node))
+        Iterator(c) ++ c.allChildren.iterator.flatMap(components) ++
+          c.set.iterator.flatMap(
+            _.members.values.iterator.flatMap(_.nodes).flatMap(components)
+          )
     (components(dashboard.card) ++
       dashboard.surfaces.values.iterator.flatMap(s => components(s.content)))
       .flatMap(_.slots.values.flatMap(_.gate))
@@ -537,7 +533,6 @@ class Renderer(validated: Dashboard.Validated) {
   ): List[(NodeId, Fetching)] =
     allIndexed.get(id) match {
       case Some((c: Ready.Component, _)) => c.fetching.map(id -> _)
-      case Some(_)                       => Nil
       case None                          =>
         members.nodeAt(id, shared) match {
           case Some((m, _)) if m.id == id => memberAsks(m, shared)
@@ -577,7 +572,6 @@ class Renderer(validated: Dashboard.Validated) {
         c.calls.values.toList.map(p =>
           dashboard.calls(p.id).decl -> s"sse/call/$slug/${p.id}?node=$id"
         )
-      case _ => Nil
     }
 
   /** Test seam: the press of the choice of `value` for `key` (`None` clears
@@ -639,7 +633,10 @@ class Renderer(validated: Dashboard.Validated) {
     * renderer decided membership.
     */
   private[runtime] val members: MemberGraph = new MemberGraph(
-    allIndexed.collect { case (id, (s: Ready.SetNode, _)) => id -> s },
+    allIndexed.collect {
+      case (id, (c: Ready.Component, _)) if c.set.isDefined =>
+        id -> c.set.get
+    },
     rootOfIndexed
   )
 
@@ -1077,15 +1074,14 @@ class Renderer(validated: Dashboard.Validated) {
       .fold(id)((m, _) => surfaces.groupAt(id, m.clause))
 
   /** Whether a node may be a log key or a patch target: decided by its card
-    * alone. Structure's element contains its regions, so patching it would
-    * re-send them; a set root composes its members. Both keep their
+    * alone. Structure's element contains its regions, and a set's members are
+    * its card's one region, so patching it would re-send them. It keeps its
     * [[elementId]] for structural patches. `Dashboard.validate` enforces the
     * same rule when it rejects a live bytes slot on structure.
     */
   private def ownRenderingOf(node: Ready.Node): Boolean = node match {
     case c: Ready.Component =>
       !dashboard.cards.get(c.card).exists(_.isStructure)
-    case _: Ready.SetNode => false
   }
 
   /** The node's `.fh-cell` root: the one crossing from node id to DOM id. */
@@ -1272,9 +1268,8 @@ class Renderer(validated: Dashboard.Validated) {
   // its candidates and members.
   private def nodeCount(node: Ready.Node): Int = node match {
     case c: Ready.Component =>
-      1 + c.regions.values.view.map(_.map(nodeCount).sum).sum
-    case s: Ready.SetNode =>
-      1 + math.max(s.candidates.size, s.members.size)
+      1 + c.regions.values.view.map(_.map(nodeCount).sum).sum +
+        c.set.fold(0)(s => math.max(s.candidates.size, s.members.size))
   }
 
   private def traced(
@@ -1314,7 +1309,6 @@ class Renderer(validated: Dashboard.Validated) {
     val out = Sink.buffer(
       Renderer.NodeBytesHint * (node match {
         case c: Ready.Component => planOf(id, c, shared).nodeCount
-        case _                  => nodeCount(node)
       })
     )
     tracedInto(
@@ -1365,9 +1359,9 @@ class Renderer(validated: Dashboard.Validated) {
 
         def childId(region: String, i: Int, child: Ready.Node) =
           (child, within) match {
-            case (set: Ready.SetNode, m: WalkAt.InMember) =>
+            case (c: Ready.Component, m: WalkAt.InMember) if c.set.isDefined =>
               val at = m.into(LayoutNode.Step(region, i))
-              members.innerSetId(at.member, at.clause, at.path, set)
+              members.innerSetId(at.member, at.clause, at.path, c.set.get)
             case _ =>
               LayoutNode.childId(
                 idPrefix,
@@ -1383,7 +1377,7 @@ class Renderer(validated: Dashboard.Validated) {
         ): Unit = {
           // A bake owner with no authored regions (an `If` host) is not a
           // leaf: its hole is filled from the selection.
-          if c.regions.isEmpty && bakeSel.isEmpty then
+          if c.regions.isEmpty && c.set.isEmpty && bakeSel.isEmpty then
             Templates.run(
               tpl,
               buf,
@@ -1407,12 +1401,37 @@ class Renderer(validated: Dashboard.Validated) {
                   }
                 }
               }
+            // Each member is walked like any node, so the trace holds each
+            // patch target inside it; the set's root has no rendering.
+            val withSet: Map[String, java.io.Writer => Unit] =
+              c.set match {
+                case Some(s) =>
+                  val setId = SetId.of(id, s)
+                  eager.updated(
+                    s.region,
+                    { (_: java.io.Writer) =>
+                      members.membersOf(setId, shared).foreach { m =>
+                        tracedInto(
+                          buf,
+                          m.node,
+                          m.id,
+                          idPrefix,
+                          shared,
+                          viewing,
+                          trace,
+                          within = WalkAt.InMember(m.id, m.clause, Nil)
+                        )
+                      }
+                    }
+                  )
+                case None => eager
+              }
             // A baked region walks the selected surface under its own ids.
             // Not `++`: concatenating rebuilds the map on every structural node.
             val holes: Map[String, java.io.Writer => Unit] =
               bakeSel match {
-                case Some((region, sid)) if !eager.contains(region) =>
-                  eager.updated(
+                case Some((region, sid)) if !withSet.contains(region) =>
+                  withSet.updated(
                     region,
                     { (_: java.io.Writer) =>
                       dashboard.surfaces.get(sid).foreach { s =>
@@ -1429,7 +1448,7 @@ class Renderer(validated: Dashboard.Validated) {
                       }
                     }
                   )
-                case _ => eager
+                case _ => withSet
               }
             Templates.run(
               tpl,
@@ -1457,30 +1476,6 @@ class Renderer(validated: Dashboard.Validated) {
           case None if resolved.signals.nonEmpty =>
             val _ = trace.seeded.put(plan.id, resolved.signals)
           case None => ()
-      // Each member is walked like any node, so the trace holds each patch
-      // target inside it; the root has no rendering.
-      case s: Ready.SetNode =>
-        val setId = SetId.of(id, s)
-        out.append(groupOpen)
-        // `validate` refuses a set's live cell slot.
-        cellClassesInto(out, s.cell, null)
-        out
-          .append("""" id="""")
-          .append(setId)
-          .append("\">")
-        members.membersOf(setId, shared).foreach { m =>
-          tracedInto(
-            out,
-            m.node,
-            m.id,
-            idPrefix,
-            shared,
-            viewing,
-            trace,
-            within = WalkAt.InMember(m.id, m.clause, Nil)
-          )
-        }
-        val _ = out.append("</div>")
     }
 
   /** The root's `{{{cell}}}` hole, after its `class`: a live style inline in
@@ -1904,7 +1899,7 @@ class Renderer(validated: Dashboard.Validated) {
       signalSeed = Datastar.seedFor(named.map(_._3)),
       ownRendering = ownRenderingOf(c),
       // Once, not per paint: it walks the subtree.
-      nodeCount = 1 + c.regions.values.view.map(_.map(nodeCount).sum).sum,
+      nodeCount = nodeCount(c),
       calls = c.calls.map((name, p) =>
         name -> Renderer.PlacedCall(
           p.id,
@@ -2024,7 +2019,6 @@ class Renderer(validated: Dashboard.Validated) {
         }
         b.result()
       }
-    case _: Ready.SetNode => Map.empty
   }
 
   /** Resolves before any state arrives, so a `domain` action still works. Keeps
@@ -2169,13 +2163,12 @@ object Renderer {
     case xs: Iterable[?] => xs.toList.map(Steps.text).filter(_.nonEmpty)
     case x               => List(Steps.text(x)).filter(_.nonEmpty)
 
-  /** A subtree's asks, stopping at a nested set, whose members ask their own.
+  /** A subtree's asks, which stop at a nested set: its members ask their own.
     */
   private[runtime] def subtreeAsks(node: Ready.Node): List[SlotAsk] =
     node match {
       case c: Ready.Component =>
         c.fetches ++ c.allChildren.flatMap(subtreeAsks)
-      case _: Ready.SetNode => Nil
     }
 
   /** [[subtreeAsks]]' twin for the variables its slots read. */
@@ -2183,7 +2176,6 @@ object Renderer {
     node match {
       case c: Ready.Component =>
         c.variables ++ c.allChildren.flatMap(subtreeVariables)
-      case _: Ready.SetNode => Set.empty
     }
 
   private final class FailedLabelScope(values: Map[String, String])

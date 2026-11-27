@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -113,7 +115,7 @@ class FetchDriftSuite extends munit.FunSuite {
       )
     )
     val d = Dashboard(
-      cards = Map(
+      cards = Sets.cards ++ Map(
         "chart" -> TestCard("<div>{{{chart}}}</div>"),
         "dot" -> TestCard("<span>{{state}}</span>"),
         "col" -> TestCard(
@@ -130,12 +132,12 @@ class FetchDriftSuite extends munit.FunSuite {
         chart("sensor.main"),
         host("tabs"),
         host("branch"),
-        LayoutNode.SetNode(
+        Sets.node(
           candidates = List("light.a"),
           members = Map(
-            "light.a" -> LayoutNode.SetMember(
+            "light.a" -> Sets.Member(
               List(
-                LayoutNode.SetClause(
+                Sets.Clause(
                   Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                   chart("sensor.set")
                 )

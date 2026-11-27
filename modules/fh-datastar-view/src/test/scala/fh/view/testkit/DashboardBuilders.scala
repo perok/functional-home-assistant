@@ -7,6 +7,7 @@ import fh.view.model.{
   Cell,
   Choice,
   Dashboard,
+  Fill,
   LayoutNode,
   Lit,
   TemplateSlot,
@@ -32,14 +33,13 @@ object DashboardBuilders {
   extension (node: LayoutNode) {
     def asComponent: LayoutNode.Component = node match {
       case c: LayoutNode.Component => c
-      case other                   =>
-        throw new AssertionError(s"expected a Component, got: $other")
     }
 
-    def asSetNode: LayoutNode.SetNode = node match {
-      case s: LayoutNode.SetNode => s
-      case other => throw new AssertionError(s"expected a SetNode, got: $other")
-    }
+    def asSet: Fill.Set = Sets
+      .of(node)
+      .getOrElse(
+        throw new AssertionError(s"expected a node holding a set, got: $node")
+      )
   }
 
   /** A table chosen by the variable `name`, as `p.history.chosen` writes one:

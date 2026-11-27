@@ -17,6 +17,7 @@
 /// Not here yet: a set nested inside a member, and `min`/`max` over a property.
 module query
 
+import "core/group.pkl" as groupMod
 import "core/predicate.pkl" as pred
 import "core/simple.pkl" as simpleMod
 import "core/slot.pkl" as slotMod
@@ -477,8 +478,10 @@ class EntitySet extends pred.TallyOf {
             of = l.kind
           }
 
-  /// The layout node. Pkl has no implicit conversion, so a chain ends here.
-  function build(): pred.SetNode =
+  /// What fills a nodes slot: `slot.of(q.from(…).render(…))` takes the chain
+  /// as it is. The slot must be its card's whole template, since the members
+  /// are placed relative to each other.
+  function fill(): pred.SetFill =
     let (l = this)
       let (ordering = foldOrder(l.items, l.specs))
         let (prepared = l.filters.map((f) -> ready(l.items, f)))
@@ -488,6 +491,12 @@ class EntitySet extends pred.TallyOf {
             l.branches,
             l.cap,
             (e) -> foldAll(prepared.map((r) -> decide(r, l.items, e))))) { of = l.kind }
+
+  /// The layout node, for a set among other content: an element of its own
+  /// (`.fh-group`, which lays its members out as the surrounding box's own
+  /// children) holding the set. Pkl has no implicit conversion, so a chain
+  /// placed as a node ends here.
+  function build(): groupMod.Group = groupMod.group("div", "fh-group", fill())
 }
 
 /// A set of entities, areas or floors, one kind per set. A set of areas or
@@ -678,7 +687,7 @@ const local function buildSet(
   branches: List<Branch>,
   cap: Int?,
   presence: (Member) -> Boolean|slotMod.Expr
-): pred.SetNode =
+): pred.SetFill =
   let (kept = ordering.entities
         .map((e) -> Pair(e, presence.apply(e)))
         .filter((p) -> !(p.second is Boolean && p.second == false)))
@@ -690,19 +699,13 @@ const local function buildSet(
         Pair(p.first, p.second.map((b) ->
           Pair(b.first.render.apply(p.first),
                conjoin(presenceOf[pred.idOf(p.first)], b.second))))))
-    new pred.SetNode {
+    new pred.SetFill {
       candidates = new Listing { for (p in dispatched) { pred.idOf(p.first) } }
       orderBy = new Listing { for (t in ordering.terms) { t } }
       limit = cap
       members = new Mapping {
         for (p in rendered) {
-          [pred.idOf(p.first)] = new pred.SetMember {
-            clauses = new Listing {
-              for (q in p.second) {
-                new pred.SetClause { `when` = q.second; node = q.first }
-              }
-            }
-          }
+          [pred.idOf(p.first)] = pred.memberOf(p.second.map((q) -> Pair(q.second, q.first)))
         }
       }
     }

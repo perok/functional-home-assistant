@@ -9,597 +9,611 @@
         "fill" : {
           "choice" : [
             {
-              "candidates" : [
-                "light.kitchen",
-                "light.living_room"
+              "card" : "group_div_fh_group_true",
+              "kind" : "Component",
+              "vars" : [
               ],
-              "kind" : "SetNode",
-              "members" : {
-                "light.kitchen" : {
-                  "clauses" : [
-                    {
-                      "node" : {
-                        "calls" : {
-                          "tap" : {
-                            "kind" : "Service",
-                            "service" : "light/toggle",
-                            "target" : {
-                              "entity_id" : [
-                                "light.kitchen"
-                              ]
+              "wireSlots" : {
+                "children" : {
+                  "fill" : {
+                    "candidates" : [
+                      "light.kitchen",
+                      "light.living_room"
+                    ],
+                    "kind" : "Set",
+                    "members" : {
+                      "light.kitchen" : {
+                        "by" : {
+                          "source" : {
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "kind" : "Compare",
+                              "op" : "eq",
+                              "to" : "on"
                             }
-                          }
+                          ]
                         },
-                        "card" : "switch",
-                        "cell" : {
-                          "classes" : {
-                            "fh-active" : {
-                              "source" : {
-                                "kind" : "Entity"
-                              },
-                              "steps" : [
-                                {
-                                  "cases" : {
-                                    "on" : true
-                                  },
-                                  "kind" : "Match",
-                                  "otherwise" : false
-                                }
-                              ]
-                            }
-                          }
-                        },
-                        "kind" : "Component",
-                        "vars" : [
-                        ],
-                        "wireSlots" : {
-                          "busy" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "busyVisual" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "checked" : {
-                            "default" : "",
-                            "kind" : "Value",
-                            "signal" : {
-                              "kind" : "Bind"
-                            },
-                            "source" : {
-                              "kind" : "Entity"
-                            },
-                            "steps" : [
-                              {
-                                "cases" : {
-                                  "on" : "on"
-                                },
-                                "kind" : "Match",
-                                "otherwise" : ""
-                              }
-                            ]
-                          },
-                          "entity_id" : {
-                            "kind" : "Value",
-                            "source" : "light.kitchen"
-                          },
-                          "icon" : {
-                            "kind" : "Value",
-                            "source" : "mdi mdi-lightbulb",
-                            "steps" : [
-                              {
-                                "kind" : "ThemeClasses"
-                              }
-                            ]
-                          },
-                          "label" : {
-                            "kind" : "Value",
-                            "source" : "Kitchen"
-                          },
-                          "onoff" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "switched" : {
-                            "default" : "",
-                            "kind" : "Value",
-                            "signal" : {
-                              "kind" : "Attr",
-                              "name" : "data-switched"
-                            },
-                            "source" : {
-                              "kind" : "Entity"
-                            },
-                            "steps" : [
-                              {
-                                "cases" : {
-                                  "on" : "on"
-                                },
-                                "kind" : "Match",
-                                "otherwise" : ""
-                              }
-                            ]
-                          },
-                          "tapDisabled" : {
-                            "kind" : "Value",
-                            "signal" : {
-                              "kind" : "Handler"
-                            },
-                            "source" : {
-                              "kind" : "Entity"
-                            },
-                            "steps" : [
-                              {
-                                "cases" : {
-                                  "unavailable" : true
-                                },
-                                "kind" : "Match",
-                                "otherwise" : false
-                              }
-                            ],
-                            "type" : "bool"
-                          }
-                        }
-                      },
-                      "when" : {
-                        "source" : {
-                          "kind" : "Entity"
-                        },
-                        "steps" : [
+                        "cases" : [
                           {
-                            "kind" : "Compare",
-                            "op" : "eq",
-                            "to" : "on"
-                          }
-                        ]
-                      }
-                    }
-                  ]
-                },
-                "light.living_room" : {
-                  "clauses" : [
-                    {
-                      "node" : {
-                        "calls" : {
-                          "tap" : {
-                            "kind" : "Service",
-                            "service" : "light/toggle",
-                            "target" : {
-                              "entity_id" : [
-                                "light.living_room"
-                              ]
-                            }
-                          }
-                        },
-                        "card" : "switch",
-                        "cell" : {
-                          "classes" : {
-                            "fh-active" : {
-                              "source" : {
-                                "kind" : "Entity"
-                              },
-                              "steps" : [
-                                {
-                                  "cases" : {
-                                    "on" : true
-                                  },
-                                  "kind" : "Match",
-                                  "otherwise" : false
+                            "is" : true,
+                            "value" : {
+                              "calls" : {
+                                "tap" : {
+                                  "kind" : "Service",
+                                  "service" : "light/toggle",
+                                  "target" : {
+                                    "entity_id" : [
+                                      "light.kitchen"
+                                    ]
+                                  }
                                 }
-                              ]
+                              },
+                              "card" : "switch",
+                              "cell" : {
+                                "classes" : {
+                                  "fh-active" : {
+                                    "source" : {
+                                      "kind" : "Entity"
+                                    },
+                                    "steps" : [
+                                      {
+                                        "cases" : {
+                                          "on" : true
+                                        },
+                                        "kind" : "Match",
+                                        "otherwise" : false
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              "kind" : "Component",
+                              "vars" : [
+                              ],
+                              "wireSlots" : {
+                                "busy" : {
+                                  "kind" : "Value",
+                                  "source" : true,
+                                  "type" : "bool"
+                                },
+                                "busyVisual" : {
+                                  "kind" : "Value",
+                                  "source" : true,
+                                  "type" : "bool"
+                                },
+                                "checked" : {
+                                  "default" : "",
+                                  "kind" : "Value",
+                                  "signal" : {
+                                    "kind" : "Bind"
+                                  },
+                                  "source" : {
+                                    "kind" : "Entity"
+                                  },
+                                  "steps" : [
+                                    {
+                                      "cases" : {
+                                        "on" : "on"
+                                      },
+                                      "kind" : "Match",
+                                      "otherwise" : ""
+                                    }
+                                  ]
+                                },
+                                "entity_id" : {
+                                  "kind" : "Value",
+                                  "source" : "light.kitchen"
+                                },
+                                "icon" : {
+                                  "kind" : "Value",
+                                  "source" : "mdi mdi-lightbulb",
+                                  "steps" : [
+                                    {
+                                      "kind" : "ThemeClasses"
+                                    }
+                                  ]
+                                },
+                                "label" : {
+                                  "kind" : "Value",
+                                  "source" : "Kitchen"
+                                },
+                                "onoff" : {
+                                  "kind" : "Value",
+                                  "source" : true,
+                                  "type" : "bool"
+                                },
+                                "switched" : {
+                                  "default" : "",
+                                  "kind" : "Value",
+                                  "signal" : {
+                                    "kind" : "Attr",
+                                    "name" : "data-switched"
+                                  },
+                                  "source" : {
+                                    "kind" : "Entity"
+                                  },
+                                  "steps" : [
+                                    {
+                                      "cases" : {
+                                        "on" : "on"
+                                      },
+                                      "kind" : "Match",
+                                      "otherwise" : ""
+                                    }
+                                  ]
+                                },
+                                "tapDisabled" : {
+                                  "kind" : "Value",
+                                  "signal" : {
+                                    "kind" : "Handler"
+                                  },
+                                  "source" : {
+                                    "kind" : "Entity"
+                                  },
+                                  "steps" : [
+                                    {
+                                      "cases" : {
+                                        "unavailable" : true
+                                      },
+                                      "kind" : "Match",
+                                      "otherwise" : false
+                                    }
+                                  ],
+                                  "type" : "bool"
+                                }
+                              }
                             }
                           }
-                        },
-                        "kind" : "Component",
-                        "vars" : [
                         ],
-                        "wireSlots" : {
-                          "busy" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "busyVisual" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "checked" : {
-                            "default" : "",
-                            "kind" : "Value",
-                            "signal" : {
-                              "kind" : "Bind"
-                            },
-                            "source" : {
-                              "kind" : "Entity"
-                            },
-                            "steps" : [
-                              {
-                                "cases" : {
-                                  "on" : "on"
-                                },
-                                "kind" : "Match",
-                                "otherwise" : ""
-                              }
-                            ]
-                          },
-                          "entity_id" : {
-                            "kind" : "Value",
-                            "source" : "light.living_room"
-                          },
-                          "icon" : {
-                            "kind" : "Value",
-                            "source" : "mdi mdi-lightbulb",
-                            "steps" : [
-                              {
-                                "kind" : "ThemeClasses"
-                              }
-                            ]
-                          },
-                          "label" : {
-                            "kind" : "Value",
-                            "source" : "Living Room"
-                          },
-                          "onoff" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "switched" : {
-                            "default" : "",
-                            "kind" : "Value",
-                            "signal" : {
-                              "kind" : "Attr",
-                              "name" : "data-switched"
-                            },
-                            "source" : {
-                              "kind" : "Entity"
-                            },
-                            "steps" : [
-                              {
-                                "cases" : {
-                                  "on" : "on"
-                                },
-                                "kind" : "Match",
-                                "otherwise" : ""
-                              }
-                            ]
-                          },
-                          "tapDisabled" : {
-                            "kind" : "Value",
-                            "signal" : {
-                              "kind" : "Handler"
-                            },
-                            "source" : {
-                              "kind" : "Entity"
-                            },
-                            "steps" : [
-                              {
-                                "cases" : {
-                                  "unavailable" : true
-                                },
-                                "kind" : "Match",
-                                "otherwise" : false
-                              }
-                            ],
-                            "type" : "bool"
-                          }
-                        }
+                        "kind" : "Chosen"
                       },
-                      "when" : {
-                        "source" : {
-                          "kind" : "Entity"
+                      "light.living_room" : {
+                        "by" : {
+                          "source" : {
+                            "kind" : "Entity"
+                          },
+                          "steps" : [
+                            {
+                              "kind" : "Compare",
+                              "op" : "eq",
+                              "to" : "on"
+                            }
+                          ]
                         },
-                        "steps" : [
+                        "cases" : [
                           {
-                            "kind" : "Compare",
-                            "op" : "eq",
-                            "to" : "on"
-                          }
-                        ]
-                      }
-                    }
-                  ]
-                }
-              },
-              "orderBy" : [
-              ]
-            },
-            {
-              "candidates" : [
-                "light.kitchen",
-                "light.living_room"
-              ],
-              "kind" : "SetNode",
-              "limit" : 1,
-              "members" : {
-                "light.kitchen" : {
-                  "clauses" : [
-                    {
-                      "node" : {
-                        "calls" : {
-                          "tap" : {
-                            "kind" : "Service",
-                            "service" : "light/toggle",
-                            "target" : {
-                              "entity_id" : [
-                                "light.kitchen"
-                              ]
-                            }
-                          }
-                        },
-                        "card" : "switch",
-                        "cell" : {
-                          "classes" : {
-                            "fh-active" : {
-                              "source" : {
-                                "kind" : "Entity"
-                              },
-                              "steps" : [
-                                {
-                                  "cases" : {
-                                    "on" : true
-                                  },
-                                  "kind" : "Match",
-                                  "otherwise" : false
+                            "is" : true,
+                            "value" : {
+                              "calls" : {
+                                "tap" : {
+                                  "kind" : "Service",
+                                  "service" : "light/toggle",
+                                  "target" : {
+                                    "entity_id" : [
+                                      "light.living_room"
+                                    ]
+                                  }
                                 }
-                              ]
-                            }
-                          }
-                        },
-                        "kind" : "Component",
-                        "vars" : [
-                        ],
-                        "wireSlots" : {
-                          "busy" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "busyVisual" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "checked" : {
-                            "default" : "",
-                            "kind" : "Value",
-                            "signal" : {
-                              "kind" : "Bind"
-                            },
-                            "source" : {
-                              "kind" : "Entity"
-                            },
-                            "steps" : [
-                              {
-                                "cases" : {
-                                  "on" : "on"
-                                },
-                                "kind" : "Match",
-                                "otherwise" : ""
-                              }
-                            ]
-                          },
-                          "entity_id" : {
-                            "kind" : "Value",
-                            "source" : "light.kitchen"
-                          },
-                          "icon" : {
-                            "kind" : "Value",
-                            "source" : "mdi mdi-lightbulb",
-                            "steps" : [
-                              {
-                                "kind" : "ThemeClasses"
-                              }
-                            ]
-                          },
-                          "label" : {
-                            "kind" : "Value",
-                            "source" : "Kitchen"
-                          },
-                          "onoff" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "switched" : {
-                            "default" : "",
-                            "kind" : "Value",
-                            "signal" : {
-                              "kind" : "Attr",
-                              "name" : "data-switched"
-                            },
-                            "source" : {
-                              "kind" : "Entity"
-                            },
-                            "steps" : [
-                              {
-                                "cases" : {
-                                  "on" : "on"
-                                },
-                                "kind" : "Match",
-                                "otherwise" : ""
-                              }
-                            ]
-                          },
-                          "tapDisabled" : {
-                            "kind" : "Value",
-                            "signal" : {
-                              "kind" : "Handler"
-                            },
-                            "source" : {
-                              "kind" : "Entity"
-                            },
-                            "steps" : [
-                              {
-                                "cases" : {
-                                  "unavailable" : true
-                                },
-                                "kind" : "Match",
-                                "otherwise" : false
-                              }
-                            ],
-                            "type" : "bool"
-                          }
-                        }
-                      }
-                    }
-                  ]
-                },
-                "light.living_room" : {
-                  "clauses" : [
-                    {
-                      "node" : {
-                        "calls" : {
-                          "tap" : {
-                            "kind" : "Service",
-                            "service" : "light/toggle",
-                            "target" : {
-                              "entity_id" : [
-                                "light.living_room"
-                              ]
-                            }
-                          }
-                        },
-                        "card" : "switch",
-                        "cell" : {
-                          "classes" : {
-                            "fh-active" : {
-                              "source" : {
-                                "kind" : "Entity"
                               },
-                              "steps" : [
-                                {
-                                  "cases" : {
-                                    "on" : true
-                                  },
-                                  "kind" : "Match",
-                                  "otherwise" : false
+                              "card" : "switch",
+                              "cell" : {
+                                "classes" : {
+                                  "fh-active" : {
+                                    "source" : {
+                                      "kind" : "Entity"
+                                    },
+                                    "steps" : [
+                                      {
+                                        "cases" : {
+                                          "on" : true
+                                        },
+                                        "kind" : "Match",
+                                        "otherwise" : false
+                                      }
+                                    ]
+                                  }
                                 }
-                              ]
+                              },
+                              "kind" : "Component",
+                              "vars" : [
+                              ],
+                              "wireSlots" : {
+                                "busy" : {
+                                  "kind" : "Value",
+                                  "source" : true,
+                                  "type" : "bool"
+                                },
+                                "busyVisual" : {
+                                  "kind" : "Value",
+                                  "source" : true,
+                                  "type" : "bool"
+                                },
+                                "checked" : {
+                                  "default" : "",
+                                  "kind" : "Value",
+                                  "signal" : {
+                                    "kind" : "Bind"
+                                  },
+                                  "source" : {
+                                    "kind" : "Entity"
+                                  },
+                                  "steps" : [
+                                    {
+                                      "cases" : {
+                                        "on" : "on"
+                                      },
+                                      "kind" : "Match",
+                                      "otherwise" : ""
+                                    }
+                                  ]
+                                },
+                                "entity_id" : {
+                                  "kind" : "Value",
+                                  "source" : "light.living_room"
+                                },
+                                "icon" : {
+                                  "kind" : "Value",
+                                  "source" : "mdi mdi-lightbulb",
+                                  "steps" : [
+                                    {
+                                      "kind" : "ThemeClasses"
+                                    }
+                                  ]
+                                },
+                                "label" : {
+                                  "kind" : "Value",
+                                  "source" : "Living Room"
+                                },
+                                "onoff" : {
+                                  "kind" : "Value",
+                                  "source" : true,
+                                  "type" : "bool"
+                                },
+                                "switched" : {
+                                  "default" : "",
+                                  "kind" : "Value",
+                                  "signal" : {
+                                    "kind" : "Attr",
+                                    "name" : "data-switched"
+                                  },
+                                  "source" : {
+                                    "kind" : "Entity"
+                                  },
+                                  "steps" : [
+                                    {
+                                      "cases" : {
+                                        "on" : "on"
+                                      },
+                                      "kind" : "Match",
+                                      "otherwise" : ""
+                                    }
+                                  ]
+                                },
+                                "tapDisabled" : {
+                                  "kind" : "Value",
+                                  "signal" : {
+                                    "kind" : "Handler"
+                                  },
+                                  "source" : {
+                                    "kind" : "Entity"
+                                  },
+                                  "steps" : [
+                                    {
+                                      "cases" : {
+                                        "unavailable" : true
+                                      },
+                                      "kind" : "Match",
+                                      "otherwise" : false
+                                    }
+                                  ],
+                                  "type" : "bool"
+                                }
+                              }
                             }
                           }
-                        },
-                        "kind" : "Component",
-                        "vars" : [
                         ],
-                        "wireSlots" : {
-                          "busy" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "busyVisual" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "checked" : {
-                            "default" : "",
-                            "kind" : "Value",
-                            "signal" : {
-                              "kind" : "Bind"
-                            },
-                            "source" : {
-                              "kind" : "Entity"
-                            },
-                            "steps" : [
-                              {
-                                "cases" : {
-                                  "on" : "on"
-                                },
-                                "kind" : "Match",
-                                "otherwise" : ""
-                              }
-                            ]
-                          },
-                          "entity_id" : {
-                            "kind" : "Value",
-                            "source" : "light.living_room"
-                          },
-                          "icon" : {
-                            "kind" : "Value",
-                            "source" : "mdi mdi-lightbulb",
-                            "steps" : [
-                              {
-                                "kind" : "ThemeClasses"
-                              }
-                            ]
-                          },
-                          "label" : {
-                            "kind" : "Value",
-                            "source" : "Living Room"
-                          },
-                          "onoff" : {
-                            "kind" : "Value",
-                            "source" : true,
-                            "type" : "bool"
-                          },
-                          "switched" : {
-                            "default" : "",
-                            "kind" : "Value",
-                            "signal" : {
-                              "kind" : "Attr",
-                              "name" : "data-switched"
-                            },
-                            "source" : {
-                              "kind" : "Entity"
-                            },
-                            "steps" : [
-                              {
-                                "cases" : {
-                                  "on" : "on"
-                                },
-                                "kind" : "Match",
-                                "otherwise" : ""
-                              }
-                            ]
-                          },
-                          "tapDisabled" : {
-                            "kind" : "Value",
-                            "signal" : {
-                              "kind" : "Handler"
-                            },
-                            "source" : {
-                              "kind" : "Entity"
-                            },
-                            "steps" : [
-                              {
-                                "cases" : {
-                                  "unavailable" : true
-                                },
-                                "kind" : "Match",
-                                "otherwise" : false
-                              }
-                            ],
-                            "type" : "bool"
-                          }
-                        }
-                      }
-                    }
-                  ]
-                }
-              },
-              "orderBy" : [
-                {
-                  "by" : {
-                    "source" : {
-                      "kind" : "Entity",
-                      "part" : {
-                        "kind" : "Attr",
-                        "name" : "brightness"
+                        "kind" : "Chosen"
                       }
                     },
-                    "steps" : [
+                    "orderBy" : [
                     ]
                   },
-                  "dir" : "desc"
+                  "kind" : "Nodes"
                 }
-              ]
+              }
+            },
+            {
+              "card" : "group_div_fh_group_true",
+              "kind" : "Component",
+              "vars" : [
+              ],
+              "wireSlots" : {
+                "children" : {
+                  "fill" : {
+                    "candidates" : [
+                      "light.kitchen",
+                      "light.living_room"
+                    ],
+                    "kind" : "Set",
+                    "limit" : 1,
+                    "members" : {
+                      "light.kitchen" : {
+                        "calls" : {
+                          "tap" : {
+                            "kind" : "Service",
+                            "service" : "light/toggle",
+                            "target" : {
+                              "entity_id" : [
+                                "light.kitchen"
+                              ]
+                            }
+                          }
+                        },
+                        "card" : "switch",
+                        "cell" : {
+                          "classes" : {
+                            "fh-active" : {
+                              "source" : {
+                                "kind" : "Entity"
+                              },
+                              "steps" : [
+                                {
+                                  "cases" : {
+                                    "on" : true
+                                  },
+                                  "kind" : "Match",
+                                  "otherwise" : false
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "kind" : "Component",
+                        "vars" : [
+                        ],
+                        "wireSlots" : {
+                          "busy" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "busyVisual" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "checked" : {
+                            "default" : "",
+                            "kind" : "Value",
+                            "signal" : {
+                              "kind" : "Bind"
+                            },
+                            "source" : {
+                              "kind" : "Entity"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "on" : "on"
+                                },
+                                "kind" : "Match",
+                                "otherwise" : ""
+                              }
+                            ]
+                          },
+                          "entity_id" : {
+                            "kind" : "Value",
+                            "source" : "light.kitchen"
+                          },
+                          "icon" : {
+                            "kind" : "Value",
+                            "source" : "mdi mdi-lightbulb",
+                            "steps" : [
+                              {
+                                "kind" : "ThemeClasses"
+                              }
+                            ]
+                          },
+                          "label" : {
+                            "kind" : "Value",
+                            "source" : "Kitchen"
+                          },
+                          "onoff" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "switched" : {
+                            "default" : "",
+                            "kind" : "Value",
+                            "signal" : {
+                              "kind" : "Attr",
+                              "name" : "data-switched"
+                            },
+                            "source" : {
+                              "kind" : "Entity"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "on" : "on"
+                                },
+                                "kind" : "Match",
+                                "otherwise" : ""
+                              }
+                            ]
+                          },
+                          "tapDisabled" : {
+                            "kind" : "Value",
+                            "signal" : {
+                              "kind" : "Handler"
+                            },
+                            "source" : {
+                              "kind" : "Entity"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "unavailable" : true
+                                },
+                                "kind" : "Match",
+                                "otherwise" : false
+                              }
+                            ],
+                            "type" : "bool"
+                          }
+                        }
+                      },
+                      "light.living_room" : {
+                        "calls" : {
+                          "tap" : {
+                            "kind" : "Service",
+                            "service" : "light/toggle",
+                            "target" : {
+                              "entity_id" : [
+                                "light.living_room"
+                              ]
+                            }
+                          }
+                        },
+                        "card" : "switch",
+                        "cell" : {
+                          "classes" : {
+                            "fh-active" : {
+                              "source" : {
+                                "kind" : "Entity"
+                              },
+                              "steps" : [
+                                {
+                                  "cases" : {
+                                    "on" : true
+                                  },
+                                  "kind" : "Match",
+                                  "otherwise" : false
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        "kind" : "Component",
+                        "vars" : [
+                        ],
+                        "wireSlots" : {
+                          "busy" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "busyVisual" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "checked" : {
+                            "default" : "",
+                            "kind" : "Value",
+                            "signal" : {
+                              "kind" : "Bind"
+                            },
+                            "source" : {
+                              "kind" : "Entity"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "on" : "on"
+                                },
+                                "kind" : "Match",
+                                "otherwise" : ""
+                              }
+                            ]
+                          },
+                          "entity_id" : {
+                            "kind" : "Value",
+                            "source" : "light.living_room"
+                          },
+                          "icon" : {
+                            "kind" : "Value",
+                            "source" : "mdi mdi-lightbulb",
+                            "steps" : [
+                              {
+                                "kind" : "ThemeClasses"
+                              }
+                            ]
+                          },
+                          "label" : {
+                            "kind" : "Value",
+                            "source" : "Living Room"
+                          },
+                          "onoff" : {
+                            "kind" : "Value",
+                            "source" : true,
+                            "type" : "bool"
+                          },
+                          "switched" : {
+                            "default" : "",
+                            "kind" : "Value",
+                            "signal" : {
+                              "kind" : "Attr",
+                              "name" : "data-switched"
+                            },
+                            "source" : {
+                              "kind" : "Entity"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "on" : "on"
+                                },
+                                "kind" : "Match",
+                                "otherwise" : ""
+                              }
+                            ]
+                          },
+                          "tapDisabled" : {
+                            "kind" : "Value",
+                            "signal" : {
+                              "kind" : "Handler"
+                            },
+                            "source" : {
+                              "kind" : "Entity"
+                            },
+                            "steps" : [
+                              {
+                                "cases" : {
+                                  "unavailable" : true
+                                },
+                                "kind" : "Match",
+                                "otherwise" : false
+                              }
+                            ],
+                            "type" : "bool"
+                          }
+                        }
+                      }
+                    },
+                    "orderBy" : [
+                      {
+                        "by" : {
+                          "source" : {
+                            "kind" : "Entity",
+                            "part" : {
+                              "kind" : "Attr",
+                              "name" : "brightness"
+                            }
+                          },
+                          "steps" : [
+                          ]
+                        },
+                        "dir" : "desc"
+                      }
+                    ]
+                  },
+                  "kind" : "Nodes"
+                }
+              }
             },
             {
               "calls" : {
@@ -732,6 +746,14 @@
         }
       },
       "template" : "<div class=\"fh-cell fh-col{{#class}} {{class}}{{/class}}{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
+    },
+    "group_div_fh_group_true" : {
+      "regions" : {
+        "children" : {
+          
+        }
+      },
+      "template" : "<div class=\"fh-cell fh-group{{{cellClasses}}}\"{{{cell}}}>{{{children}}}</div>"
     },
     "pill" : {
       "template" : "<button class=\"fh-cell fh-chip {{#round.has}}fh-circle{{/round.has}}{{{cellClasses}}}\"{{{cell}}} data-on:click=\"{{#busy.has}}$_{{id}}__busy ? '' : {{/busy.has}}{{#tapDisabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}}{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}} ? '' : {{/disabled.has}}{{/tapDisabled.has}}{{#tap.has}}{{{tap.pending}}}@post('sse/call/{{dashboardSlug}}/{{{tap.callId}}}?node={{id}}', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {{{tap.seen}}} } }){{/tap.has}}{{^tap.has}}{{{onclick}}}{{/tap.has}}\"{{#tapDisabled}} disabled{{/tapDisabled}}{{^tapDisabled}}{{#disabled}} disabled{{/disabled}}{{/tapDisabled}}{{#tapDisabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-attr:disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{#busy.has}} data-indicator=\"_{{id}}__busy\" data-on:datastar-fetch__document=\"evt.detail.el === el && (evt.detail.type === 'error' ? ($_{{id}}__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_{{id}}__error = ''))\" data-fh-node=\"{{id}}\"{{/busy.has}}{{#busyVisual.has}} data-class:fh-disabled=\"$_{{id}}__busy{{#tapDisabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} || {{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}{{/disabled.has}}{{/tapDisabled.has}}\" data-class:fh-loading=\"$_{{id}}__busy\" data-class:fh-error=\"$_{{id}}__error\"{{/busyVisual.has}}{{^busyVisual.has}}{{#tapDisabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/tapDisabled.has}}{{^tapDisabled.has}}{{#disabled.has}} data-class:fh-disabled=\"{{#tapDisabled.has}}{{{tapDisabled.jsValue}}}{{/tapDisabled.has}}{{#tapDisabled.has}}{{#disabled.has}} || {{/disabled.has}}{{/tapDisabled.has}}{{#disabled.has}}{{{disabled.jsValue}}}{{/disabled.has}}\"{{/disabled.has}}{{/tapDisabled.has}}{{/busyVisual.has}}{{#name}} title=\"{{name}}\" aria-label=\"{{name}}\"{{/name}}{{#busyVisual.has}}{{#glyph}} data-signals__ifmissing=\"{_{{id}}__busy_slow:false}\" data-on-signal-patch-filter=\"{include:/^_{{id}}__busy$/}\" data-on-signal-patch__delay.300ms=\"$_{{id}}__busy_slow = $_{{id}}__busy\" data-class:fh-busy-spin=\"$_{{id}}__busy_slow\" data-attr:aria-busy=\"$_{{id}}__busy_slow\"{{/glyph}}{{/busyVisual.has}}>{{#glyph}}<i class=\"mdi {{glyph}}\"></i>{{/glyph}}{{#label}}<span class=\"fh-text\"><span class=\"fh-text-run\">{{label}}</span></span>{{/label}}</button>"

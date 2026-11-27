@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.Conds
@@ -26,7 +28,7 @@ import io.circe.Json
   */
 class MemberGraphSuite extends munit.FunSuite {
 
-  private val gid: SetId = SetId.of(NodeId.derived("c_0"), LayoutNode.SetNode())
+  private val gid: SetId = SetId.of(NodeId.derived("c_0"), Sets.fill())
 
   private def card(e: String, kind: String): LayoutNode.Component =
     LayoutNode.Component(kind, Slots.values(Map("entity_id" -> lit(e))))
@@ -35,33 +37,33 @@ class MemberGraphSuite extends munit.FunSuite {
       e: String,
       when: Option[ValueExpr] = None,
       as: String = "entity"
-  ): LayoutNode.SetClause = LayoutNode.SetClause(when, card(e, as))
+  ): Sets.Clause = Sets.Clause(when, card(e, as))
 
   private def isOn(e: String): ValueExpr =
     Conds.cmp("state", Op.Eq, Json.fromString("on"), Some(e))
 
   private def set(
       candidates: List[String],
-      clauses: String => List[LayoutNode.SetClause] = e => List(clause(e)),
+      clauses: String => List[Sets.Clause] = e => List(clause(e)),
       orderBy: List[SortTerm] = Nil,
       limit: Option[Int] = None
-  ): LayoutNode.SetNode =
-    LayoutNode.SetNode(
+  ): LayoutNode.Component =
+    Sets.node(
       candidates = candidates,
-      members =
-        candidates.map(e => e -> LayoutNode.SetMember(clauses(e))).toMap,
+      members = candidates.map(e => e -> Sets.Member(clauses(e))).toMap,
       orderBy = orderBy,
       limit = limit
     )
 
   private def graphOf(
-      s: LayoutNode.SetNode,
+      s: LayoutNode.Component,
       root: String = ""
   ): MemberGraph = new MemberGraph(Map(gid -> compile.set(s)), Map(gid -> root))
 
   private object compile:
     private val walk = Ready.Compile(Evaluator.Scope(""))
-    def set(s: LayoutNode.SetNode): Ready.SetNode = Conds.compiled(walk.set(s))
+    def set(s: LayoutNode.Component): Ready.SetFill =
+      Conds.compiled(walk.node(s)).set.get
     def node(n: LayoutNode): Ready.Node = Conds.compiled(walk.node(n))
 
   extension (g: MemberGraph)
@@ -389,12 +391,12 @@ class MemberGraphSuite extends munit.FunSuite {
     // the static index, which answered "" and leaked a surface's patches to
     // everyone.
     val inner = set(List("light.b"))
-    val outer = LayoutNode.SetNode(
+    val outer = Sets.node(
       candidates = List("light.a"),
       members = Map(
-        "light.a" -> LayoutNode.SetMember(
+        "light.a" -> Sets.Member(
           List(
-            LayoutNode.SetClause(
+            Sets.Clause(
               None,
               LayoutNode.Component("tile", Slots.kids(inner))
             )
@@ -407,7 +409,7 @@ class MemberGraphSuite extends munit.FunSuite {
       g.memberIdOf(gid, "light.a"),
       0,
       List(LayoutNode.Step(LayoutNode.DefaultRegion, 0)),
-      inner
+      Sets.of(inner).get
     )
     assert(
       g.setContainer(innerId).isDefined,
@@ -498,12 +500,12 @@ class MemberGraphSuite extends munit.FunSuite {
 
   test("an area set decides by what its guards name, shared or not") {
     val disco = isOn("light.disco")
-    val s = LayoutNode.SetNode(
+    val s = Sets.node(
       candidates = List("stue", "kjokken", "bad"),
       members = Map(
-        "stue" -> LayoutNode.SetMember(List(clause("stue", Some(disco)))),
-        "kjokken" -> LayoutNode.SetMember(List(clause("kjokken", Some(disco)))),
-        "bad" -> LayoutNode.SetMember(
+        "stue" -> Sets.Member(List(clause("stue", Some(disco)))),
+        "kjokken" -> Sets.Member(List(clause("kjokken", Some(disco)))),
+        "bad" -> Sets.Member(
           List(clause("bad", Some(isOn("fan.bad"))))
         )
       ),

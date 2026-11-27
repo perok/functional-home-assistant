@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -44,7 +46,7 @@ import scala.concurrent.duration.*
   */
 class ByteSlotKeySuite extends munit.FunSuite {
 
-  private val cards = Map(
+  private val cards = Sets.cards ++ Map(
     "col" -> TestCard(
       """<div>{{{children}}}</div>""",
       regions = Map("children" -> Region())
@@ -126,12 +128,12 @@ class ByteSlotKeySuite extends munit.FunSuite {
           )
         )
       ),
-      LayoutNode.SetNode(
+      Sets.node(
         candidates = List("light.a", "light.b"),
         members = List("light.a", "light.b").map { id =>
-          id -> LayoutNode.SetMember(
+          id -> Sets.Member(
             List(
-              LayoutNode.SetClause(
+              Sets.Clause(
                 Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode.Component(
                   "btn",
@@ -148,7 +150,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
                   )
                 )
               ),
-              LayoutNode.SetClause(
+              Sets.Clause(
                 None,
                 LayoutNode.Component(
                   "btn",
@@ -484,17 +486,17 @@ class ByteSlotKeySuite extends munit.FunSuite {
     // the same ids, so without the clause the key could not tell them apart.
     val twoCards = Dashboard(
       cards,
-      LayoutNode.SetNode(
+      Sets.node(
         candidates = List("light.a"),
         members = Map(
-          "light.a" -> LayoutNode.SetMember(
+          "light.a" -> Sets.Member(
             List(
-              LayoutNode.SetClause(
+              Sets.Clause(
                 Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode
                   .Component("btn", Slots.values(Map("label" -> lit("A"))))
               ),
-              LayoutNode.SetClause(
+              Sets.Clause(
                 None,
                 LayoutNode.Component(
                   "bannerBar",

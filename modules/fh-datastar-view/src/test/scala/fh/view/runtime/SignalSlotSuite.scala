@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -53,7 +55,7 @@ class SignalSlotSuite extends ServerHarness {
 
   private val gaugeMarkup = "<b>{{label}}</b><i {{{value.bind}}}>{{value}}</i>"
 
-  private val cards = Map("gauge" -> TestCard(gaugeMarkup))
+  private val cards = Sets.cards ++ Map("gauge" -> TestCard(gaugeMarkup))
 
   private def gauge(entity: String): LayoutNode.Component =
     LayoutNode.Component(
@@ -308,12 +310,12 @@ class SignalSlotSuite extends ServerHarness {
   test("a member's children name their signals under the MEMBER") {
     // A member's children have no ids, so their signals ride on the member's
     // wrapper. Naming them under a child would seed a signal no element binds.
-    val set = LayoutNode.SetNode(
+    val set = Sets.node(
       candidates = List("light.a"),
       members = Map(
-        "light.a" -> LayoutNode.SetMember(
+        "light.a" -> Sets.Member(
           List(
-            LayoutNode.SetClause(node =
+            Sets.Clause(node =
               LayoutNode.Component(
                 "gauge",
                 Slots.values(
@@ -1082,11 +1084,11 @@ class SignalSlotSuite extends ServerHarness {
     )
     // Two candidates: one leaving an otherwise empty set takes the wholesale
     // refill path instead.
-    val set = LayoutNode.SetNode(
+    val set = Sets.node(
       candidates = List("light.a", "light.b"),
       members = List("light.a", "light.b").map { id =>
-        id -> LayoutNode.SetMember(
-          List(LayoutNode.SetClause(when = Some(isOn), node = member(id)))
+        id -> Sets.Member(
+          List(Sets.Clause(when = Some(isOn), node = member(id)))
         )
       }.toMap
     )
@@ -1096,7 +1098,7 @@ class SignalSlotSuite extends ServerHarness {
     val gone = on.updated("light.a", st("light.a", "off"))
     val prev = Shared.of(on)
     val next = Shared.of(gone, 1L)
-    val sets = List(SetId.of(NodeId.derived("c"), LayoutNode.SetNode()))
+    val sets = List(SetId.of(NodeId.derived("c"), Sets.fill()))
     val held = r.renderPageTraced(on).own.map { case (id, p) =>
       id -> p.held
     }

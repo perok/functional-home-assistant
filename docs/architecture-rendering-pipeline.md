@@ -803,11 +803,11 @@ from the `Dashboard`: every authored node, keyed by its location-derived id. The
 container's members. `MemberGraph` holds no state: it decides members into a version's `Shared`,
 which carries them to the next version unless a change dirties them (§1a).
 
-**One kind of container feeds it**: `LayoutNode.SetNode`, via `MemberGraph.MemberSource`.
+**One kind of container feeds it**: a card whose nodes slot holds a `Fill.Set` (`Ready.Component.set`), via `MemberGraph.MemberSource`. The set is its card's whole template, so its root is that card's root (`core/group.pkl`'s `group` for `.build()`), written by the library and walked like any structure card's, its one hole filled with the members.
 
 The two halves are two files, and the seam between them is one sentence: **`MemberGraph` decides
 presence and order, `Renderer` paints.** `MemberGraph` reaches back into the renderer for nothing —
-it is constructed from the `SetNode`s in the static index plus each indexed id's layout root, and
+it is constructed from the sets of the nodes in the static index plus each indexed id's layout root, and
 answers membership questions with no template, no mustache context and no document walk. The
 painting stayed behind: a member is walked by the same `tracedInto` as the static tree, from the
 set's case and from `renderMemberTraced`.
@@ -827,7 +827,7 @@ half it is asking.
 |---|---|
 | candidates | a STATIC list, decided at build time |
 | what the runtime decides | presence and ORDER — it never invents a member |
-| a member's node | the clause's COMPLETE node, `entity_id` already on it |
+| a member's node | the COMPLETE node of the case that holds (`Choice`, ADR 0033), `entity_id` already on it; a case is a clause, and its index is the clause |
 | woken by | a change to a candidate, **or to an entity a guard names** |
 | placement | the authored candidate order |
 
@@ -852,7 +852,7 @@ live half). The second was a real bug: correct ids, correct HTML, zero patches.
 The id scheme itself is ONE function, `MemberGraph.innerSetId`, read from both ends —
 `MemberGraph.sources` registers a container under it, `resolveChild` paints an element under it. A
 second spelling of it is the same silent failure again: the recorder maintains a container the
-browser does not have. `SetNodeSuite` pins the property rather than the spelling — every group the
+browser does not have. `SetSuite` pins the property rather than the spelling — every group the
 markup shows is one the graph registered, two levels deep.
 
 **A set with a live `orderBy` or a `limit` is not INCREMENTAL.** One entity moving can reorder its
@@ -1434,7 +1434,7 @@ The walk is push-based — `Renderer.executeInto` takes a `Writer`, a region is 
 through, shell included. The card's root is in its template (`core/node.pkl` writes it, ADR 0008),
 and its two holes are writer holes too: `{{{cellClasses}}}` inside its `class`, `{{{cell}}}` after
 it (style, id, seed, bindings, URL mirror). `NodeContext.writeHole` answers them on every run, so
-no map is built for them; the renderer wraps nothing but a set's root. Three things follow, and all are load-bearing:
+no map is built for them; the renderer wraps nothing, a set's root included. Three things follow, and all are load-bearing:
 
 - **A page records values, not bytes.** What a session holds for a node is the byte-slot values
   its paint resolved anyway, so the walk writes straight through and never re-reads what it wrote

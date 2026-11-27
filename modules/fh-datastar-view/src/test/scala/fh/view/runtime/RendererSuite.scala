@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
 import fh.view.testkit.Slots
 
 import fh.view.testkit.TestCard
@@ -50,7 +52,7 @@ class RendererSuite extends munit.FunSuite {
     private def affectedSetIds(change: StateChange): List[String] =
       r.affectedSets(List(change))
 
-  private val cards = Map(
+  private val cards = Sets.cards ++ Map(
     "card" -> TestCard(
       """<div><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
     ),
@@ -143,30 +145,29 @@ class RendererSuite extends munit.FunSuite {
         (Option[ValueExpr], String, Map[String, TemplateSlot], Option[Cell])
       ],
       guardOn: Boolean = true
-  ): LayoutNode.SetNode =
-    LayoutNode.SetNode(
+  ): LayoutNode.Component =
+    Sets.node(
       candidates = candidates,
       members = candidates.map { id =>
-        id -> LayoutNode.SetMember(clauses.map {
-          case (extra, card, slots, cl) =>
-            val on = Conds.cmp("state", Op.Eq, Json.fromString("on"))
-            LayoutNode.SetClause(
-              when = (if (guardOn) List(on) else Nil) ++ extra.toList match {
-                case Nil      => None
-                case g :: Nil => Some(g)
-                case gs       => Some(Conds.and(gs))
-              },
-              node = LayoutNode.Component(
-                card,
-                Slots.values(
-                  slots.updated(
-                    "entity_id",
-                    TemplateSlot(ValueExpr.literal(id))
-                  )
-                ),
-                cell = cl
-              )
+        id -> Sets.Member(clauses.map { case (extra, card, slots, cl) =>
+          val on = Conds.cmp("state", Op.Eq, Json.fromString("on"))
+          Sets.Clause(
+            when = (if (guardOn) List(on) else Nil) ++ extra.toList match {
+              case Nil      => None
+              case g :: Nil => Some(g)
+              case gs       => Some(Conds.and(gs))
+            },
+            node = LayoutNode.Component(
+              card,
+              Slots.values(
+                slots.updated(
+                  "entity_id",
+                  TemplateSlot(ValueExpr.literal(id))
+                )
+              ),
+              cell = cl
             )
+          )
         })
       }.toMap
     )
@@ -832,12 +833,12 @@ class RendererSuite extends munit.FunSuite {
   test("a set dispatches per clause and wraps each member on its own") {
     // The first clause whose guard holds decides the rendering.
     def low = Conds.cmp("attr:battery", Op.Lt, Json.fromInt(20))
-    val set = LayoutNode.SetNode(
+    val set = Sets.node(
       candidates = List("light.a", "sensor.b", "sensor.c"),
       members = Map(
-        "light.a" -> LayoutNode.SetMember(
+        "light.a" -> Sets.Member(
           List(
-            LayoutNode.SetClause(
+            Sets.Clause(
               Some(low),
               LayoutNode.Component(
                 "btn",
@@ -860,9 +861,9 @@ class RendererSuite extends munit.FunSuite {
             )
           )
         ),
-        "sensor.b" -> LayoutNode.SetMember(
+        "sensor.b" -> Sets.Member(
           List(
-            LayoutNode.SetClause(
+            Sets.Clause(
               Some(low),
               LayoutNode.Component(
                 "card",
@@ -878,9 +879,9 @@ class RendererSuite extends munit.FunSuite {
             )
           )
         ),
-        "sensor.c" -> LayoutNode.SetMember(
+        "sensor.c" -> Sets.Member(
           List(
-            LayoutNode.SetClause(
+            Sets.Clause(
               Some(low),
               LayoutNode.Component(
                 "card",
@@ -936,6 +937,47 @@ class RendererSuite extends munit.FunSuite {
         StateChange.Moved("light.a", None, states("light.a"))
       ),
       List("c")
+    )
+  }
+
+  test(
+    "a member whose first clause reads an attribute its entity lacks shows the second"
+  ) {
+    // An attribute the entity does not report is no value, which does not
+    // hold: the chain goes on to the next clause, not out of the set.
+    def bright = Conds.cmp("attr:brightness", Op.Gt, Json.fromInt(10))
+    val r = renderer(
+      onSet(
+        List("light.a", "light.b"),
+        List(
+          (
+            Some(bright),
+            "card",
+            Map("state" -> TemplateSlot(ValueExpr(Value.Entity(None)))),
+            None
+          ),
+          (
+            None,
+            "btn",
+            Map("label" -> lit("plain")),
+            None
+          )
+        )
+      )
+    )
+    val html = r.renderBody(
+      Map(
+        "light.a" -> st("light.a", "on", "brightness" -> Json.fromInt(200)),
+        "light.b" -> st("light.b", "on")
+      )
+    )
+    assert(
+      html.contains("""id="c_light_a"><div><span>on</span>"""),
+      clue = html
+    )
+    assert(
+      html.contains("""id="c_light_b"><button>plain</button>"""),
+      clue = html
     )
   }
 
@@ -1965,7 +2007,7 @@ class RendererSuite extends munit.FunSuite {
     "a card that splices children without declaring the region is rejected"
   ) {
     def dash(container: CardDef) = Dashboard(
-      cards = Map(
+      cards = Sets.cards ++ Map(
         "box" -> container,
         "card" -> TestCard("<span>{{state}}</span>")
       ),
@@ -2030,7 +2072,7 @@ class RendererSuite extends munit.FunSuite {
     * unaddressable, so dragging a row stops updating the master until a reload.
     */
   test("a live head beside its members carries none of them") {
-    val cards = Map(
+    val cards = Sets.cards ++ Map(
       "host" -> TestCard(
         template = """{{{head}}}""" +
           """<div>{{{children}}}</div>""",

@@ -99,6 +99,10 @@ and a signal, so it picks a typed value (a history window, ADR 0031) rather than
   `{"is": <scalar>, "value": …}`, since a JSON object's keys are strings and decoding them by
   another field's type would derive in the decoder: `{"kind": "Chosen", "by": <value>, "cases":
   […], "otherwise": …}`; anything else is the value written down.
+- **A set's member is a `Choice[LayoutNode]`** (ADR 0003): the node alone, or chosen by a guard
+  read for its candidate, `by` a condition (case `true`) or `IndexOfTrue` over a chain of them (case
+  `i` the clause), and no `otherwise`. `Ready` holds each member's `by` compiled beside its nodes by
+  case index (`MemberChoice`), decided per candidate by `MemberGraph`.
 - **`by` may read state**, so an entity can pick a window, decided per version. Those entities join
   the node's reads: they wake it and its render key carries them, as any entity read does. It may
   not read a fetch, whose answer would need the window first. A decision's window is written down,
