@@ -117,10 +117,15 @@ class FoldingSinkPropertySuite extends HedgehogSuite {
   private val Elements = "datastar-patch-elements"
 
   private def rendered(eventType: String, lines: String*): SseFrame =
-    SseFrame.of(
-      org.http4s.ServerSentEvent(
-        data = Some(lines.mkString("\ndata: ")),
-        eventType = Some(eventType)
+    SseFrame(
+      fs2.Chunk.array(
+        org.http4s
+          .ServerSentEvent(
+            data = Some(lines.mkString("\ndata: ")),
+            eventType = Some(eventType)
+          )
+          .renderString
+          .getBytes(java.nio.charset.StandardCharsets.UTF_8)
       )
     )
 }

@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import fh.view.model.{SignalBind, SignalId, SlotValue, ThemeClasses}
 import io.circe.Json
-import org.http4s.{EntityEncoder, MediaType, ServerSentEvent}
+import org.http4s.{EntityEncoder, MediaType}
 import org.http4s.headers.`Content-Type`
 
 import java.nio.charset.StandardCharsets.UTF_8
@@ -20,9 +20,10 @@ enum PatchMode(val wire: String):
 /** One SSE event, encoded to bytes at construction. That shares only the
   * constant frames (keep-alive, recover marker, reload); live frames are still
   * encoded per session, since each is built by [[Patches.resume]]. Byte- and
-  * header-identical to http4s's own encoder. A chunk, not an array: a repaint's
-  * frame is the pieces its walk was encoded in ([[Datastar.patchWritten]]),
-  * which joining would copy the page again. Equal by content.
+  * header-identical to http4s's own encoder (`FoldingSinkPropertySuite`). A
+  * chunk, not an array: a repaint's frame is the pieces its walk was encoded in
+  * ([[Datastar.patchWritten]]), which joining would copy the page again. Equal
+  * by content.
   */
 private[view] final case class SseFrame(bytes: fs2.Chunk[Byte]):
 
@@ -51,9 +52,6 @@ private[view] final case class SseFrame(bytes: fs2.Chunk[Byte]):
   def comment: Option[String] = parsed._3
 
 private[view] object SseFrame:
-
-  def of(event: ServerSentEvent): SseFrame =
-    SseFrame(fs2.Chunk.array(event.renderString.getBytes(UTF_8)))
 
   def comment(text: String): SseFrame =
     SseFrame(fs2.Chunk.array(s": $text\n\n".getBytes(UTF_8)))
