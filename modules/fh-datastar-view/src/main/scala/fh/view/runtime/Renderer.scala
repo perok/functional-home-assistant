@@ -171,7 +171,7 @@ class Renderer(val validated: Dashboard.Validated) {
     val indexed: Map[NodeId, Ready.Node] =
       walked.map((id, n, _, _) => id -> n).toMap
 
-    /** Each container's nodes, in id order. */
+    /** In id order. */
     val inContainer: Map[Ix, List[NodeId]] =
       walked
         .groupMap(_._4)(_._1)
@@ -179,7 +179,6 @@ class Renderer(val validated: Dashboard.Validated) {
         .mapValues(_.sorted)
         .toMap
 
-    /** container -> entity -> its nodes binding it. */
     val byEntity: Map[Ix, Map[String, Set[NodeId]]] =
       walked
         .collect { case (id, c: Ready.Component, _, in) =>
@@ -294,8 +293,7 @@ class Renderer(val validated: Dashboard.Validated) {
   private val containerEntities: Map[Ix, Map[String, Set[NodeId]]] =
     indexes.flatMap(_.byEntity).toMap
 
-  /** Lazy: the member graph, the ancestry and the pick graph are built below.
-    */
+  /** Lazy: the member graph and the pick graph are built below. */
   private[runtime] lazy val vars: VarGraph =
     new VarGraph(
       // A group inside a member's clause has an id of its own, and sees its
@@ -788,7 +786,6 @@ class Renderer(val validated: Dashboard.Validated) {
       .mapValues(_.sortBy(_.toInt))
       .toMap
 
-  /** A container's own static nodes binding `entityId`. */
   def containerComponentsFor(container: Ix, entityId: String): Set[NodeId] =
     containerEntities
       .get(container)
@@ -980,7 +977,6 @@ class Renderer(val validated: Dashboard.Validated) {
   def containerNodeIds(container: Ix): List[NodeId] =
     containerNodes.getOrElse(container, Nil)
 
-  /** [[containerNodeIds]] of every container `spelled` names. */
   def caseNodeIds(spelled: String): Set[NodeId] =
     picks.containersSpelled(spelled).flatMap(containerNodeIds).toSet
 

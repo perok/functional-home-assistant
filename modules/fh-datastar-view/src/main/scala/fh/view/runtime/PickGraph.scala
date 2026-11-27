@@ -49,7 +49,6 @@ private[runtime] final class PickGraph(
   /** The page's root: always shown, never in an open set. */
   val pageRoot: Ix = index.root
 
-  /** Every container but the page's root. */
   private val containers: BitSet =
     BitSet.fromSpecific(
       index.all
@@ -63,7 +62,6 @@ private[runtime] final class PickGraph(
       .ixsOf(NodeId.derived(spelled))
       .filter(ix => containers(ix.toInt))
 
-  /** The node a pick fills. */
   def hostOf(gid: NodeId): NodeId = pickHosts.get(gid).fold(gid)(_._1)
 
   /** The picks a node fills: one per clause of the member it is in. */
@@ -72,16 +70,12 @@ private[runtime] final class PickGraph(
   private val picksByHost: Map[NodeId, List[NodeId]] =
     pickHosts.toList.groupMap(_._2._1)(_._1)
 
-  /** The pick a case root belongs to, and its index there. */
   def caseOf(ix: Ix): Option[(NodeId, Int)] =
     Option(caseGid(ix.toInt)).map(_ -> caseIdx(ix.toInt))
 
-  /** The clause a pick inside a set member belongs to. */
   def clauseOf(gid: NodeId): Option[Int] = pickHosts.get(gid).flatMap(_._2)
 
-  /** A pick's cases' node ids, the otherwise's last; empty for a node owning
-    * none.
-    */
+  /** The otherwise's last. */
   def cases(gid: NodeId): Vector[String] =
     casesOf.getOrElse(gid, Vector.empty)
 
@@ -98,11 +92,10 @@ private[runtime] final class PickGraph(
       .collect { case i if caseGid(i) != null => caseGid(i) -> caseIdx(i) }
       .find((gid, _) => groupShown(gid, shared))
 
-  /** The case of a pick over a variable that `value` picks. */
   def memberAt(gid: NodeId, value: String): Option[Int] =
     picks.get(gid).flatMap(_.decide(value))
 
-  /** What picks each case of a pick over a variable, in its order. */
+  /** In case order. */
   def memberValues(gid: NodeId): List[String] =
     picks
       .get(gid)
@@ -110,7 +103,6 @@ private[runtime] final class PickGraph(
 
   def isStatePick(gid: NodeId): Boolean = statePicks(gid)
 
-  /** The node variable deciding `gid`, for a tab bar's panel. */
   def varSelecting(gid: NodeId): Option[String] =
     picks.get(gid).flatMap(_.variable)
 
@@ -143,26 +135,22 @@ private[runtime] final class PickGraph(
 
   private val varPickList: Array[NodeId] = varPicks.toArray.sorted
 
-  /** Picks computing over a variable, alone or with state: decided at the
-    * viewer's values and kept per values ([[Shared.branchAt]]), so viewers on
-    * different ones are never handed each other's case. The variables are read
-    * in the host's scope.
+  /** Picks computing over a variable, alone or with state: kept per values
+    * ([[Shared.branchAt]]), the variables read in the host's scope.
     */
   val viewerPicks: Set[NodeId] =
     picks.collect { case (gid, p) if p.readsViewer => gid }.toSet
 
   private val viewerPickList: Array[NodeId] = viewerPicks.toArray.sorted
 
-  /** The variables a viewer pick reads, in the order its decision is kept by.
-    */
+  /** In the order its decision is kept by. */
   def viewerVariables(gid: NodeId): List[String] =
     picks.get(gid).filter(_.readsViewer).fold(Nil)(_.by.variables)
 
-  /** The case roots the viewer's values pick, shown or not: a lookup for a
-    * plain variable, which costs less than keeping it would, the kept decision
-    * for a viewer pick. A viewer pick is decided wherever it stands, though
-    * nobody shows it: it reads no fetch (`chosenErrors`), so asking costs a
-    * memo entry per values.
+  /** The case roots the viewer's values pick, shown or not. A plain variable is
+    * looked up, which costs less than keeping it would. A viewer pick is
+    * decided even where nobody shows it: it reads no fetch (`chosenErrors`), so
+    * that costs a memo entry per values.
     */
   def chosen(shared: Shared): BitSet =
     BitSet.fromSpecific(
@@ -173,8 +161,7 @@ private[runtime] final class PickGraph(
       )
     )
 
-  /** If/else hosts over state alone: rendered once per slug for every viewer.
-    */
+  /** Rendered once per slug for every viewer. */
   val statePicks: Set[NodeId] = picks.keySet -- varPicks -- viewerPicks
 
   /** The nodes `id` names, a pick by its host, one per clause. */
@@ -219,9 +206,7 @@ private[runtime] final class PickGraph(
     shown(from)
   }
 
-  /** The containers shown from `spelled` down, it included, as `shared` has
-    * them.
-    */
+  /** `spelled` included. */
   def shownWithin(spelled: String, shared: Shared): BitSet = {
     val stop = BitSet.fromSpecific(containersSpelled(spelled).map(_.toInt))
     val open = chosen(shared)
@@ -236,10 +221,9 @@ private[runtime] final class PickGraph(
       shownUpTo(_, BitSet.empty, open, shared, Set.empty)
     )
 
-  /** Whether container `c` is on screen for a viewer with `open` open, as
-    * `shared` has it: every container up its chain is picked, and a pick inside
-    * a set member only while the member is in that clause ([[groupShown]]).
-    * `open` may hold a tab panel inside a hidden `If`, hence the whole chain.
+  /** The whole chain, since `open` may hold a tab panel inside a hidden `If`; a
+    * pick inside a set member counts only while the member is in that clause
+    * ([[groupShown]]).
     */
   def visibleContainer(
       c: Ix,
@@ -248,7 +232,6 @@ private[runtime] final class PickGraph(
       cut: Set[NodeId] = Set.empty
   ): Boolean = shownUpTo(c.toInt, BitSet.empty, open, shared, cut)
 
-  /** The containers of one viewer's [[chosen]] that are on screen. */
   def onScreen(shared: Shared): BitSet = {
     val open = chosen(shared)
     open.filter(shownUpTo(_, BitSet.empty, open, shared, Set.empty))
@@ -272,9 +255,7 @@ private[runtime] final class PickGraph(
     )
   }
 
-  /** One read of `by` and a lookup, once per version; `None` fills the host
-    * with nothing. `by` is subject-free (`validate`).
-    */
+  /** Once per version; `None` fills the host with nothing. */
   private[runtime] def decideByState(
       gid: NodeId,
       shared: Shared
@@ -309,7 +290,6 @@ private[runtime] final class PickGraph(
       viewerPicksReading.values.flatten ++
       viewerPicks.filter(picks(_).by.entities.isEmpty)
 
-  /** The picks `changes` dirty. */
   def dirtied(changes: List[StateChange]): Set[NodeId] =
     changes.iterator
       .flatMap(c =>
@@ -318,8 +298,8 @@ private[runtime] final class PickGraph(
       )
       .toSet
 
-  /** Whether `gid` is on the page as `shared` has it: a pick inside a member
-    * only while the member is present and in that clause.
+  /** A pick inside a member only while the member is present and in that
+    * clause.
     */
   def groupShown(gid: NodeId, shared: Shared): Boolean =
     clauseOf(gid) match
@@ -354,9 +334,7 @@ private[runtime] final class PickGraph(
     moved.filter(visibleNodeCut(_, visible, next, cut)).sorted
   }
 
-  /** A viewer pick's `by` read once at the values `shared` views with and
-    * looked up, kept per values; `None` fills the host with nothing.
-    */
+  /** Kept per values; `None` fills the host with nothing. */
   private[runtime] def decideByViewer(
       gid: NodeId,
       shared: Shared
@@ -368,18 +346,14 @@ private[runtime] final class PickGraph(
         p.decide(p.by.run(null, shared.states, f))
       )
 
-  /** The case `gid` shows for `shared`'s viewer, however it is decided. */
   private[runtime] def decide(gid: NodeId, shared: Shared): Option[Int] =
     if (statePicks(gid)) decideByState(gid, shared)
     else if (viewerPicks(gid)) decideByViewer(gid, shared)
     else decideByVariable(gid, shared)
 
-  /** The viewer picks `changes` move for some of `seen`, each with the cases
-    * arriving for those it moves. As [[affectedStateGroups]], per viewer by its
-    * own screen: a pick counts for one only if [[groupShown]] before and after
-    * and its host is visible past no other pick switching for it, a state flip
-    * (`stateFlips`) or another of its own. One moving for no viewer is not
-    * here.
+  /** [[affectedStateGroups]] per viewer, each by its own screen, with the cases
+    * arriving: a pick is cut by a state flip (`stateFlips`) or another of the
+    * viewer's own.
     */
   def affectedViewerGroups(
       changes: List[StateChange],
@@ -412,7 +386,6 @@ private[runtime] final class PickGraph(
     }
   }
 
-  /** The case the viewer's value of `gid`'s variable picks, if any. */
   private[runtime] def decideByVariable(
       gid: NodeId,
       shared: Shared
@@ -424,8 +397,8 @@ private[runtime] final class PickGraph(
 
 private[runtime] object PickGraph {
 
-  /** One distinct set of values live sessions hold, and the containers on
-    * screen for those holding it.
+  /** One distinct values live sessions hold, and the containers on screen for
+    * any of them.
     */
   final case class Seen(env: VarEnv, visible: BitSet)
 }

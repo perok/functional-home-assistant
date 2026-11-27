@@ -82,7 +82,7 @@ private[runtime] enum HostStep:
   case Fill(keys: IArray[Ix])
   case Leave(key: Ix)
 
-  /** `key` goes before `before`, or last. */
+  /** `None`: last. */
   case Place(key: Ix, before: Option[Ix])
 
 /** A patch and what it does to its client's record. No audience: the session

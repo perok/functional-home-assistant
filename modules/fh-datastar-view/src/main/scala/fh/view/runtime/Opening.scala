@@ -26,7 +26,7 @@ private[runtime] enum RepaintReason {
   /** A rewound counter. */
   case AheadOfStore
 
-  /** From before a stretch nobody watched ([[FragmentLog.reaches]]). */
+  /** From before a stretch nobody watched. */
   case BeforeGap
 
   /** `holds` records what was SENT, and a cursor rides last in its batch, so an
@@ -34,7 +34,6 @@ private[runtime] enum RepaintReason {
     */
   case BehindTold
 
-  /** `holds` is one renderer's, painted under another than the serving one. */
   case HeldElsewhere
 }
 

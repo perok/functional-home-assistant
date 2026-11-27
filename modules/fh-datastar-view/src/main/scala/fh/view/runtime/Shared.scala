@@ -43,15 +43,10 @@ private[runtime] final class Shared private (
     private val viewedBy: VarEnv | Null
 ) {
 
-  /** This version as `r`'s walk reads it: the same decisions, made with its
-    * answers.
-    */
+  /** The same decisions, made with `r`'s answers. */
   def asking(r: Shared.Run): Shared =
     new Shared(states, version, tables, r, viewedBy)
 
-  /** This version as one viewer reads it: what reads a variable is decided at
-    * `env`'s values.
-    */
   def viewing(env: VarEnv): Shared =
     new Shared(states, version, tables, run, env)
 
@@ -70,9 +65,7 @@ private[runtime] final class Shared private (
   ): Option[Int] =
     decideAt(tables.viewerBranches, gid, gid, names, reads, None)(derive)
 
-  /** A set's members read at the values of `names` in scope at its node `at`,
-    * as [[branchAt]] reads a pick's case.
-    */
+  /** As [[branchAt]], in scope at the set's node `at`. */
   def setAt(
       gid: SetId,
       at: NodeId,
@@ -105,9 +98,7 @@ private[runtime] final class Shared private (
             t.once(k, at, names, values)(derive(in))
   }
 
-  /** A `valueWhile` read at the values of `names` in scope at its slot's node
-    * `at`, as [[branchAt]] reads a pick's case.
-    */
+  /** As [[branchAt]], in scope at the slot's node `at`. */
   def holdsAt(
       key: String,
       at: NodeId,
@@ -256,7 +247,6 @@ private[runtime] object Shared {
       }
   }
 
-  /** What a frame's changes dirtied. */
   final case class Dirty(
       sets: Set[SetId],
       members: Set[NodeId],
