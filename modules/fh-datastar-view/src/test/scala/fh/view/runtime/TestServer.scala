@@ -570,7 +570,8 @@ object TestServer {
       windows: Server.SessionWindows = Server.SessionWindows.default,
       config: FakeConfig = FakeConfig(),
       chart: Resource[IO, IO[ChartRenderer]] = perServer,
-      historyClock: IO[java.time.Instant] = IO.realTimeInstant
+      historyClock: IO[java.time.Instant] = IO.realTimeInstant,
+      otel: Telemetry.Otel = Telemetry.Otel.noop
   ): Resource[IO, TestServer] =
     for {
       validated <- IO
@@ -592,7 +593,8 @@ object TestServer {
         startingWith(validated.withAccess(access)),
         windows = windows,
         chart = chart,
-        historyClock = historyClock
+        historyClock = historyClock,
+        otel = otel
       )
       ts <- inProcess(fake, dashboard.slug, booted)
     } yield ts
@@ -756,7 +758,8 @@ object TestServer {
       windows: Server.SessionWindows = Server.SessionWindows.default,
       minifier: Minifier = Minifier.none,
       chart: Resource[IO, IO[ChartRenderer]] = perServer,
-      historyClock: IO[java.time.Instant] = IO.realTimeInstant
+      historyClock: IO[java.time.Instant] = IO.realTimeInstant,
+      otel: Telemetry.Otel = Telemetry.Otel.noop
   ): Resource[IO, Booted] =
     for {
       assetsDir <- tempDir("fh-assets")
@@ -773,7 +776,7 @@ object TestServer {
           trustedProxy = None,
           pklLspJar = None,
           watchRegistry = false,
-          otel = Telemetry.Otel.noop,
+          otel = otel,
           loggerFactory = Logging.console,
           meters = Meters.noop,
           sourceWatcher = Resource.pure(watcher),

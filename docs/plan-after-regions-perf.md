@@ -4,8 +4,8 @@ A full bench comparison of `after-regions` (9baea638) against main (574f062c), c
 `-f 3` and then profiled (async-profiler, alloc and cpu), found five regressions. Each one below
 names its cause, measured; the fixes keep behaviour byte-identical.
 
-**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7 built; 8–11 open, in the order at
-the end.
+**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10 and 11 built; 8 and 9 open,
+in the order at the end.
 
 ## Working this plan
 
@@ -99,15 +99,20 @@ order the walk met them.
    then its end; the session's holds commit after the walk, as a page load's do. No hand-written
    UTF-8: the writer's encoder does it in a fixed buffer. Gate: 10's `repaint` B/op near
    `pageWalk`'s.
-10. **A bench of a real dashboard** (first). Every `RenderBench` page is synthetic (`TestCard`), and
-    no bench prices a repaint. The starter site over a fixture house shaped after the
-    maintainer's (domains, counts, areas), evaluated through `PklBuild` at setup as
-    `PklEvalBench` does: `pageWalk` (the shipped writer chain), `repaint`, and a cold single-shot
-    variant; `-prof gc`, and runs under the Pi's flags (`-XX:+UseSerialGC -Xms64M -Xmx512M`).
-    B/op is the gate that carries to the Pi; time carries in direction only.
-11. **A span on the stream's open**, tagged with whether it repainted, frames and bytes: the walk
-    span (`dashboard.page.walk`) covers a page load only, and a phone reopening the app resumes a
-    stream.
+10. **A bench of a real dashboard** (built: `HouseBench`). Every `RenderBench` page is synthetic
+    (`TestCard`), and no bench priced a repaint. The starter site over `HouseShape`, a house with
+    the maintainer's shape and no names (1116 entities in its per-domain counts, 3 floors of 16
+    areas, its light colour modes, 5 low batteries of 22), evaluated through `DashboardBuild` at
+    setup: `pageWalk` (the shipped writer chain), `repaint`, and `pageWalkCold`, under the Pi's
+    flags (`-XX:+UseSerialGC -Xms64M -Xmx512M`). B/op is the gate that carries to the Pi; time
+    carries in direction only. Baseline (c021a98e + the bench, `-f 3`): a 290 KB page;
+    `pageWalk` 527 KB/op, 894 ± 62 µs; `repaint` 9.82 MB/op, 7191 ± 465 µs; `pageWalkCold`
+    332 ± 73 ms (its B/op counts the setup's evaluation, so read its time only). A repaint costs
+    18.6× a page load's bytes, which is 8's case.
+11. **A span on the stream's open** (built: `dashboard.stream.open`, under the request's trace),
+    tagged `fh.opening` (resume, repaint with `fh.repaint.reason`, reload), `fh.frames` and
+    `fh.bytes`: the walk span (`dashboard.page.walk`) covers a page load only, and a phone
+    reopening the app resumes a stream. The opening step answers a `Server.Opened`.
 
 Order: 10, 11, 8, then the reconnect question (a tab switch of a few seconds repaints
 wholesale; why, with the browser test setup: it decides how often 8's path runs), then 9.
