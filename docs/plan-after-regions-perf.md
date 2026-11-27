@@ -4,8 +4,8 @@ A full bench comparison of `after-regions` (9baea638) against main (574f062c), c
 `-f 3` and then profiled (async-profiler, alloc and cpu), found five regressions. Each one below
 names its cause, measured; the fixes keep behaviour byte-identical.
 
-**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10, 11, 8 and 12 built; the reconnect
-question and 9 open, in the order at the end.
+**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10, 11, 8 and 12 built; 13 (the reconnect) answered, its fix to
+discuss; 9 next, in the order at the end.
 
 ## Working this plan
 
@@ -173,8 +173,35 @@ order the walk met them.
     extension) and the signals frame's leaves, each a `Json` made from a `SlotValue` to be
     printed once.
 
-Order: 10, 11, 8, 12, then the reconnect question (a tab switch of a few seconds repaints
-wholesale; why, with the browser test setup: it decides how often 8's path runs), then 9.
+13. **The reconnect** (the question answered; the fix undecided). A tab switch drops the stream
+    and the page reconnects with its cursor, within the linger. `ReconnectSuite` drives it
+    through `FakeBrowser`: with nothing lost, the opening resumes (nothing moved: its signals
+    alone; a tick while down: only what it moved). It repaints when a frame was lost in
+    flight: hidden, Datastar aborts the fetch, the server writes on until it sees the close,
+    and a tick in between moves `told` past the page's cursor, so the opening reads
+    `BehindTold` and repaints the body (8's path). On a house ticking every second that is
+    most tab switches, and the likely large update on a reconnect.
+
+    The log covers the window; `holds` does not. It records what was SENT, so a resume from
+    the cursor would skip what was lost, which is why `BehindTold` repaints.
+
+    And a bug: a choice's batch ends with no cursor, so `told` does not move for it. A choice
+    lost in flight resumes over a DOM that never got the panel: the tab bar says the new tab,
+    the panel is the old one, and `holds` says otherwise, so nothing corrects it
+    (`ReconnectSuite`, "a choice lost in flight is resent", an expected failure until fixed).
+
+    Directions, to discuss:
+    - **A.** Every batch a session sends ends with an ack: a per-session count of batches sent,
+      not the store version, which a choice does not move. `told` is the last one sent, so a
+      lost choice reads `BehindTold` instead of resuming wrong.
+    - **B.** Keep `holds` as it stood at each of the last few batches sent (persistent maps
+      share structure): a cursor behind `told` resumes from the `holds` of its own batch,
+      exact because a cursor rides last in its batch, instead of repainting.
+
+    A alone fixes the bug and makes a lost choice a repaint; B takes the repaint off the tab
+    switch. Gate for B: the suite's lost-in-flight case resumes, and the opening's bytes.
+
+Order: 10, 11, 8, 12, 13 (answered; its fix to discuss), then 9.
 9. **No version refers to another** (replaces 5's release). 5 releases a version `Decided` lets
    go: a manual dispose that every holder of versions must remember. The forward offer has a
    customer each frame (the recorder advances, then plans against `prev`, so its late "before"
