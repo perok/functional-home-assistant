@@ -54,8 +54,8 @@ What a write makes true is committed by the one route that made it:
 `Server.setVar` sends the variable's value after its repaints and any panel
 swap, and `SurfaceGraph.committedSelection` says what a popup swap put in the
 host, a surface id (or `""`), in the shape `openPopup` reads back out. It
-answers `None` for a bake group: a variable-selected one commits through its
-variable, and a state-activated one is server truth every viewer shares.
+answers `None` for a choice's host: one over a variable commits through its
+variable, and one over state is server truth every viewer shares.
 
 **Two signals, not three.** An earlier draft added a `_<group>__busy` from
 `data-indicator`. "A request is in flight" is just `pending != ''` — once you
@@ -420,8 +420,8 @@ the whole page on a transient condition is a worse failure than one that says
   the two clears, and the popup taps carry no client assignment at all. The
   `PklBuildSuite` snapshots record it.
 - `SurfaceGraphSuite` owns the pure half as a ROUND TRIP — whatever
-  `committedSelection` says must read back through `resolveActive`/`openPopup`
-  as the member it named — because the two ends were written apart and a value
+  `committedSelection` says must read back through `openPopup` as the popup
+  it named — because the two ends were written apart and a value
   shape only one understood would restore the original bug.
 - `SurfaceTapSuite` owns the server half: a swap emits the commit, on open AND
   on close, with the request body carrying no ui-state at all, so the selection

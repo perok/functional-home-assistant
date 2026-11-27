@@ -9,13 +9,11 @@ import fh.view.model.{
   SlotType,
   SortTerm,
   ValueType,
-  Activation,
   CardDef,
   Dashboard,
   LayoutNode,
   NodeId,
   Op,
-  Region,
   SignalBind,
   SignalId,
   Lit,
@@ -23,8 +21,7 @@ import fh.view.model.{
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
@@ -470,7 +467,7 @@ class RenderBench {
         lastUpdated = Some(BaseInstant)
       )
     }
-    setIfs = Renderer.create(ifSetDash(Leaves, ifStates))
+    setIfs = Renderer.create(ifSetDash(Leaves))
     setIfsFrames = Vector.tabulate(4)(i => publishFrame(ifStates, i % 2))
     if (
       setIfs.surfaces
@@ -1204,8 +1201,8 @@ class RenderBench {
     val at = flipRot.toLong
     val log = FragmentLog("bench").placed(
       FlipContainer,
-      MemberKey.Surface("else"),
-      flipped.surfaceContentId("else"),
+      MemberKey.Surface("c_0_else"),
+      flipped.surfaceContentId("c_0_else"),
       at
     )
     (1 to clients).toList
@@ -1967,7 +1964,7 @@ object RenderBench {
     ),
     "col" -> TestCard(
       template = """<div class="fh-col">{{{children}}}</div>""",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     )
   )
 
@@ -2093,7 +2090,7 @@ object RenderBench {
     */
   final val FlipEntity = "alarm.house"
 
-  /** A state group under the root column: an `ifhost` whose one baked region
+  /** A choice over state under the root column: an `ifhost` whose one region
     * holds whichever branch the state picks, each branch a real subtree of
     * [[FlipLeaves]] entity cards.
     *
@@ -2105,48 +2102,35 @@ object RenderBench {
     Dashboard(
       cards = cards + ("ifhost" -> TestCard(
         template = """<div id="{{hostId}}">{{{branch}}}</div>""",
-        regions = Map("branch" -> Region(Region.Baked))
+        regions = Set("branch")
       )),
       card = LayoutNode.Component(
         "col",
-        slots = Slots.kids(LayoutNode.Component("ifhost"))
-      ),
-      surfaces = Map(
-        "then" -> branchSurface(
-          tree(FlipLeaves, 4, signals),
-          0,
-          Some(
-            Conds.cmp(
-              "state",
-              Op.Eq,
-              Json.fromString("armed"),
-              entity = Some(FlipEntity)
+        slots = Slots.kids(
+          LayoutNode.Component(
+            "ifhost",
+            Map(
+              "branch" -> Slots.iff(
+                Conds.cmp(
+                  "state",
+                  Op.Eq,
+                  Json.fromString("armed"),
+                  entity = Some(FlipEntity)
+                ),
+                tree(FlipLeaves, 4, signals),
+                Some(tree(FlipLeaves, 4, signals))
+              )
             )
           )
-        ),
-        // No condition always holds and reads no entity, which is what an
-        // `else` branch is.
-        "else" -> branchSurface(tree(FlipLeaves, 4, signals), 1, None)
+        )
       )
     )
 
-  /** The host the two branches bake into is the root column's only child, so
-    * its id is `c_0` by the same derivation every other node here uses.
+  /** The host of the two branches is the root column's only child, so its id is
+    * `c_0` by the same derivation every other node here uses; the branches are
+    * `c_0_t0` and `c_0_else`.
     */
   final val FlipContainer: NodeId = NodeId.derived("c_0")
-
-  private def branchSurface(
-      content: LayoutNode,
-      index: Int,
-      condition: Option[ValueExpr]
-  ): Surface =
-    Surface(
-      content,
-      bakeInto = Some(FlipContainer),
-      bakeAs = Some("branch"),
-      bakeIndex = Some(index),
-      activation = Activation.State(condition)
-    )
 
   /** The same leaves, as one candidate set: every entity a candidate, each with
     * a single clause rendering the same card. Unguarded, membership is total,
@@ -2270,17 +2254,14 @@ object RenderBench {
   def windowId(i: Int): String = s"binary_sensor.window_$i"
 
   /** [[setTree]], each member a column of its leaf and an If on its window:
-    * `then` a second card of its light, `else` an empty column. The If's host
-    * ids are the member graph's to derive, so a first renderer finds them and
-    * the dashboard returned carries their branches.
+    * `then` a second card of its light, `else` an empty column.
     */
-  def ifSetDash(leaves: Int, states: Map[String, EntityState]): Dashboard = {
-    val withHost = cards + ("ifhost" -> TestCard(
-      template = """<div id="{{hostId}}">{{{branch}}}</div>""",
-      regions = Map("branch" -> Region(Region.Baked))
-    ))
-    val bare = Dashboard(
-      withHost,
+  def ifSetDash(leaves: Int): Dashboard =
+    Dashboard(
+      cards + ("ifhost" -> TestCard(
+        template = """<div id="{{hostId}}">{{{branch}}}</div>""",
+        regions = Set("branch")
+      )),
       LayoutNode.Component(
         "col",
         slots = Slots.kids(
@@ -2295,7 +2276,21 @@ object RenderBench {
                         "col",
                         slots = Slots.kids(
                           leaf(true)(i),
-                          LayoutNode.Component("ifhost")
+                          LayoutNode.Component(
+                            "ifhost",
+                            Map(
+                              "branch" -> Slots.iff(
+                                Conds.cmp(
+                                  "state",
+                                  Op.Eq,
+                                  Json.fromString("on"),
+                                  entity = Some(windowId(i))
+                                ),
+                                leaf(true)(i),
+                                Some(LayoutNode.Component("col"))
+                              )
+                            )
+                          )
                         )
                       )
                     )
@@ -2307,48 +2302,6 @@ object RenderBench {
         )
       )
     )
-    val members = Renderer.create(bare).members
-    def branch(
-        host: NodeId,
-        at: Int,
-        content: LayoutNode,
-        when: Option[ValueExpr]
-    ) =
-      Surface(
-        content,
-        bakeInto = Some(host),
-        bakeAs = Some("branch"),
-        bakeIndex = Some(at),
-        activation = Activation.State(when),
-        clause = Some(0)
-      )
-    val surfaces = members.memberIdsBelow.toList.flatMap { host =>
-      members
-        .nodeAt(host, Shared.of(states))
-        .toList
-        .collect {
-          case (m, n) if n.card == "ifhost" =>
-            val i = m.key match {
-              case MemberKey.Entity(e)  => e.stripPrefix("light.tile_").toInt
-              case MemberKey.Surface(s) =>
-                sys.error(s"not an entity member: $s")
-            }
-            val open = Conds.cmp(
-              "state",
-              Op.Eq,
-              Json.fromString("on"),
-              entity = Some(windowId(i))
-            )
-            List(
-              s"${host}_k0_then" -> branch(host, 0, leaf(true)(i), Some(open)),
-              s"${host}_k0_else" ->
-                branch(host, 1, LayoutNode.Component("col"), None)
-            )
-        }
-        .flatten
-    }
-    bare.copy(surfaces = surfaces.toMap)
-  }
 
   /** Every fixture state carries one, because a real feed always does (measured
     * against the live instance: 0 of 1070 entities without a `last_updated`). A

@@ -1399,7 +1399,7 @@ class PklBuildSuite extends munit.FunSuite {
       d.cards.contains("tabs") && d.cards.contains("ifhost"),
       clue = d.cards.keySet
     )
-    // The bake groups are derived from the choices' `Chosen` fills.
+    // The picks are derived from the choices' `Chosen` fills.
     val surfaces = d.lowered.surfaces
     assert(
       surfaces.keys.exists(_.endsWith("_t0")) &&

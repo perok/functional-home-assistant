@@ -9,7 +9,6 @@ import fh.view.model.{
   Lit,
   NodeId,
   Op,
-  Region,
   Slot,
   Step,
   TemplateSlot,
@@ -22,16 +21,16 @@ import fh.view.testkit.{Conds, Slots, TestCard}
 import fh.view.testkit.DashboardBuilders.{declared, st}
 import io.circe.Json
 
-/** A nodes slot filled with a `Choice.Chosen`: the backend derives the bake
-  * group the runtime serves it through, case `i` the surface `<host>_t<i>` and
-  * the otherwise `<host>_else`.
+/** A nodes slot filled with a `Choice.Chosen`: one pick decides it, each case
+  * served as a surface, case `i` as `<host>_t<i>` and the otherwise as
+  * `<host>_else`.
   */
 class ChosenFillSuite extends munit.FunSuite {
 
   private val cards = Map(
     "host" -> TestCard(
       """<div id="{{hostId}}">{{{branch}}}</div>""",
-      regions = Map("branch" -> Region(Region.Baked))
+      regions = Set("branch")
     ),
     "leaf" -> TestCard("<span>{{text}}</span>")
   )
@@ -179,7 +178,7 @@ class ChosenFillSuite extends munit.FunSuite {
       None,
       vars = declared("mode" -> "a")
     )
-    assert(errors(n).exists(_.contains("R4b")), clue = errors(n))
+    assert(errors(n).exists(_.contains("R4d")), clue = errors(n))
   }
 
   test("validate refuses a case that is not exactly one node") {
@@ -195,6 +194,6 @@ class ChosenFillSuite extends munit.FunSuite {
     val one = host(isOn("l.a"), List(Lit.Bool(true) -> List(leaf("x"))), None)
     val Slot.Nodes(fill) = one.slots("branch"): @unchecked
     val twice = one.copy(slots = one.slots + ("other" -> Slot.Nodes(fill)))
-    assert(errors(twice).exists(_.contains("R4b")), clue = errors(twice))
+    assert(errors(twice).exists(_.contains("R4c")), clue = errors(twice))
   }
 }

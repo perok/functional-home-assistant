@@ -188,7 +188,7 @@ class SelectSuite extends CatsEffectSuite {
     assert(
       errors.exists(e =>
         e.contains("declared '1y'") &&
-          e.contains("not one of its members' values (24h, 7d, 30d)")
+          e.contains("which no case takes (24h, 7d, 30d)")
       ),
       clue = errors
     )

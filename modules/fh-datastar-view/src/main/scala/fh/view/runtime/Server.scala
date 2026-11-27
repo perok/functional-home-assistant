@@ -780,15 +780,16 @@ class Server(
       session: Session,
       version: Long
   ): IO[List[SseFrame]] =
-    session.run { s =>
-      if (version <= s.position) IO.pure(Session.Step(s, Nil, Nil))
+    session.run { was =>
+      if (version <= was.position) IO.pure(Session.Step(was, Nil, Nil))
       else
         (for
           renderer <- OptionT(live.renderer.get.map(_.rendererOf))
+          s <- OptionT.liftF(checked(renderer, was))
           log <- OptionT.liftF(live.log.get)
           store <- OptionT.liftF(stateStore.current)
-        yield (renderer, log, store))
-          .flatMap { (renderer, log, store) =>
+        yield (renderer, s, log, store))
+          .flatMap { (renderer, s, log, store) =>
             val env = renderer.vars.env(s.values)
             Patches
               .resume(
@@ -833,7 +834,7 @@ class Server(
               }
               .pipe(OptionT.liftF)
           }
-          .getOrElse(Session.Step(s, Nil, Nil))
+          .getOrElse(Session.Step(was, Nil, Nil))
     }
 
   /** What a (re)connecting client is sent first (ADR 0011): '''reload''' when
@@ -953,7 +954,7 @@ class Server(
   )(s: SessionState): IO[Session.Step[Unit]] =
     served
       .fold(IO.pure(s -> Selections.none)) { r =>
-        adoptCarriedVars(s, r, req).flatMap { adopted =>
+        checked(r, s).flatMap(adoptCarriedVars(_, r, req)).flatMap { adopted =>
           val env = r.vars.env(adopted.values)
           val selections = r.surfaces.selections(requested, env)
           val open = r.surfaces.selectedSurfaces(selections)
@@ -1005,7 +1006,7 @@ class Server(
       session: Session,
       prev: Renderer,
       r: Renderer
-  )(s: SessionState): IO[Session.Step[Unit]] = {
+  )(was: SessionState): IO[Session.Step[Unit]] = checked(r, was).flatMap { s =>
     // What is selected NOW, not what this stream connected with: popups since
     // have moved `open`, and tab presses the session's variables.
     val env = r.vars.env(s.values)
@@ -1030,7 +1031,16 @@ class Server(
               position = store.version,
               told = store.version
             ),
-            head ++ painted ++ Server.orphanedPopup(r, popup) :+
+            head ++ painted ++ Server.orphanedPopup(r, popup) ++
+              // A value the edit refused is the declared one again, which the
+              // page's committed signal and its URL mirror must follow.
+              Option
+                .when(s.values != was.values)(
+                  Datastar.patchSignals(
+                    VarKey.signalsJson(r.vars.committed(s.values)).noSpaces
+                  )
+                )
+                .toList :+
               // A swap rotated the log id; without this a reconnect quotes a
               // dead log and repaints.
               Server.cursorSignals(r, log.id, store.version),
@@ -1205,7 +1215,7 @@ class Server(
         .flatMap { gid =>
           renderer.surfaces
             .memberAt(gid, value)
-            .map(renderer.surfaces.bakeGroup(gid))
+            .map(renderer.surfaces.cases(gid))
             .flatMap(sid =>
               renderer.surface(sid).filterNot(_ => s.open(sid)).map(sid -> _)
             )
@@ -1244,6 +1254,22 @@ class Server(
         Datastar.patchSignals(VarKey.signalsJson(Map(key -> value)).noSpaces),
       ()
     )
+  }
+
+  /** `s` as `renderer` takes it ([[Renderer.recheck]]), where a session's
+    * values meet a renderer: a dashboard edit while its stream was down misses
+    * [[repaint]], so every such entry checks, and only once per renderer.
+    */
+  private def checked(
+      renderer: Renderer,
+      s: SessionState
+  ): IO[SessionState] = {
+    val (ok, refused) = renderer.recheck(s)
+    IO.whenA(refused.nonEmpty)(
+      logger.warn(
+        s"the dashboard changed under choices it no longer takes, reset: ${refused.mkString("; ")}"
+      )
+    ).as(ok)
   }
 
   /** A session this process forgot (a restart, a reap) would start at the
@@ -1361,12 +1387,14 @@ class Server(
           case Some(session) if session.slug != slug =>
             actionRefused(req, Server.WrongSlugMessage, pending)
           case Some(session) =>
-            session.run(s =>
-              f(
-                session,
-                renderer,
-                selectionsOf(renderer, requested, s.values)
-              )(s)
+            session.run(was =>
+              checked(renderer, was).flatMap(s =>
+                f(
+                  session,
+                  renderer,
+                  selectionsOf(renderer, requested, s.values)
+                )(s)
+              )
             ) *> NoContent()
         }
       }
@@ -1690,7 +1718,12 @@ class Server(
           supervisor,
           logger,
           SessionState.initial
-            .copy(open = open, vars = choices, initialValues = initialValues)
+            .copy(
+              open = open,
+              vars = choices,
+              initialValues = initialValues,
+              checkedBy = Some(renderer.generation)
+            )
         )
         .flatTap(_.haDown.set(Some(!live)))
       // REGISTERED BEFORE THE SNAPSHOT IS READ — see [[recordFrame]].

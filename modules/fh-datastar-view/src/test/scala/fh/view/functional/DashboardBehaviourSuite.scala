@@ -245,7 +245,7 @@ class DashboardBehaviourSuite extends FunctionalSuite {
     }
   }
 
-  test("a state-activated surface flips its baked branch over SSE") {
+  test("a state-activated surface flips its branch over SSE") {
     // The alarm rides only the activation predicate, so it is a Scene extra;
     // the branch readings are referenced by surfaces, so they are supplied too.
     val alarm = FixtureEntity("alarm.home", "disarmed")

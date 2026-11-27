@@ -53,7 +53,7 @@ class ChosenWindowSuite extends munit.FunSuite {
         "chart" -> TestCard("<div>{{{chart}}}</div>"),
         "box" -> TestCard(
           "<div>{{{children}}}</div>",
-          regions = Map("children" -> Region())
+          regions = Set("children")
         )
       ),
       card = root

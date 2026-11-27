@@ -28,7 +28,7 @@ class DecisionFetchServedSuite extends CatsEffectSuite {
       "item" -> TestCard("<i>{{label}}</i>"),
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map(LayoutNode.DefaultRegion -> Region())
+        regions = Set(LayoutNode.DefaultRegion)
       )
     ),
     card = LayoutNode.Component(

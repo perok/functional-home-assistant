@@ -30,11 +30,11 @@ class VarSourceSuite extends munit.FunSuite {
     "live" -> TestCard("<span {{{name.bind}}}>{{name}}</span>"),
     "box" -> TestCard(
       "<div>{{{children}}}</div>",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     ),
     "titled" -> TestCard(
       "<div>{{name}}{{{children}}}</div>",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     )
   )
 
@@ -237,16 +237,18 @@ class VarSourceSuite extends munit.FunSuite {
     refused(dash(panel(set)), "a set's order reads the variable 'window'")
   }
 
-  test("a state surface's condition refuses one") {
+  test("a choice's condition refuses a computed read of one") {
     val d = dash(
-      panel(plain(ValueExpr.literal("x"))),
-      Map(
-        "t0" -> Surface(
-          plain(ValueExpr.literal("y")),
-          activation = Activation.State(Some(isWindow("7d")))
+      panel(
+        LayoutNode.Component(
+          "box",
+          Map(
+            LayoutNode.DefaultRegion ->
+              Slots.iff(isWindow("7d"), plain(ValueExpr.literal("y")))
+          )
         )
       )
     )
-    refused(d, "surface 't0''s condition reads the variable 'window'")
+    refused(d, "is chosen by a computed read of a variable")
   }
 }

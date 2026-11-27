@@ -14,7 +14,6 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   Op,
-  Region,
   Step,
   Value,
   ValueExpr,
@@ -272,7 +271,7 @@ class SetMembershipSuite extends ServerHarness {
     cards = Sets.cards ++ Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       ),
       "dot" -> TestCard(
         "<span>{{state}}/{{level}}</span>"
@@ -340,7 +339,7 @@ class SetMembershipSuite extends ServerHarness {
     cards = Sets.cards ++ Map(
       "col" -> TestCard(
         "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       ),
       "dot" -> TestCard("<span>{{state}}</span>")
     ),

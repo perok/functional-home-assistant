@@ -48,12 +48,12 @@ facts {
     let (h = new Holder {})
       h.wireSlots["bar"]["kind"] == "Nodes"
       && h.regions["bar"].length == 1
-      && nodeMod.cardsIn(List(h))["holder"].regions!!.keys == Set("bar")
+      && nodeMod.cardsIn(List(h))["holder"].regions!!.toSet() == Set("bar")
   }
   ["an empty nodes slot is declared by its card but not on the node's wire"] {
     let (e = new Empty {})
       !e.wireSlots.containsKey("bar")
-      && nodeMod.cardsIn(List(e))["empty"].regions!!.keys == Set("bar")
+      && nodeMod.cardsIn(List(e))["empty"].regions!!.toSet() == Set("bar")
   }
   ["a typo'd nodes slot is an error naming the card"] {
     module.catch(() -> nodeMod.cardsIn(List(new Typo {}))).contains("card 'typo': nodes slot 'baar' is never placed")

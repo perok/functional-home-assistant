@@ -11,12 +11,10 @@ import cats.syntax.all.*
 import fh.view.model.{
   SlotType,
   Part,
-  Activation,
   BoundSlot,
   CardDef,
   Dashboard,
   LayoutNode,
-  NodeId,
   Op,
   SignalBind,
   Choice,
@@ -24,12 +22,12 @@ import fh.view.model.{
   SlotAsk,
   SlotRead,
   Ready,
-  Region,
   SlotShape,
   Step,
   Value,
   ValueExpr,
   TemplateSlot,
+  Slot,
   Surface
 }
 import api.homeassistant.ws.domain.{HistoryPoint, StatisticsPeriod}
@@ -331,7 +329,7 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
         "chart" -> TestCard("""<div>{{{chart}}}</div>"""),
         "col" -> TestCard(
           """<div>{{{children}}}</div>""",
-          regions = Map("children" -> Region())
+          regions = Set("children")
         )
       ),
       card = LayoutNode.Component(card = "col"),
@@ -392,15 +390,8 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
         card = "chart",
         slots = Slots.values(Map("chart" -> chartSource(w)))
       )
-    def host(id: String) = LayoutNode.Component(card = "host", id = Some(id))
-    def baked(into: String, idx: Int, w: String, activation: Activation) =
-      Surface(
-        panel(w),
-        bakeInto = Some(NodeId.derived(into)),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(idx),
-        activation = activation
-      )
+    def host(id: String, panel: Slot) =
+      LayoutNode.Component(card = "host", Map("panel" -> panel), id = Some(id))
     val lightOn =
       Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a"))
     val r = Renderer.create(
@@ -411,29 +402,19 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
           ),
           "col" -> TestCard(
             """<div>{{{children}}}</div>""",
-            regions = Map("children" -> Region())
+            regions = Set("children")
           ),
           "host" -> TestCard(
             """<div id="{{hostId}}">{{{panel}}}</div>""",
-            regions = Map("panel" -> Region(Region.Baked))
+            regions = Set("panel")
           )
         ),
         card = LayoutNode.Component(
           card = "col",
           slots = Slots.kids(
-            host("tabs").copy(vars = declared("tab" -> "0")),
-            host("branch")
-          )
-        ),
-        surfaces = Map(
-          "t0" -> baked("tabs", 0, "1h", Activation.Var("tab")),
-          "t1" -> baked("tabs", 1, "7d", Activation.Var("tab")),
-          "on" -> baked("branch", 0, "24h", Activation.State(Some(lightOn))),
-          "off" -> baked(
-            "branch",
-            1,
-            "30d",
-            Activation.State()
+            host("tabs", Slots.tabs("tab", panel("1h"), panel("7d")))
+              .copy(vars = declared("tab" -> "0")),
+            host("branch", Slots.iff(lightOn, panel("24h"), Some(panel("30d"))))
           )
         )
       )
@@ -450,8 +431,8 @@ class FetchSlotSuite extends munit.CatsEffectSuite {
             .getOrElse(fail(s"not a preset: ${r.fetch}"))
         )
         .toSet
-    assertEquals(windows("t0", light("on")), Set("1h", "24h"))
-    assertEquals(windows("t1", light("off")), Set("7d", "30d"))
+    assertEquals(windows("tabs_t0", light("on")), Set("1h", "24h"))
+    assertEquals(windows("tabs_t1", light("off")), Set("7d", "30d"))
   }
 
   private def dashboard(src: TemplateSlot) =

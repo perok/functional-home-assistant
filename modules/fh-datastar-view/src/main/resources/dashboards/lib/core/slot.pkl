@@ -305,7 +305,6 @@ class NodesSlot extends AnySlot {
   /// The choice filling it, in place of [[nodes]]: a tab panel, an `If`'s
   /// branches. The card places the host it is patched into, `id="{{hostId}}"`.
   hidden choice: choiceMod.Choice? = null
-  hidden bakedBy: Boolean = choice != null
   /// What the wire holds of it, [[nodes]] being a fixed fill.
   fixed fill: NodesFill|predMod.SetFill =
     if (set != null) set!!
@@ -321,9 +320,6 @@ class NodesSlot extends AnySlot {
     else if (f is predMod.SetFill) (this) { set = f as predMod.SetFill }
     else if (f is choiceMod.Choice) (this) { choice = f as choiceMod.Choice }
     else (this) { nodes = f as Listing<nodeMod.LayoutNode> }
-  /// Marks the slot as filled by a bake group built by hand; a choice
-  /// ([[of]]) sets it on its own.
-  function baked(): this = (this) { bakedBy = true }
 
   function toString(): String = "{{{" + name + "}}}"
 }

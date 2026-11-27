@@ -18,7 +18,6 @@ import fh.view.model.{
   LayoutNode,
   NodeId,
   FetchTemplate,
-  Region,
   Value,
   ValueExpr,
   TemplateSlot
@@ -47,7 +46,7 @@ class VarTapSuite extends ServerHarness {
 
   private val panelCard = TestCard(
     "<div>{{{children}}}</div>",
-    regions = Map("children" -> Region())
+    regions = Set("children")
   )
 
   private val chartNode = LayoutNode.Component(

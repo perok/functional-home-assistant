@@ -20,7 +20,6 @@ import fh.view.model.{
   LayoutNode,
   Lit,
   Op,
-  Region,
   SignalBind,
   Slot,
   SlotType,
@@ -28,10 +27,8 @@ import fh.view.model.{
   Value,
   ValueExpr,
   TemplateSlot,
-  Surface,
-  VarAt
+  Surface
 }
-import fh.view.testkit.TestIds.given
 import fh.view.testkit.DashboardBuilders.{classes, declared}
 import io.circe.{parser, Json}
 
@@ -104,7 +101,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   private def oneCard(
       template: String,
       slots: Map[String, TemplateSlot],
-      regions: Map[String, Region] = Map.empty,
+      regions: Set[String] = Set.empty,
       filled: Map[String, List[LayoutNode]] = Map.empty
   ): List[String] =
     Dashboard(
@@ -186,7 +183,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     def errs(tpl: String) = oneCard(
       tpl,
       Map.empty,
-      regions = Map("children" -> Region())
+      regions = Set("children")
     )
     assertEquals(errs("<div>{{{children}}}</div>"), Nil)
     for tpl <- List(
@@ -209,7 +206,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     val errs = oneCard(
       "<div>{{{children}}}</div>",
       Map("children" -> text),
-      regions = Map("children" -> Region())
+      regions = Set("children")
     )
     assert(errs.exists(_.contains("named like")), clue = errs)
   }
@@ -360,7 +357,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       cards = Map(
         Sets.Card -> CardDef(
           "<div{{{cell}}}>{{{children}}}{{{more}}}</div>",
-          regions = Map(Sets.SlotName -> Region(), "more" -> Region())
+          regions = Set(Sets.SlotName, "more")
         ),
         "card" -> TestCard("<i></i>")
       ),
@@ -697,8 +694,7 @@ class BuildPhaseSuite extends munit.FunSuite {
   ) {
     // As c.tabs emits: a container with inline surfaces and triggers
     // referencing the future ids. `panelHost` is an arbitrary string param
-    // showing the splice reaches every string leaf; `bakeInto`/`bakeAs` are the
-    // real shared-host fields.
+    // showing the splice reaches every string leaf.
     val json = parser
       .parse("""
         {
@@ -713,8 +709,8 @@ class BuildPhaseSuite extends munit.FunSuite {
                   "transform": "\"@post('sse/surface/open/@@NODE_ID@@_0')\"" } } }
             ] } } },
             "inlineSurfaces": {
-              "0": { "content": { "kind":"Component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" },
-              "1": { "content": { "kind":"Component","card":"card" }, "bakeInto": "@@NODE_ID@@", "bakeAs": "panel" }
+              "0": { "content": { "kind":"Component","card":"card" } },
+              "1": { "content": { "kind":"Component","card":"card" } }
             }
           }
         }
@@ -723,22 +719,16 @@ class BuildPhaseSuite extends munit.FunSuite {
       .get
     val h = DashboardBuild.hoistInlineSurfaces(json).hcursor
 
-    // One shared bakeInto, so the same hostId.
     val surfaces = h.downField("surfaces")
     assertEquals(
       surfaces.keys.map(_.toSet).getOrElse(Set.empty),
       Set("c_0", "c_1")
     )
-    for (k <- Set("c_0", "c_1")) {
+    for (k <- Set("c_0", "c_1"))
       assertEquals(
-        surfaces.downField(k).get[String]("bakeInto").toOption,
-        Some("c")
+        surfaces.downField(k).downField("content").get[String]("card").toOption,
+        Some("card")
       )
-      assertEquals(
-        surfaces.downField(k).get[String]("bakeAs").toOption,
-        Some("panel")
-      )
-    }
 
     val node = h.downField("card")
     assert(node.downField("inlineSurfaces").failed, clue = "marker not removed")
@@ -778,8 +768,7 @@ class BuildPhaseSuite extends munit.FunSuite {
       .get
       .as[Surface]
     assertEquals(decoded.toOption.get.activation, Activation.User(false))
-    // The retired flat `defaultOpen` is ignored while Pkl still emits it; its
-    // effect survives through resolveActive's index-0 fallback.
+    // The retired flat `defaultOpen` is ignored.
     val flat = parser
       .parse(
         """{ "content": { "kind": "Component", "card": "x" }, "defaultOpen": true }"""
@@ -790,151 +779,57 @@ class BuildPhaseSuite extends munit.FunSuite {
     assertEquals(flat.toOption.get.activation, Activation.User(false))
   }
 
-  test("Surface.activation decodes both kinds") {
-    def surface(activation: String): io.circe.Decoder.Result[Surface] =
-      parser
-        .parse(
-          s"""{ "content": { "kind": "Component", "card": "x" },
-             |  "activation": $activation }""".stripMargin
-        )
-        .toOption
-        .get
-        .as[Surface]
-
+  test("Surface.activation decodes a popup's") {
+    val decoded = parser
+      .parse(
+        """{ "content": { "kind": "Component", "card": "x" },
+          |  "activation": { "kind": "User", "defaultOpen": true } }""".stripMargin
+      )
+      .toOption
+      .get
+      .as[Surface]
     assertEquals(
-      surface(
-        """{ "kind": "User", "defaultOpen": true }"""
-      ).toOption.get.activation,
+      decoded.toOption.get.activation,
       Activation.User(defaultOpen = true)
     )
-    // No quantifier: the condition names the entities it reads.
-    val cond =
-      """{ "source": { "kind": "Entity", "of": "light.a" },
-         |  "steps": [{ "kind": "Compare", "op": "eq", "to": "on" }] }""".stripMargin
-    assertEquals(
-      surface(
-        s"""{ "kind": "State", "condition": $cond }"""
-      ).toOption.get.activation,
-      Activation.State(
-        Some(Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a")))
-      )
-    )
   }
 
-  test(
-    "validate rejects a bake group mixing var- and state-activated members"
-  ) {
-    def member(index: Int, activation: Activation): Surface =
-      Surface(
-        LayoutNode.Component("ok"),
-        bakeInto = Some("c"),
-        bakeAs = Some("branch"),
-        bakeIndex = Some(index),
-        activation = activation
-      )
-    val state = Activation.State(
-      Some(Conds.cmp("state", Op.Eq, Json.fromString("on"), Some("light.a")))
-    )
-    val mixed = Dashboard(
-      // The bake target must declare the region its surfaces name.
-      cards = Map(
-        "ok" -> TestCard(
-          "<i>{{{branch}}}</i>",
-          regions = Map("branch" -> Region(Region.Baked))
-        )
-      ),
-      card = LayoutNode.Component("ok", vars = declared("tab" -> "0")),
-      surfaces = Map(
-        "a" -> member(0, Activation.Var("tab")),
-        "b" -> member(1, state)
-      )
-    )
-    assert(
-      mixed.validate().exists(_.contains("mixes var- and state-activated")),
-      clue = mixed.validate()
-    )
-    val allState = mixed.copy(surfaces =
-      Map("a" -> member(0, state), "b" -> member(1, state))
-    )
-    assertEquals(allState.validate(), Nil)
-    val allVar = mixed.copy(surfaces =
-      Map(
-        "a" -> member(0, Activation.Var("tab")),
-        "b" -> member(1, Activation.Var("tab"))
-      )
-    )
-    assertEquals(allVar.validate(), Nil)
-    // A baked member nothing selects: a host is filled by a choice the server
-    // knows (ADR 0033).
-    val unchosen = mixed.copy(surfaces =
-      Map("a" -> member(0, Activation.User()), "b" -> member(1, state))
-    )
-    assert(
-      unchosen.validate().exists(_.contains("has members nothing selects (a)")),
-      clue = unchosen.validate()
-    )
-  }
+  private val ok = Map(
+    "ok" -> TestCard("<i>{{{branch}}}</i>", regions = Set("branch"))
+  )
 
-  test("a variable's fallback member takes any value, and there is one") {
-    def member(index: Int, activation: Activation): Surface =
-      Surface(
-        LayoutNode.Component("ok"),
-        bakeInto = Some("c"),
-        bakeAs = Some("branch"),
-        bakeIndex = Some(index),
-        activation = activation
-      )
-    val dash = Dashboard(
-      cards = Map(
-        "ok" -> TestCard(
-          "<i>{{{branch}}}</i>",
-          regions = Map("branch" -> Region(Region.Baked))
-        )
-      ),
-      // Declared at a value only the fallback takes.
-      card = LayoutNode.Component("ok", vars = declared("window" -> "24h")),
-      surfaces = Map(
-        "then" -> member(0, Activation.Var("window", VarAt.Value("30d"))),
-        "else" -> member(1, Activation.Var("window", VarAt.Otherwise))
+  private def choosing(branch: Slot, vars: List[Dashboard.Declaration] = Nil) =
+    LayoutNode.Component("ok", Map("branch" -> branch), vars = vars)
+
+  test("a choice over a variable needs a case or an otherwise at its default") {
+    def dash(otherwise: Option[LayoutNode]) = Dashboard(
+      cards = ok,
+      // Declared at a value only the otherwise takes.
+      card = choosing(
+        Slots.byVar(
+          "window",
+          List("30d" -> LayoutNode.Component("ok")),
+          otherwise
+        ),
+        declared("window" -> "24h")
       )
     )
-    assertEquals(dash.validate(), Nil)
-    val two = dash.copy(surfaces =
-      dash.surfaces + ("more" -> member(
-        2,
-        Activation.Var("window", VarAt.Otherwise)
-      ))
-    )
+    assertEquals(dash(Some(LayoutNode.Component("ok"))).validate(), Nil)
     assert(
-      two
+      dash(None)
         .validate()
-        .exists(_.contains("2 members selected at every other value")),
-      clue = two.validate()
+        .exists(_.contains("declared '24h', which no case takes")),
+      clue = dash(None).validate()
     )
   }
 
-  test("validate rejects a state condition that names no entity") {
+  test("validate rejects a choice over state that names no entity") {
     def dash(condition: ValueExpr) = Dashboard(
-      // The bake target must declare the region its surfaces name.
-      cards = Map(
-        "ok" -> TestCard(
-          "<i>{{{branch}}}</i>",
-          regions = Map("branch" -> Region(Region.Baked))
-        )
-      ),
-      card = LayoutNode.Component("ok"),
-      surfaces = Map(
-        "a" -> Surface(
-          LayoutNode.Component("ok"),
-          bakeInto = Some("c"),
-          bakeAs = Some("branch"),
-          bakeIndex = Some(0),
-          activation = Activation.State(Some(condition))
-        )
-      )
+      cards = ok,
+      card = choosing(Slots.iff(condition, LayoutNode.Component("ok")))
     )
     val on = Conds.cmp("state", Op.Eq, Json.fromString("on"))
-    // A surface supplies no subject, so this would mean "some entity in the
+    // A choice supplies no subject, so this would mean "some entity in the
     // house is on". Rejected anywhere in the tree.
     for (c <- List(on, Conds.not(on), Conds.and(List(on))))
       assert(
@@ -999,16 +894,10 @@ class BuildPhaseSuite extends munit.FunSuite {
     assert(itself.exists(_.contains("reads its member")), clue = itself)
   }
 
-  test("validate refuses a clause or a state surface that does not decide") {
+  test("validate refuses a clause or a choice's key that does not decide") {
     // A wire Pkl never writes, so only a hand-built one reaches this.
     val text = ValueExpr(Value.Entity(Some("light.a")))
     val viaCel = ValueExpr(Value.Cel("'on'"))
-    val ok = Map(
-      "ok" -> TestCard(
-        "<i>{{{branch}}}</i>",
-        regions = Map("branch" -> Region(Region.Baked))
-      )
-    )
     def clause(when: ValueExpr) = Dashboard(
       cards = Sets.withCard(ok),
       card = Sets.node(
@@ -1036,73 +925,28 @@ class BuildPhaseSuite extends munit.FunSuite {
         .exists(_.contains("a clause of 'light.a' does not decide")),
       clue = clause(viaCel).validate()
     )
-    val surface = Dashboard(
+    // An If's case is `true`, which a text `by` never reads.
+    val choice = Dashboard(
       cards = ok,
-      card = LayoutNode.Component("ok"),
-      surfaces = Map(
-        "a" -> Surface(
-          LayoutNode.Component("ok"),
-          bakeInto = Some("c"),
-          bakeAs = Some("branch"),
-          bakeIndex = Some(0),
-          activation = Activation.State(Some(viaCel))
-        )
-      )
+      card = choosing(Slots.iff(viaCel, LayoutNode.Component("ok")))
     )
     assert(
-      surface
-        .validate()
-        .exists(_.contains("a condition is a bool, not text")),
-      clue = surface.validate()
+      choice.validate().exists(_.contains("is chosen by a text")),
+      clue = choice.validate()
     )
   }
 
-  /** A missing region fails as `danglingBakes` describes for a missing node: an
-    * empty hole, indistinguishable from a state group that matched nothing.
-    */
-  test("validate rejects a surface baking into a region its card lacks") {
-    def dash(hostCard: CardDef, as: String) = Dashboard(
-      cards = Map("host" -> hostCard),
-      card = LayoutNode.Component("host", vars = declared("tab" -> "0")),
-      surfaces = Map(
-        "s" -> Surface(
-          LayoutNode.Component("host"),
-          bakeInto = Some("c"),
-          bakeAs = Some(as),
-          bakeIndex = Some(0),
-          activation = Activation.Var("tab")
-        )
-      )
-    )
-    val hasBranch = TestCard(
-      "<i>{{{branch}}}</i>",
-      regions = Map("branch" -> Region(Region.Baked))
-    )
-
-    assert(
-      dash(hasBranch, "panel").validate().exists(_.contains("no baked region")),
-      clue = dash(hasBranch, "panel").validate()
+  test("validate rejects a choice in a slot its card does not declare") {
+    def dash(regions: Set[String]) = Dashboard(
+      cards = Map("ok" -> TestCard("<i>{{{branch}}}</i>", regions = regions)),
+      card = choosing(Slots.iff(Conds.and(Nil), LayoutNode.Component("ok")))
     )
     assert(
-      dash(TestCard("<i></i>"), "branch")
-        .validate()
-        .exists(_.contains("it declares none")),
-      clue = dash(TestCard("<i></i>"), "branch").validate()
-    )
-    // A surface fills its hole lazily and an eager region is filled by the
-    // node's children; the fills differ by declared kind, not spelling.
-    assert(
-      dash(
-        TestCard(
-          "<i>{{{branch}}}</i>",
-          regions = Map("branch" -> Region())
-        ),
-        "branch"
-      ).validate().exists(_.contains("no baked region")),
-      clue = "an eager region must not satisfy a bakeAs"
+      dash(Set.empty).validate().exists(_.contains("fills region 'branch'")),
+      clue = dash(Set.empty).validate()
     )
     // Non-vacuous.
-    assertEquals(dash(hasBranch, "branch").validate(), Nil)
+    assertEquals(dash(Set("branch")).validate(), Nil)
   }
 
   /** A placeholder decodes, validates and renders verbatim; the first symptom
@@ -1131,7 +975,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     )
   }
 
-  test("hoistInlineSurfaces lifts the activation object onto the surface") {
+  test("hoistInlineSurfaces lifts a popup's activation object") {
     // `DashboardBuild.surfaceOf` drops the retired flat `defaultOpen`.
     val json = parser
       .parse("""
@@ -1141,10 +985,8 @@ class BuildPhaseSuite extends munit.FunSuite {
             "kind": "Component", "card": "ifhost",
             "inlineSurfaces": { "then": {
               "content": { "kind": "Component", "card": "card" },
-              "bakeInto": "@@NODE_ID@@", "bakeAs": "branch", "bakeIndex": 0,
               "defaultOpen": true,
-              "activation": { "kind": "State",
-                "condition": { "kind": "Cmp", "property": "state", "op": "eq", "value": "on" } }
+              "activation": { "kind": "User", "defaultOpen": true }
             } }
           }
         }
@@ -1155,7 +997,7 @@ class BuildPhaseSuite extends munit.FunSuite {
     val lifted = hoisted.downField("surfaces").downField("c_then")
     assertEquals(
       lifted.downField("activation").get[String]("kind").toOption,
-      Some("State")
+      Some("User")
     )
     assert(
       lifted.downField("defaultOpen").failed,

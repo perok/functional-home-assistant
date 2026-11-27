@@ -444,7 +444,7 @@ class PklDashboardBehaviourSuite extends munit.CatsEffectSuite {
     }
   }
 
-  /** Written out because it is the contract: the hoist's `bakeInto`, the
+  /** Written out because it is the contract: the pick's host, the
     * `v.<host>.tab` param and the renderer's node id are this one string, and
     * they have silently drifted apart.
     */

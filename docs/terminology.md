@@ -213,7 +213,7 @@ Two kinds, and they are not interchangeable:
 
 **The registry** (`surfaces { ["detail"] { … } }`) is for the TRIGGERED kind, and that is the whole
 of what it is for. Registering something owned — a tab's panel by hand — throws away the ownership
-that makes it addressable, orderable and lazily baked as part of its node. What earns a registry
+that makes it addressable, orderable and lazily rendered as part of its node. What earns a registry
 entry is being referred to by NAME from more than one place, or from somewhere that is not its
 parent; nothing else does.
 
@@ -285,8 +285,8 @@ is a `Choice` of its node, and a clause is one of its cases, the clause's index 
 **Group** — a card whose template is its one nodes slot: an element (a tag, classes, a layout cell)
 holding what fills it, and nothing beside it (`core/group.pkl`). A set must be its card's whole
 template, because its members are placed relative to each other, so a set among other content goes
-in a group; `q.from(…).render(…).build()` is one, with `fh-group` among its classes. Not a bake
-group (below), which is the surfaces competing for one host.
+in a group; `q.from(…).render(…).build()` is one, with `fh-group` among its classes. Not a pick
+(below), which decides a choice.
 
 **Present** — a set's candidate ids whose guard holds now, a candidate with no guard always
 (`Value.Present`, `pred.Tally` in Pkl). It is what a `List` of the candidates' reads filtered by
@@ -361,14 +361,12 @@ only what its kind needs, so `features.bind` is a Pkl error at the line. A value
 slot share one namespace, as a template's names do, and one wire map, `slots`, each entry
 carrying its `kind`.
 
-**Fill** — what a nodes slot holds on one node. Today only nodes written down (`Fill.Nodes` with a
-fixed choice); a node's fills are the nodes slots it sets, and the card's own list of them is
-`WireCard.regions`.
+**Fill** — what a nodes slot holds on one node: nodes written down (`Fill.Nodes` with a fixed
+choice), a choice (`Fill.Nodes` with a `Chosen`, decided by a **pick**) or a set (`Fill.Set`). A
+node's fills are the nodes slots it sets, and the card's own list of them is `WireCard.regions`.
 
 **Region** — a nodes slot, in the words the runtime and the ids still use (`c_1_head_0`, the
-`regions` of a wire card). `fill = "baked"` on a card's region marks one a surface fills instead of
-the node (see **bake**); a slot filled with a choice (`nodeMod.iff`, `nodeMod.match`) is marked so
-by the choice itself.
+`regions` of a wire card, which lists each nodes slot's name).
 
 `children` is the default nodes slot (`slotMod.childrenSlot`). `Grid { children { … } }` is the
 sugar for filling it, and a card whose template places `{{{children}}}` needs nothing in its
@@ -388,26 +386,22 @@ a leaf card beside the rows for exactly this reason. So the guarantee needs no r
 every hole in a template is filled by a node with an id of its own, and a patch at one node can
 never reach another's content.
 
-**Host** — the element a baked region is filled through, addressed as `hostId` (`c_2_panel`). The
-word the runtime uses; not to be confused with a **region**, which is the declaration, or with the
-**node** that owns it.
+**Host** — the element a choice's case is filled through, addressed as `hostId` (`c_2_panel`, the
+node's id and the slot's name). The word the runtime uses; not to be confused with a **region**,
+which is the declaration, or with the **node** that owns it.
 
-**Bake** — to render chosen content into a host. A surface declares which node it bakes **into**;
-the host renders it as **bakeAs**; **bakeIndex** is which member of the group is currently chosen,
-exposed so a card can show the selection without JavaScript.
+**Pick** — deciding a nodes slot's choice: its `by` is read once and its case looked up, else the
+otherwise, else nothing (`Ready.Pick`, `SurfaceGraph`). A `by` that is a node variable (a tab bar,
+a `c.select`, an If over a variable, ADR 0033) is decided per viewer, from the session's
+variables; any other reads state and is decided once per version, in `Shared`. Each case is served
+as a surface, case `i` as `<host>_t<i>` and the otherwise as `<host>_else`, until the card's root
+hosts it. Inside a candidate set's clause, a pick is that clause's: every clause of a member
+shares its nodes' ids, so the clause is part of the pick's id (`<host>_k<clause>`).
 
-**Bake group** — the set of surfaces competing for one host, derived from a nodes slot's `Chosen`
-fill (one member per case, plus the otherwise). Exactly one is baked at a time. Who
-chooses is the group's activation: a node variable for a tab bar, a `c.select` or an If over a
-variable (`Activation.Var`, ADR 0033), each member selected at one of its values or, for an If's
-`else`, at every other value; a condition for an If over state. Inside a candidate set's clause,
-a group is that clause's: every clause of a member shares its nodes' ids, so the clause is part of
-the group's id.
-
-**Flip** — a state-activated bake group changing which branch is selected because *entity state*
-moved, not because a user clicked. Server truth, so every viewer gets it. Only a group shown before
+**Flip** — a pick over state changing which case is shown because *entity state* moved, not
+because a user clicked. Server truth, so every viewer gets it. Only a pick shown before
 and after flips: one inside a set member whose arrival or clause switch places it, or below
-another group that flips, is in that placement instead. ADR 0007.
+another pick that flips, is in that placement instead. ADR 0007.
 
 ---
 
@@ -508,8 +502,8 @@ resumes instead of starting over.
 **Render cache** — per dashboard, so N viewers woken by one doorbell render each node once between
 them. Keyed by what the render *read*, not by node id alone.
 
-**Render inputs** — that key: the content version of every entity the node reads, plus which member
-of its bake group is selected. A node whose bytes carry its children has no sound key and is simply
+**Render inputs** — that key: the content version of every entity the node reads, and the values of
+the variables it reads. A node whose bytes carry its children has no sound key and is simply
 not cached.
 
 **Straggler** — a session that renders from an older snapshot than its peers. It is served its own

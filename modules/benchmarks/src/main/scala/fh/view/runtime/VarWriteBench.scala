@@ -7,20 +7,18 @@ import cats.effect.unsafe.implicits.global
 import cats.syntax.all.*
 import fh.view.history.{History, SeriesSource}
 import fh.view.model.{
-  Activation,
   Dashboard,
   FetchTemplate,
   LayoutNode,
   NodeId,
-  Region,
   SlotRead,
   SlotType,
   Step,
-  Surface,
+
   TemplateSlot,
   Value,
   ValueExpr,
-  VarAt
+  Slot
 }
 import fh.view.fetch.{FetchIdentity, FetchResolver, FetchSnapshot}
 import fh.view.testkit.DashboardBuilders.{chosenBy, declared}
@@ -115,7 +113,7 @@ class VarWriteBench {
       .flatMap { gid =>
         renderer.surfaces
           .memberAt(gid, value)
-          .map(renderer.surfaces.bakeGroup(gid))
+          .map(renderer.surfaces.cases(gid))
           .flatMap(sid =>
             renderer
               .surface(sid)
@@ -223,9 +221,10 @@ object VarWriteBench {
       )
     )
 
-  private def host(id: String, name: String, default: String) =
+  private def host(id: String, name: String, default: String, panel: Slot) =
     LayoutNode.Component(
       "host",
+      Map("panel" -> panel),
       id = Some(id),
       vars = declared(name -> default)
     )
@@ -235,14 +234,29 @@ object VarWriteBench {
       "chart" -> TestCard("<div>{{{chart}}}</div>"),
       "host" -> TestCard(
         """<div id="{{hostId}}">{{{panel}}}</div>""",
-        regions = Map("panel" -> Region(Region.Baked))
+        regions = Set("panel")
       )
     ),
     card = LayoutNode.Component(
       "col",
       slots = Slots.kids(
-        host("tabs", "tab", "0"),
-        host("view", "view", "a"),
+        host(
+          "tabs",
+          "tab",
+          "0",
+          Slots.tabs("tab", List.tabulate(2)(i => panel(i * PanelLeaves))*)
+        ),
+        host(
+          "view",
+          "view",
+          "a",
+          Slots.byVar(
+            "view",
+            ViewValues.zipWithIndex.map((v, i) =>
+              v -> panel(100 + i * PanelLeaves)
+            )
+          )
+        ),
         LayoutNode.Component(
           "col",
           slots = Slots.kids(
@@ -252,23 +266,6 @@ object VarWriteBench {
           vars = declared("window" -> "24h")
         )
       )
-    ),
-    surfaces = (List.tabulate(2)(i =>
-      s"t$i" -> Surface(
-        panel(i * PanelLeaves),
-        bakeInto = Some(NodeId.derived("tabs")),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(i),
-        activation = Activation.Var("tab")
-      )
-    ) ++ ViewValues.zipWithIndex.map((v, i) =>
-      s"v_$v" -> Surface(
-        panel(100 + i * PanelLeaves),
-        bakeInto = Some(NodeId.derived("view")),
-        bakeAs = Some("panel"),
-        bakeIndex = Some(i),
-        activation = Activation.Var("view", VarAt.Value(v))
-      )
-    )).toMap
+    )
   )
 }

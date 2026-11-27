@@ -16,7 +16,6 @@ import fh.view.model.{
   Dashboard,
   LayoutNode,
   Op,
-  Region,
   Value,
   ValueExpr,
   TemplateSlot
@@ -279,7 +278,7 @@ class SetSuite extends ServerHarness {
     val cards = Sets.cards ++ tile ++ Map(
       "col" -> TestCard(
         """<div>{{{children}}}</div>""",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       )
     )
     val subtree = LayoutNode.Component(
@@ -335,7 +334,7 @@ class SetSuite extends ServerHarness {
     val cards = Sets.cards ++ tile ++ Map(
       "col" -> TestCard(
         """<div>{{{children}}}</div>""",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       )
     )
     def room(id: String, lights: List[String]) =
@@ -399,7 +398,7 @@ class SetSuite extends ServerHarness {
     val cards = Sets.cards ++ tile ++ Map(
       "col" -> TestCard(
         """<div>{{{children}}}</div>""",
-        regions = Map("children" -> Region())
+        regions = Set("children")
       )
     )
     def wrap(children: List[LayoutNode]) =

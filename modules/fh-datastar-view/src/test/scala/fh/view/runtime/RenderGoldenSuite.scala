@@ -51,6 +51,7 @@ class RenderGoldenSuite extends munit.FunSuite {
       d.validated().fold(errs => fail(errs.mkString("; ")), identity)
     )
     val surfaceIds = d.surfaces.keys.toList.sorted
+    val fresh = RenderGoldenSuite.fresh(r)
     val out = new StringBuilder
     val fixtured = scala.collection.mutable.Map.empty[String, String]
     def section(house: String, part: String, body: String): Unit =
@@ -66,10 +67,7 @@ class RenderGoldenSuite extends munit.FunSuite {
       val body =
         r.renderBodyTraced(
           shared,
-          Viewing(
-            Selections.none,
-            RenderGoldenSuite.answers(r, d, shared, Nil)
-          )
+          Viewing(fresh, RenderGoldenSuite.answers(r, d, shared, Nil))
         )
       val nodes =
         (body.own.keys ++ surfaceIds.flatMap(
@@ -78,14 +76,14 @@ class RenderGoldenSuite extends munit.FunSuite {
       val f = RenderGoldenSuite.answers(r, d, shared, nodes)
       section(houseName, "body", body.html)
       surfaceIds.foreach { sid =>
-        r.renderSurfaceTraced(sid, shared, Viewing(Selections.none, f))
+        r.renderSurfaceTraced(sid, shared, Viewing(fresh, f))
           .foreach(t => section(houseName, s"surface $sid", t.html))
       }
       nodes.foreach { id =>
         r.renderNodeById(
           id,
           shared,
-          Viewing(Selections.none, f),
+          Viewing(fresh, f),
           SlotForm.Patch
         ).foreach(html => section(houseName, s"patch $id", html))
       }
@@ -201,14 +199,21 @@ object RenderGoldenSuite {
       nodes: List[NodeId]
   ): FetchSnapshot = {
     val env = r.vars.env(Map.empty)
+    val sel = fresh(r)
     val reads: List[SlotRead] =
-      r.fetchesForPage(r.surfaces.selectedSurfaces(), shared, env) ++
+      r.fetchesForPage(r.surfaces.selectedSurfaces(sel), shared, env) ++
         d.surfaces.keys.toList.flatMap(
-          r.fetchesForSurface(_, shared, Selections.none, env)
+          r.fetchesForSurface(_, shared, sel, env)
         ) ++
-        r.readsForPull(nodes, Nil, shared, Selections.none, env)
+        r.readsForPull(nodes, Nil, shared, sel, env)
     FetchSnapshot.of(reads.map(_ -> Staged(1L, "<svg/>")).toMap, env)
   }
+
+  /** A viewer who has chosen nothing, as a page load decides it: every variable
+    * at its declared value.
+    */
+  def fresh(r: Renderer): Selections =
+    r.surfaces.selections(None, r.vars.env(Map.empty))
 
   /** What HA keeps on an entity whose integration it lost. */
   val RegistryAttributes: Set[String] = Set(
