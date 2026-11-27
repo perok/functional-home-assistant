@@ -590,6 +590,9 @@ lazy val `fh-datastar-view` = project
       "qa.hedgehog" %% "hedgehog-core" % hedgehodVersion % Test,
       "qa.hedgehog" %% "hedgehog-runner" % hedgehodVersion % Test,
       "qa.hedgehog" %% "hedgehog-munit" % hedgehodVersion % Test,
+      // The model-based oracle's fake page: the page GET parsed and patched by
+      // id as the browser would, to compare with a fresh render.
+      "org.jsoup" % "jsoup" % "1.24.1" % Test,
       // TestControl.executeEmbed: simulated time for ServerHarness suites
       // (issue #109 item 3) so IO.sleep-based polling in test bodies costs
       // nothing in wall clock instead of needing to be sped up.
@@ -631,7 +634,15 @@ lazy val benchmarks = project
       // Dev-tooling only: the shipped runtime is `fh-datastar-view`.
       // Bundles the extension libraries (strings/lists/math/
       // bindings/comprehensions) in the same jar.
-      "dev.cel" % "cel" % "0.15.0"
+      "dev.cel" % "cel" % "0.15.0",
+      // Retained size of one session's `holds` (HoldsSize).
+      "org.openjdk.jol" % "jol-core" % "0.17"
+    ),
+    // JOL on JDK 25 cannot read a lambda's fields without attaching to itself.
+    javaOptions ++= Seq(
+      "-Djdk.attach.allowAttachSelf=true",
+      "-XX:+EnableDynamicAgentLoading",
+      "-Djol.magicFieldOffset=true"
     )
   )
 

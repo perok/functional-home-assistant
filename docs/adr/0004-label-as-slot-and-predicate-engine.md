@@ -58,7 +58,7 @@ reading, not field-specific.
 
 ## The library writes conditions as data, not CEL
 
-Presence guards, count comparisons, order terms and surface conditions take any bool
+Presence guards, count comparisons, order terms and `If` conditions take any bool
 `ValueExpr`, CEL included (ADR 0035), but the library writes them as data, never as
 CEL. Such a condition is a bool `ValueExpr` of the simple tier
 (ADR 0028): a read, `Compare`, `Not`, and `AllOf`/`AnyOf` over a `List` of

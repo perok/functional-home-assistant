@@ -28,12 +28,12 @@ import { attribute, effect } from "./vendor/datastar/datastar.js"
  * cannot do: survive a refresh, and stay unique per document.
  *
  * `replaceState`: this is view state, not navigation. Back should leave the
- * dashboard, not step back through tab clicks. The one exception is
- * `__history`, which the open popup's mirror carries: each popup the server
- * opens is a history entry, so Back steps to the previous popup and then to the
- * dashboard. The server shows one popup at a time (ADR 0002); the browser's
- * history is the stack. A value the URL already names is not pushed, because
- * Back or Forward put it there; that is all that tells the two apart.
+ * dashboard, not step back through tab clicks. The exception is `__history`,
+ * which a variable declared `.inHistory()` carries, the page's `popups` among them:
+ * each value is a history entry, so Back steps to the previous one and then to
+ * the dashboard; the shell posts the URL Back moved to, and the server shows
+ * what it names. A value the URL already names is not pushed, because Back or
+ * Forward put it there; that is all that tells the two apart.
  *
  * An empty value cannot tell "cleared" from "never initialised" — Datastar
  * creates a signal as `""` the moment an expression reads one — so a mirror
@@ -58,6 +58,7 @@ attribute({
         if (held !== null) release(held)
         held = key
         mirrors.set(key, (mirrors.get(key) ?? 0) + 1)
+        if (mods.has("history")) historyKeys.add(key)
       }
       if (mods.has("history") && value !== "" && !shown(key, value))
         pushParam(key, value)
@@ -71,6 +72,7 @@ attribute({
 })
 
 const mirrors = new Map<string, number>()
+const historyKeys = new Set<string>()
 
 function release(key: string) {
   const left = (mirrors.get(key) ?? 1) - 1
@@ -92,6 +94,7 @@ function withParam(key: string, value: string): URL {
 // `history.state` carried over: it marks an entry `pushParam` made, and a tab
 // switch inside the popup must not erase that.
 function setParam(key: string, value: string) {
+  firstPush.delete(key)
   history.replaceState(history.state, "", withParam(key, value))
 }
 
@@ -99,15 +102,40 @@ function setParam(key: string, value: string) {
  * popup open (a shared link, a refresh of an entry it did not make) fails the
  * first half, so the popup still gets a dashboard entry beneath it and a close,
  * which is always `history.back()`, never leaves the dashboard.
+ *
+ * The mark is the mirror's, not a key's: two history variables share entries,
+ * and a change to one must not strip the other's param from its own.
  */
 function shown(key: string, value: string): boolean {
   return (
-    history.state?.fhPushed === key &&
+    history.state?.fhPushed === true &&
     new URL(location.href).searchParams.get(key) === value
   )
 }
 
+/** On an entry it did not make, every history param leaves that entry, and
+ * the push keeps them all, so a link naming two is one entry above the
+ * dashboard. That push waits a microtask: Datastar applies a scan's
+ * attributes in one pass, and a mirror applied later in it is a history key
+ * the strip must already know.
+ */
 function pushParam(key: string, value: string) {
-  if (history.state?.fhPushed !== key) setParam(key, "")
-  history.pushState({ fhPushed: key }, "", withParam(key, value))
+  if (history.state?.fhPushed === true) {
+    history.pushState({ fhPushed: true }, "", withParam(key, value))
+    return
+  }
+  if (firstPush.size === 0) void Promise.resolve().then(flushFirstPush)
+  firstPush.set(key, value)
+}
+
+const firstPush = new Map<string, string>()
+
+function flushFirstPush() {
+  const under = new URL(location.href)
+  const next = new URL(location.href)
+  for (const k of historyKeys) under.searchParams.delete(k)
+  for (const [k, v] of firstPush) next.searchParams.set(k, v)
+  firstPush.clear()
+  history.replaceState(history.state, "", under)
+  history.pushState({ fhPushed: true }, "", next)
 }

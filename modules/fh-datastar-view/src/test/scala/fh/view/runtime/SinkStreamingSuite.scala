@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
-import fh.view.model.{CardDef, Dashboard, NodeId, Region, Theme}
+import fh.view.model.{CardDef, Dashboard, NodeId, Theme}
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
 
 import java.nio.charset.StandardCharsets.UTF_8
@@ -34,7 +34,7 @@ class SinkStreamingSuite extends munit.FunSuite {
     "leaf" -> TestCard("""<div class="leaf">{{v}}</div>"""),
     "col" -> TestCard(
       """<div>{{{children}}}</div>""",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     )
   )
 
@@ -69,7 +69,7 @@ class SinkStreamingSuite extends munit.FunSuite {
     val own = renderer.renderPageInto(
       Sink.streaming(w),
       Shared.of(noStates),
-      Viewing(Selections.none, FetchSnapshot.empty)
+      Viewing(FetchSnapshot.empty)
     )
     w.flush()
     (rec, own)
@@ -121,14 +121,14 @@ class SinkStreamingSuite extends munit.FunSuite {
     val own = renderer.renderPageInto(
       Sink.streaming(direct),
       Shared.of(noStates),
-      Viewing(Selections.none, FetchSnapshot.empty)
+      Viewing(FetchSnapshot.empty)
     )
     val document = Sink.buffer(renderer.pageBytesHint)
     val _ =
       renderer.renderPageInto(
         document,
         Shared.of(noStates),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
 
     assert(own.nonEmpty, "the walk painted nothing")
@@ -139,7 +139,7 @@ class SinkStreamingSuite extends munit.FunSuite {
           renderer.renderNodeById(
             _,
             Shared.of(noStates),
-            Viewing(Selections.none, FetchSnapshot.empty)
+            Viewing(FetchSnapshot.empty)
           )
         )
         .map(_.length)
@@ -171,7 +171,7 @@ class SinkStreamingSuite extends munit.FunSuite {
       renderer.renderPageInto(
         buf,
         Shared.of(noStates),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
 
     assertEquals(rec.text, buf.result)

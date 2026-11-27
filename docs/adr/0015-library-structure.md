@@ -11,11 +11,11 @@
 
 `components.pkl` had grown to 1821 lines holding four unrelated things: the card
 contract a component author extends, the shipped cards a dashboard author
-composes, the slot/tap/surface plumbing, and the query wire AST that only
+composes, the slot/tap/popup plumbing, and the query wire AST that only
 `query.pkl` builds. Two costs followed.
 
 **Discovery.** Typing `c.` offered ~93 names, about 30 of which an author must
-never touch — `Slot`, `Cell`, `CardDef`, `NODE_ID`, `cardsIn`, `sliderSpec`,
+never touch — `Slot`, `Cell`, `CardDef`, `cardsIn`, `sliderSpec`,
 `alwaysHolds`, and the 14-class predicate AST. A name you have to know to skip is
 a name that costs something.
 
@@ -28,16 +28,17 @@ language depended on the card library to reach a wire shape neither of them owns
 Three tiers, by AUDIENCE rather than by kind:
 
 ```
-core/       node · slot · icon · tap · surface · predicate · — writing a COMPONENT
+core/       node · slot · icon · tap · choice · page ·       — writing a COMPONENT
+            variable · predicate ·
             badge · shell (the page shell's conditions)
             css.pkl — the base stylesheet every dashboard gets (ADR 0020)
 providers.pkl + providers/  history                          — what a component READS beyond state
 layout.pkl  Row/Column/Grid                                  — the boxes you compose into
 components.pkl + components/   entity · control · slider ·   — writing a DASHBOARD
-            light · lock · moreinfo · history · bar · progress · tap ·
+            light · lock · moreinfo · popup · history · bar · progress · tap ·
             defaults · examples
   components/base/  button · onoff · tile · bar · slider ·   — the same, knowing no HA
-                    text · surface · chart
+                    text · tabs · iff · popup · chart
 recipes.pkl floorView …                                      — whole sections, opinionated
 internal/   dump-base.pkl                                    — generator ↔ generated dump
 hass.pkl + hass/  light.pkl                                  — the domain schema
@@ -133,7 +134,7 @@ and a refused click; a slider's range is disabled and its commit refuses.
   cards for one look. `EntitySlider` sets it for a light that cannot dim.
 - `buttons` is a list of taps and nodes, each tap a pill in its own look
   (`core/tap.pkl`'s `icon`/`label`/`lit`), so the base needs no HA to show
-  one. A `nodes.SubjectButton` is one the slider fills in from its subject entity
+  one. A `nodeMod.SubjectButton` is one the slider fills in from its subject entity
   (`c.its`, below): `EntitySlider` resolves them into `shownButtons`, so the base never
   names an entity, and refuses one left unresolved.
 - What makes a slider "about this entity" stays HA: `SlideAxis`, `domainAxes`,
@@ -212,7 +213,7 @@ something no card hands yet adds a field to `Holder`, defaulted to empty, and
 the card that knows it fills it.
 
 **Adding a card that takes them:** give its base card a `buttons` list typed
-to accept `nodes.SubjectButton`, and in its HA subclass map each `ItsButton`
+to accept `nodeMod.SubjectButton`, and in its HA subclass map each `ItsButton`
 through `resolve(new Holder { entity = … })` before the base sees it, as
 `EntitySlider.shownButtons` does. The items come for free.
 
@@ -317,12 +318,13 @@ and so cannot depend on either tool's cleverness.
 
 ## Consequences
 
-- Cyclic module imports are load-bearing and legal in Pkl: `Node.inlineSurfaces`
-  and `SurfaceDef.content` are mutually recursive, and `core/node.pkl` ↔
-  `core/surface.pkl` import each other. Verified before relying on it.
-- `Popup` lives in `core/surface.pkl`, not with the shipped cards: the surface
-  mechanism itself wraps with it (`PopupSurface`, `openPopupInline`), so putting
-  it in `components/` would point a kernel module at the component tier.
+- Cyclic module imports are load-bearing and legal in Pkl: a node holds its
+  tap and a tap carries the popup nodes it opens (`carries`), so `core/node.pkl`
+  ↔ `core/tap.pkl` import each other. Verified before relying on it.
+- No core module knows a popup: the `Popup` card is a shipped one
+  (`components/base/popup.pkl`), and the page's `popups` variable and the
+  collection of every popup into its match are a component module
+  (`components/popup.pkl`, ADR 0002).
 - Shared helpers had to become public for the families to reach them —
   `labelSlot`/`valueSlot`/`secondary` (`core/slot.pkl`), icon resolution
   (`core/icon.pkl`), `post` (`core/tap.pkl`). That is a gain: a third-party

@@ -9,7 +9,7 @@ import fh.view.testkit.HouseFixture
 /** Popups and the browser's history (ADR 0005): the server shows one popup at a
   * time, and each one opened is a history entry, so Back steps to the popup it
   * was opened from and every close, a tap on the backdrop included, is going
-  * back.
+  * back. The tab is a second variable in history beside `popups`.
   */
 class PopupHistorySmokeSuite extends SmokeSuite {
 
@@ -17,28 +17,37 @@ class PopupHistorySmokeSuite extends SmokeSuite {
     """amends "@fh-dashboard/entry.pkl"
       |
       |import "@fh-dashboard/components.pkl" as c
+      |import "@fh-dashboard/core/group.pkl" as groupMod
+      |import "@fh-dashboard/core/node.pkl" as nodeMod
       |
       |access = c.access.public
       |
-      |surfaces {
-      |  ["first"] {
-      |    body {
-      |      c.title("First popup")
-      |      c.button("Open second", c.view.openPopup("second"))
-      |    }
+      |local tab = c.variable("tab")
+      |
+      |local second = new c.Column {
+      |  children {
+      |    c.title("Second popup")
+      |    c.button("Close", c.view.closePopup())
       |  }
-      |  ["second"] {
-      |    body {
-      |      c.title("Second popup")
-      |      c.button("Close", c.view.closePopup())
-      |    }
+      |}
+      |
+      |local first = new c.Column {
+      |  children {
+      |    c.title("First popup")
+      |    c.button("Open second", c.view.popup("second", second))
       |  }
       |}
       |
       |card = (c.column) {
+      |  vars { tab.defaultingTo("a").inHistory() }
       |  children {
       |    c.title("Popup history")
-      |    c.button("Open first", c.view.openPopup("first"))
+      |    c.button("Open first", c.view.popup("first", first))
+      |    c.select(tab).options(List("a", "b")).style("cycle")
+      |    groupMod.group("div", "tabbed", nodeMod.match(tab.value, new Mapping {
+      |      ["a"] = c.title("shown a")
+      |      ["b"] = c.title("shown b")
+      |    }))
       |  }
       |}
       |""".stripMargin
@@ -66,14 +75,30 @@ class PopupHistorySmokeSuite extends SmokeSuite {
   private def href(page: Page): IO[String] =
     IO.blocking(page.evaluate("() => location.href").toString)
 
-  private val popupParam = """.*[?&]ui\.popups=.*"""
+  private val popupParam = """.*[?&]v\.popups=.*"""
+
+  private def tabShows(page: Page, value: String): IO[Unit] =
+    IO.blocking(
+      assertThat(page.getByText(s"shown $value", exactText)).isVisible()
+    )
+
+  /** Waits for the choice's post, so the assertion after it is not answered by
+    * a page that has not acted yet.
+    */
+  private def nextTab(page: Page): IO[Unit] =
+    IO.blocking {
+      val _ = page.waitForResponse(
+        "**/sse/call/**",
+        () => page.locator(".fh-select-cycles button:visible").click()
+      )
+    }
 
   /** Whether a tap at a point would land in the dashboard behind the popup. */
   private def reachesDashboard(page: Page, x: Double, y: Double): IO[Boolean] =
     IO.blocking(
       page
         .evaluate(
-          s"() => !!document.elementFromPoint($x, $y)?.closest('#dashboard')"
+          s"() => !!document.elementFromPoint($x, $y)?.closest('main')"
         )
         .toString
         .toBoolean
@@ -126,6 +151,52 @@ class PopupHistorySmokeSuite extends SmokeSuite {
     }
   }
 
+  test("Back and Forward step through a tab and a popup, each its own entry") {
+    withPageOn(served) { (page, _) =>
+      for {
+        start <- href(page)
+        _ <- nextTab(page)
+        _ <- tabShows(page, "b")
+        _ <- eventually(href(page))(_.contains("v.c.tab=b"))
+        _ <- click(page, "Open first")
+        _ <- showing(page, "First popup")
+        _ <- IO.blocking(page.goBack())
+        _ <- closed(page)
+        _ <- tabShows(page, "b")
+        _ <- IO.blocking(page.goBack())
+        _ <- tabShows(page, "a")
+        _ <- eventually(href(page))(_ == start)
+        _ <- IO.blocking(page.goForward())
+        _ <- tabShows(page, "b")
+        _ <- closed(page)
+        _ <- IO.blocking(page.goForward())
+        _ <- showing(page, "First popup")
+        _ <- tabShows(page, "b")
+      } yield ()
+    }
+  }
+
+  test("a link naming the tab and a popup is one entry above the dashboard") {
+    withPageOn(served) { (page, _) =>
+      for {
+        start <- href(page)
+        sep = if (start.contains("?")) "&" else "?"
+        _ <- IO.blocking(
+          page.navigate(s"$start${sep}v.c.tab=b&v.popups=first")
+        )
+        _ <- showing(page, "First popup")
+        _ <- tabShows(page, "b")
+        _ <- IO.blocking(page.locator(".fh-popup-close").click())
+        _ <- closed(page)
+        _ <- tabShows(page, "a")
+        _ <- eventually(href(page))(_ == start)
+        _ <- IO.blocking(page.goForward())
+        _ <- showing(page, "First popup")
+        _ <- tabShows(page, "b")
+      } yield ()
+    }
+  }
+
   test("the close button, a close tap and Escape each step back") {
     withPageOn(served) { (page, _) =>
       for {
@@ -154,7 +225,7 @@ class PopupHistorySmokeSuite extends SmokeSuite {
       for {
         start <- href(page)
         sep = if (start.contains("?")) "&" else "?"
-        _ <- IO.blocking(page.navigate(s"$start${sep}ui.popups=first"))
+        _ <- IO.blocking(page.navigate(s"$start${sep}v.popups=first"))
         _ <- showing(page, "First popup")
         _ <- IO.blocking(page.locator(".fh-popup-close").click())
         _ <- closed(page)

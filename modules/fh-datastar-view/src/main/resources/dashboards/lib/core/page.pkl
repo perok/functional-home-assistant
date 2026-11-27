@@ -1,0 +1,38 @@
+/// The page: the card every dashboard's tree hangs from, its template the
+/// theme's `chrome` (ADR 0002). `entry.pkl` builds it; an author never writes
+/// one.
+module core.page
+
+import "group.pkl" as groupMod
+import "node.pkl" as nodeMod
+import "slot.pkl" as slotMod
+
+const local bodySlot: slotMod.NodesSlot = slotMod.nodes("body")
+const local popupsSlot: slotMod.NodesSlot = slotMod.nodes("popups")
+
+/// The node `root`. [[chrome]] must place `{{{body}}}`, the dashboard's card,
+/// and `{{{popups}}}`, the element `popups` an open popup is shown in.
+class Page extends nodeMod.Node {
+  id = "root"
+  card = "page"
+  hidden chrome: String
+  /// Keeps the id `c` unless it names its own, so no id below it moves.
+  hidden body: nodeMod.Node
+  /// What the `popups` element holds: `components/popup.pkl`'s choice.
+  hidden popupsFill: groupMod.Content = new Listing {}
+  cardDef = let (p = this) new nodeMod.CardDef {
+    layoutCell = false
+    template =
+      let (missing = List("{{{body}}}", "{{{popups}}}").filter((h) -> !p.chrome.contains(h)))
+      let (claimed = List("root", "popups").filter((i) -> p.chrome.contains("id=\"\(i)\"")))
+        if (!missing.isEmpty)
+          throw("theme.chrome places no \(missing.join(" or ")): the page needs both, the dashboard and the element popups open in")
+        else if (!claimed.isEmpty)
+          throw("theme.chrome writes id=\"\(claimed.first)\", which the page card's own node carries: place {{{popups}}} bare, with no host element around it")
+        else p.chrome
+  }
+  slots {
+    bodySlot.of(new Listing { if (body.id == null) (body) { id = "c" } else body })
+    popupsSlot.of(new Listing { (groupMod.inner("div", "", popupsFill)) { id = "popups" } })
+  }
+}

@@ -44,7 +44,7 @@ private[view] object Evaluator {
     */
   trait Lookup:
     def fetched(f: FetchTemplate): Object
-    def variable(name: String): String
+    def variable(name: String): String | Null
 
     /** Only a press has a posted value, and only its call reads one. */
     def posted(key: String): Any =
@@ -54,13 +54,18 @@ private[view] object Evaluator {
     /** Answers and no variables: a decision's. */
     def answering(answer: FetchTemplate => Object): Lookup = new Lookup:
       def fetched(f: FetchTemplate): Object = answer(f)
-      def variable(name: String): String = noVariable(name)
+      def variable(name: String): String | Null = noVariable(name)
 
     /** Variables and no answers: what a chosen window's `by` reads. */
     def of(vars: Map[String, String]): Lookup = new Lookup:
       def fetched(f: FetchTemplate): Object = unanswered.fetched(f)
-      def variable(name: String): String =
-        vars.getOrElse(name, noVariable(name))
+      def variable(name: String): String | Null = held(vars, name)
+
+  /** `name` as a viewer holds it: absent from `vars` is no value, `null` (ADR
+    * 0035), since `validate` gives every read a declarer.
+    */
+  def held(vars: Map[String, String], name: String): String | Null =
+    vars.getOrElse(name, null)
 
   def noVariable(name: String): Nothing =
     throw FHError.internal(
@@ -215,6 +220,8 @@ private[view] object Evaluator {
         runs(items, scope, named).map(rs => (junction(rs, decides = false), r))
       case (Value.List(_, items), Step.AnyOf :: r) =>
         runs(items, scope, named).map(rs => (junction(rs, decides = true), r))
+      case (Value.List(_, items), Step.IndexOfTrue :: r) =>
+        runs(items, scope, named).map(rs => (firstTrue(rs), r))
       case (source, steps) =>
         read(source, programs, scope, named).map(_ -> steps)
     start.flatMap((run, rest) =>
@@ -238,7 +245,7 @@ private[view] object Evaluator {
       throw FHError.internal(
         s"a value read the fetch '${f.key}' where none is answered"
       )
-    def variable(name: String): String = noVariable(name)
+    def variable(name: String): String | Null = noVariable(name)
 
   /** An ordering, its keys read once per candidate rather than per comparison
     * (`publishSetOrdered`): a bool key sorts `true` first under `asc`; a
@@ -251,7 +258,8 @@ private[view] object Evaluator {
       descending: Array[Boolean],
       // Beyond the member's own: what dirties the whole ordering.
       val entities: List[String],
-      val reads: Set[SlotRead]
+      val reads: Set[SlotRead],
+      val variables: List[String]
   ) {
 
     /** A candidate the store lacks reads as nothing: false, or no value. Term
@@ -338,7 +346,8 @@ private[view] object Evaluator {
             cs.map(_.out == ValueType.Bool).toArray,
             terms.map(_.descending).toArray,
             terms.flatMap(_.entities).distinct,
-            SlotAsk.decision(terms.flatMap(_.by.fetches))
+            SlotAsk.decision(terms.flatMap(_.by.fetches)),
+            terms.flatMap(_.by.variables).distinct
           )
         )
 
@@ -562,6 +571,18 @@ private[view] object Evaluator {
     (subject, states, fetched) =>
       var rest = items
       Steps.kleene(decides)(rest.nonEmpty) {
+        val v = rest.head(subject, states, fetched)
+        rest = rest.tail
+        v
+      }
+
+  /** The position of the first of a list source's items that holds, each run
+    * only until one does.
+    */
+  private def firstTrue(items: List[Run]): Run =
+    (subject, states, fetched) =>
+      var rest = items
+      Steps.indexOfTrue(rest.nonEmpty) {
         val v = rest.head(subject, states, fetched)
         rest = rest.tail
         v

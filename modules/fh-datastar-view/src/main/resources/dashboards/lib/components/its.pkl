@@ -10,7 +10,7 @@
 ///     c.entitySlider(light).buttons(List(c.its.toggle, c.its.mainControl, c.its.colourWheel))
 module components.its
 
-import "../core/node.pkl" as nodes
+import "../core/node.pkl" as nodeMod
 import "../core/tap.pkl" as tapMod
 import "../hass.pkl"
 import "base/slider.pkl" as sliderBase
@@ -54,19 +54,19 @@ class Holder {
 }
 
 /// One of this module's buttons, filled in by the card holding it.
-abstract class ItsButton extends nodes.SubjectButton {
+abstract class ItsButton extends nodeMod.SubjectButton {
   /// What it is on `h`, or null where `h` cannot do it.
-  abstract function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)?
+  abstract function resolve(h: Holder): (tapMod.TapAction|nodeMod.LayoutNode)?
 }
 
 /// Its entity's toggle, a power pill lit while it is on.
 class ToggleButton extends ItsButton {
-  function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)? = tapVerbs.toggle(h.entity)
+  function resolve(h: Holder): (tapMod.TapAction|nodeMod.LayoutNode)? = tapVerbs.toggle(h.entity)
 }
 
 /// Its light's colour wheel, in a popup; nothing on a light without colour.
 class ColourWheelButton extends ItsButton {
-  function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)? =
+  function resolve(h: Holder): (tapMod.TapAction|nodeMod.LayoutNode)? =
     let (e = h.entity)
       if (e is hass.LightEntity && e.colour != null) viewVerbs.colourWheel(e.colour!!) else null
 }
@@ -84,7 +84,7 @@ class MainControlSwitch extends ItsButton {
   function options(cs: List<MainControl>): this = (this) { only = cs }
   /// `"cycle"`, the default: one pill stepping round. Or `"dropdown"`, `"buttons"`.
   function style(s: selectMod.SelectStyle): this = (this) { styleChoice = s }
-  function resolve(h: Holder): (tapMod.TapAction|nodes.LayoutNode)? =
+  function resolve(h: Holder): (tapMod.TapAction|nodeMod.LayoutNode)? =
     let (cs = h.mainControls)
       if (cs.length < 2) null
       else controlSelect(cs, styleChoice)

@@ -1,7 +1,8 @@
 package fh.view.functional
 
 import cats.effect.IO
-import fh.view.runtime.TestServer
+import fh.view.model.Dashboard
+import fh.view.runtime.{TestServer, VarKey}
 import fh.view.testkit.{HouseFixture, PklFixture}
 import io.circe.Json
 
@@ -32,7 +33,7 @@ class InputsSuite extends munit.CatsEffectSuite {
        |      }
        |    }).secondary(c.expr($expr))""".stripMargin
 
-  private def entry(body: String, surfaces: String = ""): String =
+  private def entry(body: String): String =
     s"""amends "@fh-dashboard/entry.pkl"
        |
        |import "@fh-dashboard/components.pkl" as c
@@ -47,8 +48,6 @@ class InputsSuite extends munit.CatsEffectSuite {
        |  dump.entities.${living.dumpKey}
        |)
        |
-       |$surfaces
-       |
        |card = (c.column) {
        |  children {
        |$body
@@ -56,13 +55,13 @@ class InputsSuite extends munit.CatsEffectSuite {
        |}
        |""".stripMargin
 
-  private def withServer[A](body: String, surfaces: String = "")(
+  private def withServer[A](body: String)(
       f: TestServer => IO[A]
   ): IO[A] =
     TestServer
       .fromWorkspace(
         "expression-values",
-        entry(body, surfaces),
+        entry(body),
         List(kitchen, living)
       )
       .use(f)
@@ -157,25 +156,26 @@ class InputsSuite extends munit.CatsEffectSuite {
   }
 
   test("inside a popup, the count is live while the popup is open") {
-    // The floors-popup shape this was built for: a surface is its own index,
-    // so the tally's entities must reach that index too.
-    val popup =
-      s"""surfaces {
-         |  ["floors"] {
-         |    body {
-         |${button("Stue")}
-         |    }
-         |  }
-         |}""".stripMargin
-    val open = "?ui.popups=floors"
+    // The floors-popup shape this was built for: the tally's entities must
+    // reach a case the page does not show.
+    val open = "?v.popups=floors"
+    // A stream carries a choice as its committed signal, as a reconnect does.
+    val carried = "?datastar=" + java.net.URLEncoder.encode(
+      s"""{"${VarKey(
+          Dashboard.PageRootId,
+          "popups"
+        ).committedSignal}":"floors"}""",
+      "UTF-8"
+    )
     withServer(
-      "    c.button(\"Floors\", c.view.openPopup(\"floors\"))",
-      popup
+      s"""    c.button("Floors", c.view.popup("floors",
+         |${button("Stue")}
+         |    ))""".stripMargin
     ) { ts =>
       for {
         html <- ts.page(open)
         sig = onlySignal(html)
-        client <- ts.connect(open)
+        client <- ts.connect(carried)
         _ <- client.drain
         _ <- ts.change(living.entityId, "on")
         sent <- client.drain.map(_.flatMap(_.data).mkString("\n"))
@@ -622,7 +622,7 @@ class InputsSuite extends munit.CatsEffectSuite {
       val errs = errorsOf(
         s"""    c.iff(${kitchenIs("value.state")}).then(c.title("x"))"""
       )
-      assert(errs.exists(_.contains("a condition is a bool, not")), errs)
+      assert(errs.exists(_.contains("is chosen by a text")), errs)
     }
   }
 

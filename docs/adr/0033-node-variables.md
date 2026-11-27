@@ -7,12 +7,12 @@ Issue [#209](https://github.com/perok/functional-home-assistant/issues/209); it 
 
 Two users: a chart's window — `c.history.chooser` declares `window`, and every
 `c.history.chart(s).fromChooser()` beneath it reads it, so pressing `7d` redraws them all — and a tab
-bar's open tab, which `c.tabs` declares as `tab` and its panel's bake group is selected by.
+bar's open tab, which `c.tabs` declares as `tab` and its panel's choice is picked by.
 A slider with main controls — `c.entitySlider(l)` on a light that has colour temperature or colour —
-declares `control` the same way, valued by the control's name: its head is a bake group, one head
+declares `control` the same way, valued by the control's name: its head is a choice, one head
 per control, and the pill's switch is a `c.select` of it. A group's rows with main controls declare
-their own, which shadows the head's. A slider that is `.fromChooser()` declares none and is a bake
-group selected by the nearest `control` above it — a group head's or `c.controlChooser`'s — so one
+their own, which shadows the head's. A slider that is `.fromChooser()` declares none and is a
+choice picked by the nearest `control` above it — a group head's or `c.controlChooser`'s — so one
 press switches them all; that is the ancestor lookup doing what it is for, not a mechanism of its
 own.
 
@@ -36,10 +36,11 @@ not be enumerated there. A declared reference can.
    opens.
 2. A read resolves by name to the nearest node above it declaring that name, once, at build time.
 3. A node that declares nothing is transparent.
-4. A nested declaration of the same name shadows the outer one, for its own subtree only.
+4. A nested declaration of the same name shadows the outer one, for its own subtree only, unless
+   the outer one is `notShadowed()`: then the nested one is a build error.
 5. A node sees its own declarations.
-6. The page and each popup start with an empty scope. A tab panel or an `If` branch starts with
-   the scope of the one node it is baked into.
+6. The page starts with an empty scope. A case of a choice — a tab panel, an `If` branch, a popup
+   — starts with the scope of the one node whose choice it is a case of; a popup's is the page's.
 7. A candidate set's members read the scope at the set. A node inside a clause declares for its
    member alone: each member's copy is its own declarer.
 8. A read with no declarer is a build error naming the node and the variable.
@@ -49,13 +50,20 @@ not be enumerated there. A declared reference can.
     reconnect carries — and every reader must accept it, or the write is refused.
 
 Rules 2–6 are lexical scoping, as in Scheme, ML or Pkl itself: where a node stands in the tree
-decides, never where it is shown. Rule 6 is what keeps that true for surfaces — a popup can be
-opened from many places, so inheriting from its opener would be dynamic scoping.
+decides, never where it is shown. Rule 6 is what keeps that true for popups: one can be opened from
+many places, so it inherits from the page whose case it is, never from its opener, which would be
+dynamic scoping.
 
 **Declaration.** `LayoutNode.Component.vars: List[Declaration]`, one per name:
-`Declaration(name, default, inUrl, initialTransform)` — the value it holds before anyone chooses,
-whether a choice is mirrored into the URL (ADR 0005), and where a session opens it instead. In Pkl
-a node amends `vars { window.defaultingTo("24h") }`. A `varMod.Declaration` holds the `Variable`
+`Declaration(name, default, inUrl, initialTransform, inHistory)` — the value it holds before anyone chooses,
+whether a choice is mirrored into the URL and pushed as a history entry (ADR 0005), and where a
+session opens it instead. In Pkl
+a node amends `vars { window.defaultingTo("24h") }`, or `vars { v.startingEmpty() }` for one that
+holds **no value** until a viewer chooses: `{}` on the wire (`varMod.noValue`), since a `null`
+property is dropped (ADR 0006), and `None` in Scala. A reading of it is then `null` (ADR 0035), a
+`match` over it takes its otherwise or shows nothing, which `validate` does not refuse, and
+`valueIs` holds for nothing; the viewer's environment omits it, its committed signal is `''` and
+the URL names nothing, which no value a viewer can choose spells. A clear returns to it. A `varMod.Declaration` holds the `Variable`
 it declares (hidden, so not on the wire); a reader holds only the `Variable`, written without
 knowing which node above declares it. The decoder is derived, and `Component.defaults` is the
 name → default view most readers want. Nothing else: no type, no list of allowed values (below).
@@ -76,8 +84,8 @@ head does). A result no reader takes (the light unavailable, no mode yet) is dro
 declared value stands, as for a stale link. It is read **once**: an open page never
 follows the entity, because a head moving under the viewer's finger is worse than a stale one (a
 ZHA group reports a false `xy` 59 ms after a temperature command,
-`docs/issue-zha-group-colour-mode.md`), and following would need state changes to reselect bake
-groups, a path only a write has. An initial value is not a choice: no `v.` param, so a refresh
+`docs/issue-zha-group-colour-mode.md`), and following would need state changes to re-decide
+picks over a variable, a path only a write has. An initial value is not a choice: no `v.` param, so a refresh
 decides it afresh, and the mirror compares to the session's `__initialValue` signal rather than the
 default in the shared node bytes; the shell seeds that signal only where a mirror reads it. Its entity is watched (ADR 0030), since it decides what the page shows.
 
@@ -99,6 +107,10 @@ and a signal, so it picks a typed value (a history window, ADR 0031) rather than
   `{"is": <scalar>, "value": …}`, since a JSON object's keys are strings and decoding them by
   another field's type would derive in the decoder: `{"kind": "Chosen", "by": <value>, "cases":
   […], "otherwise": …}`; anything else is the value written down.
+- **A set's member is a `Choice[LayoutNode]`** (ADR 0003): the node alone, or chosen by a guard
+  read for its candidate, `by` a condition (case `true`) or `IndexOfTrue` over a chain of them (case
+  `i` the clause), and no `otherwise`. `Ready` holds each member's `by` compiled beside its nodes by
+  case index (`MemberChoice`), decided per candidate by `MemberGraph`.
 - **`by` may read state**, so an entity can pick a window, decided per version. Those entities join
   the node's reads: they wake it and its render key carries them, as any entity read does. It may
   not read a fetch, whose answer would need the window first. A decision's window is written down,
@@ -112,11 +124,11 @@ declaring ancestor; a container that declares nothing is transparent; a nested d
 same name shadows. No declarer is a **build error** naming the node and the variable. The walk
 yields the declared edge and its inverse, `VarGraph.readersOf` — the exact set a write re-renders.
 
-- **A popup is its own scope root; an owned surface inherits.** A popup can be opened from many
-  places, and inheriting from one would let its content resolve differently per opener. A tab
-  panel or an `If` branch is baked into exactly one node (`bakeInto`), so it starts with that
-  node's scope (`Dashboard.varScopes`, which the renderer and validation read; the hoist applies
-  the same rule to tokens). A chooser above a tab bar reaches the charts in its panels, and a
+- **A case starts with its choice's scope.** A tab panel or an `If` branch is a case of exactly
+  one node's choice, a node below it, so it starts with that node's scope (`Dashboard.varScopes`,
+  which the renderer and validation read). A popup is a case of the page node's `popups`, so it
+  sees the page's variables and not its opener's, which would let one content resolve differently
+  per opener. A chooser above a tab bar reaches the charts in its panels, and a
   nested bar's own declaration shadows the outer one. A write still re-renders only the readers
   this viewer is shown, so a hidden panel's chart is fetched at the new value when it opens.
 - **A candidate set's members read the scope at the set.** The candidates, each member's id
@@ -135,15 +147,9 @@ yields the declared edge and its inverse, `VarGraph.readersOf` — the exact set
   when its element leaves the page.
 
 **Naming the declarer.** A choice names only the variable: the server resolves its declarer at
-the pressing node, as a read of it is resolved, and the renderer spells the pending ask from the
-same lookup. A highlight reading the committed signal from below still needs the declarer's ID
-in a slot's string, which the renderer never parses, so `Variable.declarer` is a token,
-`@@VAR:<name>@@`, that the hoist splices by the same rule (nearest declarer, a popup its own root,
-none is a build error naming the node). It is spliced into each node's OWN fields with the scope at
-that node, never across a subtree as `@@NODE_ID@@` is, or a shadow would hand its children the
-outer declarer. A candidate set's clause may use one to name a declarer above the set. The check
-for unresolved tokens stays behind it, so a missed splice fails the build instead of reaching the
-DOM.
+the pressing node, as a read of it is resolved, and the renderer spells the pending ask and a
+highlight's signals from the same lookup (`VarGraph.keyAt`). Pkl spells no signal name, so there
+is one resolver, `Dashboard.varScopes`.
 
 **One typed value on each side, never a bare name.** A component holds a variable as a
 `varMod.Variable`: its `ref` for a chosen window's `by`, `declarer` for a node below, its signals and URL
@@ -151,7 +157,7 @@ param spelled from the declarer's own template (`own`) or from below it (`below`
 activation of a panel, `defaultingTo(value)` for the node's `vars`, and `choose(value)` for a
 declared choice (`choose(null)` clears it). So a component writes the name once, and a misspelt signal cannot exist. The server's half
 is `VarKey(declarer, name)`, which owns the same spellings where the server commits, seeds,
-adopts a reconnect's values and reads a link, and `VarGraph`, beside `SurfaceGraph` and
+adopts a reconnect's values and reads a link, and `VarGraph`, beside `PickGraph` and
 `MemberGraph`, owns scopes (set members included), a viewer's environment, readers and the panels
 a write selects. `VarSignalNamesSuite` reads a real page's names and holds the two halves equal.
 
@@ -171,15 +177,20 @@ declared value. Each is adopted on its own, so one stale value costs only its ow
 session's own choices win over them, since a commit can be lost with its stream. They are read by exact signal name per declaration (`Server.carriedVars`), never by
 parsing `_var_<declarer>__<name>`: a declarer's id can itself contain `__` (`s_<sid>__c`). All go through
 `Renderer.refusals`: every declared reader must still take it — a fetch with no `otherwise` must
-find a case for it, a panel must have a member for it. ADR 0023's bound on the read side holds by
+find a case for it, a panel a case. A dashboard edit can refuse what the old dashboard took (a
+removed tab), so a session's values are checked again the first time they meet a new renderer,
+at whichever of the swap repaint, a reconnect, a pull or a press comes first
+(`Renderer.recheck`, `SessionState.checkedBy`); a refused one falls back to its declaration. ADR 0023's bound on the read side holds by
 construction: a fetch's entity is written down, so no value can move a chart to the lock on a
 `Public` dashboard. A refused write is ADR 0024's 200 of
 signals; a refused URL value or carry is dropped with a warning, each on its own
-(`Renderer.adopt`), leaving the declared values. A link is not refused whole: it outlives the
+(`Renderer.adopt`), leaving the declared values. Each check runs over the viewer's initial values,
+as `SessionState.values` lays them: a choice taken only because another variable opened elsewhere
+is taken. A link is not refused whole: it outlives the
 layout it was copied from, and a card inserted above can move an id onto a node that cannot take
 the value. A choice naming no declaration is
-inert, not an error — a stale link after a rename, treated as `SurfaceGraph.openPopup` treats a
-gone surface, and an old `ui.<id>` tab link is not read at all. `ui.` is now only the popup's.
+inert, not an error — a stale link after a rename — and an old `ui.<id>` link, a tab's or the
+popup's, is not read at all.
 
 **A write re-renders the readers this viewer is shown, then commits** (ADR 0025): the press writes
 `_var_<declarer>__<name>__pending`, the server commits `_var_<declarer>__<name>` after the repaints,
@@ -208,35 +219,35 @@ chooser rather than a card per variable: a card per variable copied the same reg
 Neither a shipped chooser nor its reader's `.fromChooser()` takes the variable's name, so the pair
 cannot drift.
 
-**A tab bar is a variable.** `c.tabs` declares `tab`, the open member's index (`"0"`), and its
-panel's surfaces are `Activation.Var("tab")`: the member selected at the variable's value as seen
-from the bar, which with no `value` of its own is its `bakeIndex`. Its buttons are `choose(i)` on
-that variable, so a tab press is a variable write whose reader is the bake group
-(`VarGraph.panelsSelectedBy`): the write swaps the panel this viewer is shown and commits after it,
-and a value no member of every panel it selects is selected at is refused like an unparseable
-window. A `c.select` over a variable names its members' values instead (`Variable.selecting`), so
-its cycle and its dropdown's label are right in the first HTML for a value like `7d`; an If over a
-variable (`c.iff(v.valueIs("30d"))`, ADR 0007) is one member at its value and one at every
-other (`VarAt.Otherwise`), so it takes any value. A tab panel cannot be opened directly; the open route refuses
-it, since the panel would move without the variable. `validate` requires the variable in scope at
-the bar and its declared value to be a member's (or the group to have its one member at every other value), distinct values per group, and refuses a `User`-activated member with
-a `bakeInto`: a host is filled by a choice the server knows, a variable or a condition (ADR 0007),
-and `User` is a popup's. Several bars, and a bar nested in another's panel, are kept apart by
-being different declarers. Every path that bakes takes a bar's member from the session's
-variables, so a stale `ui.<id>` param cannot pick a tab.
+**A tab bar is a variable.** `c.tabs` declares `tab`, the open tab's index (`"0"`), and its
+panel is a `nodeMod.match` over it: a case per tab, keyed by its index, picked by the variable's
+value as seen from the bar. Its buttons are `choose(i)` on that variable, so a tab press is a
+variable write whose reader is the pick (`VarGraph.panelsSelectedBy`): the write swaps the panel
+this viewer is shown and commits after it, and a value no case of every panel it decides takes is
+refused like an unparseable window. A `c.select` over a variable keys its cases by its options'
+values, so its cycle and its dropdown's label are right in the first HTML for a value like `7d`;
+an If over a variable (`c.iff(v.valueIs("30d"))`, ADR 0007) is one case at its value and the
+otherwise at every other, so it takes any value. `validate` requires the
+variable in scope at the bar and its declared value to be a case's (or the choice to have an
+otherwise), and distinct keys per choice: a host is filled by a choice the server knows, a
+variable or a condition (ADR 0007). Several bars, and a bar
+nested in another's panel, are kept apart by being different declarers. Every path that renders
+a panel takes the bar's case from the viewer's values, which the render's `Shared` carries
+(`Shared.viewing`, read by `PickGraph.decideByVariable`): a lookup, kept nowhere. A stale
+`ui.<id>` param cannot pick a tab.
 
-A highlight reads the committed `_var_<declarer>__<name>`, which the server writes for every
-declaration whoever reads it. So a SIGNAL reader needs no slot kind of its own: it is a name the
-token supplies, and a press re-renders the variable's readers and never the bar.
-
-**The open tab is lit in the first page.** `cellClassAtRender(cls, expr)` writes `cell.atRender`:
-evaluated for the viewer in the document form and written into `class`, with no signal, no frame
-and no binding, so patches are the same for every viewer. It is not a reader of a write and not
-in the render key. The tab and select buttons use it,
-`.cellClassAtRender("fh-chosen", v.valueIs(choice))`, so a page's raw HTML lights the open tab
-without scripts. Their live highlight stays the browser's own `data-class:fh-chosen` over the
-pending-or-committed value, instant on a press with the spinner until the commit (ADRs 0019,
-0025): a patch carrying the class could arrive after a second press and light two tabs.
+**A highlight is `v.valueIs(x)` in a bool signal slot**, the one variable read a signal may
+hold: `cellClassWhen("fh-chosen", v.valueIs(choice))` on the tab and select buttons. The
+variable's committed `_var_<declarer>__<name>` and its pending ask are signals every page already
+has (the server writes the commit for every declaration whoever reads it, the shell seeds both),
+so the renderer binds the slot to them, `String(($<pending> || $<committed>)) === 'x'`, and the
+slot has no signal of its own, no frame and no seed. It reads the ask while one is out, instant
+on a press with the spinner until the commit (ADRs 0019, 0025): a patch carrying the class could
+arrive after a second press and light two tabs. The document form writes the class for the
+viewer, so a page's raw HTML lights the open tab without scripts; the patch form leaves it to the
+binding, so patches are the same for every viewer. It is not a reader a write re-renders and not
+in the render key. Any other variable read in a signal is refused: a plain `v.value` could bind
+the same way and is left until a card needs it.
 
 ### A variable is a source
 
@@ -254,13 +265,41 @@ fetches and literals is decided once per state version, for every viewer; one re
 is decided per viewer, as that viewer's bytes render. So a read stands only where bytes are
 rendered per viewer, a leaf's value slot, and `validate` refuses one:
 
-- in any decision made once for every viewer: a set's clause and order, a state surface's
-  condition, a `valueWhile`, a set a press acts on (`Dashboard.decisionExprs`);
+- in a call's service, target or data, which the server evaluates once for the press (`callErrors`);
 - in any signal slot, `cellClassWhen` and `cellStyle` included: a display signal is named by what
   it reads, so every viewer shares it;
 - in a structural card's own slots, which are never re-rendered for a viewer.
 
-`c.iff(v.valueIs(x))` is not a decision there: it still lowers to `Activation.Var`, a selection.
+A choice (a pick) is not a decision there: it is decided per viewer whenever it reads a variable.
+Over the plain variable (`c.iff(v.valueIs(x))`, a match on `v.value`) that is a lookup of the
+viewer's value. Computing over a variable, alone or with state (`c.iff(v.valueIs(x))` with an
+`elif` over a light, or a `match` through steps), it is a viewer pick: `by` read once at the
+viewer's values and its case looked up, kept per values in the version's `Shared`
+(`PickGraph.decideByViewer`, `Shared.branchAt`) and carried by the dirty rule of the entities
+it reads; one reading no entity is never dirtied. A write re-plans each pick reading the key at
+the writer's host (`VarGraph.picksDecidedBy`), and a state change moving a viewer pick's case
+for some viewers is logged as a flip for those alone (ADR 0007).
+
+A candidate set whose guards or order read a variable is decided per viewer the same way: its
+level is `Viewer` at the set's node, so the variable is read as the nodes at or above the set
+declare it (`Validate.setErrors` refuses one nothing there declares), and its members and their
+order are kept per values (`Shared.setAt`, `MemberGraph.decided`). Everything below such a set is
+on the page only as a viewer's `Shared` has it, so the recorder plans and logs once per distinct
+values (`Server.recordFrame`), and a write re-plans the set's host for its writer alone. The
+guard and order mix variables and state freely, in one condition (`q.any`/`q.all` over `valueIs`
+and a comparison).
+
+A slot's `valueWhile` reading a variable is decided per viewer the same way (ADR 0034): its level
+is `Viewer` at the slot's node (`Shared.holdsAt`, `Renderer.gateHolds`), kept per values beside the
+version's gates, and the slot is the viewer's own like any slot reading one, so a signal slot, an
+undeclared variable and a structural card's own slot refuse it as they do any read
+(`Validate.slotVarErrors`). A write re-renders the gated node for its writer (it reads the
+variable, `Ready.Component.variables`) and the pre-read asks its fetches only for the viewers it
+holds for. What stays refused in a decision is a fetch whose window a variable chooses
+(`decisionFetchErrors`): a decision asks its fetches every version, whoever is viewing. To lift
+it, the decision's fetches would resolve at the viewer's values (the memo's key already carries
+them) and `Server.decisionAnswers` would answer with the viewer's env; reopen when a card needs a
+decision over a chosen window.
 
 ## Why not
 
@@ -282,7 +321,7 @@ reader has.
 render-key change. It fails on the first paint — the default wins on every refresh, or the page
 ships a hole — and it is the second mechanism #210's draft was rejected for.
 
-**Making the window a bake group.** Zero new machinery, since tab bars ship. But a control over
+**Making the window a choice over nodes.** Zero new machinery, since tab bars ship. But a control over
 three charts is twelve surfaces with each chart written four times, and one window cannot steer
 charts outside its panel.
 
@@ -291,14 +330,17 @@ tabs, which the declarer token makes possible. Fixed, as the chooser's `window` 
 declaration and its writers cannot drift; naming it can come when a control needs it.
 
 **A tab's label as the value.** It would survive reordering the tabs, but a label can carry a
-space or a `'`, and the value travels in a route segment and a JS string. The index is what
-`bakeIndex` already says.
+space or a `'`, and the value travels in a route segment and a JS string.
 
 **Translating old `ui.<id>` tab links.** Cheap, but a second spelling to keep for as long as any
 link exists. An old link lands on the declared tab, which is what a stale `v.` link does.
 
-**Resolving by node id.** Authors do not know ids — they are position-derived (ADR 0022), which is
-why `@@NODE_ID@@` exists at all.
+**Resolving by node id.** Authors do not know ids — they are position-derived (ADR 0022).
+
+**A popup whose entity a variable chooses** (one more-info node, `popups` holding an entity id).
+It would be one node for every entity, but the typed bodies, the written-down reads, the signals,
+the calls and the fetches all rely on the entity being known at build time, and a popup per entity
+under its own id costs nothing while closed.
 
 **Letting CEL read variables by name.** A transform is opaque to static analysis, so a reference
 inside one could not be enumerated before the walk — the property this exists to keep. A CEL reads
@@ -326,8 +368,8 @@ instead.
   from the group entity's state, not each bulb's.
 - **The render key carries what a node read, and still one entry per node.** The key is the
   node's byte-slot values (ADR 0012), so a variable a slot reads, or a fetch the variable chose,
-  is in it through that slot's value; a bake group's selection is structure, which is never
-  cached. Viewers on one value share a render and a viewer on another replaces the entry, in
+  is in it through that slot's value; a choice fills a nodes slot, so its host is structure,
+  which is never cached. Viewers on one value share a render and a viewer on another replaces the entry, in
   place: `RenderCache` keeps one entry per node however many values are posted, and two values
   over one node alternate, each re-rendering (`RenderCacheContentionSuite`). For a chart that is a
   mustache splice of SVG already drawn, since `renderNodeById` takes a `FetchSnapshot` and cannot
@@ -340,27 +382,20 @@ instead.
 
 ## Future work, recorded so it is not rediscovered
 
-- **A variable with NO value — "nothing selected yet".** A real UI state, not built because no
-  reader can use it: `history`'s parameters are all required. A provider with an optional
-  parameter is what would make it worth building. **Null cannot spell it** — `omitNullProperties`
-  drops a null property, so `default = null` would read as no default given (ADR 0006). Spell it as
-  a field of the `Declaration` that says so, not as an absent `default`. `""` is a different
-  question; `core/stage.pkl` already keeps absent and empty apart.
 - **A type, if a variable ever needs one, must be a real one** — the build's `ValueType`
   (`ValueExpr.scala`), not string enums, with one answer for where it is checked and one for how a
   control is derived.
   Until then the closed set lives in the Pkl that emits the declaration and its control.
-- **A child that spells a parent's id OUTSIDE a variable.** `@@NODE_ID@@` means "the id of the
-  node whose class wrote this token", and `DashboardBuild.hoistInlineSurfaces` splices it only for a
-  node carrying `inlineSurfaces`. It cannot become unconditional — a `TabButton` inside `Tabs`
-  writes it meaning the tabs' id. A child naming its DECLARER is `Variable.declarer`; an explicit "I
-  own the tokens in my subtree" marker is wanted only by a parent that declares nothing.
-- **Declaring on the tree ROOT, so a control need not contain its readers.** Today a bar in a
-  header cannot steer charts in a sibling column. A root declaration would, addressed through a
-  reserved segment the server resolves to "this tree's root" (the root is `c` only until an author
-  names it, and `s_<sid>__c` in a surface). Not built: composition covers the case that exists. It
-  is also the last step for selections: the popup host lives in `theme.chrome`, outside every
-  node, so only a root declaration lets it become a variable and retire `ui_popups`,
-  `Server.popupOf` and `Selections.popup`, the one selection a request still carries (ADR 0005).
+- **An author declaring on the page, so a control need not contain its readers.** Today a bar in a
+  header cannot steer charts in a sibling column. The page node `root` declares the library's
+  `popups` (ADR 0002), and a variable there spells its parameter `v.<name>`, but an author has no
+  way to add one. Not built: composition covers the case that exists.
 - **A global namespace**, if the root declaration ever reads badly, is Pkl sugar over it — never a
   second resolution rule.
+- **Naming the root's declaration from below a nearer one** (`root.popups`). Resolution is
+  nearest-first, so a nested declaration hides an outer one of the same name. An author who hides
+  their own variable can rename it, and a name the library declares on the author's behalf is
+  declared `notShadowed()` instead (`Declaration.shadowable`, off the wire at its default), which
+  `validate` holds every node below to, so nothing can hide it. A reference resolved at the root is for the day an
+  author must reach past a nearer declaration they cannot rename: Pkl sugar spelling the root's
+  id, like the global namespace above, not a second resolution rule.

@@ -1,5 +1,9 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -9,22 +13,16 @@ import cats.effect.std.Supervisor
 import fh.view.model.{
   CardDef,
   Dashboard,
+  Ix,
   LayoutNode,
   NodeId,
   Op,
   Value,
   ValueExpr,
   TemplateSlot,
-  Surface,
   Theme
 }
-import fh.view.testkit.{
-  DashboardBuilders,
-  FakeHomeAssistant,
-  FixtureEntity,
-  TestAuth
-}
-import fh.view.testkit.TestIds.given
+import fh.view.testkit.{FakeHomeAssistant, FixtureEntity, PklFixture, TestAuth}
 import fs2.concurrent.SignallingRef
 import io.circe.Json
 import org.http4s.*
@@ -34,8 +32,8 @@ import scala.concurrent.duration.*
 
 /** Resume on reconnect (ADR 0011). A wrong resume is silent, stale values
   * forever, since the server believes the browser is current, so each test
-  * asserts both what the client gets and whether the full-body repaint
-  * (`selector #dashboard`) was used.
+  * asserts both what the client gets and whether the full repaint
+  * ([[ServerHarness.BodyRepaint]]) was used.
   */
 class ResumeSuite extends ServerHarness {
 
@@ -85,7 +83,12 @@ class ResumeSuite extends ServerHarness {
     }
   }
 
-  test("a member that LEFT across the disconnect resumes as a remove patch") {
+  /** A cursor-only reconnect holds no list for the set (its session is gone),
+    * so the host is filled without the departed member: one host, not the body.
+    * A page whose list is held gets the remove alone ("a returning page, its
+    * position ahead of its cursor included, ...").
+    */
+  test("a member that LEFT across a forgotten disconnect is filled out") {
     val lights = List("light.a", "light.b", "light.c", "light.d")
     live(
       dynDash,
@@ -100,8 +103,10 @@ class ResumeSuite extends ServerHarness {
         opening <- v.cursor.flatMap(c => ts.reconnect(Some(c)))
       } yield {
         assertEquals(elementPatches(left).size, 1, clue = left)
-        assert(opening.contains("selector #c_light_b"), clue = opening)
-        assert(opening.contains("mode remove"), clue = opening)
+        assert(opening.contains("selector #c\n"), clue = opening)
+        assert(opening.contains("mode inner"), clue = opening)
+        assert(opening.contains("id=\"c_light_a\""), clue = opening)
+        assert(!opening.contains("id=\"c_light_b\""), clue = opening)
         assert(!opening.contains(BodyRepaint), clue = opening)
       }
     }
@@ -130,7 +135,7 @@ class ResumeSuite extends ServerHarness {
         // dropped too.
         assertEquals(
           unrecorded,
-          Map.empty[NodeId, Long],
+          Map.empty[Ix, Long],
           clue = "a frame nobody was watching writes nothing, and forgets"
         )
         assert(opening.contains(BodyRepaint), clue = opening)
@@ -139,31 +144,32 @@ class ResumeSuite extends ServerHarness {
     }
   }
 
-  /** A `Gone` for a member that never returns has nothing else to remove it.
-    * Below the floor, the lowest position any live session holds, a mutation
-    * cannot appear in any resume.
+  /** The log keeps no history of who left or arrived, so a page catching up is
+    * sent by comparing the list it holds to the decided one, however far its
+    * position is ahead of the cursor it last sent.
     */
-  test("recording prunes what no live session can still ask for") {
-    live(liveLeafDash, cold) { ts =>
+  test(
+    "a returning page, its position ahead of its cursor included, gets only the members that changed"
+  ) {
+    val lights = List("light.a", "light.b", "light.c", "light.d")
+    live(
+      dynDash,
+      lights.map(id => id -> on(id)).toMap + ("light.z" -> off("light.z"))
+    ) { ts =>
       for {
         v <- ts.viewer()
-        _ <- v.change(es("sensor.a", "hot"))
-        _ <- v.change(es("sensor.a", "warm"))
-        floor <- v.session.state.map(_.position)
-        slug <- ts.server.liveSlug(ts.slug)
-        _ <- slug.log.update(
-          _.removed("c", "c_old", floor - 1).removed("c", "c_new", floor + 5)
-        )
-        _ <- ts.record(FixtureEntity("sensor.a", "cool"))
-        log <- ts.log
+        _ <- ts.record(FixtureEntity("light.z", "on"))
+        _ <- ts.record(FixtureEntity("light.b", "off"))
+        patches <- v.pull.map(elementPatches)
       } yield {
-        assertEquals(log.mutations.keySet, Set[NodeId]("c_new"))
-        // A client cursor is not bounded by the floor, so one below this gets
-        // the host refilled.
-        assertEquals(
-          log.since(floor - 1, TestAncestry.of(log)).refill,
-          List[NodeId]("c")
-        )
+        val sent = patches.mkString("\n")
+        assertEquals(patches.size, 2, clue = patches)
+        assert(patches.exists(_.contains("mode remove")), clue = sent)
+        assert(sent.contains("selector #c_light_b"), clue = sent)
+        assert(sent.contains("""id="c_light_z""""), clue = sent)
+        // No repaint of the set, and no member that did not change.
+        assert(!sent.contains("mode inner"), clue = sent)
+        assert(!sent.contains("""id="c_light_c""""), clue = sent)
       }
     }
   }
@@ -207,6 +213,8 @@ class ResumeSuite extends ServerHarness {
         )
         for {
           before <- store.frames.take(1).compile.lastOrError
+          // What a recorder does with its first frame.
+          _ <- live.seed(renderer, before.state.version)
           _ <- store.update(hot)
           after <- store.frames.take(1).compile.lastOrError
           _ <- server.recordFrame(
@@ -227,8 +235,7 @@ class ResumeSuite extends ServerHarness {
             Some(
               Server
                 .Cursor(renderer.headHash, renderer.styleHash, logId, version)
-            ),
-            None
+            )
           )
         } yield opening
       }
@@ -252,19 +259,21 @@ class ResumeSuite extends ServerHarness {
   test("a page read ahead of the recorder shows the store's members") {
     val off = Map("light.a" -> es("light.a", "off"))
     val dash = Dashboard(
-      cards = Map("pill" -> TestCard("<b>{{state}}</b>")),
-      card = LayoutNode.SetNode(
+      cards = Sets.cards ++ Map("pill" -> TestCard("<b>{{state}}</b>")),
+      card = Sets.node(
         candidates = List("light.a"),
         members = Map(
-          "light.a" -> LayoutNode.SetMember(
+          "light.a" -> Sets.Member(
             List(
-              LayoutNode.SetClause(
+              Sets.Clause(
                 Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode.Component(
                   "pill",
-                  Map(
-                    "state" -> TemplateSlot(
-                      ValueExpr(Value.Entity(Some("light.a")))
+                  Slots.values(
+                    Map(
+                      "state" -> TemplateSlot(
+                        ValueExpr(Value.Entity(Some("light.a")))
+                      )
                     )
                   )
                 )
@@ -354,24 +363,11 @@ class ResumeSuite extends ServerHarness {
     }
   }
 
-  /** The panel bakes a client-selected member, so it is rendered per session.
-    * With every viewer on the other tab, nothing records a change inside it.
+  /** The panel shows a client-chosen tab, so it is rendered per session. With
+    * every viewer on the other tab, nothing records a change inside it.
     */
-  test("a resume reconciles an OPEN surface's nodes, and only what differs") {
-    val twoTabs = mixedTabsDash.copy(surfaces =
-      mixedTabsDash.surfaces + ("t1" -> tabMember(
-        LayoutNode.Component(
-          "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.b")))
-            )
-          )
-        ),
-        "c_1",
-        1
-      ))
-    )
+  test("a resume reconciles an OPEN tab's nodes, and only what differs") {
+    val twoTabs = twoTabsDash
     live(
       twoTabs,
       Map(
@@ -392,215 +388,181 @@ class ResumeSuite extends ServerHarness {
         // Reconciled on its own id with no entry at all (`fingerprint !=
         // stored`): otherwise the value never reaches the reconnected DOM.
         assert(opening.contains(">new<"), clue = opening)
-        assert(opening.contains("""id="s_t0__c""""), clue = opening)
-        assert(!opening.contains("""class="tabs""""), clue = opening)
+        assert(opening.contains("""id="c_1_panel_0_0_0""""), clue = opening)
+        assert(!opening.contains("""class="fh-tabs""""), clue = opening)
         assert(!opening.contains(BodyRepaint), clue = opening)
       }
     }
   }
 
-  test("a popup open across the disconnect is restored fresh, not closed") {
-    // Backgrounding a phone tab must not dismiss the dialog. Its host sits
-    // outside #dashboard, so it is re-rendered from the client's own claim.
-    val hostSelector = s"selector #${Dashboard.PopupHostId}"
-    val hostReset = s"selector #${Dashboard.PopupHostId} > *"
-    val withPopup = liveLeafDash.copy(
-      surfaces = Map(
-        "det" -> Surface(
-          LayoutNode.Component(
-            "card",
-            templateSlots = Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.b")))
+  /** Nothing waits for a repaint: a pull between `install` and it, or a press
+    * while the stream is down, diffed the new renderer against what the old one
+    * painted.
+    */
+  test("a step after a swap answers with the repaint or reload, never a diff") {
+    val scripted = liveLeafDash.copy(cards =
+      liveLeafDash.cards.updatedWith("card")(
+        _.map(_.copy(script = Some("void 0;")))
+      )
+    )
+    def text(fs: List[SseFrame]) = fs.flatMap(_.data).mkString("\n")
+    live(liveLeafDash, Map("sensor.a" -> es("sensor.a", "cold"))) { ts =>
+      for {
+        pulled <- ts.viewer()
+        pressed <- ts.viewer()
+        slug <- ts.server.liveSlug(ts.slug)
+        _ <- slug.install(
+          Server.RendererState.Ready(Renderer.create(liveLeafDash))
+        )
+        pullSent <- pulled.step(FixtureEntity("sensor.a", "hot")).map(text)
+        back = ts.postResult(
+          s"sse/history/${ts.slug}",
+          body = s"""{"${Server.ConnSignal}":"${pressed.document.conn}"}"""
+        )
+        // Back on the old page: repainted, not run, and the page reloads at its
+        // URL (ADR 0024).
+        stale <- back
+        pressSent <- pressed.session.takeBacklog.map(text)
+        again <- back
+        _ <- slug.install(Server.RendererState.Ready(Renderer.create(scripted)))
+        reloadSent <- pulled.pull.map(text)
+        // Told once: the page is reloading, so nothing more is sent.
+        after <- pulled.step(FixtureEntity("sensor.a", "cold")).map(text)
+      } yield {
+        assert(pullSent.contains(BodyRepaint), clue = pullSent)
+        assert(pullSent.contains(">hot<"), clue = pullSent)
+        assert(pressSent.contains(BodyRepaint), clue = pressSent)
+        assert(stale._2.contains(Server.BackReloadedNotice), clue = stale)
+        assertEquals(again._1, Status.NoContent, clue = again)
+        assert(reloadSent.contains(Server.ReloadSignal), clue = reloadSent)
+        assert(!reloadSent.contains(BodyRepaint), clue = reloadSent)
+        assertEquals(after, "")
+      }
+    }
+  }
+
+  /** A recorder's first frame is the state it subscribed at, recorded nowhere:
+    * after a swap, a session painted below that is owed what no log holds.
+    */
+  test("a pull from a position the log does not reach repaints") {
+    def text(fs: List[SseFrame]) = fs.flatMap(_.data).mkString("\n")
+    live(liveLeafDash, cold) { ts =>
+      for {
+        v <- ts.viewer()
+        _ <- ts.record(FixtureEntity("sensor.a", "hot"))
+        at <- ts.store.version
+        slug <- ts.server.liveSlug(ts.slug)
+        // As a recorder that subscribed at `at` seeds its log.
+        _ <- slug.log.update(_.seeded(at))
+        sent <- v.pull.map(text)
+        position <- v.session.state.map(_.position)
+      } yield {
+        assert(sent.contains(BodyRepaint), clue = sent)
+        assert(sent.contains(">hot<"), clue = sent)
+        assertEquals(position, at)
+      }
+    }
+  }
+
+  /** A swap installs the next log before `switchMap` stops the old recorder:
+    * that recorder's keys are its renderer's, so it must neither seed nor write
+    * the new log, and the doorbell rings only for what was written.
+    */
+  test("a recorder whose log another renderer numbers leaves it alone") {
+    val hot = es("sensor.a", "hot")
+    val renderer = Renderer.create(liveLeafDash)
+    (for {
+      store <- StateStore.inMemory(cold)
+      ref <- SignallingRef[IO].of(Server.RendererState.Ready(renderer))
+      site <- Server.LiveSite.of(
+        Map("dashboard" -> ref),
+        Map.empty,
+        "dashboard"
+      )
+      live <- site.liveFor("dashboard").map(_.get)
+      sessions <- Sessions.create
+      _ <- ownerlessSession("dashboard").flatMap(
+        sessions.register("watching", _)
+      )
+      fake <- FakeHomeAssistant.create(Nil)
+      seen <- Supervisor[IO].use { supervisor =>
+        val server = new Server(
+          ServiceCalls.asInstance(HomeAssistantApi.fromWs(fake)),
+          store,
+          site,
+          sessions,
+          TestAuth.openGate,
+          supervisor
+        )
+        for {
+          before <- store.frames.take(1).compile.lastOrError
+          _ <- store.update(hot)
+          after <- store.frames.take(1).compile.lastOrError
+          _ <- live.install(
+            Server.RendererState.Ready(Renderer.create(liveLeafDash))
+          )
+          next <- live.log.get
+          seeded <- live.seed(renderer, before.state.version)
+          written <- server
+            .recordFrame(
+              "dashboard",
+              renderer,
+              live.log,
+              renderer.shared(before.state),
+              Frame(
+                List(StateChange.Moved("sensor.a", cold.get("sensor.a"), hot)),
+                after.state
               )
             )
-          )
-        )
-      )
-    )
-    live(
-      withPopup,
-      Map(
-        "sensor.a" -> es("sensor.a", "cold"),
-        "sensor.b" -> es("sensor.b", "B0")
-      )
-    ) { ts =>
-      for {
-        v <- ts.viewer()
-        _ <- v.change(es("sensor.a", "hot"))
-        cursor <- v.cursor.map(Some(_))
-        popupTick <- v.change(es("sensor.b", "B1"))
-        restored <- ts.reconnect(cursor, popup = Some("det"))
-        orphan <- ts.reconnect(cursor, popup = Some("was-renamed"))
-        quiet <- ts.reconnect(cursor)
-      } yield {
-        assertEquals(popupTick, Nil, clue = popupTick)
-        // Its nodes are in `open`, so the one resume rule reconciles them on
-        // their own ids and the dialog is never disturbed.
-        assert(restored.contains(">B1<"), clue = restored)
-        assert(!restored.contains(hostSelector), clue = restored)
-        assert(!restored.contains(hostReset), clue = restored)
-        // A claim the dashboard no longer serves belongs to nothing, so without
-        // this the dialog would sit on screen forever.
-        assert(orphan.contains(hostReset), clue = orphan)
-        // The connect still commits `ui_popups: ""` (ADR 0025), so this asserts
-        // no patch to the host, not the id's absence.
-        assert(!quiet.contains(hostSelector), clue = quiet)
-        assert(!quiet.contains(hostReset), clue = quiet)
-        assert(
-          quiet.contains(
-            s""""${Server.UiSignalPrefix}${Dashboard.PopupHostId}":""""
-          ),
-          clue = quiet
-        )
+            .map(_._2)
+          left <- live.log.get
+        } yield (seeded, written, next, left)
       }
+    } yield seen).timeout(30.seconds).map { (seeded, written, next, left) =>
+      assert(!seeded, clue = "seeded another renderer's log")
+      assert(!written, clue = "wrote another renderer's log")
+      assertEquals(left, next)
     }
   }
 
-  private def popupDash(template: String) = liveLeafDash.copy(
-    cards = liveLeafDash.cards + ("detail" -> TestCard(
-      template
-    )),
-    surfaces = Map(
-      "det" -> Surface(
-        LayoutNode.Component(
-          "detail",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.b")))
-            )
-          )
-        )
-      )
-    )
-  )
-
-  /** Its host sits outside `#dashboard`, so a repaint that stopped there left
-    * the dialog showing what it held before the disconnect, and `holds` without
-    * its nodes, until the next pull happened to re-send them.
+  /** `applySite` publishes a new slug before installing the state it was made
+    * with: a page served in between quotes the slug's first log.
     */
-  test("a repaint with a popup open repaints the popup too") {
-    live(
-      popupDash("<i>{{state}}</i>"),
-      Map(
-        "sensor.a" -> es("sensor.a", "cold"),
-        "sensor.b" -> es("sensor.b", "B0")
+  test("installing the renderer a log is numbered by keeps the log") {
+    val state = Server.RendererState.Ready(Renderer.create(liveLeafDash))
+    (for {
+      live <- Server.LiveSlug.of(state)
+      first <- live.log.get
+      _ <- live.install(state)
+      same <- live.log.get
+      _ <- live.install(
+        Server.RendererState.Ready(Renderer.create(liveLeafDash))
       )
-    ) { ts =>
-      for {
-        v <- ts.viewer()
-        _ <- v.change(es("sensor.a", "hot"))
-        cursor <- v.cursor
-        _ <- v.change(es("sensor.b", "B1"))
-        repaint <- ts.reconnect(
-          Some(cursor.copy(logId = "gone-with-the-log")),
-          popup = Some("det")
-        )
-      } yield {
-        assert(repaint.contains(BodyRepaint), clue = repaint)
-        assert(
-          repaint.contains(s"selector #${Dashboard.PopupHostId}"),
-          clue = repaint
-        )
-        assert(repaint.contains("<i>B1</i>"), clue = repaint)
-      }
-    }
-  }
-
-  /** The stream's request is what it CONNECTED with; the popup may have been
-    * closed, or another opened, since.
-    */
-  test("a dashboard edit repaints the popup open now, not the one at connect") {
-    val hostSelector = s"selector #${Dashboard.PopupHostId}"
-    live(
-      popupDash("<i>{{state}}</i>"),
-      Map(
-        "sensor.a" -> es("sensor.a", "cold"),
-        "sensor.b" -> es("sensor.b", "B0")
-      )
-    ) { ts =>
-      for {
-        kept <- ts.connect("?ui.popups=det")
-        closed <- ts.connect("?ui.popups=det")
-        conn <- closed.drain.map(
-          _.flatMap(_.data)
-            .flatMap(s =>
-              s""""${Server.ConnSignal}":"([^"]+)"""".r.findFirstMatchIn(s)
-            )
-            .map(_.group(1))
-            .head
-        )
-        _ <- ts.post(
-          s"sse/popup/${ts.slug}/close",
-          body = s"""{"${Server.ConnSignal}":"$conn"}"""
-        )
-        _ <- kept.arrived *> closed.arrived *> kept.drain *> closed.drain
-        slug <- ts.server.liveSlug(ts.slug)
-        _ <- slug.renderer.set(
-          Server.RendererState.Ready(
-            Renderer.create(popupDash("<em>{{state}}</em>"))
-          )
-        )
-        _ <- kept.arrived *> closed.arrived
-        keptSent <- kept.drain.map(_.flatMap(_.data).mkString("\n"))
-        closedSent <- closed.drain.map(_.flatMap(_.data).mkString("\n"))
-      } yield {
-        assert(keptSent.contains(BodyRepaint), clue = keptSent)
-        assert(keptSent.contains(hostSelector), clue = keptSent)
-        assert(keptSent.contains("<em>B0</em>"), clue = keptSent)
-        assert(closedSent.contains(BodyRepaint), clue = closedSent)
-        assert(!closedSent.contains(hostSelector), clue = closedSent)
-        assert(!closedSent.contains("<em>B0</em>"), clue = closedSent)
-      }
+      swapped <- live.log.get
+    } yield (first, same, swapped)).map { (first, same, swapped) =>
+      assertEquals(same.id, first.id)
+      assertNotEquals(swapped.id, first.id)
     }
   }
 
   test("a dashboard edit repaints the tab selected now, not at connect") {
-    // The bar with a button choosing the second tab.
-    val withButton = mixedTabsDash.card match
-      case col: LayoutNode.Component =>
-        col.copy(regions =
-          col.regions.updatedWith(LayoutNode.DefaultRegion)(
-            _.map(_.map {
-              case bar: LayoutNode.Component if bar.card == "tabs" =>
-                bar.copy(regions =
-                  Map("buttons" -> DashboardBuilders.choices("tab", "1"))
-                )
-              case n => n
-            })
-          )
-        )
-      case other => other
-    def twoTabs(card: String) = mixedTabsDash.copy(
-      cards = mixedTabsDash.cards
-        .updated("card", TestCard(card))
-        .updated(
-          "tabs",
-          TestCard(
-            """<div id="{{hostId}}" class="tabs">{{{buttons}}}{{{panel}}}</div>""",
-            regions = Map(
-              "panel" -> fh.view.model.Region(fh.view.model.Region.Baked),
-              "buttons" -> fh.view.model.Region()
-            )
-          )
-        )
-        .updated(DashboardBuilders.ChoiceCard, DashboardBuilders.choiceCard),
-      card = withButton,
-      surfaces = mixedTabsDash.surfaces + ("t1" -> tabMember(
-        LayoutNode.Component(
-          "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.b")))
-            )
-          )
-        ),
-        "c_1",
-        1
-      ))
+    // The shipped bar at "c_1" under a shared card, `el` the leaf element.
+    def twoTabs(el: String) = PklFixture.snippet(
+      s"""card = (c.column) {
+         |  children {
+         |    (t.state("sensor.shared")) { el = "$el" }
+         |    (c.tabs) {
+         |      tabs {
+         |        ["A"] { (t.state("sensor.a")) { el = "$el" } }
+         |        ["B"] { (t.state("sensor.b")) { el = "$el" } }
+         |      }
+         |    }
+         |  }
+         |}
+         |""".stripMargin
     )
     live(
-      twoTabs("<span>{{state}}</span>"),
+      twoTabs("span"),
       Map(
         "sensor.shared" -> es("sensor.shared", "S0"),
         "sensor.a" -> es("sensor.a", "A0"),
@@ -620,9 +582,9 @@ class ResumeSuite extends ServerHarness {
         _ <- ts.choose(conn, VarKey(NodeId.derived("c_1"), "tab"), Some("1"))
         _ <- client.arrived *> client.drain
         slug <- ts.server.liveSlug(ts.slug)
-        _ <- slug.renderer.set(
+        _ <- slug.install(
           Server.RendererState.Ready(
-            Renderer.create(twoTabs("<em>{{state}}</em>"))
+            Renderer.create(twoTabs("em"))
           )
         )
         _ <- client.arrived
@@ -635,31 +597,54 @@ class ResumeSuite extends ServerHarness {
     }
   }
 
-  test("the popup selection is committed as it moves: open, switch, close") {
-    // The client asks; the swap commits `ui_popups` (ADR 0025), so each move
-    // lands in order and the last leaves nothing open.
-    val dash = liveLeafDash.copy(
-      surfaces = Map(
-        "det" -> Surface(LayoutNode.Component("col")),
-        "other" -> Surface(LayoutNode.Component("col"))
-      )
-    )
-    live(dash, cold) { ts =>
+  private val abStates = Map(
+    "sensor.shared" -> es("sensor.shared", "S0"),
+    "sensor.a" -> es("sensor.a", "A0"),
+    "sensor.b" -> es("sensor.b", "B0")
+  )
+
+  private def swapTo(ts: TestServer, d: Dashboard) =
+    ts.server
+      .liveSlug(ts.slug)
+      .flatMap(_.install(Server.RendererState.Ready(Renderer.create(d))))
+
+  test("an edit removing the open tab moves its viewer to the declared one") {
+    live(twoTabsDash, abStates) { ts =>
       for {
-        v <- ts.viewer()
-        body = s"""{"${Server.ConnSignal}":"${v.document.conn}"}"""
-        _ <- ts.post(s"sse/surface/${ts.slug}/open/det", body = body)
-        _ <- ts.post(s"sse/surface/${ts.slug}/open/other", body = body)
-        _ <- ts.post(s"sse/popup/${ts.slug}/close", body = body)
-        emitted <- v.session.takeBacklog
-        open <- v.session.state.map(_.open)
+        client <- ts.connect(onTabs("c_1" -> 1))
+        opened <- client.drain.map(_.flatMap(_.data).mkString("\n"))
+        _ = assert(opened.contains("<span>B0</span>"), clue = opened)
+        _ <- swapTo(ts, mixedTabsDash)
+        _ <- client.arrived
+        sent <- client.drain.map(_.flatMap(_.data).mkString("\n"))
       } yield {
-        val commits = emitted
-          .flatMap(_.signals)
-          .flatMap(s => """"ui_popups":"([^"]*)"""".r.findAllMatchIn(s))
-          .map(_.group(1))
-        assertEquals(commits, List("det", "other", ""), clue = emitted)
-        assertEquals(open, Set.empty[String])
+        assert(sent.contains("<span>A0</span>"), clue = sent)
+        // The page's committed value follows, so its URL mirror does too.
+        assert(sent.contains(""""_var_c_1__tab":"0""""), clue = sent)
+      }
+    }
+  }
+
+  test(
+    "an edit while the stream is down is checked where the session next meets it"
+  ) {
+    // No stream, so no swap repaint: whichever entry point meets the new
+    // dashboard first (here a pull) checks the session's values.
+    live(twoTabsDash, abStates) { ts =>
+      val tab = VarKey(NodeId.derived("c_1"), "tab")
+      for {
+        v <- ts.viewer("?v.c_1.tab=1")
+        before <- v.session.state.map(_.vars.get(tab))
+        _ <- swapTo(ts, mixedTabsDash)
+        // A pull is one entry point; a recorded change would race the swap.
+        live <- ts.server.liveSlug(ts.slug)
+        at <- v.session.state.map(_.position + 1)
+        _ <- ts.server.pull(live, v.session, at)
+        after <- v.session.state.map(_.vars.get(tab))
+      } yield {
+        assertEquals(before, Some("1"))
+        // Back to the declared tab, which a reconnect then renders.
+        assertEquals(after, None)
       }
     }
   }

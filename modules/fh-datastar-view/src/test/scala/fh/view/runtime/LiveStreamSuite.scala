@@ -1,21 +1,22 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.fetch.FetchSnapshot
 import fh.view.model.{
   CardDef,
   Dashboard,
+  Ix,
   LayoutNode,
   NodeId,
-  Region,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
-import fh.view.testkit.FixtureEntity
+import fh.view.testkit.{FixtureEntity, PklFixture}
 import fh.view.testkit.TestIds.given
-import RendererTestOps.heldFor
+import RendererTestOps.{heldFor, ixOf}
 import io.circe.Json
 
 /** End to end over the real stream, with several clients: what one connection
@@ -73,7 +74,7 @@ class LiveStreamSuite extends ServerHarness {
         )
 
         // A main-page change reaches both: the filter must not swallow what is
-        // not surface-scoped.
+        // not case-scoped.
         _ <- world.change("sensor.shared", "s1")
         s0 <- onT0.drain
         s1 <- onT1.drain
@@ -95,55 +96,19 @@ class LiveStreamSuite extends ServerHarness {
     * yanking viewers off the tab they picked.
     */
 
-  private def tabsInBranchDash = Dashboard(
-    cards = Map(
-      "col" -> TestCard(
-        "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
-      ),
-      "card" -> TestCard("<span>{{state}}</span>"),
-      "ifhost" -> TestCard(
-        template = """<div id="{{hostId}}">{{{branch}}}</div>""",
-        regions = Map("branch" -> Region(Region.Baked))
-      ),
-      "tabs" -> TestCard(
-        template = """<div id="{{hostId}}" class="tabs">{{{panel}}}</div>""",
-        regions = Map("panel" -> Region(Region.Baked))
-      )
-    ),
-    card = LayoutNode.Component(
-      "col",
-      regions = LayoutNode.kids(
-        LayoutNode.Component(
-          "card",
-          templateSlots = Map(
-            "state" -> TemplateSlot(
-              ValueExpr(Value.Entity(Some("sensor.shared")))
-            )
-          )
-        ),
-        LayoutNode.Component("ifhost")
-      )
-    ),
-    surfaces = Map(
-      "then" -> stateMember(
-        LayoutNode.Component("tabs", vars = TabDeclared),
-        "c_1",
-        0,
-        armedCond
-      ),
-      "else" -> stateMember(branchCard("sensor.z"), "c_1", 1, always),
-      "t0" -> tabMember(
-        branchCard("sensor.a"),
-        "s_then__c",
-        0
-      ),
-      "t1" -> tabMember(
-        branchCard("sensor.b"),
-        "s_then__c",
-        1
-      )
-    )
+  private def tabsInBranchDash = PklFixture.snippet(
+    s"""card = (c.column) {
+       |  children {
+       |    t.state("sensor.shared")
+       |    ${ifSnippet(
+        thenContent =
+          """(c.tabs) { tabs { ["A"] { t.state("sensor.a") } ["B"] { t.state("sensor.b") } } }""",
+        elseContent = Some("""t.state("sensor.z")""")
+      )}
+       |  }
+       |}
+       |""".stripMargin,
+    alarm
   )
 
   /** Structure is refused by id: its rendering holds hosts, and the log is per
@@ -151,93 +116,17 @@ class LiveStreamSuite extends ServerHarness {
     * failure it caused: a client on tab 1 reconnected and was morphed onto tab 0.
     */
 
-  private def barePopupTabsDash = Dashboard(
-    cards = Map(
-      // Pure structure, like the shipped `Column`: no markup of its own to
-      // fingerprint.
-      "col" -> TestCard(
+  private def bareTabsDash = {
+    val bar = PklFixture.shape(
+      """card = (c.tabs) { tabs { ["A"] { t.state("sensor.a") } ["B"] { t.state("sensor.b") } } }"""
+    )
+    Dashboard(
+      cards = bar.cards + ("col" -> TestCard(
         template = "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
-      ),
-      "card" -> TestCard("<span>{{state}}</span>"),
-      "tabs" -> TestCard(
-        template = """<div>bar</div><div id="{{hostId}}">{{{panel}}}</div>""",
-        regions = Map("panel" -> Region(Region.Baked))
-      )
-    ),
-    card = LayoutNode.Component("col"),
-    surfaces = Map(
-      "det" -> Surface(
-        LayoutNode.Component(
-          "col",
-          regions =
-            LayoutNode.kids(LayoutNode.Component("tabs", vars = TabDeclared))
-        )
-      ),
-      "t0" -> tabMember(
-        branchCard("sensor.a"),
-        "s_det__c_0",
-        0
-      ),
-      "t1" -> tabMember(
-        branchCard("sensor.b"),
-        "s_det__c_0",
-        1
-      )
+        regions = Set("children")
+      )),
+      card = LayoutNode.Component("col", slots = Slots.kids(bar.fill()))
     )
-  )
-
-  test("a fill records what it put there, so the next tick suppresses") {
-    // Opening a surface teaches the session each node's bytes from the same
-    // render, so a tick to the same value is "unchanged", not "never told",
-    // and sends nothing.
-    val dash = Dashboard(
-      cards = Map(
-        "col" -> TestCard(
-          template = "<div>{{{children}}}</div>",
-          regions = Map("children" -> Region())
-        ),
-        "card" -> TestCard("<span>{{state}}</span>")
-      ),
-      card = LayoutNode.Component("col"),
-      surfaces = Map(
-        "det" -> Surface(
-          LayoutNode.Component(
-            "col",
-            regions = LayoutNode.kids(branchCard("sensor.a"))
-          )
-        )
-      )
-    )
-    val painted = Renderer
-      .create(dash)
-      .heldFor("s_det__c_0", Map("sensor.a" -> es("sensor.a", "cold")))
-      .get
-    val node = NodeId.derived("s_det__c_0")
-    live(dash, Map("sensor.a" -> es("sensor.a", "cold"))) { ts =>
-      for {
-        v <- ts.viewer()
-        beforeFill <- v.session.state
-          .map(_.holds)
-          .map(_.get(node).contains(painted))
-        _ <- ts.post(
-          s"sse/surface/${ts.slug}/open/det",
-          body = s"""{"${Server.ConnSignal}":"${v.document.conn}"}"""
-        )
-        afterFill <- v.session.state
-          .map(_.holds)
-          .map(_.get(node).contains(painted))
-        // A frame the card renders identically: an attribute it does not read.
-        same <- v.step(
-          FixtureEntity("sensor.a", "cold", Map("noise" -> Json.fromInt(1)))
-        )
-      } yield {
-        // Not vacuous: the claim did not exist until the fill made it.
-        assert(!beforeFill, clue = "nothing claimed before the surface opened")
-        assert(afterFill, clue = "the fill must claim the node it painted")
-        assertEquals(same, Nil, clue = same.map(_.render))
-      }
-    }
   }
 
   private val armedAB = Map(
@@ -258,8 +147,8 @@ class LiveStreamSuite extends ServerHarness {
         out <- v.pull.map(elementPatches)
       } yield {
         assertEquals(out.size, 1, clue = out)
-        assert(out.head.contains("""id="s_then__c""""), clue = out.head)
-        assert(!out.head.contains("""id="s_else__c""""), clue = out.head)
+        assert(out.head.contains("""id="c_0_branch_0""""), clue = out.head)
+        assert(!out.head.contains("""id="c_0_branch_1""""), clue = out.head)
       }
     }
   }
@@ -268,9 +157,7 @@ class LiveStreamSuite extends ServerHarness {
     // The host must survive: every later fill targets it by id, and a patch at
     // a missing id is a silent no-op, so the group would go dead for that
     // client.
-    val d = ifDash().copy(surfaces =
-      Map("then" -> stateMember(branchCard("sensor.a"), "c_0", 0, armedCond))
-    )
+    val d = ifDash(elseContent = None)
     live(d, armedAB - "sensor.b") { ts =>
       for {
         v <- ts.viewer()
@@ -280,12 +167,15 @@ class LiveStreamSuite extends ServerHarness {
         val removes = emptied.filter(_.contains("mode remove"))
         assertEquals(removes.size, 1, clue = emptied)
         assert(
-          removes.head.contains("selector #s_then__c"),
+          removes.head.contains("selector #c_0_branch_0"),
           clue = removes.head
         )
-        assert(!removes.head.contains("#c_0_branch"), clue = removes.head)
+        // The If's root is the host.
+        val host =
+          (p: String) => p.linesIterator.exists(_.endsWith("selector #c_0"))
+        assert(!host(removes.head), clue = removes.head)
         assertEquals(refilled.size, 1, clue = refilled)
-        assert(refilled.head.contains("selector #c_0_branch"), clue = refilled)
+        assert(host(refilled.head), clue = refilled)
       }
     }
   }
@@ -294,60 +184,50 @@ class LiveStreamSuite extends ServerHarness {
     // A fill re-supplies a whole subtree, so the session must know what it put
     // in each node. A claim under the branch root, a bare container, could
     // never be resolved.
-    val d = Dashboard(
-      cards = ifCards ++ Map(
-        "col" -> TestCard(
-          template = "<div>{{{children}}}</div>",
-          regions = Map("children" -> Region())
-        )
-      ),
-      card = LayoutNode
-        .Component(
-          "col",
-          regions = LayoutNode.kids(LayoutNode.Component("ifhost"))
-        ),
-      surfaces = Map(
-        "then" -> stateMember(
-          LayoutNode.Component(
-            "col",
-            regions = LayoutNode.kids(branchCard("sensor.a"))
-          ),
-          "c_0",
-          0,
-          armedCond
-        )
-      )
-    )
+    val d = ifDash(elseContent = None)
     val r = Renderer.create(d)
     val armed = Map(
       "alarm.h" -> es("alarm.h", "armed"),
       "sensor.a" -> es("sensor.a", "A0")
     )
-    val (patch, _) =
-      Patches
-        .hostFill(
+    import cats.effect.unsafe.implicits.global
+    val patch = (for {
+      cache <- RenderCache.create
+      patches <- Patches.patches(
+        r,
+        cache,
+        Map.empty,
+        Shared.of(armed),
+        Viewing(FetchSnapshot.empty),
+        Patches.written(
           r,
-          r.hostId("c_0"),
-          Some("then"),
+          Map.empty,
           Shared.of(armed),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Nil,
+          List(NodeId.derived("c_0"))
         )
-        .get
+      )
+    } yield patches.collectFirst { case a @ Addressed(_: Patch.Fill, _) =>
+      a
+    }.get).unsafeRunSync()
 
     // Holding exactly what a patch for that node alone would carry, which makes
     // the two comparable.
-    val leaf: NodeId = "s_then__c_0"
-    assertEquals(patch.establishes.get(leaf), r.heldFor(leaf, armed))
-    val root = NodeId.derived("s_then__c")
+    val leaf: NodeId = "c_0_branch_0_0"
+    assertEquals(patch.establishes.get(r.ixOf(leaf)), r.heldFor(leaf, armed))
+    val root = NodeId.derived("c_0_branch_0")
     assertEquals(
       r.renderNodeById(
         root,
         Shared.of(armed),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       None
     )
-    assert(!patch.establishes.contains(root), clue = patch.establishes.keySet)
+    assert(
+      !patch.establishes.contains(r.ixOf(root)),
+      clue = patch.establishes.keySet
+    )
   }
 
   test("a resume sends one viewer's bar bytes that fit every viewer") {
@@ -361,13 +241,13 @@ class LiveStreamSuite extends ServerHarness {
       "sensor.a" -> es("sensor.a", "A0"),
       "sensor.b" -> es("sensor.b", "B0")
     )
-    val host: NodeId = "c_0_bar_0"
-    val mine = Selections(None, Map(NodeId.derived("c_0") -> 1))
+    val host: NodeId = "c_0_2"
+    val mine = r.vars.env(Map(VarKey(NodeId.derived("c_0"), "tab") -> "1"))
     // Recorded as holding what a tab-0 connect left behind.
-    val log = FragmentLog("w23").touched(host, 5L)
-    val holds: Map[NodeId, Held] =
+    val log = FragmentLog("w23").touched(r.ixOf(host), 5L)
+    val holds: Map[Ix, Held] =
       Map(
-        host -> Held(
+        r.ixOf(host) -> Held(
           r.byteSlotValues(host, Shared.of(states), FetchSnapshot.empty)
         )
       )
@@ -377,7 +257,6 @@ class LiveStreamSuite extends ServerHarness {
       holds,
       states,
       1L,
-      Set("t1"),
       mine
     )
 
@@ -388,34 +267,36 @@ class LiveStreamSuite extends ServerHarness {
         owed.map(_.patch.toSse.render)
       )
     )
-    // Owed per viewer because it is a different surface, not because one node
+    // Owed per viewer because it is a different case, not because one node
     // has two renderings.
     assert(
-      owed.exists(_.patch.toSse.render.contains("s_t1__c")),
+      owed.exists(_.patch.toSse.render.contains("c_0_panel_0_1")),
       clue = owed.map(_.patch.toSse.render)
     )
     assert(
-      !owed.exists(_.patch.toSse.render.contains("active-")),
+      !owed.exists(_.patch.toSse.render.contains(LitClass)),
       clue = owed.map(_.patch.toSse.render)
     )
   }
 
   test("a resume cannot move a viewer onto a tab it did not choose") {
-    val r = Renderer.create(barePopupTabsDash)
+    val r = Renderer.create(bareTabsDash)
     val before =
       Map(
         "sensor.a" -> es("sensor.a", "A0"),
         "sensor.b" -> es("sensor.b", "B0")
       )
-    val open = Set("det", "t1")
-    val mine = Selections(None, Map(NodeId.derived("s_det__c_0") -> 1))
+    val mine =
+      r.vars.env(Map(VarKey(NodeId.derived("c_0"), "tab") -> "1"))
     // Exactly as `pageResponse` records it.
     val ids =
-      (r.surfaceNodeIds("det") ++ r.surfaceNodeIds("t1")).toList.sorted
+      (r.containerNodeIds(r.picks.pageRoot) ++ r.caseNodeIds(
+        "c_0_panel_0_1"
+      )).toList.sorted
     val seeded = FragmentLog("w18")
     val held = ids.flatMap { id =>
       r.byteSlotValues(id, Shared.of(before), FetchSnapshot.empty)
-        .map(v => id -> Held(Some(v)))
+        .map(v => r.ixOf(id) -> Held(Some(v)))
     }.toMap
 
     val tab0Moved = before.updated("sensor.a", es("sensor.a", "A1"))
@@ -425,11 +306,12 @@ class LiveStreamSuite extends ServerHarness {
       held,
       tab0Moved,
       2L,
-      open,
       mine
     )
     assert(
-      !owed.exists(_.patch.toSse.render.contains("s_t0__c")),
+      !owed.exists(
+        _.patch.toSse.render.contains("c_0_panel_0_0")
+      ),
       clue = owed.map(_.patch.toSse.render)
     )
     assert(!owed.exists(_.patch.toSse.render.contains("A1")), clue = owed)
@@ -442,7 +324,6 @@ class LiveStreamSuite extends ServerHarness {
       held,
       tab1Moved,
       2L,
-      open,
       mine
     )
     assert(
@@ -451,10 +332,47 @@ class LiveStreamSuite extends ServerHarness {
     )
   }
 
-  /** ADR 0007's "an inactive branch costs nothing", for a user surface nested
-    * in one. `selectedSurfaces` reports a selection for every bake group
-    * whether on screen or not, so a tab panel in a hidden `If` is in the open
-    * set; pushing it is harmless and pure waste.
+  test("a live pull is owed what the log names, and nothing it does not") {
+    val r = Renderer.create(bareTabsDash)
+    val before =
+      Map(
+        "sensor.a" -> es("sensor.a", "A0"),
+        "sensor.b" -> es("sensor.b", "B0")
+      )
+    val mine =
+      r.vars.env(Map(VarKey(NodeId.derived("c_0"), "tab") -> "1"))
+    val panel = r.caseNodeIds("c_0_panel_0_1").toList
+    val held = (r.containerNodeIds(r.picks.pageRoot) ++ panel).flatMap { id =>
+      r.byteSlotValues(id, Shared.of(before), FetchSnapshot.empty)
+        .map(v => r.ixOf(id) -> Held(Some(v)))
+    }.toMap
+    val moved = before.updated("sensor.b", es("sensor.b", "B1"))
+    def pull(log: FragmentLog) =
+      resumeNow(
+        r,
+        log,
+        held,
+        moved,
+        2L,
+        mine,
+        Pulled.from(r, _, _)
+      ).map(_.patch.toSse.render)
+
+    // A change the recorder missed stays missed: no sweep of the screen hides
+    // it, so the oracle sees it.
+    val unlogged = pull(Pulled.log(r))
+    assertEquals(unlogged, Nil, clue = unlogged)
+    val logged =
+      pull(
+        panel.foldLeft(Pulled.log(r))((l, id) => l.touched(r.ixOf(id), 2L))
+      )
+    assert(logged.exists(_.contains("B1")), clue = logged)
+  }
+
+  /** ADR 0007's "an inactive branch costs nothing", for a variable pick nested
+    * in one. `chosen` holds a case for every pick over a variable whether on
+    * screen or not, so a tab panel in a hidden `If` is in a viewer's screen;
+    * pushing it is harmless and pure waste.
     */
 
   test("a tab panel inside a HIDDEN branch costs nothing") {
@@ -498,81 +416,56 @@ class LiveStreamSuite extends ServerHarness {
       "sensor.b" -> es("sensor.b", "B0"),
       "sensor.z" -> es("sensor.z", "Z0")
     )
-    val tab0Node: NodeId = "s_t0__c"
-    val log = FragmentLog("w13").touched(tab0Node, 5L)
-    val owed = resumeNow(
-      r,
-      log,
-      Map.empty,
-      states,
-      1L,
-      Set("then", "t1"),
-      Selections.none
-    )
+    val tab0 = "c_1_branch_0_0_panel_0"
+    val log = r.index.all
+      .filter(ix => (r.index.id(ix): String).startsWith(tab0))
+      .foldLeft(FragmentLog("w13"))(_.touched(_, 5L))
+    def owedWith(tab: String) =
+      resumeNow(
+        r,
+        log,
+        Map.empty,
+        states,
+        1L,
+        r.vars.env(Map(VarKey(NodeId.derived("c_1_branch_0_0"), "tab") -> tab))
+      ).map(_.patch.toSse.render)
     assert(
-      !owed.exists(_.patch.toSse.render.contains("A1")),
-      clue = owed.map(_.patch.toSse.render)
+      !owedWith("1").exists(_.contains("A1")),
+      clue = owedWith("1")
     )
+    // The control: the same log is owed something to a viewer on tab 0.
+    assert(owedWith("0").nonEmpty)
   }
 
-  /** A bar rendering its active tab server-side via `{{bakeIndex}}`. It painted
-    * correctly and then blanked on the first tick: the document path passed
-    * `bakeIndex`, the patch path did not.
+  /** A bar lit server-side while tab 1 is open, a cell class reading the
+    * variable: the document form writes it for the viewer, the patch form only
+    * binds it, so a tick's bytes fit every viewer. Once a template var, it
+    * painted correctly and then blanked on the first tick.
     */
 
-  private def serverHighlightDash = Dashboard(
-    cards = Map(
-      "col" -> TestCard(
-        template = "<div>{{{children}}}</div>",
-        regions = Map("children" -> Region())
-      ),
-      "card" -> TestCard("<span>{{state}}</span>"),
-      "tabs" -> TestCard(
-        template =
-          """<div class="active-{{bakeIndex}}">{{{bar}}}</div><div id="{{hostId}}">{{{panel}}}</div>""",
-        regions = Map("bar" -> Region(), "panel" -> Region(Region.Baked))
-      ),
-      "bar" -> TestCard("""<div>{{title}}</div>""")
-    ),
-    card = LayoutNode.Component(
-      "col",
-      regions = LayoutNode.kids(
-        LayoutNode.Component(
-          "tabs",
-          regions = Map(
-            "bar" -> List(
-              LayoutNode.Component(
-                "bar",
-                templateSlots = Map(
-                  "title" -> TemplateSlot(
-                    ValueExpr(Value.Entity(Some("sensor.title")))
-                  )
-                )
-              )
-            )
-          ),
-          vars = TabDeclared
-        )
-      )
-    ),
-    surfaces = Map(
-      "t0" -> tabMember(
-        branchCard("sensor.a"),
-        "c_0",
-        0
-      ),
-      "t1" -> tabMember(
-        branchCard("sensor.b"),
-        "c_0",
-        1
-      )
-    )
+  private val Lit1 = "active-1"
+
+  // The class as the document form writes it; the patch form binds it instead.
+  private val LitClass = s"fh-cell $Lit1"
+
+  private def serverHighlightDash = PklFixture.snippet(
+    s"""card = (c.column) {
+       |  children {
+       |    (c.tabs) {
+       |      tabs { ["A"] { t.state("sensor.a") } ["B"] { t.state("sensor.b") } }
+       |      children {
+       |        (t.state("sensor.title")).cellClassWhen("$Lit1", c.variable("tab").valueIs("1"))
+       |      }
+       |    }
+       |  }
+       |}
+       |""".stripMargin
   )
 
   test(
     "a variant keeps its own record, so an unchanged tick is suppressed"
   ) {
-    // Variants of a bake owner are static, one per member, so each has its own
+    // Variants of a pick's host are static, one per case, so each has its own
     // record: two viewers on different tabs get their own suppression.
     live(
       serverHighlightDash,
@@ -628,7 +521,12 @@ class LiveStreamSuite extends ServerHarness {
         onT0 <- world.connect()
         onT1 <- world.connect(onTabs("c_0" -> 1))
         _ <- onT0.drain
-        _ <- onT1.drain
+        open1 <- onT1.drain
+        // Not vacuous: the document form does write the class for tab 1.
+        _ = assert(
+          open1.exists(_.renderString.contains(LitClass)),
+          clue = open1
+        )
         _ <- world.change("sensor.title", "T1")
         a <- onT0.drain
         b <- onT1.drain
@@ -641,11 +539,11 @@ class LiveStreamSuite extends ServerHarness {
           clue = ("tab 1's viewer gets the new title", b)
         )
         _ = assert(
-          !domEvents(a).exists(_._3.exists(_.contains("active-"))),
+          !domEvents(a).exists(_._3.exists(_.contains(LitClass))),
           clue = a
         )
         _ = assert(
-          !domEvents(b).exists(_._3.exists(_.contains("active-"))),
+          !domEvents(b).exists(_._3.exists(_.contains(LitClass))),
           clue = b
         )
       } yield ()
@@ -665,7 +563,7 @@ class LiveStreamSuite extends ServerHarness {
     ) { world =>
       for {
         onT0 <- world.connect()
-        onT1 <- world.connect(onTabs("s_then__c" -> 1))
+        onT1 <- world.connect(onTabs("c_1_branch_0_0" -> 1))
         open0 <- onT0.drain
         open1 <- onT1.drain
         _ = assert(
@@ -745,26 +643,30 @@ class LiveStreamSuite extends ServerHarness {
       cards = Map(
         "col" -> TestCard(
           "<div>{{{children}}}</div>",
-          regions = Map("children" -> Region())
+          regions = Set("children")
         ),
         "card" -> TestCard("<span>{{state}}</span>")
       ),
       card = LayoutNode.Component(
         "col",
-        regions = LayoutNode.kids(
+        slots = Slots.kids(
           LayoutNode.Component(
             "card",
-            templateSlots = Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.a")))
+            slots = Slots.values(
+              Map(
+                "state" -> TemplateSlot(
+                  ValueExpr(Value.Entity(Some("sensor.a")))
+                )
               )
             )
           ),
           LayoutNode.Component(
             "card",
-            templateSlots = Map(
-              "state" -> TemplateSlot(
-                ValueExpr(Value.Entity(Some("sensor.b")))
+            slots = Slots.values(
+              Map(
+                "state" -> TemplateSlot(
+                  ValueExpr(Value.Entity(Some("sensor.b")))
+                )
               )
             )
           )
@@ -818,7 +720,7 @@ class LiveStreamSuite extends ServerHarness {
         firstOnT0 <- world.connect()
         secondOnT0 <- world.connect()
         // So the shared verdict is not simply "everyone".
-        onT1 <- world.connect(onTabs("s_then__c" -> 1))
+        onT1 <- world.connect(onTabs("c_1_branch_0_0" -> 1))
         _ <- firstOnT0.drain
         _ <- secondOnT0.drain
         _ <- onT1.drain
@@ -902,11 +804,10 @@ class LiveStreamSuite extends ServerHarness {
         "sensor.b" -> es("sensor.b", "B0")
       )
     ) { (world, client) =>
-      // The fixture's branch content is one card, so the branch root is the
-      // node (the shipped `If` wraps in a Row).
-      def branch(sid: String, inner: String) =
+      // The branch root is the Row the shipped `If` wraps its content in.
+      def branch(id: String, inner: String) =
         Some(
-          s"""<div class="fh-cell" id="s_${sid}__c"><span>$inner</span></div>"""
+          s"""<div class="fh-cell fh-row" id="$id"><div class="fh-cell" id="${id}_0"><span>$inner</span></div></div>"""
         )
       for {
         // 1. No cursor, since it never loaded a document, so the whole body
@@ -914,7 +815,7 @@ class LiveStreamSuite extends ServerHarness {
         opening <- client.drain
         _ = assertEquals(
           domEvents(opening).map { case (m, s, _) => (m, s) },
-          List(("inner", Some("#dashboard"))),
+          List(("outer", Some("#root"))),
           clue = opening
         )
         _ = assert(opening.exists(isCursor), clue = opening)
@@ -927,7 +828,7 @@ class LiveStreamSuite extends ServerHarness {
               "outer",
               None,
               Some(
-                """<div class="fh-cell" id="s_then__c"><span>A1</span></div>"""
+                """<div class="fh-cell" id="c_0_branch_0_0"><span>A1</span></div>"""
               )
             )
           ),
@@ -947,7 +848,7 @@ class LiveStreamSuite extends ServerHarness {
         flip <- world.change("alarm.h", "disarmed") *> client.drain
         _ = assertEquals(
           domEvents(flip),
-          List(("inner", Some("#c_0_branch"), branch("else", "B1"))),
+          List(("inner", Some("#c_0"), branch("c_0_branch_1", "B1"))),
           clue = flip
         )
 
@@ -955,7 +856,7 @@ class LiveStreamSuite extends ServerHarness {
         back <- world.change("alarm.h", "armed") *> client.drain
         _ = assertEquals(
           domEvents(back),
-          List(("inner", Some("#c_0_branch"), branch("then", "A1"))),
+          List(("inner", Some("#c_0"), branch("c_0_branch_0", "A1"))),
           clue = back
         )
       } yield ()

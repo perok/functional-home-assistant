@@ -1,5 +1,7 @@
 package fh.view.functional
 
+import fh.view.testkit.Slots
+
 import api.homeassistant.ServiceTarget
 import cats.syntax.all.*
 import fh.view.model.{
@@ -117,8 +119,10 @@ class GroupCallSuite extends FunctionalSuite {
   private val lockTap: LayoutNode.Component =
     LayoutNode.Component(
       "callShowing",
-      templateSlots = Map(
-        "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(door))))
+      slots = Slots.values(
+        Map(
+          "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(door))))
+        )
       ),
       calls = Map(
         "tap" -> decl(
@@ -166,7 +170,7 @@ class GroupCallSuite extends FunctionalSuite {
     * button beside the card that shows it.
     */
   private val lockButton: LayoutNode.Component =
-    lockTap.copy(card = "call", templateSlots = Map.empty)
+    lockTap.copy(card = "call", slots = Slots.values(Map.empty))
 
   test("a service the state picks is seen though the node paints nothing") {
     // The scene seeds only what slots paint; the server watches a call's too.

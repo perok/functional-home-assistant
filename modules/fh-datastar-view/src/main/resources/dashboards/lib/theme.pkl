@@ -84,10 +84,10 @@
 ///      (else none), `--fh-chart-grid` (else `--fh-border`) and
 ///      `--fh-chart-label` (else `--fh-text-dim`).
 ///   5. `classes`: see above.
-///   6. `chrome`: the frame. It must wrap `{{{body}}}` in `id="dashboard"`
-///      (checked by `Dashboard.validate`) and should host
-///      `<div id="popups">{{{popups}}}</div>`, where a restored popup is baked
-///      for the first paint; without it a popup still works, a moment late.
+///   6. `chrome`: the frame, the page card's template (`core/page.pkl`). It
+///      places `{{{body}}}`, the dashboard, and `{{{popups}}}`, the element
+///      popups open in, once each and bare: the page card writes both
+///      elements. The build refuses a frame missing either.
 ///   7. `offlineBanners`: the "connection lost" and "Home Assistant
 ///      unavailable" notices, to restyle or translate. Leave it out to keep
 ///      the default.
@@ -134,10 +134,11 @@ open class Theme {
   /// card's `cardDef.script`.
   inlineScripts: Listing<String> = new {}
   styles: String = ""
-  /// The page frame; the default is exactly the two hosts.
-  chrome: String = """
-    <main id="dashboard">{{{body}}}</main>
-    <div id="popups">{{{popups}}}</div>
+  /// The page frame; the default is exactly the two holes. Off the wire: the
+  /// page card carries it.
+  hidden chrome: String = """
+    <main>{{{body}}}</main>
+    {{{popups}}}
     """
   /// The "connection lost" and "Home Assistant unavailable" banners, as markup:
   /// restyle or translate them here. Keep each `data-show` and its inline

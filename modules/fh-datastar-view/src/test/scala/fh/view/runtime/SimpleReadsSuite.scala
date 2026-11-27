@@ -1,5 +1,7 @@
 package fh.view.runtime
 
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 import fh.view.testkit.DashboardBuilders.noSubject
@@ -39,10 +41,12 @@ class SimpleReadsSuite extends munit.FunSuite {
     cards = Map("c" -> card),
     card = LayoutNode.Component(
       card = "c",
-      templateSlots = Map("v" -> v) ++
-        Option.when(subject)(
-          "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a"))
-        )
+      slots = Slots.values(
+        Map("v" -> v) ++
+          Option.when(subject)(
+            "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a"))
+          )
+      )
     )
   )
 
@@ -64,7 +68,7 @@ class SimpleReadsSuite extends munit.FunSuite {
     Renderer
       .create(d)
       .signalsFor(
-        LayoutNode.rootId("", d.card),
+        LayoutNode.rootId(d.card),
         Shared.of(st),
         FetchSnapshot.empty
       )

@@ -1,0 +1,49 @@
+/// The leaves `PklFixture.snippet` dashboards hold: the `TestCard` templates the
+/// runtime suites assert on, as Pkl cards, so a library shape (tabs, an If, a
+/// choice in a group) built around them renders the same leaf bytes.
+module fixture.leaves
+
+import "@fh-dashboard/core/node.pkl" as nodeMod
+import "@fh-dashboard/core/slot.pkl" as slotMod
+
+const local stateSlot = slotMod.slot("state")
+const local labelSlot = slotMod.slot("label")
+
+/// `<span>{{state}}</span>` over `entityId`'s state, in `el` instead of `span` where a
+/// test swaps the template.
+class StateCard extends nodeMod.Node {
+  card = "card"
+  hidden el: String = "span"
+  cardDef = let (e = el) new nodeMod.CardDef { template = "<\(e)>\(stateSlot)</\(e)>" }
+  hidden entityId: String
+  slots { stateSlot.of(let (e = entityId) new slotMod.Reading { entityId = e }) }
+}
+
+/// `<b>{{state}}</b>` over `entityId`'s state.
+class DotCard extends nodeMod.Node {
+  card = "dot"
+  cardDef = new nodeMod.CardDef { template = "<b>\(stateSlot)</b>" }
+  hidden entityId: String
+  slots { stateSlot.of(let (e = entityId) new slotMod.Reading { entityId = e }) }
+}
+
+/// `<span>{{label}}</span>`, a fixed text.
+class LabelCard extends nodeMod.Node {
+  card = "label"
+  cardDef = new nodeMod.CardDef { template = "<span>\(labelSlot)</span>" }
+  hidden text: String
+  slots { labelSlot.of(text) }
+}
+
+/// Where `PklFixture.Shape.fill` puts a node the test builds by hand. Its card
+/// is the hole's name, dropped with it.
+class Hole extends nodeMod.Node {
+  hidden name: String
+  card = "hole_\(name)"
+  cardDef = new nodeMod.CardDef { template = "" }
+}
+
+function state(id: String): StateCard = new { entityId = id }
+function hole(n: String): Hole = new { name = n }
+function dot(id: String): DotCard = new { entityId = id }
+function label(s: String): LabelCard = new { text = s }

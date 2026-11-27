@@ -13,7 +13,7 @@ class SmokeFixtureSuite extends munit.FunSuite {
   private def walk(node: LayoutNode): List[LayoutNode.Component] =
     node match {
       case c: LayoutNode.Component => c :: c.allChildren.flatMap(walk)
-      case _: LayoutNode.SetNode   => Nil
+
     }
 
   private lazy val nodes: List[LayoutNode.Component] =
@@ -27,13 +27,16 @@ class SmokeFixtureSuite extends munit.FunSuite {
     // Lock and Unlock, and for a lock reporting OPEN the latch, as its tile's
     // features, outside the tile's tappable row: inside it, a press would also
     // fire the tile's tap.
+    // On the page, and again in the lock's more-info.
     val withFeatures = nodes.filter(_.regions.contains("features"))
-    assertEquals(withFeatures.map(_.card), List("tile"))
+    assertEquals(withFeatures.map(_.card), List("tile", "tile"))
     assert(
-      withFeatures.head.subjectEntity.contains(HouseFixture.frontLock.entityId),
+      withFeatures.forall(
+        _.subjectEntity.contains(HouseFixture.frontLock.entityId)
+      ),
       clue = withFeatures.map(n => n.card -> n.subjectEntity)
     )
-    val features = withFeatures.flatMap(_.regions("features").flatMap(walk))
+    val features = withFeatures.head.regions("features").flatMap(walk)
     assertEquals(
       features.map(_.card),
       List("fhrow", "button", "button", "button")

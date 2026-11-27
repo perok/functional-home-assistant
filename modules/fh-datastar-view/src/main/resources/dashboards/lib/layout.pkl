@@ -4,12 +4,12 @@
 /// `core/node.pkl`'s nodes.
 module layout
 
-import "core/node.pkl" as nodes
+import "core/node.pkl" as nodeMod
 import "core/slot.pkl" as slotMod
 
 /// A classed `<div>` holding its children, plus an optional author class. Pure
 /// structure: nothing fills a box from outside.
-abstract class Box extends nodes.Node {
+abstract class Box extends nodeMod.Node {
   /// An extra class on the box (`class` is reserved in Pkl).
   hidden cssClass: String? = null
   /// The box's own classes, after [[cssClass]] ([[Grid]]'s `fh-start`).
@@ -30,10 +30,9 @@ const local extraClass: slotMod.Slot = slotMod.cssClass("class")
 /// it: a row's hugging pills, a column taller than its cards.
 typealias Justify = "start"|"center"|"end"
 
-const local function boxDef(cls: String): nodes.CardDef = new {
-  regions = new Mapping { [nodes.defaultRegion] = new nodes.Region {} }
+const local function boxDef(cls: String): nodeMod.CardDef = new {
   classes = cls + extraClass.ifTrue(" \(extraClass)")
-  template = "{{{children}}}"
+  template = "\(slotMod.childrenSlot)"
 }
 
 class Row extends Box {
@@ -80,7 +79,7 @@ hidden column: Column = new Column {}
 /// Nothing, taking the space its row or column leaves, so it pushes its
 /// siblings apart: `(c.row) { children { title; c.spacer; settings } }`. An
 /// empty column, so space is no card of its own.
-hidden spacer: nodes.LayoutNode = column.grow()
+hidden spacer: nodeMod.LayoutNode = column.grow()
 
 /// The 12-column grid (HA's "sections"): each cell spans `columns(n)` of 12,
 /// default 4; `fullWidth()` spans the row. A partial row is centred unless

@@ -121,7 +121,7 @@ class SelectSuite extends CatsEffectSuite {
   /** What the dropdown's summary and the cycle's face show. */
   private def shown(html: String): (List[String], List[String]) =
     (
-      """<summary class="fh-select-summary"><span id="[^"]+"><span class="fh-cell" id="[^"]+">([^<]*)</span>""".r
+      """<summary class="fh-select-summary"><span class="" id="[^"]+"><span class="fh-cell" id="[^"]+">([^<]*)</span>""".r
         .findAllMatchIn(html)
         .map(_.group(1))
         .toList,
@@ -188,7 +188,7 @@ class SelectSuite extends CatsEffectSuite {
     assert(
       errors.exists(e =>
         e.contains("declared '1y'") &&
-          e.contains("not one of its members' values (24h, 7d, 30d)")
+          e.contains("which no case takes (24h, 7d, 30d)")
       ),
       clue = errors
     )

@@ -73,21 +73,31 @@ The dashboard under test is *built*, two tiers:
   pipeline against a `HouseFixture`-derived `lib/dump.pkl` (`PklFixture`,
   `SmokeDashboard`). The truest end-to-end: Pkl → model → renderer → SSE, no live
   fetch.
+  `PklFixture.snippet(body)` is the small form: a `card = …` body over the
+  library and `fixture-leaves.pkl`'s test leaves, cached per JVM by source and
+  sharing one evaluator, a few ms warm. `PklFixture.shape(body).fill(…)` puts
+  hand-built nodes (a chart, a fetch-reading leaf) into a library-built host.
 - **Tier B** — a hand-built `Dashboard` via `FixtureDashboard` + the shared
   `DashboardBuilders` combinators. Lower fidelity, zero Pkl ceremony — for a test
   whose point is one render path.
+
+A shape the LIBRARY builds — a tab bar, an If, a match, a choice in a group, a
+set — comes from Tier A, never a hand copy: hand copies drifted from what the
+library writes and kept testing hosts it no longer made. Tier B keeps leaves,
+graphs of fake pieces, refused shapes (better: a Tier-A shape with one piece
+broken) and the shapes the library does not write; the benches stay hand-built.
 
 ### 3. `Scene` keeps the world minimal and self-consistent
 
 A test declares the cards it exercises; **`Scene` auto-seeds the entities the
 dashboard references** (every slot `entityId` + component subject, across the
-main layout and surfaces), resolved against `HouseFixture`. So placing a card
+page card, popups included), resolved against `HouseFixture`. So placing a card
 brings its entity with it — no hand-listed entity roster to keep in sync.
 
 `Scene.empty` accumulates cards via `.card`; `Scene.of(dashboard)` wraps a
 prebuilt (Tier-A) dashboard. `.entity(..)/.entities(..)` add entities *beyond*
 what the dashboard names — a control-only click target, a **dynamic-group member
-matched by query**, a **state-activated surface's condition entity** — and double
+matched by query**, an **`If`'s condition entity** — and double
 as a resolution source that can restate a registry entity at a non-default state.
 A referenced id that nothing supplies fails loudly. `FixtureSeedSuite` pins
 `HouseFixture.all` as the guardrail.
@@ -214,7 +224,7 @@ fiber on one thread — so whichever side is ticked first parks the only thread.
 streaming hung 18 of 720 tests at their guards, a different subset per run.
 
 **Per suite, not per test, and that is forced.** A per-test switch looks tighter, but suites reach
-a document fetch through shared helpers (`AckedResumeSuite`, `SurfaceTapSuite`), so a per-test scan
+a document fetch through shared helpers (`AckedResumeSuite`, `SessionActionSuite`), so a per-test scan
 mis-classifies them — and a mis-classified test does not fail, it HANGS. What simulated time bought
 the suites that fetch documents was only poll-loop acceleration: every sleep in them is 5–300 ms and
 the windows they exercise are adoption-window-sized.
@@ -224,7 +234,7 @@ reason to keep it rather than raise the guards:
 
 - a displacement `interruptWhen` applied INSIDE `Server.untilRevoked`'s merge, so the response body
   of a displaced client never ended;
-- `reloadRepaints` inferring transitions with `.drop(1)`, which discarded a renderer swap that
+- a swap watcher inferring transitions with `.drop(1)`, which discarded a renderer swap that
   landed before its subscription — a client left on a dashboard that no longer exists.
 
 So: **a suite failure that runs its FULL timeout guard is "the event never arrived", not "slow

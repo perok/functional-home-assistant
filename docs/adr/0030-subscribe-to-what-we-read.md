@@ -57,7 +57,7 @@ this entity", the question a viewer's variable value is held to — and it walks
 
 - a set member clause's `when` guard, whose predicate may name an entity the member does
   not render ("show the hall light while the hall sensor is on"), or
-- a surface's `Activation.State` condition, the entity a flip hangs on, or
+- a choice's `by` over state, the entity a flip hangs on, or
 - the guards of a set a call acts on (`Dashboard.calls`, ADR 0023), read only at
   the press. Missing from the store, such an entity fails its guard, and the press
   quietly leaves out the member it guards.

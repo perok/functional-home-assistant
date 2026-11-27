@@ -13,6 +13,7 @@ import "../../main/resources/dashboards/lib/components.pkl" as c
 import "../../main/resources/dashboards/lib/query.pkl" as q
 import "../../main/resources/dashboards/lib/hass.pkl" as hass
 import "pkl:reflect"
+import "../../main/resources/dashboards/lib/core/group.pkl" as groupMod
 import "../../main/resources/dashboards/lib/core/predicate.pkl" as pred
 import "../../main/resources/dashboards/lib/core/slot.pkl" as slotMod
 import "../../main/resources/dashboards/lib/core/simple.pkl" as simpleMod
@@ -54,16 +55,36 @@ local motion: hass.SensorEntity = new {
 local stue = List(taklys, lampe)
 local allEnts: List<hass.Entity> = List(taklys, lampe, kjokken, motion)
 
-local clausesOf = (s) -> s.members.toMap().values.flatMap((m) -> m.clauses.toList())
+// A member as the clauses it was written from: each a guard (null: always
+// holds) and the node it renders. A member is its node alone, a lone guard as
+// its `by`, or a chain of guards as `by` over `FirstTrue`, a case apiece.
+local class Clause {
+  `when`: Any
+  node: Any
+}
+local function clausesOfMember(m: pred.Member): List<Clause> =
+  if (m is pred.MemberChosen)
+    let (chosen = m as pred.MemberChosen)
+      if (chosen.by is pred.FirstTrue)
+        (chosen.by as pred.FirstTrue).items.toList().mapIndexed((i, g) ->
+          new Clause { `when` = if (g == true) null else g; node = chosen.cases.toList()[i].value })
+      else List(new Clause { `when` = chosen.by; node = chosen.cases.toList()[0].value })
+  else List(new Clause { `when` = null; node = m })
+
+// What an `If`'s one nodes slot writes: a lone condition is its `by`.
+local function chosenOf(n: Any): Any =
+  (n.nodesSlots.findOrNull((s) -> s.choice != null)!!.fill as slotMod.NodesFill).choice
+
+local clausesOf = (s) -> s.members.toMap().values.flatMap((m) -> clausesOfMember(m))
 local guards = (s) -> clausesOf.apply(s).map((cl) -> cl.`when`)
 local ids = (s) -> s.candidates.toList()
-local memberOf = (s, id) -> s.members[id].clauses.toList()
+local memberOf = (s, id) -> clausesOfMember(s.members[id])
 
 facts {
   ["a live condition becomes a per-member guard"] {
     // S1. The candidates are all of them — presence is decided at runtime, not
     // by dropping anyone here.
-    local s = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
+    local s = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).fill()
     ids.apply(s) == List("light.taklys", "light.lampe")
     guards.apply(s).every((g) -> g.part == null && g.op == "eq" && g.value == "on")
     guards.apply(s).length == 2
@@ -75,7 +96,7 @@ facts {
     local s = q.from(allEnts)
       .where(q.eq(q.prop("area_id"), "stue"))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     ids.apply(s) == List("light.taklys", "light.lampe", "binary_sensor.stue_motion")
     guards.apply(s).every((g) -> g == null)
   }
@@ -86,7 +107,7 @@ facts {
     local s = q.from(stue)
       .caseOf(q.candidate((e) -> (e as hass.LightEntity).supportsFlash), (e) -> c.entityCard(e))
       .`else`((e) -> c.pill(c.view.navigate("/")).label("off-duty"))
-      .build()
+      .fill()
     memberOf.apply(s, "light.taklys").length == 1
     memberOf.apply(s, "light.taklys")[0].`when` == null
     memberOf.apply(s, "light.taklys")[0].node.card == "tile"
@@ -100,7 +121,7 @@ facts {
     local s = q.from(stue)
       .caseOf(q.eq(q.stateProp, "on"), (e) -> c.entityCard(e))
       .`else`((e) -> c.pill(c.view.navigate("/")).label("off"))
-      .build()
+      .fill()
     memberOf.apply(s, "light.taklys").length == 2
     memberOf.apply(s, "light.taklys")[0].`when`.part == null
     memberOf.apply(s, "light.taklys")[1].`when` == null
@@ -109,7 +130,7 @@ facts {
   ["omitting the `else` is how 'only while on' is written"] {
     // S6. The missing fallback is the feature: fall off the end and the member
     // is not rendered at all.
-    local s = q.from(stue).caseOf(q.eq(q.stateProp, "on"), (e) -> c.entityCard(e)).build()
+    local s = q.from(stue).caseOf(q.eq(q.stateProp, "on"), (e) -> c.entityCard(e)).fill()
     clausesOf.apply(s).length == 2
     clausesOf.apply(s).every((cl) -> cl.`when` != null)
   }
@@ -125,7 +146,7 @@ facts {
           q.candidate((e) -> (e as hass.LightEntity).supportsFlash),
           q.eq(q.stateProp, "on")))))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     memberOf.apply(s, "light.taklys")[0].`when` == null
     memberOf.apply(s, "light.lampe")[0].`when`.part == null
   }
@@ -134,7 +155,7 @@ facts {
     local s = q.from(allEnts)
       .where(q.eq(q.prop("area_id"), "nowhere"))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     ids.apply(s).isEmpty
     s.members.isEmpty
   }
@@ -145,7 +166,7 @@ facts {
     local s = q.from(allEnts)
       .orderBy(q.asc(q.prop("friendly_name")))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     // By NAME — Kjøkken, Lampe, Stue motion, Taklys — not by entity id.
     ids.apply(s) == List(
       "light.kjokken", "light.lampe", "binary_sensor.stue_motion", "light.taklys")
@@ -155,20 +176,20 @@ facts {
     // As the runtime orders a condition. Pkl has no `<` on Booleans, so this
     // used to fail the build.
     local inKitchen = q.eq(q.prop("area_id"), "kjokken")
-    local asc = q.from(allEnts).orderBy(q.asc(inKitchen)).render((e) -> c.entityCard(e)).build()
-    local desc = q.from(allEnts).orderBy(q.desc(inKitchen)).render((e) -> c.entityCard(e)).build()
+    local asc = q.from(allEnts).orderBy(q.asc(inKitchen)).render((e) -> c.entityCard(e)).fill()
+    local desc = q.from(allEnts).orderBy(q.desc(inKitchen)).render((e) -> c.entityCard(e)).fill()
     ids.apply(asc).first == "light.kjokken"
     ids.apply(desc).last == "light.kjokken"
     // Nothing live: the build sorted it.
     q.from(allEnts).orderBy(q.eq(q.prop("area_id"), "kjokken"))
-      .render((e) -> c.entityCard(e)).build().orderBy.isEmpty
+      .render((e) -> c.entityCard(e)).fill().orderBy.isEmpty
   }
 
   ["`desc` inverts the comparison, not the ties"] {
     local s = q.from(allEnts)
       .orderBy(List(q.desc(q.prop("area_id")), q.asc(q.prop("friendly_name"))))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     // "stue" before "kjokken" (desc), and WITHIN stue the names still ascend —
     // Lampe, Stue motion, Taklys. A `desc` that reversed the sorted list
     // instead of the comparison would hand back Taklys, Stue motion, Lampe.
@@ -182,7 +203,7 @@ facts {
     local s = q.from(stue)
       .where(q.candidate((_e) -> q.entity(motion).stateIs("on")))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     guards.apply(s).every((g) -> g.entity == "binary_sensor.stue_motion")
     guards.apply(s).every((g) -> g.part == null)
   }
@@ -190,7 +211,7 @@ facts {
   ["a member's node is COMPLETE — it carries its own entity"] {
     // What makes a clause unable to be wrong about which member it belongs to,
     // and what the renderer relies on: nothing is injected per render.
-    local s = q.from(stue).render((e) -> c.entityCard(e)).build()
+    local s = q.from(stue).render((e) -> c.entityCard(e)).fill()
     memberOf.apply(s, "light.lampe")[0].node.slotsByName["entity_id"].value == "light.lampe"
   }
 
@@ -200,7 +221,7 @@ facts {
     local s = q.from(allEnts)
       .where(q.eq(q.optional(q.prop("supported_features")), 8))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     ids.apply(s) == List("light.taklys", "light.kjokken")
   }
 
@@ -210,7 +231,7 @@ facts {
     local members = (reflect.Class(hass.Entity).properties.keys + reflect.Class(hass.LightEntity).properties.keys)
       .filter((n) -> let (v = kjokken.getPropertyOrNull(n)) v != null && !(v is q.Scalar))
     List("brightness", "axes", "colourModes", "volatileAttrs").every((n) -> members.contains(n))
-    local orderedBy = (n) -> q.from(List(kjokken)).orderBy(q.desc(q.prop(n))).render((e) -> c.entityCard(e)).build().orderBy.toList()
+    local orderedBy = (n) -> q.from(List(kjokken)).orderBy(q.desc(q.prop(n))).render((e) -> c.entityCard(e)).fill().orderBy.toList()
     // Live where HA reports the name, else refused as one nothing reports;
     // never folded at build time.
     members.filter((n) -> kjokken.volatileAttrs.containsKey(n))
@@ -226,7 +247,7 @@ facts {
     local s = q.from(stue)
       .orderBy(q.desc(q.prop("brightness")))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     s.orderBy.toList().length == 1
     s.orderBy[0].by == pred.propertyKey(new simpleMod.Attr { name = "brightness" })
     s.orderBy[0].dir == "desc"
@@ -238,7 +259,7 @@ facts {
     local s = q.from(stue)
       .orderBy(q.desc(q.eq(q.stateProp, "on")))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     s.orderBy[0].by is pred.Cmp
     (s.orderBy[0].by as pred.Cmp).part == null
     (s.orderBy[0].by as pred.Cmp).value == "on"
@@ -251,7 +272,7 @@ facts {
     local s = q.from(allEnts)
       .orderBy(List(q.desc(q.prop("brightness")), q.asc(q.prop("friendly_name"))))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     s.orderBy.toList().length == 1
     s.orderBy[0].by == pred.propertyKey(new simpleMod.Attr { name = "brightness" })
     ids.apply(s) == List(
@@ -263,7 +284,7 @@ facts {
     module.catch(() -> q.from(allEnts)
       .orderBy(List(q.asc(q.prop("friendly_name")), q.desc(q.prop("brightness"))))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
       .orderBy
       .toList()
     ).contains("Cannot order by 'friendly_name'")
@@ -274,7 +295,7 @@ facts {
       .orderBy(q.desc(q.prop("brightness")))
       .limit(1)
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     s.limit == 1
     // Every candidate still SHIPS — which one is cut is a live question.
     ids.apply(s).length == 2
@@ -349,9 +370,9 @@ facts {
     // The rooms are ordinary layout; each holds one set of its own.
     card.children.toList().length == 2
     local stueSet = card.children.toList()[0].children.toList()[1]
-    stueSet.kind == "SetNode"
-    stueSet.candidates.toList() == List("light.taklys", "light.lampe")
-    stueSet.members["light.taklys"].clauses.toList()[0].`when`.part == null
+    stueSet.nodesSlots.first.set.kind == "Set"
+    stueSet.nodesSlots.first.set.candidates.toList() == List("light.taklys", "light.lampe")
+    memberOf.apply(stueSet.nodesSlots.first.set, "light.taklys")[0].`when`.part == null
     // ...and a room's title is a LITERAL, which is why the tile needs no
     // patch target of its own.
     card.children.toList()[1].children.toList()[0].slotsByName["label"].value == "Kjøkken"
@@ -373,7 +394,7 @@ facts {
         new c.SectionTitle { text = g.friendly_name }
         q.from(g.members).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
       } })
-      .build()
+      .fill()
 
     // The outer set is live: the group's tile appears only while it is on.
     ids.apply(s) == List("light.stue_group")
@@ -381,10 +402,10 @@ facts {
     // ...and the tile holds a set of its own, with its own guards. The runtime
     // gives that inner set its own id, so a bulb patches its own element
     // rather than re-rendering the group tile.
-    local inner = memberOf.apply(s, "light.stue_group")[0].node.children.toList()[1]
-    inner.kind == "SetNode"
+    local inner = memberOf.apply(s, "light.stue_group")[0].node.children.toList()[1].nodesSlots.first.set
+    inner.kind == "Set"
     inner.candidates.toList() == List("light.taklys", "light.lampe")
-    inner.members["light.lampe"].clauses.toList()[0].`when`.part == null
+    memberOf.apply(inner, "light.lampe")[0].`when`.part == null
   }
 
   // ---- ported from the spike's scenario suites, now against the real lib ----
@@ -392,7 +413,7 @@ facts {
   ["S2 an interpolated label is computed at build time, so it is a literal"] {
     local s = q.from(stue)
       .render((e) -> (c.entityCard(e)) { label = "Blah \(e.friendly_name)" })
-      .build()
+      .fill()
     memberOf.apply(s, "light.taklys")[0].node.slotsByName["label"].value == "Blah Taklys"
   }
 
@@ -402,7 +423,7 @@ facts {
         [q.eq(q.prop("domain"), "light")] = (e) -> c.entityCard(e)
         [q.eq(q.prop("domain"), "sensor")] = (e) -> c.pill(c.view.navigate("/")).label("s")
       })
-      .build()
+      .fill()
     memberOf.apply(s, "light.taklys")[0].node.card == "tile"
     // The motion sensor is a SensorEntity, so it takes the sensor branch.
     memberOf.apply(s, "binary_sensor.stue_motion")[0].node.card == "pillLink"
@@ -415,7 +436,7 @@ facts {
         q.eq(q.prop("domain"), "media_player"),
         q.all(List(q.eq(q.prop("domain"), "light"), q.eq(q.prop("area_id"), "stue"))))))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     ids.apply(s) == List("light.taklys", "light.lampe")
   }
 
@@ -433,7 +454,7 @@ facts {
     local s = q.from(stue)
       .caseOf(q.candidate((_e) -> true), (e) -> c.entityCard(e))
       .`else`((e) -> c.pill(c.view.navigate("/")).label("never"))
-      .build()
+      .fill()
     memberOf.apply(s, "light.taklys").length == 1
     memberOf.apply(s, "light.taklys")[0].node.card == "tile"
   }
@@ -443,7 +464,7 @@ facts {
       .where(q.eq(q.prop("domain"), "light"))
       .where(q.eq(q.prop("area_id"), "stue"))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     ids.apply(s) == List("light.taklys", "light.lampe")
   }
 
@@ -453,7 +474,7 @@ facts {
     local s = q.from(stue)
       .where(q.eq(q.attr("friendly_name"), "Taklys"))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     guards.apply(s).every((g) -> g.part?.name == "friendly_name")
     ids.apply(s).length == 2
   }
@@ -462,7 +483,7 @@ facts {
     local s = q.from(stue)
       .where(q.eq(q.prop("brightness"), 5))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     guards.apply(s).every((g) -> g.part?.name == "brightness")
   }
 
@@ -485,7 +506,7 @@ facts {
 
   ["a typo'd live attribute is a BUILD error, not a guard that never matches"] {
     module.catch(() ->
-      q.from(stue).where(q.eq(q.prop("brightnes"), 5)).render((e) -> c.entityCard(e)).build()
+      q.from(stue).where(q.eq(q.prop("brightnes"), 5)).render((e) -> c.entityCard(e)).fill()
     ).contains("No candidate can report a live attribute called 'brightnes'")
   }
 
@@ -497,7 +518,7 @@ facts {
     local s = q.from(stue)
       .where(q.eq(q.attr("off_brightness"), 5))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     guards.apply(s).every((g) -> g.part?.name == "off_brightness")
   }
 
@@ -509,7 +530,7 @@ facts {
     local s = q.from(List(motion))
       .where(q.eq(q.prop("whatever_it_reports"), 5))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     guards.apply(s).every((g) -> g.part?.name == "whatever_it_reports")
   }
 
@@ -517,7 +538,7 @@ facts {
     local s = q.from(allEnts)
       .where(q.not(q.eq(q.prop("area_id"), "stue")))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     ids.apply(s) == List("light.kjokken")
   }
 
@@ -527,7 +548,7 @@ facts {
     local s = q.from(stue)
       .where(q.eq(q.stateProp, "on"))
       .caseOf(q.eq(q.stateProp, "on"), (e) -> c.entityCard(e))
-      .build()
+      .fill()
     memberOf.apply(s, "light.taklys")[0].`when` is pred.Cmp
   }
 
@@ -541,7 +562,7 @@ facts {
           q.eq(q.prop("brightness"), 5),
           q.eq(q.prop("color_temp_kelvin"), 2700))))))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     local g = memberOf.apply(s, "light.taklys")[0].`when`
     g is pred.PAnd
     g.items.toList().length == 3
@@ -550,8 +571,8 @@ facts {
 
   ["two spellings of the same filter produce the SAME term"] {
     // Structural equality is what a backend intern (or a human diff) relies on.
-    local a = q.from(stue).where(q.all(List(q.eq(q.stateProp, "on")))).render((e) -> c.entityCard(e)).build()
-    local b = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
+    local a = q.from(stue).where(q.all(List(q.eq(q.stateProp, "on")))).render((e) -> c.entityCard(e)).fill()
+    local b = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).fill()
     memberOf.apply(a, "light.taklys")[0].`when` == memberOf.apply(b, "light.taklys")[0].`when`
   }
 
@@ -561,7 +582,7 @@ facts {
         new c.SectionTitle { text = "Light" }
         c.entityCard(e)
       } })
-      .build()
+      .fill()
     local heads = clausesOf.apply(s).map((cl) -> cl.node.children.toList()[0].slotsByName["label"].value)
     heads == List("Light", "Light")
     // ...and each member's own card still carries its own entity.
@@ -578,13 +599,13 @@ facts {
     local s = q.from(List(taklys, motion))
       .caseOf(q.eq(q.prop("domain"), "light"), c.entitySlider)
       .`else`((e) -> c.entityCard(e))
-      .build()
-    s.members["light.taklys"].clauses.toList()[0].node.card == "slider"
-    s.members["binary_sensor.stue_motion"].clauses.toList()[0].node.card == "tile"
+      .fill()
+    memberOf.apply(s, "light.taklys")[0].node.card == "slider"
+    memberOf.apply(s, "binary_sensor.stue_motion")[0].node.card == "tile"
     // One clause each: the domain is registry data, so the loser is not merely
     // unrendered, it never reaches the wire.
-    s.members["light.taklys"].clauses.toList().length == 1
-    s.members["binary_sensor.stue_motion"].clauses.toList().length == 1
+    memberOf.apply(s, "light.taklys").length == 1
+    memberOf.apply(s, "binary_sensor.stue_motion").length == 1
   }
 
   // ---- `If` takes a subject-free condition -----------------------------------
@@ -593,7 +614,7 @@ facts {
 
   ["an `If` over one entity names it, so the runtime looks it up"] {
     local branch = c.iff(q.entity(taklys).stateIs("on")).then(c.title("on"))
-    local cond = branch.inlineSurfaces["then"].activation.condition
+    local cond = chosenOf(branch).by
     cond.part == null
     cond.entity == "light.taklys"
   }
@@ -601,35 +622,66 @@ facts {
   ["an `If` over a SET is a count — no quantifier, and no card"] {
     local branch = c.iff(q.from(stue).where(q.eq(q.stateProp, "on")).any())
       .then(c.title("some light is on"))
-    local cond = branch.inlineSurfaces["then"].activation.condition
+    local cond = chosenOf(branch).by
     cond is pred.Count
     cond.op == "gt"
     cond.value == 0
     cond.candidates.toList() == List("light.taklys", "light.lampe")
   }
 
-  ["the `else` member's condition is vacuously true and reads nothing"] {
+  ["the `else` is the otherwise: no condition of its own"] {
     local branch = c.iff(q.entity(taklys).stateIs("on"))
       .then(c.title("on"))
       .`else`(c.title("off"))
-    local cond = branch.inlineSurfaces["else"].activation.condition
-    // None at all: a state surface with no condition always holds.
-    cond == null
+    // It holds where no case does, so only the `then`'s condition is read.
+    chosenOf(branch).by.entity == "light.taklys"
+    chosenOf(branch).otherwise != null
   }
 
   ["a condition the BUILD settled is still an ordinary condition"] {
     // `any()` over a set no candidate can join folds to `false` before anything
     // runs, so the branch it guards simply never shows.
     local never = c.iff(q.from(stue).where(false).any()).then(c.title("x"))
-    never.inlineSurfaces["then"].activation.condition == pred.neverHolds
+    chosenOf(never).by == pred.neverHolds
     // ...and the mirror.
-    c.iff(true).then(c.title("x")).inlineSurfaces["then"].activation.condition == pred.alwaysHolds
+    chosenOf(c.iff(true).then(c.title("x"))).by == pred.alwaysHolds
   }
 
-  ["the emitted node is a `set`, and every candidate has a member"] {
-    local s = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).build()
-    s.kind == "SetNode"
+  ["the emitted fill is a `set`, and every candidate has a member"] {
+    local s = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e)).fill()
+    s.kind == "Set"
     ids.apply(s).every((id) -> s.members.containsKey(id))
+  }
+
+  ["`build()` is a group holding the set, and `of` takes the chain as it is"] {
+    local chain = q.from(stue).where(q.eq(q.stateProp, "on")).render((e) -> c.entityCard(e))
+    local g = chain.build()
+    // The one nodes slot, the whole template: a root of its own, `.fh-group`.
+    g.nodesSlots.length == 1
+    g.nodesSlots.first.set == chain.fill()
+    g.cardDef.template == "{{{children}}}"
+    g.cardDef.classes == "fh-group"
+    // A set beside other content in a template is an error.
+    module.catch(() -> (g) { cardDef { template = "<b></b>\(g.cardDef.template)" } }.wireSlots)
+      .contains("a set must be its card's whole template")
+    // A group of another tag and classes is a card of another name: the wire
+    // holds one template per name.
+    local ul = chain.fill()
+    g.card != groupMod.group("ul", "list", ul).card
+    groupMod.group("ul", "list", chain).cardDef.tag == "ul"
+  }
+
+  ["a member guarded by several clauses picks its case by the first that holds"] {
+    local s = q.from(List(taklys))
+      .caseOf(q.eq(q.stateProp, "on"), (e) -> c.entityCard(e))
+      .`else`((e) -> c.pill(c.tap.toggle(e)).label("off"))
+      .fill()
+    local m = s.members["light.taklys"] as pred.MemberChosen
+    m.by is pred.FirstTrue
+    (m.by as pred.FirstTrue).items.toList().length == 2
+    // The unconditional clause always holds, so it is the last case.
+    (m.by as pred.FirstTrue).items.toList()[1] == true
+    m.cases.toList().map((k) -> k.`is`) == List(0, 1)
   }
 
   ["writing a term as a lambda emits exactly what the data form emits"] {
@@ -645,17 +697,17 @@ facts {
     local dataForm = q.from(allEnts)
       .where(List(q.eq(q.prop("area_id"), "stue"), q.eq(q.stateProp, "on")))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     local lambdaForm = q.from(allEnts)
       .where((e) -> List(q.eq(q.prop("area_id"), "stue"), q.eq(q.stateProp, "on")))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     local candidateForm = q.from(allEnts)
       .where(List(
         q.candidate((e) -> q.eq(q.prop("area_id"), "stue")),
         q.eq(q.stateProp, "on")))
       .render((e) -> c.entityCard(e))
-      .build()
+      .fill()
     wire.apply(dataForm) == wire.apply(lambdaForm)
     wire.apply(dataForm) == wire.apply(candidateForm)
     ids.apply(dataForm) == List("light.taklys", "light.lampe", "binary_sensor.stue_motion")

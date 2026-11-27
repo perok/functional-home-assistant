@@ -6,7 +6,7 @@
 /// resumes like any other leaf.
 module components.history
 
-import "../core/node.pkl" as nodes
+import "../core/node.pkl" as nodeMod
 import "../core/slot.pkl" as slotMod
 import "../core/variable.pkl" as varMod
 import "../providers.pkl" as providersMod
@@ -19,9 +19,9 @@ const local chart: slotMod.Slot = slotMod.textRaw("chart")
 
 /// One entity's readings over one window. The SVG goes in a RAW hole
 /// (`chart.raw`); the backend rejects an escaped one at build time.
-class HistoryChart extends nodes.Node {
+class HistoryChart extends nodeMod.Node {
   card = "historyChart"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     classes = "fh-card fh-chart"
     template = chart.raw
     // The SVG carries its own `viewBox`: drawn once per cache bucket, scaled

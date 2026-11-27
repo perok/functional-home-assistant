@@ -83,7 +83,7 @@ class CursorSuite extends munit.FunSuite {
     val req =
       get(params + "&datastar=" + java.net.URLEncoder.encode("{}", "UTF-8"))
     assertEquals(Server.cursorAnomaly(req), None)
-    assertEquals(Server.hasSignals(req), false)
+    assertEquals(Server.isReconnect(req), false)
     assertEquals(
       Server.cursorOf(req),
       Some(Server.Cursor("hq", "sq", "Lq", 3L))
@@ -102,13 +102,36 @@ class CursorSuite extends munit.FunSuite {
     assertEquals(Server.resumeFrom(signals(whole), c), 7L)
   }
 
-  test("a store carrying other signals but no cursor is the same case") {
-    // A mis-specified client `filterSignals`: `conn` and ui state arrive, the
-    // cursor does not.
-    val req = signals(s"""{"${Server.ConnSignal}":"c1","ui_c_0":"1"}""")
-    assert(Server.cursorAnomaly(req).isDefined)
+  /** What every page load sends: the shell seeds `conn` and the page's `popups`
+    * variable, both in [[Server.SseInclude]], so the store is never `{}`. Read
+    * as a reconnect, each load warned and resumed from its own version (D1's
+    * finding).
+    */
+  test(
+    "a first connect's store carries conn and the popups variable, and no cursor"
+  ) {
+    val firstStore =
+      s"""{"${Server.ConnSignal}":"c1",""" +
+        s""""$popupsSignal":""}"""
+    val req =
+      get(
+        params + "&datastar=" + java.net.URLEncoder.encode(firstStore, "UTF-8")
+      )
+    assertEquals(Server.cursorAnomaly(req), None)
+    assertEquals(Server.isReconnect(req), false)
     assertEquals(Server.connOf(req), Some("c1"))
+    assertEquals(Server.resumeFrom(req, Server.Cursor("h", "s", "L", 7L)), 8L)
+    // A reconnect carries the cursor the opening frame set, beside the same two.
+    val again = signals(
+      firstStore.dropRight(1) + "," + whole.drop(1)
+    )
+    assertEquals(Server.isReconnect(again), true)
+    assertEquals(Server.cursorOf(again), Some(Server.Cursor("h", "s", "L", 7L)))
+    assertEquals(Server.resumeFrom(again, Server.Cursor("h", "s", "L", 7L)), 7L)
   }
+
+  private val popupsSignal =
+    VarKey(fh.view.model.Dashboard.PageRootId, "popups").committedSignal
 
   test("the SSE include actually names everything a reconnect must carry") {
     // The include and the default exclude are ANDed, so this regex is all a
@@ -120,7 +143,7 @@ class CursorSuite extends munit.FunSuite {
       Server.cursorParam(Server.LogIdSignal),
       Server.cursorParam(Server.StoreVersionSignal),
       Server.ConnSignal,
-      Server.UiSignalPrefix + fh.view.model.Dashboard.PopupHostId
+      popupsSignal
     ).foreach(n =>
       assert(include.findFirstIn(n).isDefined, clue = (n, Server.SseInclude))
     )
@@ -133,7 +156,7 @@ class CursorSuite extends munit.FunSuite {
   }
 
   test("a reconnect carries a committed node variable, not its pending ask") {
-    // A declarer id can hold `__` itself (a surface's), so the shapes are the
+    // A declarer id can hold `__` itself (a case's), so the shapes are the
     // server's own spelling rather than hand-written ones.
     val include = Server.SseInclude.r
     val declarer: fh.view.model.NodeId =

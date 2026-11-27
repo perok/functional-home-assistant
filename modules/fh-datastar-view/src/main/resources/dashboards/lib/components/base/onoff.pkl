@@ -4,7 +4,7 @@
 module components.base.onoff
 
 import "../../core/badge.pkl" as badgeMod
-import "../../core/node.pkl" as nodes
+import "../../core/node.pkl" as nodeMod
 import "../../core/slot.pkl" as slotMod
 import "../../core/tap.pkl" as tapMod
 import "../../core/text.pkl" as textMod
@@ -27,9 +27,9 @@ const local switched: slotMod.Slot = slotMod.slot("switched")
 ///
 /// Its badge's on look is [[active]], a boolean reading: [[on]] is a string the
 /// checkbox compares, so it cannot also be one.
-open class Switch extends nodes.ActiveNode {
+open class Switch extends nodeMod.ActiveNode {
   card = "switch"
-  cardDef = new nodes.CardDef {
+  cardDef = new nodeMod.CardDef {
     tag = "article"
     classes = "fh-card fh-toggle fh-tile-card"
     attrs = "\(switched.bind)\(tapMod.guardLook)".trim()
@@ -55,7 +55,6 @@ open class Switch extends nodes.ActiveNode {
   /// ([[restoreSwitch]]).
   hidden on: slotMod.Reading
   hidden tapAction: tapMod.TapAction = throw(buttonMod.noAction("c.switch"))
-  inlineSurfaces = tapAction.inlineSurfaces
   /// The `<i>`'s whole class, a literal or a reading, as `Tile.glyph`.
   hidden glyph: (String|slotMod.Reading)? = null
   /// See `Button.subject`.
@@ -72,5 +71,5 @@ open class Switch extends nodes.ActiveNode {
   }
   function label(l: String|slotMod.Reading): this = (this) { label = l }
   function tapAction(a: tapMod.TapAction): this = (this) { tapAction = a }
-  function active(a: nodes.BooleanInput): this = (this) { active = a }
+  function active(a: nodeMod.BooleanInput): this = (this) { active = a }
 }

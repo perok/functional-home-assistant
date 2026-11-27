@@ -2,23 +2,19 @@ package fh.view.testkit
 
 import fh.view.model.{
   Part,
-  Activation,
   CallDecl,
   CardDef,
   Dashboard,
   IdKind,
   LayoutNode,
   Op,
-  Region,
   Step,
   Value,
   ValueExpr,
   ValueType,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
 import fh.view.testkit.DashboardBuilders.{col, component, lit}
-import fh.view.testkit.TestIds.given
 import io.circe.Json
 
 import scala.collection.immutable.ListMap
@@ -32,7 +28,7 @@ object FixtureDashboard {
   val cards: Map[String, CardDef] = Map(
     "col" -> TestCard(
       """<div class="col">{{{children}}}</div>""",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     ),
     "reading" -> TestCard(
       """<div class="reading"><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
@@ -82,30 +78,32 @@ object FixtureDashboard {
   def set(
       candidates: List[String],
       guard: Option[ValueExpr] = None
-  ): LayoutNode.SetNode =
-    LayoutNode.SetNode(
+  ): LayoutNode.Component =
+    Sets.node(
       candidates = candidates,
       members = candidates.map { id =>
-        id -> LayoutNode.SetMember(
+        id -> Sets.Member(
           List(
-            LayoutNode.SetClause(
+            Sets.Clause(
               when = guard,
               node = LayoutNode.Component(
                 "member",
-                templateSlots = Map(
-                  "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
-                  "name" -> TemplateSlot(
-                    ValueExpr(
-                      Value.Entity(Some(id), Part.Whole),
-                      List(
-                        Step.Cel(
-                          "('friendly_name' in value.attr ? value.attr['friendly_name'] : value.entity_id)"
+                slots = Slots.values(
+                  Map(
+                    "entity_id" -> TemplateSlot(ValueExpr.literal(id)),
+                    "name" -> TemplateSlot(
+                      ValueExpr(
+                        Value.Entity(Some(id), Part.Whole),
+                        List(
+                          Step.Cel(
+                            "('friendly_name' in value.attr ? value.attr['friendly_name'] : value.entity_id)"
+                          )
                         )
                       )
+                    ),
+                    "state" -> TemplateSlot(
+                      ValueExpr(Value.Entity(Some(id)))
                     )
-                  ),
-                  "state" -> TemplateSlot(
-                    ValueExpr(Value.Entity(Some(id)))
                   )
                 )
               )
@@ -143,14 +141,8 @@ object FixtureDashboard {
       "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(e.entityId))))
     )
 
-  /** It names its entity: a state condition has no subject to supply (ADR
-    * 0007).
-    */
-  private def entityIs(id: String, state: String): ValueExpr =
-    Conds.cmp("state", Op.Eq, Json.fromString(state), entity = Some(id))
-
-  /** An `ifhost` root ("c") whose `then` bakes while `condEntity` holds
-    * `activeState`, and whose always-true `else` bakes otherwise (ADR 0007).
+  /** The shipped `If` as the root ("c"), showing `thenBranch` while
+    * `condEntity` holds `activeState` and `elseBranch` otherwise (ADR 0007).
     * The condition entity is named in no slot, so a [[Scene]] seeds it with
     * `.entity(..)`.
     */
@@ -159,39 +151,33 @@ object FixtureDashboard {
       activeState: String,
       thenBranch: LayoutNode.Component,
       elseBranch: LayoutNode.Component
-  ): Dashboard =
+  ): Dashboard = {
+    val shape = PklFixture.shape(
+      s"""card = c.iff(q.entity(dump.entities.${condEntity.replace(
+          '.',
+          '_'
+        )}).stateIs("$activeState")).then(t.hole("then")).`else`(t.hole("else"))""",
+      FixtureEntity(condEntity, activeState)
+    )
     Dashboard(
-      cards = cards + ("ifhost" -> TestCard(
-        template = """<div class="ifhost" id="{{hostId}}">{{{branch}}}</div>""",
-        regions = Map("branch" -> Region(Region.Baked))
-      )),
-      card = LayoutNode.Component("ifhost"),
-      surfaces = Map(
-        "c_then" -> Surface(
-          thenBranch,
-          bakeInto = Some("c"),
-          bakeAs = Some("branch"),
-          bakeIndex = Some(0),
-          activation = Activation.State(Some(entityIs(condEntity, activeState)))
-        ),
-        "c_else" -> Surface(
-          elseBranch,
-          bakeInto = Some("c"),
-          bakeAs = Some("branch"),
-          bakeIndex = Some(1),
-          activation = Activation.State()
-        )
-      ),
+      cards = Sets.cards ++ cards ++ shape.cards,
+      card = shape.fill("then" -> thenBranch, "else" -> elseBranch),
       slug = "ifhome",
       title = Some("If Home")
     )
+  }
 
   def build(
       root: LayoutNode,
       slug: String = "home",
       title: String = "Test Home"
   ): Dashboard =
-    Dashboard(cards = cards, card = root, slug = slug, title = Some(title))
+    Dashboard(
+      cards = Sets.cards ++ cards,
+      card = root,
+      slug = slug,
+      title = Some(title)
+    )
 
   /** The whole house at once, for the render/live smoke suites. */
   val dashboard: Dashboard =

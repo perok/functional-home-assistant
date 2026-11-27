@@ -1,12 +1,14 @@
 <!-- ==== as fixtured · body ==== -->
+<div class="" id="root"
+  data-fh-url:popups__history="['v.popups', $_var_root__popups, '']"><main>
 <div class="fh-cell fh-col" id="c">
 <div class="fh-cell fh-row" id="c_0"><button class="fh-cell fh-chip  fh-hug fh-active" id="c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"
-  data-on:click="$_c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_0_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0_0__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_0__error = ''))"
   data-fh-node="c_0_0"
   data-class:fh-disabled="$_c_0_0__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_0_0__busy"
@@ -18,10 +20,10 @@
   data-attr:aria-busy="$_c_0_0__busy_slow"><i class="mdi mdi-power"></i><span class="fh-text"><span class="fh-text-run">Kveld</span></span></button><button class="fh-cell fh-chip  fh-hug fh-active" id="c_0_1"
   data-signals="{_e: {light: {kitchen: {t#1: true, t#2: false}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"
-  data-on:click="$_c_0_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_0_1__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0_1__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1__error = ''))"
   data-fh-node="c_0_1"
   data-class:fh-disabled="$_c_0_1__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_0_1__busy"
@@ -33,30 +35,31 @@
   data-attr:aria-busy="$_c_0_1__busy_slow"><i class="mdi mdi-power"></i><span class="fh-text"><span class="fh-text-run">Morgen</span></span></button></div>
 <div class="fh-cell fh-grid" id="c_1"><button class="fh-cell fh-press fh-size-large " id="c_1_0"
   data-signals="{_e: {light: {kitchen: {t#2: false}}}}"
-  data-on:click="$_c_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_1_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_0__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_1_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_1_0__error = ''))"
   data-fh-node="c_1_0"
   data-class:fh-disabled="$_c_1_0__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_1_0__busy"
   data-class:fh-error="$_c_1_0__error"><span class="fh-text"><span class="fh-text-run">A</span></span></button><button class="fh-cell fh-press fh-size-large " id="c_1_1"
   data-signals="{_e: {light: {kitchen: {t#2: false}}}}"
-  data-on:click="$_c_1_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_1_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_1_1__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_1__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_1_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_1_1__error = ''))"
   data-fh-node="c_1_1"
   data-class:fh-disabled="$_c_1_1__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_1_1__busy"
-  data-class:fh-error="$_c_1_1__error"><span class="fh-text"><span class="fh-text-run">B</span></span></button></div></div>
+  data-class:fh-error="$_c_1_1__error"><span class="fh-text"><span class="fh-text-run">B</span></span></button></div></div></main>
+<div class="" id="popups"></div></div>
 <!-- ==== as fixtured · patch c_0_0 ==== -->
 <button class="fh-cell fh-chip  fh-hug" id="c_0_0"
   data-class:fh-active="$_e.light.kitchen.t#1"
-  data-on:click="$_c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_0_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0_0__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_0__error = ''))"
   data-fh-node="c_0_0"
   data-class:fh-disabled="$_c_0_0__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_0_0__busy"
@@ -69,10 +72,10 @@
 <!-- ==== as fixtured · patch c_0_1 ==== -->
 <button class="fh-cell fh-chip  fh-hug" id="c_0_1"
   data-class:fh-active="$_e.light.kitchen.t#1"
-  data-on:click="$_c_0_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_0_1__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0_1__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1__error = ''))"
   data-fh-node="c_0_1"
   data-class:fh-disabled="$_c_0_1__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_0_1__busy"
@@ -84,33 +87,35 @@
   data-attr:aria-busy="$_c_0_1__busy_slow"><i class="mdi mdi-power"></i><span class="fh-text"><span class="fh-text-run">Morgen</span></span></button>
 <!-- ==== as fixtured · patch c_1_0 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="c_1_0"
-  data-on:click="$_c_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_1_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_0__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_1_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_1_0__error = ''))"
   data-fh-node="c_1_0"
   data-class:fh-disabled="$_c_1_0__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_1_0__busy"
   data-class:fh-error="$_c_1_0__error"><span class="fh-text"><span class="fh-text-run">A</span></span></button>
 <!-- ==== as fixtured · patch c_1_1 ==== -->
 <button class="fh-cell fh-press fh-size-large " id="c_1_1"
-  data-on:click="$_c_1_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_1_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_1_1__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_1__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_1_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_1_1__error = ''))"
   data-fh-node="c_1_1"
   data-class:fh-disabled="$_c_1_1__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_1_1__busy"
   data-class:fh-error="$_c_1_1__error"><span class="fh-text"><span class="fh-text-run">B</span></span></button>
 <!-- ==== flipped · body ==== -->
+<div class="" id="root"
+  data-fh-url:popups__history="['v.popups', $_var_root__popups, '']"><main>
 <div class="fh-cell fh-col" id="c">
 <div class="fh-cell fh-row" id="c_0"><button class="fh-cell fh-chip  fh-hug" id="c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"
-  data-on:click="$_c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_0_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0_0__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_0__error = ''))"
   data-fh-node="c_0_0"
   data-class:fh-disabled="$_c_0_0__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_0_0__busy"
@@ -122,10 +127,10 @@
   data-attr:aria-busy="$_c_0_0__busy_slow"><i class="mdi mdi-power"></i><span class="fh-text"><span class="fh-text-run">Kveld</span></span></button><button class="fh-cell fh-chip  fh-hug" id="c_0_1"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: false}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"
-  data-on:click="$_c_0_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_0_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_0_1__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0_1__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1__error = ''))"
   data-fh-node="c_0_1"
   data-class:fh-disabled="$_c_0_1__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_0_1__busy"
@@ -137,35 +142,38 @@
   data-attr:aria-busy="$_c_0_1__busy_slow"><i class="mdi mdi-power"></i><span class="fh-text"><span class="fh-text-run">Morgen</span></span></button></div>
 <div class="fh-cell fh-grid" id="c_1"><button class="fh-cell fh-press fh-size-large " id="c_1_0"
   data-signals="{_e: {light: {kitchen: {t#2: false}}}}"
-  data-on:click="$_c_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_1_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_0__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_1_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_1_0__error = ''))"
   data-fh-node="c_1_0"
   data-class:fh-disabled="$_c_1_0__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_1_0__busy"
   data-class:fh-error="$_c_1_0__error"><span class="fh-text"><span class="fh-text-run">A</span></span></button><button class="fh-cell fh-press fh-size-large " id="c_1_1"
   data-signals="{_e: {light: {kitchen: {t#2: false}}}}"
-  data-on:click="$_c_1_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })"
+  data-on:click="$_c_1_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })"
   data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_1_1__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_1__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_1_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_1_1__error = ''))"
   data-fh-node="c_1_1"
   data-class:fh-disabled="$_c_1_1__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_1_1__busy"
-  data-class:fh-error="$_c_1_1__error"><span class="fh-text"><span class="fh-text-run">B</span></span></button></div></div>
+  data-class:fh-error="$_c_1_1__error"><span class="fh-text"><span class="fh-text-run">B</span></span></button></div></div></main>
+<div class="" id="popups"></div></div>
 <!-- ==== flipped · patch c_0_0: as fixtured ==== -->
 <!-- ==== flipped · patch c_0_1: as fixtured ==== -->
 <!-- ==== flipped · patch c_1_0: as fixtured ==== -->
 <!-- ==== flipped · patch c_1_1: as fixtured ==== -->
 <!-- ==== unavailable · body ==== -->
+<div class="" id="root"
+  data-fh-url:popups__history="['v.popups', $_var_root__popups, '']"><main>
 <div class="fh-cell fh-col" id="c">
 <div class="fh-cell fh-row" id="c_0"><button class="fh-cell fh-chip  fh-hug" id="c_0_0"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"
-  data-on:click="$_c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#2"
+  data-on:click="$_c_0_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_0_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0_0__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_0__error = ''))"
   data-fh-node="c_0_0"
   data-class:fh-disabled="$_c_0_0__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_0_0__busy"
@@ -177,9 +185,9 @@
   data-attr:aria-busy="$_c_0_0__busy_slow"><i class="mdi mdi-power"></i><span class="fh-text"><span class="fh-text-run">Kveld</span></span></button><button class="fh-cell fh-chip  fh-hug" id="c_0_1"
   data-signals="{_e: {light: {kitchen: {t#1: false, t#2: true}}}}"
   data-class:fh-active="$_e.light.kitchen.t#1"
-  data-on:click="$_c_0_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#2"
+  data-on:click="$_c_0_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_0_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_0_1__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_0_1__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_0_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_0_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_0_1__error = ''))"
   data-fh-node="c_0_1"
   data-class:fh-disabled="$_c_0_1__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_0_1__busy"
@@ -191,21 +199,22 @@
   data-attr:aria-busy="$_c_0_1__busy_slow"><i class="mdi mdi-power"></i><span class="fh-text"><span class="fh-text-run">Morgen</span></span></button></div>
 <div class="fh-cell fh-grid" id="c_1"><button class="fh-cell fh-press fh-size-large " id="c_1_0"
   data-signals="{_e: {light: {kitchen: {t#2: true}}}}"
-  data-on:click="$_c_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_0', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#2"
+  data-on:click="$_c_1_0__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_0', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_1_0__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_0__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_0__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_1_0__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_1_0__error = ''))"
   data-fh-node="c_1_0"
   data-class:fh-disabled="$_c_1_0__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_1_0__busy"
   data-class:fh-error="$_c_1_0__error"><span class="fh-text"><span class="fh-text-run">A</span></span></button><button class="fh-cell fh-press fh-size-large " id="c_1_1"
   data-signals="{_e: {light: {kitchen: {t#2: true}}}}"
-  data-on:click="$_c_1_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_1', {payload: {conn: $conn, ui_popups: $ui_popups, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#2"
+  data-on:click="$_c_1_1__busy ? '' : $_e.light.kitchen.t#2 ? '' : @post('sse/call/layout/call_1?node=c_1_1', {retryMaxCount: 0, payload: {conn: $conn, posted: {}, seen: {} } })" disabled data-attr:disabled="$_e.light.kitchen.t#2"
   data-indicator="_c_1_1__busy"
-  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'started' && ($_c_1_1__error = ''))"
+  data-on:datastar-fetch__document="evt.detail.el === el && (evt.detail.type === 'error' ? ($_c_1_1__error = 'Command failed (' + evt.detail.argsRaw.status + ')') : evt.detail.type === 'retries-failed' ? ($_c_1_1__error = 'Could not be sent') : evt.detail.type === 'started' && ($_c_1_1__error = ''))"
   data-fh-node="c_1_1"
   data-class:fh-disabled="$_c_1_1__busy || $_e.light.kitchen.t#2"
   data-class:fh-loading="$_c_1_1__busy"
-  data-class:fh-error="$_c_1_1__error"><span class="fh-text"><span class="fh-text-run">B</span></span></button></div></div>
+  data-class:fh-error="$_c_1_1__error"><span class="fh-text"><span class="fh-text-run">B</span></span></button></div></div></main>
+<div class="" id="popups"></div></div>
 <!-- ==== unavailable · patch c_0_0: as fixtured ==== -->
 <!-- ==== unavailable · patch c_0_1: as fixtured ==== -->
 <!-- ==== unavailable · patch c_1_0: as fixtured ==== -->

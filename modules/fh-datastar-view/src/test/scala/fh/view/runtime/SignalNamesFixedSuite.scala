@@ -7,7 +7,6 @@ import fh.view.model.{
   CardDef,
   Dashboard,
   NodeId,
-  Region,
   SignalBind,
   Step,
   Value,
@@ -27,7 +26,7 @@ class SignalNamesFixedSuite extends munit.FunSuite {
   private val cards = Map(
     "col" -> TestCard(
       "<div>{{{children}}}</div>",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     ),
     "card" -> TestCard(
       """<span {{{value.bind}}}>{{value}}</span>"""

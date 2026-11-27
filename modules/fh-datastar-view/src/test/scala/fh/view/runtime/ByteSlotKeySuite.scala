@@ -1,5 +1,9 @@
 package fh.view.runtime
 
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.testkit.TestCard
 import fh.view.testkit.Conds
 
@@ -11,21 +15,20 @@ import cats.syntax.traverse.*
 import fh.view.model.{
   Part,
   SlotKey,
-  Activation,
   CardDef,
   Dashboard,
+  Ix,
   LayoutNode,
   NodeId,
   Op,
-  Region,
   SignalBind,
   Step,
   Value,
   ValueExpr,
-  TemplateSlot,
-  Surface
+  TemplateSlot
 }
-import fh.view.testkit.DashboardBuilders.{col, lit, st}
+import fh.view.testkit.DashboardBuilders.{col, declared, lit, st}
+import fh.view.testkit.{FixtureEntity, PklFixture}
 import fh.view.testkit.TestIds.{setId, given}
 import io.circe.Json
 
@@ -42,20 +45,44 @@ import scala.concurrent.duration.*
   */
 class ByteSlotKeySuite extends munit.FunSuite {
 
-  private val cards = Map(
+  private val lightsAB =
+    List(FixtureEntity("light.a", "off"), FixtureEntity("light.b", "off"))
+
+  /** The library's group around its choice, over the hole `then` and `else`. */
+  private val branchShape = PklFixture.shape(
+    """card = groupMod.group("div", "",
+      |  nodeMod.iff(
+      |    q.from(List(dump.entities.light_a, dump.entities.light_b))
+      |      .where(q.eq(q.stateProp, "on")).any())
+      |    .then(t.hole("then")).`else`(t.hole("else")))
+      |""".stripMargin,
+    lightsAB*
+  )
+
+  /** The same group around a choice by the node variable `tab`. */
+  private val tabShape = PklFixture.shape(
+    """local v = c.variable("tab")
+      |card = groupMod.group("div", "",
+      |  nodeMod.match(v.value, new Mapping {
+      |    ["0"] = t.hole("first")
+      |    ["1"] = t.hole("second")
+      |  }))
+      |""".stripMargin
+  )
+
+  private val cards = Sets.cards ++ branchShape.cards ++ tabShape.cards ++ Map(
     "col" -> TestCard(
       """<div>{{{children}}}</div>""",
-      regions = Map("children" -> Region())
+      regions = Set("children")
     ),
     "card" -> TestCard(
       """<div><span>{{state}}</span> {{#unit}}{{unit}}{{/unit}}</div>"""
     ),
-    // A bake owner beside a live leaf: an owner holds regions, so it is
-    // structure and never cached, and the leaf cannot see the selection.
+    // A choice beside a live leaf: its host holds regions, so it is
+    // structure and never cached, and the leaf cannot see the choice.
     "banner" -> TestCard(
-      template =
-        """<div><i>{{bakeIndex}}</i>{{{bar}}}<div id="{{hostId}}">{{{branch}}}</div></div>""",
-      regions = Map("bar" -> Region(), "branch" -> Region(Region.Baked))
+      template = """<div>{{{bar}}}{{{branch}}}</div>""",
+      regions = Set("bar", "branch")
     ),
     "bannerBar" -> TestCard("""<b>{{title}}</b>"""),
     "btn" -> TestCard("""<button>{{label}}</button>"""),
@@ -68,14 +95,16 @@ class ByteSlotKeySuite extends munit.FunSuite {
 
   private def bound(entity: String) = LayoutNode.Component(
     "card",
-    templateSlots = Map(
-      "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(entity)))),
-      "unit" -> TemplateSlot(
-        ValueExpr(
-          Value.Entity(Some(entity), Part.Whole),
-          List(
-            Step.Cel(
-              "('unit_of_measurement' in value.attr ? value.attr['unit_of_measurement'] : '')"
+    slots = Slots.values(
+      Map(
+        "state" -> TemplateSlot(ValueExpr(Value.Entity(Some(entity)))),
+        "unit" -> TemplateSlot(
+          ValueExpr(
+            Value.Entity(Some(entity), Part.Whole),
+            List(
+              Step.Cel(
+                "('unit_of_measurement' in value.attr ? value.attr['unit_of_measurement'] : '')"
+              )
             )
           )
         )
@@ -83,21 +112,13 @@ class ByteSlotKeySuite extends munit.FunSuite {
     )
   )
 
-  private val anyLightOn: ValueExpr =
-    Conds.count(
-      candidates = List("light.a", "light.b"),
-      when = Map(
-        "light.a" -> Conds.cmp("state", Op.Eq, Json.fromString("on")),
-        "light.b" -> Conds.cmp("state", Op.Eq, Json.fromString("on"))
-      ),
-      op = Op.Gt,
-      value = Json.fromInt(0)
-    )
-
-  /** `c_2` is a banner bound to sensor.t whose bake group is chosen by a count
-    * of the lights: inputs that appear nowhere in its `entitiesForNode`. `c_3`
-    * is a candidate group over lights.
+  /** `c_2` is a banner bound to sensor.t whose choice is decided by a count of
+    * the lights: inputs that appear nowhere in its `entitiesForNode`. `c_3` is
+    * a candidate group over lights.
     */
+  private val branch =
+    branchShape.fill("then" -> bound("sensor.a"), "else" -> bound("sensor.b"))
+
   private val dashboard = Dashboard(
     cards,
     col(
@@ -105,44 +126,53 @@ class ByteSlotKeySuite extends munit.FunSuite {
       bound("sensor.other"),
       LayoutNode.Component(
         "banner",
-        regions = Map(
-          "bar" -> List(
-            LayoutNode.Component(
-              "bannerBar",
-              templateSlots = Map(
-                "title" -> TemplateSlot(
-                  ValueExpr(Value.Entity(Some("sensor.t")))
+        slots = Slots.nodes(
+          Map(
+            "bar" -> List(
+              LayoutNode.Component(
+                "bannerBar",
+                slots = Slots.values(
+                  Map(
+                    "title" -> TemplateSlot(
+                      ValueExpr(Value.Entity(Some("sensor.t")))
+                    )
+                  )
                 )
               )
-            )
+            ),
+            "branch" -> List(branch)
           )
         )
       ),
-      LayoutNode.SetNode(
+      Sets.node(
         candidates = List("light.a", "light.b"),
         members = List("light.a", "light.b").map { id =>
-          id -> LayoutNode.SetMember(
+          id -> Sets.Member(
             List(
-              LayoutNode.SetClause(
+              Sets.Clause(
                 Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
                 LayoutNode.Component(
                   "btn",
-                  Map(
-                    "entity_id" -> lit(id),
-                    "label" -> TemplateSlot(
-                      ValueExpr(
-                        Value.Entity(None, Part.Whole),
-                        List(Step.Cel("value.state"))
+                  Slots.values(
+                    Map(
+                      "entity_id" -> lit(id),
+                      "label" -> TemplateSlot(
+                        ValueExpr(
+                          Value.Entity(None, Part.Whole),
+                          List(Step.Cel("value.state"))
+                        )
                       )
                     )
                   )
                 )
               ),
-              LayoutNode.SetClause(
+              Sets.Clause(
                 None,
                 LayoutNode.Component(
                   "btn",
-                  Map("entity_id" -> lit(id), "label" -> lit("off"))
+                  Slots.values(
+                    Map("entity_id" -> lit(id), "label" -> lit("off"))
+                  )
                 )
               )
             )
@@ -151,31 +181,17 @@ class ByteSlotKeySuite extends munit.FunSuite {
       ),
       LayoutNode.Component(
         "gauge",
-        templateSlots = Map(
-          "state" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some("sensor.t")))
-          ),
-          "live" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some("sensor.other"))),
-            signal = Some(SignalBind.Text)
+        slots = Slots.values(
+          Map(
+            "state" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.t")))
+            ),
+            "live" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.other"))),
+              signal = Some(SignalBind.Text)
+            )
           )
         )
-      )
-    ),
-    surfaces = Map(
-      "lit" -> Surface(
-        bound("sensor.a"),
-        bakeInto = Some("c_2"),
-        bakeAs = Some("branch"),
-        bakeIndex = Some(0),
-        activation = Activation.State(Some(anyLightOn))
-      ),
-      "dark" -> Surface(
-        bound("sensor.b"),
-        bakeInto = Some("c_2"),
-        bakeAs = Some("branch"),
-        bakeIndex = Some(1),
-        activation = Activation.State()
       )
     )
   )
@@ -212,7 +228,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
         Some(java.time.Instant.parse("2026-08-04T10:00:00Z"))
       ),
     st("sensor.other", "2"),
-    // Flips c_2's bake group and changes a set member's case.
+    // Flips c_2's choice and changes a set member's case.
     st("light.a", "on"),
     // The adversarial step: an entity c_2 does not bind, leaving the count's
     // comparison where it was. Neither its bytes nor its key may move.
@@ -242,13 +258,13 @@ class ByteSlotKeySuite extends munit.FunSuite {
         .renderNodeById(
           id,
           Shared.of(a),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         ),
       renderer
         .renderNodeById(
           id,
           Shared.of(b),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         ),
       clue =
         s"$id keyed identically at steps $i and $j but rendered differently"
@@ -287,21 +303,21 @@ class ByteSlotKeySuite extends munit.FunSuite {
       rb = Renderer.create(dashboard)
       id = ra.members.memberIdOf(setId("c_3"), entity)
       key <- ra
-        .byteSlotValues(id, Shared.of(a), fragments = FetchSnapshot.empty)
+        .keyOf(id, Shared.of(a), fragments = FetchSnapshot.empty)
         .toList
       if rb
-        .byteSlotValues(id, Shared.of(b), fragments = FetchSnapshot.empty)
+        .keyOf(id, Shared.of(b), fragments = FetchSnapshot.empty)
         .contains(key)
     } assertEquals(
       ra.renderNodeById(
         id,
         Shared.of(a),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       rb.renderNodeById(
         id,
         Shared.of(b),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       clue =
         s"$entity keyed identically at steps $i and $j but rendered differently"
@@ -321,7 +337,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
     // Without this the cache would miss on every HA reconnect.
     assertEquals(key("c_0", 1), key("c_0", 2))
     assertEquals(key("c_0", 2), key("c_0", 3))
-    // Not `c_2`: a bake owner is structure and has no key (below).
+    // Not `c_2`: a choice's host is structure and has no key (below).
   }
 
   test("an absent entity keys differently from any version it could hold") {
@@ -363,33 +379,46 @@ class ByteSlotKeySuite extends munit.FunSuite {
     )
   }
 
-  /** A bake owner that reads an entity itself, as a signal: structure cannot
-    * carry live bytes (`validate`).
+  /** A card holding a choice that reads an entity itself, as a signal:
+    * structure cannot carry live bytes (`validate`).
     */
   private val tabsOwner: Dashboard =
     Dashboard(
       cards + ("signalBanner" -> cards("banner").copy(
         template = cards("banner").template
-          .replace("<i>", "<b {{{title.bind}}}></b><i>")
+          .replace("{{{bar}}}", "<b {{{title.bind}}}></b>{{{bar}}}")
       )),
       LayoutNode.Component(
         "signalBanner",
-        templateSlots = Map(
-          "title" -> TemplateSlot(
-            ValueExpr(Value.Entity(Some("sensor.t"))),
-            signal = Some(SignalBind.Text)
+        slots = Slots.values(
+          Map(
+            "title" -> TemplateSlot(
+              ValueExpr(Value.Entity(Some("sensor.t"))),
+              signal = Some(SignalBind.Text)
+            )
+          )
+        ) ++ Slots.nodes(
+          Map(
+            "bar" -> List(
+              LayoutNode
+                .Component("btn", Slots.values(Map("label" -> lit("A"))))
+            )
+          )
+        ) ++ Slots.nodes(
+          Map(
+            "branch" -> List(
+              tabShape.fill(
+                "first" -> bound("sensor.a"),
+                "second" -> bound("sensor.b")
+              )
+            )
           )
         ),
-        regions = Map(
-          "bar" -> List(LayoutNode.Component("btn", Map("label" -> lit("A"))))
-        )
-      ),
-      surfaces = dashboard.surfaces.map { case (sid, s) =>
-        sid -> s.copy(bakeInto = Some("c"))
-      }
+        vars = declared("tab" -> "0")
+      )
     )
 
-  test("a bake owner with a live signal of its own has no key either") {
+  test("a card holding a choice, with a live signal of its own, has no key") {
     val tabs = Renderer.create(tabsOwner)
     assertEquals(
       tabs.byteSlotValues(
@@ -404,7 +433,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
       tabs.renderNodeById(
         "c",
         Shared.of(line.head),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       ),
       None
     )
@@ -424,22 +453,20 @@ class ByteSlotKeySuite extends munit.FunSuite {
         .renderNodeById(
           "c_3",
           Shared.of(line.head),
-          Viewing(Selections.none, FetchSnapshot.empty)
+          Viewing(FetchSnapshot.empty)
         ),
       None
     )
   }
 
-  /** '''No cacheable node owns a bake group.''' The key is byte-slot values
-    * only, so two viewers on two tabs would otherwise share one entry. It holds
-    * because `Dashboard.validate` requires a `bakeInto` target to declare a
-    * baked region, and a card with a region is structure: the join of two rules
-    * in different files, true until one is relaxed for a good local reason.
+  /** '''No cacheable node owns a pick.''' The key is byte-slot values only, so
+    * two viewers on two tabs would otherwise share one entry. It holds because
+    * a choice fills a nodes slot, and a card with one is structure.
     */
-  test("no cacheable node owns a bake group") {
+  test("no cacheable node owns a pick") {
     def check(label: String, r: Renderer, states: Map[String, EntityState]) = {
-      val owners = r.surfaces.varBakeOwnerIds ++ r.surfaces.stateBakeOwnerIds
-      assert(owners.nonEmpty, s"$label exercises no bake group at all")
+      val owners = r.picks.varPicks ++ r.picks.statePicks
+      assert(owners.nonEmpty, s"$label exercises no pick at all")
       owners.foreach(id =>
         assertEquals(
           r.byteSlotValues(
@@ -448,13 +475,13 @@ class ByteSlotKeySuite extends munit.FunSuite {
             fragments = FetchSnapshot.empty
           ),
           None,
-          s"$label: bake owner '$id' has a cache key, but its bytes can carry " +
+          s"$label: pick host '$id' has a cache key, but its bytes can carry " +
             "the viewer's selection"
         )
       )
     }
-    // Both activation kinds, since only one reads the viewer: `dashboard` is
-    // state-activated, `tabsOwner` user-selected.
+    // Both kinds, since only one reads the viewer: `dashboard` is decided by
+    // state, `tabsOwner` by a variable.
     check("state-activated", renderer, line.head)
     check("user-selected", Renderer.create(tabsOwner), line.head)
   }
@@ -464,18 +491,22 @@ class ByteSlotKeySuite extends munit.FunSuite {
     // the same ids, so without the clause the key could not tell them apart.
     val twoCards = Dashboard(
       cards,
-      LayoutNode.SetNode(
+      Sets.node(
         candidates = List("light.a"),
         members = Map(
-          "light.a" -> LayoutNode.SetMember(
+          "light.a" -> Sets.Member(
             List(
-              LayoutNode.SetClause(
+              Sets.Clause(
                 Some(Conds.cmp("state", Op.Eq, Json.fromString("on"))),
-                LayoutNode.Component("btn", Map("label" -> lit("A")))
+                LayoutNode
+                  .Component("btn", Slots.values(Map("label" -> lit("A"))))
               ),
-              LayoutNode.SetClause(
+              Sets.Clause(
                 None,
-                LayoutNode.Component("bannerBar", Map("title" -> lit("A")))
+                LayoutNode.Component(
+                  "bannerBar",
+                  Slots.values(Map("title" -> lit("A")))
+                )
               )
             )
           )
@@ -489,12 +520,12 @@ class ByteSlotKeySuite extends munit.FunSuite {
       r.renderNodeById(
         id,
         at(state),
-        Viewing(Selections.none, FetchSnapshot.empty)
+        Viewing(FetchSnapshot.empty)
       )
     assertNotEquals(bytes("on"), bytes("off"))
     assertNotEquals(
-      r.byteSlotValues(id, at("on"), FetchSnapshot.empty),
-      r.byteSlotValues(id, at("off"), FetchSnapshot.empty)
+      r.keyOf(id, at("on"), FetchSnapshot.empty),
+      r.keyOf(id, at("off"), FetchSnapshot.empty)
     )
   }
 
@@ -508,21 +539,23 @@ class ByteSlotKeySuite extends munit.FunSuite {
         Map("card" -> TestCard("<b>{{#v}}set{{/v}}</b>")),
         LayoutNode.Component(
           "card",
-          Map(
-            "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
-            "v" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+          Slots.values(
+            Map(
+              "entity_id" -> TemplateSlot(ValueExpr.literal("sensor.a")),
+              "v" -> TemplateSlot(ValueExpr(Value.Entity(None)))
+            )
           )
         )
       )
     )
     val id = NodeId.derived("c")
-    val viewing = Viewing(Selections.none, FetchSnapshot.empty)
+    val viewing = Viewing(FetchSnapshot.empty)
     def state(s: String) =
       Shared.of(Map("sensor.a" -> EntityState("sensor.a", s, Map.empty)))
     val cache = RenderCache.create.unsafeRunSync()
-    def morph(holds: Map[NodeId, Held], s: String) =
+    def morph(holds: Map[Ix, Held], s: String) =
       Patches.morph(r, cache, holds, state(s), viewing, id).unsafeRunSync()
-    val painted = r.renderBodyTraced(state("on"), viewing).own
+    val painted = r.renderBodyTraced(state("on"), viewing).painted
     val holds = painted.map((k, p) => k -> p.held)
     val onBytes = r.renderNodeById(id, state("on"), viewing)
     assertEquals(r.renderNodeById(id, state("playing"), viewing), onBytes)
@@ -531,7 +564,7 @@ class ByteSlotKeySuite extends munit.FunSuite {
     sent.map(_.patch) match
       case Some(Patch.Morph(html)) => assertEquals(Some(html), onBytes)
       case other                   => fail(s"expected one morph, got $other")
-    val after = holds ++ sent.fold(Map.empty[NodeId, Held])(_.establishes)
+    val after = holds ++ sent.fold(Map.empty[Ix, Held])(_.establishes)
     assertEquals(morph(after, "playing"), None)
   }
 }

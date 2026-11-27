@@ -1,5 +1,11 @@
 package fh.view.runtime
 
+import fh.view.runtime.RendererTestOps.keyOf
+
+import fh.view.testkit.Sets
+
+import fh.view.testkit.Slots
+
 import fh.view.fetch.{FetchRequest, FetchSnapshot, Staged}
 import fh.view.history.Windows
 import fh.view.model.*
@@ -156,7 +162,7 @@ object ByteValuesShapePropertySuite {
       slots: List[SlotSpec],
       liveClass: Boolean,
       liveStyle: Boolean,
-      atRender: Boolean,
+      chosenClass: Boolean,
       member: Boolean
   ) {
     private def names = slots.indices.map(i => s"s$i")
@@ -167,12 +173,15 @@ object ByteValuesShapePropertySuite {
 
     def leaf(card: String): LayoutNode.Component = LayoutNode.Component(
       card,
-      templateSlots = names.zip(slots.map(_.slot)).toMap,
-      cell = Option.when(liveClass || liveStyle || atRender)(
+      slots = Slots.values(names.zip(slots.map(_.slot)).toMap),
+      cell = Option.when(liveClass || liveStyle || chosenClass)(
         Cell(
           classes =
-            if liveClass then ListMap("fh-on" -> isOn(Some("sensor.a")))
-            else ListMap.empty,
+            (if liveClass then ListMap("fh-on" -> isOn(Some("sensor.a")))
+             else ListMap.empty) ++
+              (if chosenClass then
+                 ListMap("fh-chosen" -> is(Value.Var("window"), "7d"))
+               else ListMap.empty),
           styles =
             if liveStyle then
               ListMap(
@@ -180,33 +189,29 @@ object ByteValuesShapePropertySuite {
                   Value.Entity(Some("sensor.b"), Part.Attr("x"))
                 )
               )
-            else ListMap.empty,
-          atRender =
-            if atRender then
-              ListMap("fh-chosen" -> is(Value.Var("window"), "7d"))
             else ListMap.empty
         )
       )
     )
 
     def dashboard: Dashboard = Dashboard(
-      cards = Map(
+      cards = Sets.cards ++ Map(
         "box" -> TestCard(
           "<div>{{{children}}}</div>",
-          regions = Map("children" -> Region())
+          regions = Set("children")
         ),
         "one" -> TestCard(template("A")),
         "two" -> TestCard(template("B"))
       ),
       card =
         if member then
-          LayoutNode.SetNode(
+          Sets.node(
             candidates = List("sensor.a", "sensor.b"),
             members = List("sensor.a", "sensor.b").map { e =>
-              e -> LayoutNode.SetMember(
+              e -> Sets.Member(
                 List(
-                  LayoutNode.SetClause(Some(isOn(None)), leaf("one")),
-                  LayoutNode.SetClause(node = leaf("two"))
+                  Sets.Clause(Some(isOn(None)), leaf("one")),
+                  Sets.Clause(node = leaf("two"))
                 )
               )
             }.toMap
@@ -214,7 +219,7 @@ object ByteValuesShapePropertySuite {
         else
           LayoutNode.Component(
             "box",
-            regions = LayoutNode.kids(leaf("one")),
+            slots = Slots.kids(leaf("one")),
             vars = declared("window" -> "24h"),
             id = Some("panel")
           )
@@ -225,7 +230,6 @@ object ByteValuesShapePropertySuite {
         NodeId.derived(r.members.memberIdOf(setId("c"), "sensor.a"))
       else
         LayoutNode.childId(
-          "",
           NodeId.derived("panel"),
           LayoutNode.Step(LayoutNode.DefaultRegion, 0),
           leaf("one")
@@ -267,7 +271,7 @@ object ByteValuesShapePropertySuite {
       )
     )
 
-    def viewing(r: Renderer): Viewing = Viewing(Selections.none, fragments(r))
+    def viewing(r: Renderer): Viewing = Viewing(fragments(r))
   }
 
   final class Sample(val shape: Shape, val w1: World, val w2: World) {
@@ -276,15 +280,19 @@ object ByteValuesShapePropertySuite {
     private lazy val r = Renderer.create(shape.dashboard)
     private lazy val id = shape.target(r)
 
-    def values(w: World): Option[ByteValues] =
-      r.byteSlotValues(id, w.shared, w.fragments(r))
+    // The cache's key: the node's place beside its values, since two clauses
+    // of one member mint one id.
+    def values(w: World): Option[(Ix, ByteValues)] =
+      r.keyOf(id, w.shared, w.fragments(r))
     def bytes(w: World): Option[String] =
       r.renderNodeById(id, w.shared, w.viewing(r))
-    def walked(w: World): Option[ByteValues] =
-      r.renderBodyTraced(w.shared, w.viewing(r)).own.get(id).map(_.values)
+    def walked(w: World): Option[(Ix, ByteValues)] =
+      r.renderBodyTraced(w.shared, w.viewing(r)).painted.collectFirst {
+        case (ix, p) if r.index.id(ix) == id => (ix, p.values)
+      }
 
-    lazy val v1: Option[ByteValues] = values(w1)
-    lazy val v2: Option[ByteValues] = values(w2)
+    lazy val v1: Option[(Ix, ByteValues)] = values(w1)
+    lazy val v2: Option[(Ix, ByteValues)] = values(w2)
 
     override def toString: String = s"$shape\n  $w1\n  $w2"
   }
@@ -363,8 +371,8 @@ object ByteValuesShapePropertySuite {
     slots <- genSlot(member).list(Range.linear(1, 4))
     liveClass <- Gen.boolean
     liveStyle <- Gen.boolean
-    atRender <- if member then Gen.constant(false) else Gen.boolean
-  } yield Shape(slots, liveClass, liveStyle, atRender, member)
+    chosenClass <- if member then Gen.constant(false) else Gen.boolean
+  } yield Shape(slots, liveClass, liveStyle, chosenClass, member)
 
   val genSample: Gen[Sample] = for {
     shape <- genShape
