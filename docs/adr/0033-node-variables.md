@@ -184,7 +184,9 @@ at whichever of the swap repaint, a reconnect, a pull or a press comes first
 construction: a fetch's entity is written down, so no value can move a chart to the lock on a
 `Public` dashboard. A refused write is ADR 0024's 200 of
 signals; a refused URL value or carry is dropped with a warning, each on its own
-(`Renderer.adopt`), leaving the declared values. A link is not refused whole: it outlives the
+(`Renderer.adopt`), leaving the declared values. Each check runs over the viewer's initial values,
+as `SessionState.values` lays them: a choice taken only because another variable opened elsewhere
+is taken. A link is not refused whole: it outlives the
 layout it was copied from, and a card inserted above can move an id onto a node that cannot take
 the value. A choice naming no declaration is
 inert, not an error — a stale link after a rename — and an old `ui.<id>` link, a tab's or the

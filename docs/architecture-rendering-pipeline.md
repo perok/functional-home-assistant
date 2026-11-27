@@ -106,7 +106,7 @@ flowchart TB
   end
 
   GATE["AuthGate — a route (or route GROUP) declares its Requirement (ADR 0023)<br/>one rule per dashboard; the CALLER picks the refusal (orLogIn on a page, plain elsewhere)<br/>handleStream also cuts a running stream when the rule stops holding<br/>a call is admitted by its declared id, and only on a node that places it"]
-  VAR["node variable (ADR 0033)<br/>a declared SetVar call, POST call/&lt;slug&gt;/&lt;callId&gt;?node= · or v. on the page URL<br/>· or Back/Forward, POST history/&lt;slug&gt; + the page query (ADR 0005)<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press and a popup's open are one: each moves the pick it decides<br/>a popup's close is Back<br/>a conn this process has forgotten is REFUSED, said so; only the stream rebuilds it (ADR 0024)<br/>re-renders the readers this viewer is shown, commits LAST"]
+  VAR["node variable (ADR 0033)<br/>a declared SetVar call, POST call/&lt;slug&gt;/&lt;callId&gt;?node= · or v. on the page URL<br/>· or Back/Forward, POST history/&lt;slug&gt; + the page query (ADR 0005)<br/>ONE check, Renderer.refusals: every reader parses,<br/>and reads only an entity this dashboard shows<br/>a tab press and a popup's open are one: each moves the pick it decides<br/>a popup's close is Back<br/>a conn this process has forgotten is REFUSED, said so; only the stream rebuilds it; Back on one reloads at its URL (ADR 0024)<br/>re-renders the readers this viewer is shown, commits LAST"]
   SESS["Sessions registry<br/>conn maps to slug + one SessionState its owner moves:<br/>holds (what this DOM has: byte-slot values, signals,<br/>each host's shown roots in order),<br/>position, told, vars (this viewer's choices),<br/>initialValues (where the document opened a variable)<br/>+ a backlog for a client with no stream"]
   LOG[("FragmentLog per slug — the CHANGELOG<br/>Ix -&gt; version: a node, a host, an arriving key, each at its clause's place<br/>where to look, never what a client has")]
 
@@ -1242,11 +1242,13 @@ opens on the declared value rather than dying mid-walk or refusing a link that o
 
 **A declaration may OPEN elsewhere, once.** `Declaration.initialTransform` gives a variable a CEL
 expression over one entity's state, compiled with the slots' transforms. The page route runs it
-from the store as it mints the session (`Renderer.initialValuesFor`), keeps a result only where `Renderer.refusals` takes it, and records it as
+from the store as it mints the session (`Renderer.initialValuesFor`), keeps a result only where `Renderer.adopt` takes it, and records it as
 `SessionState.initialValues`, a layer under the viewer's choices: everything that resolves the
 viewer's values reads `SessionState.values`, a choice over an initial value over the default. Nothing
 re-evaluates it afterwards, so an entity changing does not move an open page (it is not a flip,
-ADR 0007), and a write's own re-render keeps it under the new choice. An initial value is not a
+ADR 0007), and a write's own re-render keeps it under the new choice. Every check of a choice —
+a press, a link, Back, a carry, a renderer swap — runs over the initial values (`Renderer.adopt`'s
+`starts`), since whether one is taken can lean on where another variable opened. An initial value is not a
 choice: it puts no `v.` param on the URL, because such a variable's mirror compares the committed
 value to `_var_<declarer>__<name>__initialValue`, which the shell seeds per document
 (`VarGraph.mirroredInitials`, so only where a mirror reads it), not to the

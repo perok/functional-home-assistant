@@ -227,13 +227,33 @@ final class TestServer(
       as: Option[String] = Some(auth.defaultSession),
       body: String = ""
   ): IO[(Status, String)] =
+    postAnswer(path, as, body).map((status, _, text) => status -> text)
+
+  /** [[postResult]] with the media type, which decides how Datastar reads the
+    * body: a refusal's signals are JSON, not an event stream.
+    */
+  def postAnswer(
+      path: String,
+      as: Option[String] = Some(auth.defaultSession),
+      body: String = ""
+  ): IO[(Status, String, String)] =
     run(
       Request[IO](
         Method.POST,
         Uri.unsafeFromString("/" + path.stripPrefix("/"))
       ).withEntity(body),
       as
-    ).flatMap(resp => bodyOf(resp).map(resp.status -> _))
+    ).flatMap(resp =>
+      bodyOf(resp).map(
+        (
+          resp.status,
+          resp.contentType.fold("")(t =>
+            s"${t.mediaType.mainType}/${t.mediaType.subType}"
+          ),
+          _
+        )
+      )
+    )
 
   /** A page load: the document and the stream URL its `data-init` would open,
     * with the `conn` it minted.

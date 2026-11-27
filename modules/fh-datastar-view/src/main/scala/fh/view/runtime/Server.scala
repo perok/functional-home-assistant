@@ -298,11 +298,11 @@ class Server(
       (why, pending) => actionRefused(req, why, pending),
       (renderer, key, conn) =>
         inSession(
-          req,
           slug,
           IO.pure(renderer),
           conn,
-          Some(key.pendingSignal)
+          actionRefused(req, _, Some(key.pendingSignal)),
+          actionRefused(req, _, Some(key.pendingSignal))
         )((session, renderer) => setVar(session, renderer, key, d.value))
     )
 
@@ -1150,7 +1150,7 @@ class Server(
           s"no node this viewer is shown reads the variable '${key.name}' declared on '${key.declarer}'"
         )
       )
-      _ <- renderer.refusals(proposed) match {
+      _ <- renderer.refusals(s.initialValues ++ proposed) match {
         case Nil     => IO.unit
         case refused =>
           IO.raiseError(FHError.badCondition(refused.mkString("; ")))
@@ -1174,6 +1174,7 @@ class Server(
   )(s: SessionState): IO[Session.Step[Unit]] = {
     val inUrl = renderer.vars.inUrl
     val (proposed, refused) = renderer.adopt(
+      s.initialValues,
       s.vars.filterNot((k, _) => inUrl(k)),
       url.view.filterKeys(inUrl).toMap
     )
@@ -1300,6 +1301,7 @@ class Server(
       req: Request[IO]
   ): IO[SessionState] = {
     val (kept, refused) = renderer.adopt(
+      s.initialValues,
       s.vars,
       Server.carriedVars(req, renderer).removedAll(s.vars.keys)
     )
@@ -1330,25 +1332,32 @@ class Server(
       case _ => IO.pure(FetchSnapshot.of(Map.empty, env))
     }
 
-  /** Resolve `conn` (from the signals body) to its session and renderer, and
-    * run `f` as one of its steps. Only success is NoContent; every refusal is
-    * [[actionRefused]] (ADR 0024).
+  /** Back or Forward under `conn`, as one step of its session. Only success is
+    * NoContent; a refusal is [[actionRefused]] (ADR 0024). With no session to
+    * run in, the page reloads at its URL, with a notice: the browser has
+    * already moved the URL, and the reconnect would rebuild the session from
+    * the page's committed choices, which still disagree with it.
     */
   private def withSession(
       req: Request[IO],
       slug: String
   )(
       f: (Session, Renderer) => SessionState => IO[Session.Step[Unit]]
-  ): IO[Response[IO]] =
+  ): IO[Response[IO]] = {
+    def lost(why: String) =
+      logger.info(s"Back reloaded a page on '$slug': $why") *>
+        Ok(
+          Json.obj(
+            Server.ReloadSignal -> Json.fromString(Server.BackReloadedNotice)
+          )
+        )
     req.bodyText.compile.string
       .map(io.circe.parser.parse(_).toOption.flatMap(connOf))
       .flatMap {
-        case None =>
-          actionRefused(req, "missing conn")
+        case None       => lost("missing conn")
         case Some(conn) =>
           gate.handleRequirement(req, Requirement.FromDashboard(Some(slug)))(
             inSession(
-              req,
               slug,
               rendererFor(slug).flatMap(
                 _.liftTo[IO](
@@ -1356,20 +1365,23 @@ class Server(
                 )
               ),
               conn,
-              None
+              lost,
+              actionRefused(req, _)
             )(f)
           )
       }
+  }
 
-  /** [[withSession]] once `conn` is read and the request is admitted. A refusal
-    * also clears `pending`.
+  /** `f` as one step of `conn`'s session, once the request is admitted. No
+    * session for `conn` on this slug is `lost`; any other refusal is `refuse`,
+    * each with its message.
     */
   private def inSession(
-      req: Request[IO],
       slug: String,
       served: IO[Renderer],
       conn: String,
-      pending: Option[String]
+      lost: String => IO[Response[IO]],
+      refuse: String => IO[Response[IO]]
   )(
       f: (Session, Renderer) => SessionState => IO[Session.Step[Unit]]
   ): IO[Response[IO]] =
@@ -1378,10 +1390,9 @@ class Server(
         // Only the stream makes a session: a press carries too little of the
         // page to rebuild one (ADR 0024).
         sessions.get(conn).flatMap {
-          case None =>
-            actionRefused(req, Server.NotConnectedMessage, pending)
+          case None => lost(Server.NotConnectedMessage)
           case Some(session) if session.slug != slug =>
-            actionRefused(req, Server.WrongSlugMessage, pending)
+            lost(Server.WrongSlugMessage)
           case Some(session) =>
             session
               .run(was =>
@@ -1405,15 +1416,14 @@ class Server(
               )
               .flatMap(ran =>
                 if ran then NoContent()
-                else actionRefused(req, Server.DashboardChangedMessage, pending)
+                else refuse(Server.DashboardChangedMessage)
               )
         }
       }
       // A 4xx becomes a refusal; a 5xx is our bug and stays with
       // [[FHError.handle]] rather than showing the user an internal message.
       .recoverWith {
-        case e: FHError if e.status < 500 =>
-          actionRefused(req, e.message, pending)
+        case e: FHError if e.status < 500 => refuse(e.message)
       }
 
   private def connOf(body: Json): Option[String] =
@@ -1676,7 +1686,11 @@ class Server(
     // Narrowed to declarations: an undeclared URL key would become a
     // signal name in the opening frame. A refused one is dropped, not a
     // 400: a link outlives the layout it was copied from.
+    // From this read, not the walk's: an initial value is decided once,
+    // and a state a few milliseconds older decides it just as well.
+    val initialValues = renderer.initialValuesFor(store.entities)
     val (choices, refused) = renderer.adopt(
+      initialValues,
       Map.empty,
       Server
         .varChoicesOf(req)
@@ -1684,9 +1698,6 @@ class Server(
         .filterKeys(renderer.vars.defaults.contains)
         .toMap
     )
-    // From this read, not the walk's: an initial value is decided once,
-    // and a state a few milliseconds older decides it just as well.
-    val initialValues = renderer.initialValuesFor(store.entities)
     IO.whenA(refused.nonEmpty)(
       logger.warn(
         s"a link carried choices no reader takes, ignored: ${refused.mkString("; ")}"
@@ -2008,7 +2019,7 @@ class Server(
     val connBanner = themeClasses.rewriteTemplate(
       s"""<div data-signals="{${Server.HaDownSignal}: $haDown, ${Server.SseSignal}: 0, ${Server.ToastSignal}: '', ${Server.ReloadSignal}: false, ${Server.ConnSignal}: '${Server
           .escapeJsString(restore.conn)}'$varSeed}"
-         |     data-effect="$$${Server.ReloadSignal} && window.location.reload()"$fromHistory
+         |     data-effect="$$${Server.ReloadSignal} && fhReload($$${Server.ReloadSignal})"$fromHistory
          |     data-on-signal-patch-filter="{include:/^${Server.ToastSignal}$$/}"
          |     data-on-signal-patch="$$${Server.ToastSignal} && (fhToast($$${Server.ToastSignal}), $$${Server.ToastSignal} = '')"
          |     data-on:$sseEvent="$$${Server.SseSignal} = $sseLatched">
@@ -2662,6 +2673,10 @@ object Server {
     */
   private[runtime] val NotConnectedMessage: String =
     "Not connected — press again once the page has reconnected"
+
+  /** What the page reloaded by a refused Back toasts once it is back. */
+  private[runtime] val BackReloadedNotice: String =
+    "The page was reloaded to follow Back"
 
   /** A press on a page a dashboard edit has since replaced ([[swapAnswer]]). */
   private[runtime] val DashboardChangedMessage: String =

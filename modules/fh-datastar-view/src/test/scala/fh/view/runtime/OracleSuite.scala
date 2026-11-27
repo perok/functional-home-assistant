@@ -59,6 +59,52 @@ class OracleSuite extends HedgehogSuite {
        |""".stripMargin
   )
 
+  /** A window picked by `a + '_' + b`, `a` opened at `x` though declared `y`:
+    * `b` at 1 is taken only over the start, at 3 only over the declaration
+    * (ed39c541).
+    */
+  private val leaning = FixtureEntries.Entry(
+    "oracle-leaning",
+    s"""amends "@fh-dashboard/entry.pkl"
+       |
+       |import "@fh-dashboard/components.pkl" as c
+       |import "@fh-dashboard/core/simple.pkl" as simpleMod
+       |import "@fh-dashboard/providers/history.pkl" as h
+       |import "@fh-dashboard/theme.pkl" as th
+       |import "@fh-home/dump.pkl" as dump
+       |
+       |theme = ${PklFixture.dummyTheme}
+       |
+       |local a = c.variable("a")
+       |local b = c.variable("b")
+       |local both = (a.value) {
+       |  steps { new simpleMod.Cel { src = "value + '_' + b"; inputs = new Mapping { ["b"] = b.value } } }
+       |}
+       |local window = new h.Chosen {
+       |  by = both
+       |  cases {
+       |    new h.Case { `is` = "y_2"; value = h.presets["1h"] }
+       |    new h.Case { `is` = "x_2"; value = h.presets["24h"] }
+       |    new h.Case { `is` = "x_1"; value = h.presets["7d"] }
+       |    new h.Case { `is` = "y_3"; value = h.presets["30d"] }
+       |  }
+       |}
+       |
+       |card = (c.column) {
+       |  vars {
+       |    a.defaultingTo("y").withInitialTransform(dump.entities.light_kitchen, "value.state == 'on' ? 'x' : 'z'")
+       |    b.defaultingTo("2")
+       |  }
+       |  children {
+       |    c.select(a).options(List("x", "y", "z"))
+       |    c.select(b).options(List("1", "2", "3"))
+       |    c.history.chart(dump.entities.sensor_outside_temp).over(window)
+       |    c.entityCard(dump.entities.sensor_outside_temp)
+       |  }
+       |}
+       |""".stripMargin
+  )
+
   // Each has something a viewer's choice or an entity's change can move:
   // sets: a filtered, ordered and cut candidate set, and its leader as a condition.
   // branches: tabs, a state If, and a branch a node variable picks.
@@ -77,7 +123,8 @@ class OracleSuite extends HedgehogSuite {
       FixtureEntries.sliderGroups,
       FixtureEntries.lightControls,
       FixtureEntries.charts,
-      nested
+      nested,
+      leaning
     )
 
   // One engine for the suite, loaded by its first chart: per server, ECharts
@@ -214,7 +261,16 @@ class OracleSuite extends HedgehogSuite {
           .map(_.rendererOf.get)
         for {
           first <- renderer
-          ids = byId.keys.filter(first.watchedEntities).toVector.sorted
+          // A refresh, the reference, opens a start again, which the live
+          // page never follows: an entity only a start reads stays still.
+          startOnly = first.vars.initialTransforms.values
+            .map(_.entityId)
+            .filterNot(first.references)
+            .toSet
+          ids = byId.keys
+            .filter(id => first.watchedEntities(id) && !startOnly(id))
+            .toVector
+            .sorted
           onFirst <- IO.ref(true)
           current <- IO.ref(
             byId.view.mapValues(e => Option(e.state)).toMap
@@ -395,6 +451,21 @@ class OracleSuite extends HedgehogSuite {
       case failure        => throw AssertionError(failure.toString)
   }
 
+  /** Back on a page whose session is forgotten: the browser has moved the URL
+    * off the popup, so the page reloads there; refused, it kept the popup, and
+    * the reconnect adopted it from the page's committed choices.
+    */
+  test("taps: Back on a forgotten page reloads at its URL") {
+    val e = FixtureEntries.taps
+    run(
+      unswapped(e),
+      e,
+      List(Step.Press(0, 1), Step.Forget, Step.Back(0))
+    ) match
+      case Result.Success => ()
+      case failure        => throw AssertionError(failure.toString)
+  }
+
   /** A tab pressed while the stream is down commits into a session that is then
     * forgotten, so the reconnect carries the old tab: an ask nothing would ever
     * answer stayed lit over the panel the page showed.
@@ -449,6 +520,63 @@ class OracleSuite extends HedgehogSuite {
     r match
       case Result.Success => ()
       case failure        => throw AssertionError(failure.toString)
+  }
+
+  /** `b` at 1 through each way a choice arrives, `a` opened at `x`: each is
+    * checked over the start, so each keeps it. A refresh refuses a choice the
+    * press refused too, so the properties above cannot see one refused wrongly.
+    */
+  private val b = VarKey(NodeId.derived("c"), "b")
+  private val popups = VarKey(NodeId.derived("root"), "popups")
+
+  private def keepsB(arrive: (TestServer, FakeBrowser) => IO[Unit]): Unit = {
+    val held = served(build(leaning), leaning, 1)
+      .use { (ts, viewers) =>
+        arrive(ts, viewers(0)) *> ts.sessions
+          .get(viewers(0).conn)
+          .flatMap(_.traverse(_.state))
+          .map(_.flatMap(_.vars.get(b)))
+      }
+      .timeout(1.minute)
+      .unsafeRunSync()
+    if (!held.contains("1")) throw AssertionError(s"b held $held, not 1")
+  }
+
+  test("leaning: a press taken only over its start is kept") {
+    keepsB((_, v) => v.choose(b, Some("1")) *> v.deliver)
+  }
+
+  test("leaning: a link taken only over its start is kept") {
+    val held = served(build(leaning), leaning, 0)
+      .use((ts, _) =>
+        ts.viewer("?v.c.b=1").flatMap(v => v.session.state <* v.leave)
+      )
+      .timeout(1.minute)
+      .unsafeRunSync()
+      .vars
+      .get(b)
+    if (!held.contains("1")) throw AssertionError(s"b held $held, not 1")
+  }
+
+  test("leaning: a reload keeps a choice taken only over its start") {
+    keepsB((ts, v) =>
+      v.choose(b, Some("1")) *> v.deliver *>
+        ts.server
+          .liveSlug(ts.slug)
+          .flatMap(
+            _.install(
+              Server.RendererState.Ready(Renderer.create(build(leaning)))
+            )
+          ) *> v.deliver
+    )
+  }
+
+  test("leaning: Back to a choice taken only over its start keeps it") {
+    keepsB((_, v) =>
+      v.choose(b, Some("1")) *> v.deliver *>
+        v.choose(popups, Some("moreinfo_sensor_outside_temp")) *> v.deliver *>
+        v.back *> v.deliver
+    )
   }
 
   for (e <- entries) {

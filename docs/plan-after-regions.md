@@ -5,7 +5,7 @@ runtime throw, a gap in the oracle and in two benches, and two things a popup ca
 put the rules where a mistake cannot be written and close the test gaps; G and H are the popup
 work. Each step is a commit (or a few) that is green on its own.
 
-**State:** planned 2026-11-26; A built. Branch `after-regions`, stacked on `d6-benches`
+**State:** planned 2026-11-26; A built (with its leaning dashboard and the Back reload). Branch `after-regions`, stacked on `d6-benches`
 (#731).
 
 ## Working this plan
@@ -40,9 +40,19 @@ fresh render for that viewer now):
   query. The oracle page's history shim (`src/test/js/oracle/setup.js`, `history`) keeps entries
   and dispatches `popstate`, which the page does not get today.
 
+- **A choice that leans on a start** (`oracle-leaning`, the suite's own entry): ed39c541's bug
+  shows only where whether a choice is taken depends on where another variable opened. A refresh
+  refuses a choice a press refused wrongly too, so "page = refresh" cannot see that; a named test
+  per way a choice arrives (press, link, Back, reload) holds it. Every check runs over the
+  starts (`Renderer.adopt`'s `starts`). An entity only a start reads is not stepped, since a
+  refresh opens the start again.
+- **Back on a lost session reloads** at the URL Back moved to, with a toast carried over the
+  reload in `sessionStorage` (ADR 0024): refused, the page kept a popup its URL had closed.
+
 **Test.** The steps are the test. Mutation-check each: undo ed39c541's change to
-`Renderer.recheck` locally (Reload must fail), break the popstate post (Back must fail). Neither
-undo is committed; both are named in the commit message.
+`Renderer.recheck` locally (Reload must fail), break the popstate post (Back must fail), and each
+check site back to checking without the starts. No undo is committed; each is named in the commit
+message.
 
 ## B. `Logged` only with evidence
 

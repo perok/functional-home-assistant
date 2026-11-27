@@ -62,6 +62,15 @@ below (`Server.NotConnectedMessage`, its pending ask cleared), and the press
 after the reconnect lands. A tap racing a wake or a restart has to be repeated,
 but it is told so, and silence was the bug.
 
+Back is the exception. The browser has moved the URL before the post is sent, a
+refusal cannot move it back, and the reconnect would rebuild the session from
+the page's committed choices, which no longer agree with the URL: a popup closed
+by Back came back open. So a history post with no session on its slug answers
+`_reload` with the reason (`Server.BackReloadedNotice`), the page reloads at the
+URL it is on, and the shell carries the reason over the reload in this tab's
+`sessionStorage` and toasts it on the new page (`fhReload`). A refusal by a live
+session (a dashboard edit, ADR 0012) is still a toast.
+
 A `conn` held by a session viewing a *different* dashboard is refused too, not
 resolved: re-registering would unroute that live page, and no honest client can
 produce it, since a `conn` is minted per document and a document is one slug.

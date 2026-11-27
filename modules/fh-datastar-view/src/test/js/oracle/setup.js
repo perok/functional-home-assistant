@@ -368,14 +368,14 @@ class Headers {
     return k.toLowerCase() in this.h
   }
 }
-const response = (status, text, onRead) => {
+const response = (status, text, onRead, mediaType = "text/event-stream") => {
   const bytes = new TextEncoder().encode(text)
   let sent = false
   return {
     ok: status >= 200 && status < 300,
     status,
     redirected: false,
-    headers: new Headers({ "content-type": "text/event-stream" }),
+    headers: new Headers({ "content-type": mediaType }),
     body: {
       getReader: () => ({
         read: onRead ?? (async () => (sent ? { done: true, value: undefined } : ((sent = true), { done: false, value: bytes }))),

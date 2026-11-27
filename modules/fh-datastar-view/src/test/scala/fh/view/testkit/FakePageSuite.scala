@@ -147,6 +147,7 @@ class FakePageSuite extends munit.CatsEffectSuite {
     p.answer(
       r.id,
       200,
+      "text/event-stream",
       "event: datastar-patch-signals\ndata: signals {\"_var_c__tab\":\"1\"}\n\n"
     )
     assertEquals(p.requests, Nil)

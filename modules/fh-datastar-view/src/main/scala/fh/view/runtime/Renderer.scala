@@ -329,15 +329,17 @@ class Renderer(val validated: Dashboard.Validated) {
   def initialValuesFor(
       states: Map[String, EntityState]
   ): Map[VarKey, String] =
-    initialPrograms.flatMap { (key, entityId, program) =>
-      states
-        .get(entityId)
-        .map(Cel.run(program, _, dashboard.slug))
-        .filter(v =>
-          VarValue.of(v).isDefined && refusals(Map(key -> v)).isEmpty
-        )
-        .map(key -> _)
-    }.toMap
+    adopt(
+      Map.empty,
+      Map.empty,
+      initialPrograms.flatMap { (key, entityId, program) =>
+        states
+          .get(entityId)
+          .map(Cel.run(program, _, dashboard.slug))
+          .filter(VarValue.of(_).isDefined)
+          .map(key -> _)
+      }.toMap
+    )._1
 
   /** One line per refused choice: every fetch reading the variable must find a
     * case for the value, and every panel it selects must have a member for it.
@@ -390,10 +392,12 @@ class Renderer(val validated: Dashboard.Validated) {
     case _ => ask.resolve(dashboard.answer(states, Evaluator.Lookup.of(vars)))
 
   /** `offered` on top of `kept`, each under [[refusals]] on its own, so one
-    * stale value costs only its own variable. In key order, so which of two
-    * clashing values wins does not depend on a map's.
+    * stale value costs only its own variable. Checked over `starts`, as
+    * [[SessionState.values]] lays them, and returned without them. In key
+    * order, so which of two clashing values wins does not depend on a map's.
     */
   def adopt(
+      starts: Map[VarKey, String],
       kept: Map[VarKey, String],
       offered: Map[VarKey, String]
   ): (Map[VarKey, String], List[String]) =
@@ -401,7 +405,7 @@ class Renderer(val validated: Dashboard.Validated) {
       .sortBy((key, _) => (key.declarer, key.name))
       .foldLeft((kept, List.empty[String])) {
         case ((acc, refused), (key, value)) =>
-          refusals(acc + (key -> value)) match {
+          refusals(starts ++ acc + (key -> value)) match {
             case Nil  => (acc + (key -> value), refused)
             case more => (acc, refused ++ more)
           }
@@ -410,20 +414,20 @@ class Renderer(val validated: Dashboard.Validated) {
   /** `s` with its values as this renderer takes them, checked once per
     * renderer: a dashboard edit can refuse a value the old one took (a removed
     * tab), and a refused or no longer declared value falls back to its
-    * declaration, as a stale link does. The choices are checked over the
-    * starts, as [[SessionState.values]] lays them. The refusals, to log.
+    * declaration, as a stale link does. The refusals, to log.
     */
   def recheck(s: SessionState): (SessionState, List[String]) =
     if (s.checkedBy.exists(_ eq generation)) (s, Nil)
     else
       def declared(m: Map[VarKey, String]) =
         m.filter((k, _) => vars.defaults.contains(k))
-      val (initial, early) = adopt(Map.empty, declared(s.initialValues))
-      val (both, late) = adopt(initial, declared(s.vars))
+      val (initial, early) =
+        adopt(Map.empty, Map.empty, declared(s.initialValues))
+      val (chosen, late) = adopt(initial, Map.empty, declared(s.vars))
       (
         s.copy(
           initialValues = initial,
-          vars = both.filter((k, v) => s.vars.get(k).contains(v)),
+          vars = chosen,
           checkedBy = Some(generation)
         ),
         early ++ late

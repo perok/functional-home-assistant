@@ -111,15 +111,15 @@ final class FakeBrowser private (
 
   private def answerRequests: IO[Unit] = IO.defer {
     current.requests match
-      case Nil => IO.unit
+      case Nil => IO(current.reloadAsked).ifM(reload, IO.unit)
       case rs  =>
         rs.traverse_ { r =>
           IO.raiseUnless(r.method == "POST")(
             IllegalStateException(s"the page made a ${r.method} ${r.path}")
           ) *>
-            ts.postResult(r.path, body = r.body)
-              .flatMap((status, body) =>
-                IO(current.answer(r.id, status.code, body))
+            ts.postAnswer(r.path, body = r.body)
+              .flatMap((status, mediaType, body) =>
+                IO(current.answer(r.id, status.code, mediaType, body))
               )
         } *> answerRequests
   }
