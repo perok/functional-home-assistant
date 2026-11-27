@@ -5,7 +5,7 @@ runtime throw, a gap in the oracle and in two benches, and two things a popup ca
 put the rules where a mistake cannot be written and close the test gaps; G and H are the popup
 work. Each step is a commit (or a few) that is green on its own.
 
-**State:** planned 2026-11-26; A built (with its leaning dashboard and the Back reload); B built. Branch `after-regions`, stacked on `d6-benches`
+**State:** planned 2026-11-26; A built (with its leaning dashboard and the Back reload); B built; C built. Branch `after-regions`, stacked on `d6-benches`
 (#731).
 
 ## Working this plan

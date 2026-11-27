@@ -396,12 +396,15 @@ change it never received, and the pull that would have carried it is then skippe
 (`version <= position`), so it is lost until that entity next moves. Erring low is free
 — the next pull re-offers, and `holds` suppresses whatever the client already has.
 
-`Server.openingPatches` picks in this order: **unpatchable head differs** ⇒ full page
-reload and nothing else (the page is about to re-render itself); **cursor comparable**
-⇒ resume; **anything else** ⇒ body repaint. The repaint is the default and every doubt
-falls back to it — no cursor, an unparseable one, one from a log this server no longer
-has, one from the future, or one the log can no longer speak for. A repaint is always
-correct and merely expensive; a wrong resume is silently stale forever.
+`Opening.of`, a pure function `Server.openingPatches` runs, picks in this order:
+**unpatchable head differs**, or the slug failed ⇒ full page reload and nothing else (the
+page is about to re-render itself); **cursor comparable** ⇒ resume; **anything else** ⇒
+body repaint, naming its `RepaintReason`. The repaint is the default and every doubt
+falls back to it — no cursor (an unparseable one reads as none), one from another log or
+a log the serving renderer does not number, one from the future, one from before a
+stretch the log can no longer speak for, one behind `told` (below), or `holds` painted
+under another renderer. A repaint is always correct and merely expensive; a wrong resume
+is silently stale forever.
 
 **...and a session may only be resumed against a record the client has ACKNOWLEDGED.**
 `holds` records what was *sent*, which is not the same claim as what was *applied*. A

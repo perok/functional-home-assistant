@@ -362,17 +362,18 @@ GET /sse/dashboard/:slug/patch
     // inherits sessionStorage and would otherwise evict a live viewer
   adopt the session that URL's conn names (epoch++); mint one under the same id
     if it is gone — a reap, a bookmark, a restart: costs suppression, not correctness
-  opening patches, narrowest that is still correct:
+  opening patches, narrowest that is still correct (`Opening.of`, a pure value):
       resume   if the cursor's logId matches, nothing structural moved, AND the
                cursor is not behind `told` — a client that never acknowledged
                what we announced has `holds` we cannot answer from
-      repaint  if it does not      // claims what it painted, same as the document:
+      repaint  if it does not, with its `RepaintReason` (logged at debug)
+                                   // claims what it painted, same as the document:
                                    // one morph of the root, the open popup
                                    // a case of `popups` (Patches.repaint),
                                    // plus their signal values as a frame: a
                                    // seed whose text did not change is not
                                    // re-applied (ADR 0017)
-      reload   if the document itself is stale
+      reload   if the document itself is stale, or the slug failed
     ...then position = WHAT THIS CONNECTION CAN PROVE IT SENT: the doorbell's
       value (read BEFORE the log) for a resume, since a resume can only answer
       for versions the changelog describes; the snapshot's version for a
@@ -625,9 +626,11 @@ Same call as a live pull; only the cursor differs.
 
 ```
 client sends back its stored signals: logId, version, headHash, styleHash
-  different logId, a log the serving renderer did not stamp, version ahead of the
-    store, head moved, or a cursor from before a stretch this slug did not record
-    (or before the log's seed) -> full repaint
+  head moved -> reload
+  no cursor, different logId or a log the serving renderer did not stamp,
+    version ahead of the store, a cursor from before a stretch this slug did not
+    record (or before the log's seed), one behind `told`, or `holds` painted
+    under another renderer -> full repaint (`Opening.of`, one `RepaintReason` each)
   otherwise since(version):
       nodes   whose logged version >= cursor   -> sent, rendered NOW, if their byte-slot
                                                   values are not what this client holds

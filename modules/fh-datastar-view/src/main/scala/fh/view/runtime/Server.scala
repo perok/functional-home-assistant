@@ -911,11 +911,8 @@ class Server(
       }
   }
 
-  /** What a (re)connecting client is sent first (ADR 0011): '''reload''' when
-    * the head's unpatchable part moved ([[Renderer.headHash]]), '''resume'''
-    * when the cursor provably names what this DOM holds, else '''repaint''' —
-    * always correct, where a wrong resume is silently stale forever. A stale
-    * theme or title is patched in front of either ([[headPatches]]).
+  /** Runs [[Opening.of]]. A stale theme or title is patched in front of a
+    * resume or a repaint ([[headPatches]]).
     *
     * '''The doorbell is read BEFORE the log.''' The store runs ahead of the
     * log, so a resume claiming `store.version` would claim a change nobody
@@ -935,88 +932,82 @@ class Server(
       stateStore.current
     ).flatMapN { (covered, installed, log, store) =>
       val cursor = Server.cursorOf(req)
-      installed.rendererOf match
-        // A failed slug: the error page is a reload away.
-        case None => IO.pure(Server.reloaded(s, installed))
-        case Some(renderer) if cursor.exists(_.headHash != renderer.headHash) =>
-          IO.pure(Server.reloaded(s, renderer.generation))
-        case Some(renderer) =>
+      val opening = Opening.of(
+        serving = installed.rendererOf.map(_.generation),
+        cursor = cursor,
+        reconnect = Server.isReconnect(req),
+        log = log,
+        storeVersion = store.version,
+        s = s
+      )
+      def opened(renderer: Renderer, claim: Long)(
+          sentIO: IO[(List[SseFrame], Map[Ix, Held])]
+      ): IO[Session.Step[Unit]] =
+        val head =
+          if (cursor.exists(_.styleHash != renderer.styleHash))
+            Server.headPatches(renderer, slug)
+          else Nil
+        sentIO.map { (sent, held) =>
+          Session.Step(
+            s.copy(
+              holds = held,
+              position = claim,
+              told = claim,
+              painter = Painter.By(renderer.generation)
+            ),
+            head ++ sent :+
+              // With the variables: a stream that died between a press's
+              // patch and its commit left them disagreeing.
+              Server.openingSignals(
+                renderer,
+                s.values,
+                log.idUnder(renderer.generation),
+                claim
+              ),
+            ()
+          )
+        }
+      (installed.rendererOf, opening) match
+        case (Some(renderer), Opening.Resume(from)) =>
           val env = renderer.vars.env(s.values)
-          val shared = renderer.shared(store)
-          val head =
-            if (cursor.exists(_.styleHash != renderer.styleHash))
-              Server.headPatches(renderer, slug)
-            else Nil
-          // `Patches.resume` is total, so only global reasons repaint: no
-          // cursor, another log's (restart or swap), one ahead of the store
-          // (rewound counter), one from before a gap nobody watched
-          // ([[FragmentLog.reaches]]) — or one behind `told`. `holds` records
-          // what was SENT; a cursor rides last in its batch, so an echo behind
-          // `told` means claimed bytes were lost.
-          // And never across a swap: `holds` is one renderer's, and the log
-          // read here may be the next renderer's already.
-          val heldHere = s.painter match
-            case Painter.By(p) => p eq renderer.generation
-            case _             => true
-          val resumedIO = cursor
-            .filter(c =>
-              heldHere && log.numberedBy(renderer.generation) &&
-                c.logId == log.id && c.version <= store.version &&
-                log.reaches(c.version) && c.version >= s.told
-            )
-            .traverse(c =>
-              Patches.resume(
+          opened(renderer, covered)(
+            Patches
+              .resume(
                 renderer,
                 live.cache,
                 log,
                 s.holds,
-                shared,
+                renderer.shared(store),
                 decisionAnswers,
                 answer(_, env),
                 env,
-                Patches.Coverage.Swept(Server.resumeFrom(req, c))
+                Patches.Coverage.Swept(from)
               )
-            )
+              .map(patches =>
+                patches.map(_.patch.toSse) ->
+                  patches.foldLeft(s.holds)(
+                    Patches.applied(renderer.index, _, _)
+                  )
+              )
+          )
+        case (Some(renderer), Opening.Repaint(reason)) =>
+          val env = renderer.vars.env(s.values)
           // Traced, so the repaint claims what it painted; clearing `holds`
           // instead would re-send the whole page on the next pull.
-          val painted =
-            pageAnswers(renderer, store, env).map((fragments, at) =>
-              Patches.repaint(renderer, at, Viewing(fragments))
-            )
-          resumedIO.flatMap { resumed =>
-            val claim = resumed.fold(store.version)(_ => covered)
-            resumed
-              .fold(painted)(patches =>
-                IO.pure(
-                  patches.map(_.patch.toSse) ->
-                    patches
-                      .foldLeft(s.holds)(
-                        Patches.applied(renderer.index, _, _)
-                      )
-                )
+          logger.debug(s"$slug: the opening repaints ($reason)") *>
+            opened(renderer, store.version)(
+              pageAnswers(renderer, store, env).map((fragments, at) =>
+                Patches.repaint(renderer, at, Viewing(fragments))
               )
-              .map { (sent, held) =>
-                Session.Step(
-                  s.copy(
-                    holds = held,
-                    position = claim,
-                    told = claim,
-                    painter = Painter.By(renderer.generation)
-                  ),
-                  head ++ sent :+
-                    // With the variables: a stream that died between a press's
-                    // patch and its commit left them disagreeing.
-                    Server
-                      .openingSignals(
-                        renderer,
-                        s.values,
-                        log.idUnder(renderer.generation),
-                        claim
-                      ),
-                  ()
-                )
-              }
-          }
+            )
+        // A failed slug: the error page is a reload away.
+        case _ =>
+          IO.pure(
+            Server.reloaded(
+              s,
+              installed.rendererOf.fold[AnyRef](installed)(_.generation)
+            )
+          )
     }
 
   /** The first step of a stream. A forgotten session's carried variables are
@@ -2898,13 +2889,8 @@ object Server {
   private[runtime] def isReconnect(req: Request[IO]): Boolean =
     signalsOf(req).exists(_.downField(CursorSignal).succeeded)
 
-  /** A reconnect's cursor (signals) may hold only part of version V — one
-    * version can produce several batches — so it resumes from V. A document's
-    * (query params) was rendered from one snapshot and has all of V, so it
-    * resumes from V + 1.
-    */
   private[runtime] def resumeFrom(req: Request[IO], c: Cursor): Long =
-    if (isReconnect(req)) c.version else c.version + 1
+    Opening.resumeFrom(c, isReconnect(req))
 
   /** Signals first, as in [[cursorOf]]. */
   private[runtime] def connOf(req: Request[IO]): Option[String] =
