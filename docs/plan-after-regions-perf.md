@@ -5,7 +5,7 @@ A full bench comparison of `after-regions` (9baea638) against main (574f062c), c
 names its cause, measured; the fixes keep behaviour byte-identical.
 
 **State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10, 11, 8, 12 and 9 built;
-13 (the reconnect) answered, its fix to discuss; 14 (circe or jsoniter-scala) to investigate.
+13 (the reconnect) answered, its fix to discuss; 14 (circe or jsoniter-scala) to investigate, 15 (`collapse` without the regex) to try.
 
 ## Working this plan
 
@@ -209,7 +209,16 @@ order the walk met them.
     signals frame), measured by a bench of each against circe, and what it would cost
     (derivation, two libraries side by side, `Json` used as a value type in the model).
 
-Order: 10, 11, 8, 12, 13 (answered; its fix to discuss), then 9, then 14.
+15. **`collapse` without the regex** (to try). Every per-node fragment goes through
+    `Datastar.collapse`, a regex over the whole string, then `getBytes`. 12 found a per-character
+    fold loses to both (`docs/experiments.md`, "A per-node fragment folded and encoded as it is
+    written"); untried is a scan that stays in intrinsics: `indexOf('\n')` from newline to
+    newline, trim the whitespace each side, and append the spans between in bulk
+    (`StringBuilder.append(s, start, end)`). Gate: 12's (`wire`, `wireCommon`, `tabFlip`,
+    `chartWindow`), B/op and time not worse, the output pinned by `FoldingSinkPropertySuite`. If
+    it loses, an entry in `docs/experiments.md`.
+
+Order: 10, 11, 8, 12, 13 (answered; its fix to discuss), then 9, then 14 and 15.
 9. **No version refers to another** (replaces 5's release). 5 releases a version `Decided` lets
    go: a manual dispose that every holder of versions must remember. The forward offer has a
    customer each frame (the recorder advances, then plans against `prev`, so its late "before"
