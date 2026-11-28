@@ -176,20 +176,14 @@ private[runtime] final class Shared private (
           case Some(f) => t.once(k)(derive(f))
           case None    => missing
 
-  /** Linked first, so a fill landing while the carry is taken is offered on
-    * rather than lost.
-    */
-  /** Forgets the version after this one: see [[Decided]]. */
-  private[runtime] def release(): Unit = {
-    tables.sets.release()
-    tables.members.release()
-    tables.branches.release()
-    tables.gates.release()
-    tables.viewerBranches.release()
-    tables.viewerSets.release()
-    tables.viewerGates.release()
+  private[runtime] def isCarriedFrom(v: Long): Boolean = {
+    val k = tables.kept
+    k != null && k.nn.carriedFrom == v
   }
 
+  /** `next` names this version as its source first, so a fill landing while the
+    * carry is taken is offered on rather than lost.
+    */
   private[runtime] def carryInto(
       next: Shared,
       dirty: Shared.Dirty,
@@ -197,6 +191,7 @@ private[runtime] final class Shared private (
       live: Shared.Live
   ): Unit = {
     val (from, to) = (tables, next.tables)
+    if (to.kept != null) to.kept.nn.carriedFrom = version
     from.sets.carryInto(to.sets, dirty.sets, _ => true)
     from.members.carryInto(to.members, dirty.members, _ => true)
     from.branches.carryInto(to.branches, dirty.branches, marked.branch)
@@ -225,7 +220,20 @@ private[runtime] object Shared {
     * kept.
     */
   def of(states: Map[String, EntityState], version: Long = 0L): Shared =
-    new Shared(states, version, new Tables, null, null)
+    new Shared(states, version, new Tables(null), null, null)
+
+  private[runtime] def kept(
+      states: Map[String, EntityState],
+      version: Long,
+      decided: Decided
+  ): Shared =
+    new Shared(
+      states,
+      version,
+      new Tables(new Kept(version, decided)),
+      null,
+      null
+    )
 
   /** One walk's answers so far, and what it found it needs. A walk is
     * synchronous, so one thread writes it. Once its walk needs nothing more,
@@ -280,24 +288,69 @@ private[runtime] object Shared {
     case Now(envs: List[VarEnv])
   }
 
-  private final class Tables {
-    val sets = new Table[SetId, GroupMembers]
-    val members = new Table[NodeId, Option[Member]]
-    val branches = new Table[NodeId, Option[Int]]
-    val gates = new Table[String, java.lang.Boolean]
-    val viewerBranches = new ByValues[NodeId, Option[Int]]
-    val viewerSets = new ByValues[SetId, GroupMembers]
-    val viewerGates = new ByValues[String, java.lang.Boolean]
+  /** A version `decided` made: apart from the tables, since a `Shared` per node
+    * (`wireTick`) paid for these fields on each.
+    */
+  private[runtime] final class Kept(val version: Long, val decided: Decided) {
+    // Long.MinValue: carried from no version.
+    @volatile var carriedFrom: Long = Long.MinValue
+  }
+
+  /** A version's tables. None refers to another version's: one that died in the
+    * old generation kept every later one alive through young collections
+    * (`publishIdleSet`'s heap grew to 1.2 GB, 77% of its cpu in G1), so the
+    * successor a late fill is offered to is looked up in `decided`.
+    */
+  private[runtime] final class Tables(val kept: Kept | Null) {
+    def successor: Tables | Null =
+      if (kept == null) null
+      else
+        kept.nn.decided.carriedFrom(kept.nn.version) match
+          case null      => null
+          case s: Shared => s.tables
+
+    import Tables.*
+    val sets: Table[SetId, GroupMembers] = new Table(this, setsOf)
+    val members: Table[NodeId, Option[Member]] = new Table(this, membersOf)
+    val branches: Table[NodeId, Option[Int]] = new Table(this, branchesOf)
+    val gates: Table[String, java.lang.Boolean] = new Table(this, gatesOf)
+    val viewerBranches: ByValues[NodeId, Option[Int]] =
+      new ByValues(this, viewerBranchesOf)
+    val viewerSets: ByValues[SetId, GroupMembers] =
+      new ByValues(this, viewerSetsOf)
+    val viewerGates: ByValues[String, java.lang.Boolean] =
+      new ByValues(this, viewerGatesOf)
     val signals = new ConcurrentHashMap[NodeId, Map[SignalId, SlotValue]]()
   }
 
-  private[runtime] final class Table[K, V] {
+  // Here, not in the class: a lambda in a class body captures `this`, so each
+  // version made seven (343 B/op on `wireTick`).
+  private object Tables {
+    val setsOf: Tables => Table[SetId, GroupMembers] = _.sets
+    val membersOf: Tables => Table[NodeId, Option[Member]] = _.members
+    val branchesOf: Tables => Table[NodeId, Option[Int]] = _.branches
+    val gatesOf: Tables => Table[String, java.lang.Boolean] = _.gates
+    val viewerBranchesOf: Tables => Table[NodeId, ByValues.Entry[Option[Int]]] =
+      _.viewerBranches.table
+    val viewerSetsOf: Tables => Table[SetId, ByValues.Entry[GroupMembers]] =
+      _.viewerSets.table
+    val viewerGatesOf
+        : Tables => Table[String, ByValues.Entry[java.lang.Boolean]] =
+      _.viewerGates.table
+  }
+
+  /** `in`'s table, `same` its counterpart in another version's. */
+  private[runtime] final class Table[K, V](
+      in: Tables,
+      same: Tables => Table[K, V]
+  ) {
     @volatile private var carried: Map[K, V] = Map.empty
     // Made on the first fill: most versions fill few of their seven tables,
     // and the empty maps were 448 of `Shared.of`'s 984 B.
     @volatile private var fills: ConcurrentHashMap[K, V] | Null = null
-    @volatile private var next: Table[K, V] | Null = null
-    @volatile private var dropped: K => Boolean = _ => true
+    // What this version's frame dirtied, or left unmarked: a late fill of the
+    // version before is not taken. Everything, until it is carried into.
+    @volatile private var refused: K => Boolean = _ => true
 
     def get(k: K): Option[V] = {
       val f = fills
@@ -328,15 +381,15 @@ private[runtime] object Shared {
     }
 
     private def offer(k: K, v: V): Unit =
-      if (!carried.contains(k) && filling.putIfAbsent(k, v) == null)
+      if (
+        !refused(k) && !carried.contains(k) && filling.putIfAbsent(k, v) == null
+      )
         offerOn(k, v)
 
     private def offerOn(k: K, v: V): Unit = {
-      val n = next
-      if (n != null && !dropped(k)) n.nn.offer(k, v)
+      val n = in.successor
+      if (n != null) same(n.nn).offer(k, v)
     }
-
-    def release(): Unit = next = null
 
     /** What this version holds now, carried and filled. */
     def entries: Iterator[V] = {
@@ -350,9 +403,10 @@ private[runtime] object Shared {
         dirty: Set[K],
         marked: K => Boolean
     ): Unit = {
-      dropped = k => dirty(k) || !marked(k)
-      next = to
-      // Read after `next` is set: a fill that makes the map later is offered on.
+      val dropped = (k: K) => dirty(k) || !marked(k)
+      to.refused = dropped
+      // Read after `refused` is set: a fill that makes the map later is
+      // offered on.
       val f = fills
       // Most dashboards never fill the per-values tables, and walking an empty
       // one each frame was +1.8% B/op on `publishSet`.
@@ -372,8 +426,11 @@ private[runtime] object Shared {
   * removal. An entry's map is shared by the versions it is carried through,
   * which is sound because carried means nothing it reads changed between them.
   */
-private[runtime] final class ByValues[K, V] {
-  private val table = new Shared.Table[K, ByValues.Entry[V]]
+private[runtime] final class ByValues[K, V](
+    in: Shared.Tables,
+    same: Shared.Tables => Shared.Table[K, ByValues.Entry[V]]
+) {
+  private[runtime] val table = new Shared.Table[K, ByValues.Entry[V]](in, same)
 
   def get(k: K, values: List[String]): Option[V] =
     table.get(k).flatMap(e => Option(e.answers.get(values)).map(_.nn))
@@ -386,8 +443,6 @@ private[runtime] final class ByValues[K, V] {
     val held = e.answers.putIfAbsent(values, v)
     if (held != null) held.nn else v
   }
-
-  def release(): Unit = table.release()
 
   def carryInto(
       to: ByValues[K, V],
@@ -432,7 +487,9 @@ private[runtime] final class Decided(
   // Every resume and send asks, and the version is almost always kept: making
   // one first cost each of them a version's tables (`RenderBench.sharedHeld`).
   private def make(store: StoreState): Shared = {
-    val made = Shared.of(store.entities, store.version)
+    val made = Shared.kept(store.entities, store.version, this)
+    // Not `updateAndGet`: its function captures `store` and `made`, one more
+    // object per version.
     @annotation.tailrec
     def keep(): Shared = {
       val held = kept.get.nn
@@ -441,17 +498,19 @@ private[runtime] final class Decided(
         case None
             if held.sizeIs < 2 || held.exists(_.version < store.version) =>
           val now = (made :: held).sortBy(-_.version).take(2)
-          if (!kept.compareAndSet(held, now)) keep()
-          else {
-            // A version links to the one after it, so one that died in the old
-            // generation kept every later one alive through young collections:
-            // `publishIdleSet`'s heap grew to 1.2 GB, 77% of its cpu in G1.
-            held.foreach(s => if (!now.exists(_ eq s)) s.release())
-            made
-          }
+          if (kept.compareAndSet(held, now)) made else keep()
         case None => made
     }
     keep()
+  }
+
+  /** The kept version carried from `version`: where its late fills go. */
+  def carriedFrom(version: Long): Shared | Null = {
+    @annotation.tailrec
+    def first(l: List[Shared]): Shared | Null = l match
+      case s :: rest => if (s.isCarriedFrom(version)) s else first(rest)
+      case Nil       => null
+    first(kept.get.nn)
   }
 
   /** `frame`'s version, carrying what `prev` decided that `dirty` leaves. A

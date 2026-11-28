@@ -497,7 +497,8 @@ fix: `publishIdle` 2.35 → 2.87 µs (±18%), `publishIdleSet` 3.92 → 3.37 (±
 both at the edge of the error; `publish`, `publishSet` within 2%.
 
 **Verdict.** Not built (2026-11-27). The time was G1's: a dead `Shared` version kept every later
-one alive through young collections (`Decided`'s release, `docs/plan-after-regions-perf.md` 5).
+one alive through young collections, through its link to the next (since gone: no version refers
+to another, and a late fill finds its successor in `Decided`).
 With that fixed the benches are back at main's, and the trims buy nothing measurable.
 
 **Worth asking again if** a cpu profile of the recorder, with `gc.time` small, shows these

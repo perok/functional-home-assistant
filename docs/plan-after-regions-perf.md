@@ -4,8 +4,8 @@ A full bench comparison of `after-regions` (9baea638) against main (574f062c), c
 `-f 3` and then profiled (async-profiler, alloc and cpu), found five regressions. Each one below
 names its cause, measured; the fixes keep behaviour byte-identical.
 
-**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10, 11, 8 and 12 built; 13 (the reconnect) answered, its fix to
-discuss; 9 next, in the order at the end.
+**State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10, 11, 8, 12 and 9 built;
+13 (the reconnect) answered, its fix to discuss; 14 (circe or jsoniter-scala) to investigate.
 
 ## Working this plan
 
@@ -201,7 +201,15 @@ order the walk met them.
     A alone fixes the bug and makes a lost choice a repaint; B takes the repaint off the tab
     switch. Gate for B: the suite's lost-in-flight case resumes, and the opening's bytes.
 
-Order: 10, 11, 8, 12, 13 (answered; its fix to discuss), then 9.
+14. **circe or jsoniter-scala** (to investigate). Every JSON the runtime reads or writes is
+    circe: HA's WS frames and REST answers, the signals frame's leaves (12 prints them through
+    circe's printer), the dump. [jsoniter-scala](https://github.com/plokhotnyuk/jsoniter-scala)
+    codecs write and read bytes directly, with no `Json` tree between. The question: what a
+    switch would buy on the paths that pay per frame (the WS decode of `state_changed`, the
+    signals frame), measured by a bench of each against circe, and what it would cost
+    (derivation, two libraries side by side, `Json` used as a value type in the model).
+
+Order: 10, 11, 8, 12, 13 (answered; its fix to discuss), then 9, then 14.
 9. **No version refers to another** (replaces 5's release). 5 releases a version `Decided` lets
    go: a manual dispose that every holder of versions must remember. The forward offer has a
    customer each frame (the recorder advances, then plans against `prev`, so its late "before"
@@ -211,3 +219,30 @@ Order: 10, 11, 8, 12, 13 (answered; its fix to discuss), then 9.
    another alive, and `next`, `release` and the CAS loop go. Wiring: a `Shared` reaches its
    `Decided`, and a table its counterpart in the successor. Gate: `publishIdle(Set)`'s `gc.time`
    and `-Xlog:gc` flat, B/op equal to 5's.
+
+   Built. A table holds `refused` (what its own frame dirtied or left unmarked; everything
+   until it is carried into) and its counterpart's selector; a version `Decided` made carries a
+   `Kept` (its version, `Decided`, and the version it was carried from), which a late fill
+   asks `Decided` for its successor with. `next`, `release` and the release's winner-only CAS
+   go; `make` keeps a CAS loop, since `updateAndGet`'s function would be one more object per
+   version. A fill on a version `Decided` dropped now still reaches the kept successor, which
+   5's release cut off. Two costs found on the way: the seven selectors written as lambdas in
+   the class body captured `this`, seven objects per version (343 B/op on `wireTick`), so they
+   live in an object; and a `Decided`-only field on `Tables` cost every per-node `Shared`.
+
+   `-f 3` against 65120c75, from classpath snapshots back to back:
+
+   | bench | B/op | µs | gc.time ms |
+   |---|---|---|---|
+   | `publishIdle` | 4,728 ± 170 → 5,027 ± 693 | 2.23 → 2.47 ± 0.41 | 220 → 234 |
+   | `publishIdleSet` | 4,312 ± 63 → 4,336 ± 22 | 2.77 → 2.92 ± 0.24 | 200 → 178 |
+   | `publish` | 14,581 → 14,456 | 7.76 ± 6.05 → 5.58 ± 0.28 | 229 → 245 |
+   | `publishSet` | 30,608 → 30,949 (± 1,100) | 15.9 → 16.3 | 221 → 232 |
+   | `publishFlip` | 5,893 → 6,395 ± 787 | 3.69 → 4.04 ± 0.54 | 194 → 220 |
+   | `resumeSignals` | 73,454 → 73,568 | 66.8 → 63.2 | 132 → 136 |
+   | `wireTick` | 5,008 ± 55 → 5,088 ± 111 | 2.41 → 2.38 | 227 → 193 |
+
+   `publishIdle` and `publishFlip`'s errors are one fork each (5,912 and 7,400, the other two
+   at base's), the same split base shows on `publishSet` (32,016); a single fork of
+   `publishIdle`, profiled, was 4,672 against base's 4,624. `-Xlog:gc` on `publishIdleSet`: the heap after a young collection
+   holds at 78 MB from 5 s to 19 s.
