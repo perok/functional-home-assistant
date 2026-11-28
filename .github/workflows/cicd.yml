@@ -1,8 +1,9 @@
 # CI + CD in one pipeline.
 #
-# ci: every PR and main push — test + assemble the fat jar (scoped to
-#     fh-datastar-view: home/home-codegen need live-HA codegen and cannot
-#     compile in CI; tests run on fake dumps, no HA needed).
+# ci: every PR and main push — test, and assemble the fat jar only when a
+#     consumer needs it (a non-draft PR's image, or a main push that will
+#     publish). Scoped to fh-datastar-view: home/home-codegen need live-HA
+#     codegen and cannot compile in CI; tests run on fake dumps, no HA needed.
 # cd: main only, after ci is green. Publishes ONLY when home-addon/config.yaml
 #     names a version that is not fully on GHCR yet: builds the add-on container
 #     (amd64 + aarch64) from the ci-built jar, pushes
@@ -37,6 +38,10 @@ env:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    # Whether a jar is needed at all (see `Will a jar be needed?`): `image`
+    # gates on this too, so it never waits for an artifact that was skipped.
+    outputs:
+      assemble: ${{ steps.jar.outputs.assemble }}
     # The OUTER runaway guard, and the one to avoid hitting: a job timeout
     # CANCELS, which skips `Publish Test Report` and leaves nothing to diagnose
     # from. The test step therefore carries its own, shorter `timeout` (see
@@ -222,16 +227,49 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
-      # Two consumers: `cd`, which never runs for a pull request, and `image`,
-      # which runs for a pull request only while it is NOT a draft. Hence the
-      # draft arm rather than a flat `!= 'pull_request'` — a draft PR builds no
-      # image, so it needs no jar and pays no assembly.
+      # Decides whether the expensive assembly below is needed at all. Its two
+      # consumers are `image` and `cd`, and each only sometimes needs a jar:
+      #
+      #   - a non-draft PR gets an amd64 image build, so it needs one;
+      #   - a main push needs one only when a publish will follow, i.e. when
+      #     the version is not on GHCR yet (the same test `cd` makes before its
+      #     push). A merge that publishes nothing now skips assembly, the
+      #     artifact upload, and the multi-arch image gate along with it.
+      #
+      # `image` reads this output, so the two can never disagree: it runs
+      # exactly when `assemble` is true.
+      #
+      # The GHCR failure arm is deliberately `assemble=true`: losing the probe
+      # costs a build, whereas assuming "published" would hand `cd` no jar.
+      - name: Will a jar be needed?
+        id: jar
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "assemble=${{ !github.event.pull_request.draft }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "assemble=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          VERSION="$(sed -n 's/^version: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' home-addon/config.yaml)"
+          if [ -z "$VERSION" ]; then
+            echo "could not read version from home-addon/config.yaml" >&2
+            exit 1
+          fi
+          if docker manifest inspect "$IMAGE:$VERSION" >/dev/null 2>&1 && \
+             docker manifest inspect "$IMAGE:latest" >/dev/null 2>&1; then
+            echo "assemble=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "assemble=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Assemble fat jar
-        if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+        if: steps.jar.outputs.assemble == 'true'
         run: sbt 'fh-datastar-view/assembly'
 
       - name: Upload jars for image + cd
-        if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+        if: steps.jar.outputs.assemble == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: addon-jar
@@ -250,7 +288,9 @@ jobs:
   #
   # It reuses `ci`'s `addon-jar` artifact rather than assembling its own, which
   # is the same artifact `cd` consumes — the Dockerfile COPYs that jar, so the
-  # alternative is a second sbt assembly per run.
+  # alternative is a second sbt assembly per run. That is why it gates on
+  # `ci`'s `assemble` output: the same answer that decided to build the jar
+  # decides whether there is one to fetch.
   #
   # TWO DEPTHS, because the architectures cost wildly different amounts:
   #
@@ -258,16 +298,20 @@ jobs:
   #                   architecture-independent again — it copies a jar rather
   #                   than running the isolate — so what a PR is likely to
   #                   break (base images, the jlink module list, COPY paths)
-  #                   shows up on either. Draft PRs skip the job entirely.
+  #                   shows up on either. Draft PRs skip the job entirely
+  #                   (their `assemble` is false).
   #   push to main -> both, and the isolate check then runs on aarch64 under
-  #                   emulation. That is the last gate before a release build.
+  #                   emulation. Only when a publish will follow, which makes
+  #                   this exactly the last gate before the release build
+  #                   rather than a toll on every merge.
   #
   # It does NOT push, and needs no registry credentials.
   image:
     needs: ci
     if: >-
-      (github.event_name == 'pull_request' && !github.event.pull_request.draft)
-      || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+      needs.ci.outputs.assemble == 'true'
+      && (github.event_name == 'pull_request'
+      || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     # Generous because the arm64 half is emulated.
     timeout-minutes: 40
