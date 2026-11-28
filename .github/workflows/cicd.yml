@@ -55,7 +55,7 @@ jobs:
       # BEFORE ANY sbt STEP, and via $GITHUB_ENV rather than the test step's
       # own `env`: the suite runs IN the sbt server (nothing sets `Test /
       # fork`), and the server inherits its environment from the client that
-      # first STARTED it — `Install Playwright system dependencies`, below. Set
+      # first STARTED it — `Install Playwright browsers`, on a cache miss. Set
       # on the test step alone, the variable only ever reached a client that
       # connects to that server, `sys.env` in the suite fell back to the
       # in-tree path, and the upload found nothing.
@@ -113,15 +113,21 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
 
-      # OS packages are not in the browser archive, so they are installed on a
-      # cache hit too: the runner image lacks Playwright's fonts, and a hit
-      # that skipped them would change text rendering under the visual suites.
-      - name: Install Playwright system dependencies
-        run: sbt 'fh-datastar-view/Test/runMain com.microsoft.playwright.CLI install-deps chromium'
-
+      # `--with-deps` also installs the OS packages, and NONE of apt is in the
+      # archive, so this runs on a bare runner image after a hit. That is fine
+      # today — a hit run passed `testFull`, smoke and visual suites included —
+      # and it saves the ~30-40s apt step per hit, but it couples the tests to
+      # whatever the image happens to ship: it lacks the 11 font packages
+      # Playwright would install.
+      #
+      # WARNING: if a cache-hit run ever fails to launch the browser or to
+      # match a visual snapshot while a miss is green, that is this. Fix: add
+      # an unconditional `install-deps chromium` step above and drop
+      # `--with-deps` here, paying the apt time on every run rather than
+      # letting the cache decide the OS state.
       - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: sbt 'fh-datastar-view/Test/runMain com.microsoft.playwright.CLI install chromium'
+        run: sbt 'fh-datastar-view/Test/runMain com.microsoft.playwright.CLI install --with-deps chromium'
 
       - name: Save Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
