@@ -33,6 +33,9 @@ final class FakeBrowser private (
 
   private var streaming = false
 
+  /** What the last stream opened with, up to its cursor. */
+  var lastOpening: Vector[ServerSentEvent] = Vector.empty
+
   def page: FakePage = current
 
   def up: Boolean = streaming
@@ -56,7 +59,10 @@ final class FakeBrowser private (
       .flatMap(
         _.traverse_(_.takeBacklog.flatMap(fs => IO(fs.foreach(current(_)))))
       )
-      .flatMap(_ => IO(current.reloadAsked).ifM(reload, opened(request)))
+      .flatMap(_ =>
+        IO(current.reloadAsked)
+          .ifM(reload, IO { lastOpening = Vector.empty } *> opened(request))
+      )
   }
 
   private def opened(request: Request[IO]): IO[Unit] =
@@ -66,7 +72,10 @@ final class FakeBrowser private (
         _.body
           .through(ServerSentEvent.decoder[IO])
           .evalMap(e =>
-            IO(current(e.eventType.getOrElse(""), e.data.getOrElse(""))).as(e)
+            IO {
+              lastOpening = lastOpening :+ e
+              current(e.eventType.getOrElse(""), e.data.getOrElse(""))
+            }.as(e)
           )
           .takeThrough(e =>
             !e.data.exists(d =>

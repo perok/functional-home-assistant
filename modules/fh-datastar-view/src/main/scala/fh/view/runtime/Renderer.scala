@@ -852,6 +852,17 @@ class Renderer(val validated: Dashboard.Validated) {
   ): Traced =
     traced(dashboard.card, shared, viewing)
 
+  /** [[renderBodyTraced]] walked into `out`, answering what it claims. */
+  private[runtime] def renderBodyInto(
+      out: Sink,
+      shared: Shared,
+      viewing: Viewing
+  ): Map[Ix, Held] = {
+    val trace = new Trace
+    tracedInto(out, dashboard.card, shared, viewing, trace)
+    trace.holds
+  }
+
   private[runtime] def pageBytesHint: Int =
     themeStyleTag.length + Renderer.NodeBytesHint * nodeCount(dashboard.card) +
       4096
