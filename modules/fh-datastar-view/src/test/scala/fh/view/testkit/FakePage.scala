@@ -8,6 +8,7 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.{DataNode, Document, Element, Node, TextNode}
 
 import scala.jdk.CollectionConverters.*
+import scala.util.control.NonFatal
 
 /** A page for the model-based oracle, run by the page's own shell and the
   * vendored Datastar on a linkedom document in a GraalJS context
@@ -239,7 +240,7 @@ object FakePage {
         page.settle()
         page
       } catch {
-        case e: Throwable => context.close(); throw e
+        case NonFatal(e) => context.close(); throw e
       }
     }
   }
