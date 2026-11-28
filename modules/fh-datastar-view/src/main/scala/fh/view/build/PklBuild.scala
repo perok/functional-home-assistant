@@ -22,9 +22,9 @@ import scala.jdk.CollectionConverters.*
 import scala.util.Try
 import scala.util.control.NonFatal
 
-/** In-process Pkl evaluation of an entry's `output`, as `pkl eval -f json`
-  * renders it: the default `JsonRenderer` omits nulls, so absent optionals
-  * decode as `None`, and an entry needs no `output` block.
+/** Pkl evaluation of an entry's `output`, as `pkl eval -f json` renders it: the
+  * default `JsonRenderer` omits nulls, so absent optionals decode as `None`,
+  * and an entry needs no `output` block.
   */
 object PklBuild {
 
@@ -37,6 +37,12 @@ object PklBuild {
     * `PklProject` must come through here.
     */
   def serialized[A](thunk: => A): A = Truffle.synchronized(thunk)
+
+  /** `FH_PKL_EVAL=child` (the add-on's `run.sh`): the site evaluation runs in
+    * [[PklEvalChild]], so what pkl-core's stdlib caches pin dies with that JVM.
+    * In process elsewhere, where a reload's speed matters more than the heap.
+    */
+  private val inChild: Boolean = sys.env.get("FH_PKL_EVAL").contains("child")
 
   /** Pkl errors carry their own carets and pass through verbatim. */
   def eval(
@@ -69,11 +75,19 @@ object PklBuild {
             )
           )
         case None =>
-          val evaluator = builder.setOutputFormat(OutputFormat.JSON).build()
           val text =
-            try evaluator.evaluateOutputText(ModuleSource.path(entry.toNIO))
-            finally evaluator.close()
-          parser.parse(text).left.map(_.message).map { json =>
+            if (inChild)
+              PklEvalChild.run(dashboardsDir, entryFile, moduleCache)
+            else {
+              val evaluator =
+                builder.setOutputFormat(OutputFormat.JSON).build()
+              try
+                Right(
+                  evaluator.evaluateOutputText(ModuleSource.path(entry.toNIO))
+                )
+              finally evaluator.close()
+            }
+          text.flatMap(parser.parse(_).left.map(_.message)).map { json =>
             key.foreach(SiteEvalCache.write(evalCache, _, json))
             // A package the evaluation fetched was invisible to the analysis.
             val graph =

@@ -22,12 +22,14 @@ object Diagnostics {
   val CgroupRoot: os.Path = os.root / "sys" / "fs" / "cgroup"
 
   def report(cgroupRoot: os.Path = CgroupRoot): IO[Json] =
-    (cgroup(cgroupRoot), jvm, nmt).mapN { (container, vm, tracking) =>
-      Json.obj(
-        "container" -> container.getOrElse(Json.Null),
-        "jvm" -> vm,
-        "nmt" -> tracking.fold(Json.Null)(Json.fromString)
-      )
+    (cgroup(cgroupRoot), process, jvm, nmt).mapN {
+      (container, proc, vm, tracking) =>
+        Json.obj(
+          "container" -> container.getOrElse(Json.Null),
+          "process" -> proc.getOrElse(Json.Null),
+          "jvm" -> vm,
+          "nmt" -> tracking.fold(Json.Null)(Json.fromString)
+        )
     }
 
   /** The pools already break out metaspace and the code heaps, so all but
@@ -145,6 +147,12 @@ object Diagnostics {
     else sections.mkString("\n")
   }.handleError(e => s"fiber dump unavailable: ${e.getMessage}")
 
+  private def process: IO[Option[Json]] =
+    IO.blocking {
+      val status = os.root / "proc" / "self" / "status"
+      Option.when(os.exists(status))(parseStatus(os.read(status)))
+    }.handleError(_ => None)
+
   /** `None` off Linux, so a laptop reports the JVM half only. */
   private def cgroup(root: os.Path): IO[Option[Json]] =
     IO.blocking {
@@ -179,9 +187,34 @@ object Diagnostics {
       "max" -> max.fold(Json.Null)(Json.fromString),
       "anon" -> bytes("anon"),
       // Page cache: charged to the add-on, not allocated by it.
-      "file" -> bytes("file")
+      "file" -> bytes("file"),
+      // On the Pi `current` was 300 MB above anon + file (0.1.61), which the
+      // two keys alone cannot place: kernel, sock, shmem, swap all live here.
+      "stat" -> Json.fromFields(
+        fields.keys.toList.sorted
+          .map(k => k -> bytes(k))
+          .filterNot(_._2.isNull)
+      )
     )
   }
+
+  /** The JVM process alone, beside the cgroup that also charges page cache and
+    * anything else in the container.
+    */
+  private[telemetry] def parseStatus(status: String): Json =
+    Json.fromFields(
+      status.linesIterator
+        .map(_.split(":\\s+", 2))
+        .collect {
+          case Array(key, value)
+              if Set("VmRSS", "RssAnon", "RssFile", "RssShmem", "VmSwap")(
+                key
+              ) =>
+            key -> value.stripSuffix(" kB").trim.toLongOption
+        }
+        .collect { case (k, Some(kb)) => k -> Json.fromLong(kb * 1024) }
+        .toList
+    )
 
   extension [A](list: java.util.List[A])
     private def asScalaList: List[A] = {

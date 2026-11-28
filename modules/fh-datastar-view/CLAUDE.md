@@ -164,7 +164,9 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
 - **Evaluation** (`DashboardBuild`): fetches the live entity dump (`RegistryDump`),
   seeds the typed dump as the `@fh-home` content-versioned cache package
   (`DumpPackage.seedFromText` — no loose file), then evaluates
-  the entry `.pkl` **in-process via pkl-core** (`PklBuild`, through the `SourceEval` seam) into the
+  the entry `.pkl` **via pkl-core** (`PklBuild`, through the `SourceEval` seam; in process, or in a
+  child JVM that exits with it under `FH_PKL_EVAL=child`, which the add-on sets because pkl's stdlib
+  caches keep in-process evaluations reachable — `PklEvalChild`) into the
   `{ cards, card }` model — a shared library of named cards (Mustache templates) plus a
   **recursive layout tree** (`card` = its root) of component nodes that reference cards by name.
   Pkl does **composition only** and emits Mustache template strings + static node params; it
@@ -175,7 +177,7 @@ renders HTML and keeps it live with [Datastar](https://data-star.dev) (SSE HTML-
   there is one entrypoint (ADR 0021) and the artifact is the whole site; a dashboard that fails to
   build fails the build.
 - **Runtime phase** (`fh.view.runtime`, `ServerApp` / `sbt dashboardServe`): evaluates the **same
-  entrypoint in memory on startup** (so pkl-core *is* on the startup path — but never on the live
+  entrypoint on startup** (so pkl-core *is* on the startup path — but never on the live
   hot path), pre-compiles the Mustache templates (mustache.java — `com.github.spullara.mustache.java`,
   not jmustache; its `execute(Writer, ctx)` is what lets `Renderer` push into a caller's buffer —
   `Templates`), seeds all entity state from
