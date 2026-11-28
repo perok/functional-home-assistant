@@ -5,7 +5,6 @@ import cats.effect.{IO, Resource}
 import cats.syntax.all.*
 import fh.view.history.ChartRenderer
 import fh.view.model.{CallDecl, CallId, Dashboard, NodeId}
-import fh.view.telemetry.Logging
 import fh.view.testkit.{FakePage, FixtureEntity, FixtureEntries, PklFixture}
 import hedgehog.*
 import hedgehog.core.SuccessCount
@@ -127,15 +126,19 @@ class OracleSuite extends HedgehogSuite {
       leaning
     )
 
-  // One engine for the suite, loaded by its first chart: per server, ECharts
-  // would load in every charts run.
-  private val (charts, releaseCharts) =
-    ChartRenderer.lazily(Logging.console).allocated.unsafeRunSync()
+  // One engine for the suite: the oracle's pages and the charts they draw run
+  // on it, one isolate where two would be, and ECharts loads once for every
+  // charts run rather than once per server.
+  private val (suiteJs, releaseJs) =
+    (for {
+      loader <- FakePage.runtime
+      renderer <- ChartRenderer.fromEngine(loader.engine)
+    } yield (loader, renderer)).allocated.unsafeRunSync()
 
-  private val (js, releaseJs) = FakePage.runtime.allocated.unsafeRunSync()
+  private val (js, chartRenderer) = suiteJs
+  private val charts: IO[ChartRenderer] = IO.pure(chartRenderer)
 
-  override def afterAll(): Unit =
-    (releaseCharts *> releaseJs).unsafeRunSync()
+  override def afterAll(): Unit = releaseJs.unsafeRunSync()
 
   // A chart drawn on the page and its fresh twin read "now" apart; across a
   // history bucket their time axes differ.

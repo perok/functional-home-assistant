@@ -3,7 +3,7 @@ package fh.view.testkit
 import cats.effect.{IO, Resource}
 import fh.view.runtime.{JsIsolate, SseFrame}
 import io.circe.{Json, JsonObject}
-import org.graalvm.polyglot.{Context, Engine, Source, Value}
+import org.graalvm.polyglot.{Context, Engine, HostAccess, Source, Value}
 import org.jsoup.Jsoup
 import org.jsoup.nodes.{DataNode, Document, Element, Node, TextNode}
 
@@ -224,13 +224,22 @@ object FakePage {
 
   /** One engine and the parsed page script, for every page a suite loads. A
     * context per page keeps no state between pages; against a shared engine it
-    * costs tens of milliseconds.
+    * costs tens of milliseconds. [[engine]] is public so a suite can take a
+    * second context on it — a chart renderer for the fixtures these pages draw
+    * — rather than spawning another isolate.
     */
-  final class Loader private[FakePage] (engine: Engine, source: Source) {
+  final class Loader private[FakePage] (val engine: Engine, source: Source) {
 
     /** The page `html`, as served at `url` (absolute), settled. */
     def load(html: String, url: String): FakePage = {
-      val context = Context.newBuilder("js").engine(engine).build()
+      // Same policy as JsIsolate.context: an isolate's default has no method
+      // scoping, so its engine warns per context that host methods may pin
+      // cross-heap cycles.
+      val context = Context
+        .newBuilder("js")
+        .engine(engine)
+        .allowHostAccess(HostAccess.SCOPED)
+        .build()
       try {
         val bindings = context.getBindings("js")
         bindings.putMember("__html", html)
