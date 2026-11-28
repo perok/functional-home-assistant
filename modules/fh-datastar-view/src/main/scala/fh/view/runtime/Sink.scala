@@ -53,6 +53,103 @@ private[runtime] object Sink {
     override def flush(): Unit = w.flush()
   }
 
+  /** `Datastar.collapse` as the walk writes, so a fragment reaches one SSE line
+    * without being held as a `String`: a whitespace run holding a newline is
+    * one space, and the ends are trimmed as `String.trim` does. A blank run is
+    * held until the next character says whether it was trailing;
+    * [[Folding.finish]] drops the last one.
+    */
+  final class Folding(w: java.io.Writer) extends Sink {
+    private val blanks = new java.lang.StringBuilder(64)
+    private var started = false
+
+    override def write(cbuf: Array[Char], off: Int, len: Int): Unit = {
+      val end = off + len
+      var from = off
+      var i = off
+      while (i < end) {
+        if (cbuf(i) <= ' ') {
+          if (i > from) w.write(cbuf, from, i - from)
+          blanks.append(cbuf(i))
+          from = i + 1
+        } else if (blanks.length > 0) releaseBlanks()
+        else started = true
+        i += 1
+      }
+      if (end > from) w.write(cbuf, from, end - from)
+    }
+
+    override def write(str: String, off: Int, len: Int): Unit = {
+      val end = off + len
+      var from = off
+      var i = off
+      while (i < end) {
+        val c = str.charAt(i)
+        if (c <= ' ') {
+          if (i > from) w.write(str, from, i - from)
+          blanks.append(c)
+          from = i + 1
+        } else if (blanks.length > 0) releaseBlanks()
+        else started = true
+        i += 1
+      }
+      if (end > from) w.write(str, from, end - from)
+    }
+
+    override def write(str: String): Unit = write(str, 0, str.length)
+    override def write(c: Int): Unit = {
+      val one = c.toChar
+      if (one <= ' ') { val _ = blanks.append(one) }
+      else {
+        if (blanks.length > 0) releaseBlanks() else started = true
+        w.write(c)
+      }
+    }
+    override def append(csq: CharSequence): this.type = {
+      write(String.valueOf(csq)); this
+    }
+    override def append(c: Char): this.type = { write(c.toInt); this }
+
+    /** A held run is interior once a character follows it: each of its `\s`
+      * runs holding a newline is one space, which is `collapse`'s regex.
+      */
+    private def releaseBlanks(): Unit = {
+      if (started) {
+        val n = blanks.length
+        var i = 0
+        while (i < n) {
+          val c = blanks.charAt(i)
+          if (Folding.isSpace(c)) {
+            var j = i
+            var newline = false
+            while (j < n && Folding.isSpace(blanks.charAt(j))) {
+              newline ||= blanks.charAt(j) == '\n'
+              j += 1
+            }
+            if (newline) w.write(' ')
+            else while (i < j) { w.write(blanks.charAt(i)); i += 1 }
+            i = j
+          } else {
+            w.write(c)
+            i += 1
+          }
+        }
+      }
+      started = true
+      blanks.setLength(0)
+    }
+
+    /** The trailing run, dropped: the fragment ends here. */
+    def finish(): Unit = blanks.setLength(0)
+  }
+
+  private object Folding {
+    // Java regex's `\s` without UNICODE_CHARACTER_CLASS.
+    def isSpace(c: Char): Boolean =
+      c == ' ' || c == '\t' || c == '\n' || c == '\u000B' || c == '\f' ||
+        c == '\r'
+  }
+
   def buffer(sizeHint: Int): Sink.Buffer = new Sink.Buffer(
     new java.lang.StringBuilder(sizeHint)
   )

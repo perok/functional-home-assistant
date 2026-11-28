@@ -110,6 +110,40 @@ class SharedViewerSuite extends ServerHarness {
     )
   }
 
+  test(
+    "a fill made after the next versions exist reaches each one its frame left it"
+  ) {
+    def plain(s: Shared, derived: AtomicInteger) =
+      s.branch(gid, Set.empty) { _ =>
+        val _ = derived.incrementAndGet()
+        Some(0)
+      }
+    for (byValues <- List(false, true)) {
+      def fill(s: Shared, derived: AtomicInteger): Unit =
+        if (byValues) ask(s, a, derived) else { val _ = plain(s, derived) }
+      val clue = s"byValues=$byValues"
+
+      val derived = AtomicInteger(0)
+      val d = decided()
+      val v1 = d.at(StoreState(states0, 1L))
+      val v2 = d.advance(v1, frame(states1, 2L), clean, Shared.Live.Unchanged)
+      val v3 = d.advance(v2, frame(states2, 3L), clean, Shared.Live.Unchanged)
+      // v1 is no longer kept: its fill still reaches v3, through v2.
+      fill(v1, derived)
+      fill(v3, derived)
+      assertEquals(derived.get, 1, clue)
+
+      val refused = AtomicInteger(0)
+      val e = decided()
+      val w1 = e.at(StoreState(states0, 1L))
+      val w2 =
+        e.advance(w1, frame(states1, 2L), dirtyHere, Shared.Live.Unchanged)
+      fill(w1, refused)
+      fill(w2, refused)
+      assertEquals(refused.get, 2, s"w2's frame dirtied it ($clue)")
+    }
+  }
+
   test("a decision no marked entity can dirty is never carried") {
     val derived = AtomicInteger(0)
     val d = decided(marked = false)

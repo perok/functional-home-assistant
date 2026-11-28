@@ -203,7 +203,10 @@ Three rules keep the layers apart, and building on them is how new work stays ch
   a chain of `Shared`, each the last one's decisions minus what its frame dirtied
   (`Renderer.advance`); a reader takes its version's from `Decided` and fills in what it reaches.
   A reader reuses only a decision made at its own version, or carried to it; one it makes after
-  the next version exists is offered on to it unless that frame dirtied it.
+  the next version exists is offered on to it unless that frame dirtied it. `Decided` keeps the
+  last two, and a late fill finds its successor there (the kept version carried from its own):
+  no version refers to another, or a dead version promoted to the old generation would keep
+  every later one alive through young collections.
 - **Work happens only where a dirty mark meets something shown.** A dirty decision is made again
   only when a walk reaches it: a viewer's, a press, the debug route, or the recorder's for what
   some session shows. One nobody shows stays dirty and costs nothing. A plain tick dirties no
@@ -987,7 +990,8 @@ building one (`RenderBench.memberClauseFlip`), and the plans an id holds are bou
 
 The last row is about the PULL path, and only the pull path. **A document render and a body repaint
 go through no cache at all** — `Patches.cached` is the `RenderCache`'s only entry point, and the page
-walk renders directly — so two viewers loading the same dashboard simultaneously each render the
+walk renders directly, into the response for a page and into its frame's bytes for a repaint
+(`Datastar.patchWritten`) — so two viewers loading the same dashboard simultaneously each render the
 whole page. That is
 [issue #130](https://github.com/perok/functional-home-assistant/issues/130): measured, deferred, and
 worth ~5.7 ms on a 200-card page. Nothing here relies on it.
@@ -1367,7 +1371,9 @@ questions moved, and the recorder records a frame at a version the store mints f
 in §6a: it consults no cache, shares nothing, and streams straight to the client.
 
 **The render is shared per slug; the WIRE is not.** A batch's events are `SseFrame`s — the SSE text
-already encoded to bytes (`Datastar`), served by `SseFrame.frameStreamEncoder` instead of http4s's
+written into the frame's chunk by `Datastar`'s one frame writer, a fragment in hand collapsed and
+encoded whole as a piece of it, a repaint's folded as the walk writes it (`Sink.Folding`), and a
+signals frame's JSON printed from its sorted paths with no `Json` built — served by `SseFrame.frameStreamEncoder` instead of http4s's
 `ServerSentEvent.encoder`. That moves the encode from the socket to where the event is built, which
 makes the process-wide constants (keepalive, recover marker, reload patch) encode once instead of
 once per emission per connection — but it shares nothing on the live path, because `Patches.resume`
