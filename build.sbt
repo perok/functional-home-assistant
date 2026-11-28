@@ -10,7 +10,7 @@ val hedgehodVersion = "0.15.0"
 // Pinned to what otel4s-oteljava resolves, so the exporter cannot drift from
 // the SDK it plugs into. otel4s' own SDK modules are NOT used: they moved to a
 // separate repo and are still marked experimental.
-val otelJavaVersion = "1.66.0"
+val otelJavaVersion = "1.68.0"
 val otelMiddlewareVersion = "0.19.0"
 // The ONLY place a GraalVM version is written, for the polyglot jars AND for
 // the isolate libraries the image stages — both resolved from this one string
