@@ -5,7 +5,7 @@ A full bench comparison of `after-regions` (9baea638) against main (574f062c), c
 names its cause, measured; the fixes keep behaviour byte-identical.
 
 **State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10, 11, 8, 12 and 9 built;
-13 (the reconnect) answered, its fix to discuss; 14 (circe or jsoniter-scala) to investigate, 15 (`collapse` without the regex) to try.
+13 (the reconnect): A building on `reconnect-ack`, then B; 14 (circe or jsoniter-scala) to investigate, 15 (`collapse` without the regex) and 16 (send pacing) to try.
 
 ## Working this plan
 
@@ -190,16 +190,33 @@ order the walk met them.
     the panel is the old one, and `holds` says otherwise, so nothing corrects it
     (`ReconnectSuite`, "a choice lost in flight is resent", an expected failure until fixed).
 
-    Directions, to discuss:
-    - **A.** Every batch a session sends ends with an ack: a per-session count of batches sent,
-      not the store version, which a choice does not move. `told` is the last one sent, so a
-      lost choice reads `BehindTold` instead of resuming wrong.
-    - **B.** Keep `holds` as it stood at each of the last few batches sent (persistent maps
-      share structure): a cursor behind `told` resumes from the `holds` of its own batch,
-      exact because a cursor rides last in its batch, instead of repainting.
+    The echoed store version alone cannot fix either: a choice moves no version, so the echo
+    cannot tell a choice applied from one lost; and knowing V says what MOVED since V (the
+    log), not what the DOM holds, which `holds` (what was sent) cannot rewind to. Hence A,
+    then B, which needs A's numbers to key its snapshots.
 
-    A alone fixes the bug and makes a lost choice a repaint; B takes the repaint off the tab
-    switch. Gate for B: the suite's lost-in-flight case resumes, and the opening's bytes.
+    - **A** (branch `reconnect-ack`, on #742). The cursor gains `batch`, and `told` becomes the
+      pair last put on the wire, `(version, batch)`; the opening reads `c.batch < told.batch` as
+      `BehindTold`. Batch numbers come from one counter for the process, not per session: a
+      session minted under the same `conn` after a reap would restart a per-session count, so
+      an old cursor would read as ahead of a lost opening and resume over it (today's version
+      check catches that). Only a batch that moves what the session believes the DOM holds
+      takes a number: an opening, a repaint, a resume that patched, a choice. The keepalive's
+      cursor-only frame keeps it, since losing it loses nothing held. Each number rides in its
+      batch's own trailing signal frame (~12 B), not a frame of its own (~45 B and an event per
+      tick). A lost choice then repaints; the `.fail` case in `ReconnectSuite` passes.
+    - **B.** Each batch's `holds` and `position` are kept by its number, in the session's own
+      state (the owner's alone, so no lock): a cursor behind `told` resumes from its own batch's
+      `holds`, exact because the number rides last, instead of repainting. Kept for the linger
+      (`SessionWindows.linger`, so a suite can shorten it), since a wifi drop can leave the
+      server writing into the socket buffer for minutes; capped at 256 as the backstop for a
+      fast-ticking house, past which the oldest go and that cursor repaints. Pruned from the
+      front on every step; the maps share structure, so each costs what its batch changed.
+      Gate: the lost-in-flight case resumes; the opening's bytes; per-session memory under a
+      fast-ticking bench.
+
+    Not covered by either: the HA-down banner frame is sent outside the session, so one lost in
+    flight is not resent on reconnect.
 
 14. **circe or jsoniter-scala** (to investigate). Every JSON the runtime reads or writes is
     circe: HA's WS frames and REST answers, the signals frame's leaves (12 prints them through
@@ -218,7 +235,24 @@ order the walk met them.
     `chartWindow`), B/op and time not worse, the output pinned by `FoldingSinkPropertySuite`. If
     it loses, an entry in `docs/experiments.md`.
 
-Order: 10, 11, 8, 12, 13 (answered; its fix to discuss), then 9, then 14 and 15.
+16. **Send pacing** (to try). A slow client already gets coalesced batches: the doorbell is
+    `discrete`, so it yields only the latest version, and a pull waits on `outlet.drained`. A
+    fast client on a busy house gets one batch per frame. A minimum gap per session after each
+    pull (`pull *> outlet.drained *> IO.sleep(gap)`) folds whatever lands in the gap into the
+    next pull, which also bounds B's snapshots. Configurable per session; where the value
+    comes from (a `site.pkl` setting, a stream parameter, a server default) is to decide. A
+    choice is not paced (it runs directly), but a tap's result arriving as a state change
+    waits up to the gap: 10 ms is invisible, 100 ms shows on a slider.
+
+    One entity spamming: per client, intermediate values already collapse, because the log
+    keeps each place's latest and a pull reads from its position, so a node spammed between
+    pulls is one patch. The recorder does not collapse: it records every store frame (one per
+    HA arrival that changed something), per slug, even when the next frame overwrites it.
+    Conflating the recorder's frames (the union of what changed, at the latest version) would
+    bound that; first check nothing reads a frame between (transitions, `recoverTransitions`)
+    and measure the recorder's cost under a spamming entity before building it.
+
+Order: 10, 11, 8, 12, 13 (A building; then B), then 9, then 14, 15 and 16.
 9. **No version refers to another** (replaces 5's release). 5 releases a version `Decided` lets
    go: a manual dispose that every holder of versions must remember. The forward offer has a
    customer each frame (the recorder advances, then plans against `prev`, so its late "before"
