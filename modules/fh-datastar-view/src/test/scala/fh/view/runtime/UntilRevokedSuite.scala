@@ -3,7 +3,6 @@ package fh.view.runtime
 import cats.effect.IO
 import fs2.Stream
 import fs2.concurrent.SignallingRef
-import org.http4s.ServerSentEvent
 
 import scala.concurrent.duration.*
 
@@ -17,7 +16,7 @@ class UntilRevokedSuite extends munit.CatsEffectSuite {
 
   private val always: Stream[IO, Boolean] = Stream(true) ++ Stream.never[IO]
 
-  private def event(id: String) = SseFrame.of(ServerSentEvent(data = Some(id)))
+  private def event(id: String) = SseFrame.comment(id)
 
   /** The events end (a displaced session) while the rule holds, so the
     * revocation side never fires; the merge must still end.
@@ -28,7 +27,7 @@ class UntilRevokedSuite extends munit.CatsEffectSuite {
       .compile
       .toList
       .timeout(5.seconds)
-      .map(seen => assertEquals(seen.flatMap(_.data), List("a")))
+      .map(seen => assertEquals(seen.flatMap(_.comment), List("a")))
   }
 
   test("an interrupted stream ends too — the displacement path") {
@@ -41,7 +40,7 @@ class UntilRevokedSuite extends munit.CatsEffectSuite {
         .compile
         .toList
         .timeout(5.seconds)
-    } yield assertEquals(seen.flatMap(_.data), List("a"))
+    } yield assertEquals(seen.flatMap(_.comment), List("a"))
   }
 
   /** The other direction, and the reason the merge is there at all. */
@@ -58,7 +57,7 @@ class UntilRevokedSuite extends munit.CatsEffectSuite {
         .toList
         .timeout(5.seconds)
     } yield {
-      assertEquals(seen.head.data, Some("a"))
+      assertEquals(seen.head.comment, Some("a"))
       assertEquals(seen.last, Server.reloadPatch)
       assertEquals(seen.size, 2)
     }
@@ -70,6 +69,6 @@ class UntilRevokedSuite extends munit.CatsEffectSuite {
       .compile
       .toList
       .timeout(5.seconds)
-      .map(seen => assertEquals(seen.map(_.data.get), List("a", "b")))
+      .map(seen => assertEquals(seen.map(_.comment.get), List("a", "b")))
   }
 }

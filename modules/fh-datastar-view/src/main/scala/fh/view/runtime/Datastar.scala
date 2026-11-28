@@ -2,7 +2,7 @@ package fh.view.runtime
 
 import fh.view.model.{SignalBind, SignalId, SlotValue, ThemeClasses}
 import io.circe.Json
-import org.http4s.{EntityEncoder, MediaType, ServerSentEvent}
+import org.http4s.{EntityEncoder, MediaType}
 import org.http4s.headers.`Content-Type`
 
 import java.nio.charset.StandardCharsets.UTF_8
@@ -20,11 +20,14 @@ enum PatchMode(val wire: String):
 /** One SSE event, encoded to bytes at construction. That shares only the
   * constant frames (keep-alive, recover marker, reload); live frames are still
   * encoded per session, since each is built by [[Patches.resume]]. Byte- and
-  * header-identical to http4s's own encoder.
+  * header-identical to http4s's own encoder (`FoldingSinkPropertySuite`). A
+  * chunk, not an array: a repaint's frame is the pieces its walk was encoded in
+  * ([[Datastar.patchWritten]]), which joining would copy the page again. Equal
+  * by content.
   */
-private[view] final case class SseFrame(bytes: Array[Byte]):
+private[view] final case class SseFrame(bytes: fs2.Chunk[Byte]):
 
-  def render: String = new String(bytes, UTF_8)
+  def render: String = new String(bytes.toArray, UTF_8)
 
   // For tests and diagnostics; the hot path touches only `bytes`.
   private lazy val parsed: (Option[String], Option[String], Option[String]) = {
@@ -48,26 +51,16 @@ private[view] final case class SseFrame(bytes: Array[Byte]):
   def eventType: Option[String] = parsed._2
   def comment: Option[String] = parsed._3
 
-  // By content: arrays compare by reference.
-  override def equals(that: Any): Boolean = that match
-    case f: SseFrame => java.util.Arrays.equals(bytes, f.bytes)
-    case _           => false
-
-  override def hashCode: Int = java.util.Arrays.hashCode(bytes)
-
 private[view] object SseFrame:
 
-  def of(event: ServerSentEvent): SseFrame =
-    SseFrame(event.renderString.getBytes(UTF_8))
-
   def comment(text: String): SseFrame =
-    SseFrame(s": $text\n\n".getBytes(UTF_8))
+    SseFrame(fs2.Chunk.array(s": $text\n\n".getBytes(UTF_8)))
 
   given frameStreamEncoder[F[_]]: EntityEncoder[F, fs2.Stream[F, SseFrame]] =
     EntityEncoder
       .entityBodyEncoder[F]
       .contramap[fs2.Stream[F, SseFrame]](
-        _.flatMap(f => fs2.Stream.chunk(fs2.Chunk.array(f.bytes)))
+        _.flatMap(f => fs2.Stream.chunk(f.bytes))
       )
       .withContentType(`Content-Type`(MediaType.`text/event-stream`))
 
@@ -77,53 +70,88 @@ object Datastar {
   def patchElements(fragment: String): SseFrame =
     patch(fragment)
 
+  /** Adjacent morphs as one event. */
+  def patchElements(fragments: List[String]): SseFrame =
+    fragments match
+      case one :: Nil => patch(one)
+      case _          => patch(fragments.mkString)
+
+  /** A fragment in hand is collapsed and encoded whole, its bytes a piece of
+    * the frame: folded and encoded a character at a time, as a walk is, it
+    * doubled `RenderBench.wire`'s time against the intrinsics.
+    */
   def patch(
       fragment: String,
       mode: PatchMode = PatchMode.Outer,
       selector: Option[String] = None
-  ): SseFrame =
-    sse(
-      "datastar-patch-elements",
-      selector.map(s => s"selector $s").toList ++
-        Option.when(mode != PatchMode.Outer)(s"mode ${mode.wire}").toList ++
-        List("elements " + collapse(fragment))
-    )
+  ): SseFrame = {
+    val body = collapse(fragment).getBytes(UTF_8)
+    val w = elementsHead(selector, Option.when(mode != PatchMode.Outer)(mode))
+    w.piece(body)
+    w.write('\n')
+    w.end(PatchElementsEvent)
+  }
 
-  /** Removing an absent id is a no-op, which set member removal relies on. */
-  def remove(selector: String): SseFrame =
-    sse(
-      "datastar-patch-elements",
-      List("mode remove", s"selector $selector")
-    )
-
-  /** http4s writes the `data:` prefix once and embedded newlines verbatim, so
-    * each protocol line is joined with its own prefix; each must be one line.
+  /** [[patch]] over `selector` whose fragment `fill` writes, encoded as it is
+    * written ([[Sink.Folding]]): a whole page held as a `String` was copied
+    * five times on its way to bytes (`HouseBench.repaint`).
     */
-  private def sse(eventType: String, lines: List[String]): SseFrame =
-    SseFrame.of(
-      ServerSentEvent(
-        data = Some(lines.mkString("\ndata: ")),
-        eventType = Some(eventType)
-      )
-    )
+  def patchWritten[A](selector: String)(fill: Sink => A): (SseFrame, A) = {
+    val w = elementsHead(Some(selector), None)
+    val folding = new Sink.Folding(w)
+    val a = fill(folding)
+    folding.finish()
+    w.write('\n')
+    (w.end(PatchElementsEvent), a)
+  }
+
+  private def elementsHead(
+      selector: Option[String],
+      mode: Option[PatchMode]
+  ): FrameWriter = {
+    val w = new FrameWriter(selector.fold(0)(_.length) + 96)
+    selector.foreach(s => w.line("selector ", s))
+    mode.foreach(m => w.line("mode ", m.wire))
+    w.write("data: elements ")
+    w
+  }
+
+  private val PatchElementsEvent = "datastar-patch-elements"
 
   /** Collapses whitespace runs containing a newline, so the fragment fits one
-    * `elements` line. A value's newlines survive as `&#10;` (`Templates`); a
-    * line break written into a template's own `<pre>` does not.
+    * `elements` line; [[Sink.Folding]] is the same as a walk writes, pinned
+    * against this by `FoldingSinkPropertySuite`. A value's newlines survive as
+    * `&#10;` (`Templates`); a line break written into a template's own `<pre>`
+    * does not.
     */
   private val LineRun = java.util.regex.Pattern.compile("\\s*\\r?\\n\\s*")
 
-  private def collapse(html: String): String =
+  private[runtime] def collapse(html: String): String =
     if (html.indexOf('\n') < 0) html.trim
     else LineRun.matcher(html).replaceAll(" ").trim
 
+  /** Removing an absent id is a no-op, which set member removal relies on. */
+  def remove(selector: String): SseFrame = {
+    val w = new FrameWriter(selector.length + 80)
+    w.line("mode ", "remove")
+    w.line("selector ", selector)
+    w.end(PatchElementsEvent)
+  }
+
   def patchSignals(signalsJson: String): SseFrame =
-    SseFrame.of(
-      ServerSentEvent(
-        data = Some(s"signals $signalsJson"),
-        eventType = Some("datastar-patch-signals")
-      )
-    )
+    signals(0)(_.piece(signalsJson.getBytes(UTF_8)))
+
+  /** [[signalsJson]]'s object, written into the frame. */
+  def patchSignals(values: Map[SignalId, Json]): SseFrame =
+    signals(values.size * 48)(nestInto(_, values))
+
+  private def signals(sizeHint: Int)(json: FrameWriter => Unit): SseFrame = {
+    val w = new FrameWriter(sizeHint + 64)
+    w.write("data: signals ")
+    json(w)
+    w.write('\n')
+    w.end("datastar-patch-signals")
+  }
 
   /** Sorted, so a frame's bytes are a function of its contents.
     *
@@ -131,36 +159,190 @@ object Datastar {
     * orphaning every binding on it, silently (`DatastarMorphContractSuite`). A
     * rule, not a type, because the cursor needs `Json` values.
     */
-  def signalsJson(values: Map[SignalId, Json]): String =
-    if (values.isEmpty) "{}"
-    else nest(pathsOf(values), 0, values.size, 0).noSpaces
+  def signalsJson(values: Map[SignalId, Json]): String = {
+    val sb = new java.lang.StringBuilder(values.size * 48 + 2)
+    nestInto(sb, values)
+    sb.toString
+  }
+
+  private def nestInto(out: Appendable, values: Map[SignalId, Json]): Unit =
+    if (values.isEmpty) { val _ = out.append("{}") }
+    else nest(out, pathsOf(values), 0, values.size, 0)
 
   /** Dotted paths are nested: `mergePatch` would store a flat
     * `"_e.light.x.state"` as one literal key, and a partial patch stays safe
-    * because it assigns only at leaves. One walk over rows pre-sorted by path;
-    * grouping per level was half a page open's allocation
-    * (`RenderBench.pageSignals`).
+    * because it assigns only at leaves. One walk over rows pre-sorted by path,
+    * printing as it goes: grouping per level was half a page open's allocation
+    * (`RenderBench.pageSignals`), and a `Json` built to be printed once was
+    * most of a signals frame's.
     */
   private def nest(
+      out: Appendable,
       paths: Array[(Array[String], Json)],
       from: Int,
       until: Int,
       depth: Int
-  ): Json = {
-    val fields = List.newBuilder[(String, Json)]
+  ): Unit = {
+    out.append('{')
     var i = from
     while (i < until) {
       val segment = paths(i)._1(depth)
       var j = i + 1
       while (j < until && paths(j)._1(depth) == segment) j += 1
+      if (i > from) { val _ = out.append(',') }
+      // circe's escaping, so the bytes are `Json.noSpaces`'s.
+      io.circe.Printer.noSpaces
+        .unsafePrintToAppendable(Json.fromString(segment), out)
+      out.append(':')
       // No path is both leaf and prefix: `signalName` mints one depth.
-      val value =
-        if (paths(i)._1.length == depth + 1) paths(i)._2
-        else nest(paths, i, j, depth + 1)
-      fields += (segment -> value)
+      if (paths(i)._1.length == depth + 1)
+        io.circe.Printer.noSpaces.unsafePrintToAppendable(paths(i)._2, out)
+      else nest(out, paths, i, j, depth + 1)
       i = j
     }
-    Json.obj(fields.result()*)
+    val _ = out.append('}')
+  }
+
+  /** One SSE event written as UTF-8 straight into its chunk, the bytes http4s's
+    * `ServerSentEvent.renderString` gives: each `data:` line, then the event
+    * line and the blank line. A full buffer becomes a piece of the chunk as it
+    * is, so a page is never joined, grown or copied out.
+    *
+    * Lone surrogates encode as `?`, as `String.getBytes(UTF_8)` does; a high
+    * one is held until the next character, and every frame ends in ASCII.
+    */
+  private final class FrameWriter(sizeHint: Int) extends java.io.Writer {
+    private var buf = new Array[Byte](sizeHint)
+    // `buf` from `start` is not yet a piece; before it, it is one, and stays.
+    private var start = 0
+    private var len = 0
+    private var pieces: fs2.Chunk[Byte] = fs2.Chunk.empty
+    private var high: Char = 0
+
+    /** `bytes`, already encoded, as a piece of its own: never copied. */
+    def piece(bytes: Array[Byte]): Unit = {
+      seal()
+      pieces = pieces ++ fs2.Chunk.array(bytes)
+    }
+
+    private def seal(): Unit =
+      if (len > start) {
+        pieces = pieces ++ fs2.Chunk.array(buf, start, len - start)
+        start = len
+      }
+
+    /** A `data:` line; neither part may hold a newline. */
+    def line(key: String, value: String): Unit = {
+      write("data: ")
+      write(key)
+      write(value)
+      write('\n')
+    }
+
+    def end(eventType: String): SseFrame = {
+      write("event: ")
+      write(eventType)
+      write("\n\n")
+      seal()
+      SseFrame(pieces)
+    }
+
+    private def room(n: Int): Unit =
+      if (len + n > buf.length) {
+        seal()
+        buf = new Array[Byte](Server.PageChunkBytes)
+        start = 0
+        len = 0
+      }
+
+    private def put(b: Byte): Unit = {
+      room(1)
+      buf(len) = b
+      len += 1
+    }
+
+    private def char(c: Char): Unit =
+      if (high != 0) {
+        val h = high
+        high = 0
+        if (Character.isLowSurrogate(c)) {
+          val cp = Character.toCodePoint(h, c)
+          room(4)
+          buf(len) = (0xf0 | (cp >> 18)).toByte
+          buf(len + 1) = (0x80 | ((cp >> 12) & 0x3f)).toByte
+          buf(len + 2) = (0x80 | ((cp >> 6) & 0x3f)).toByte
+          buf(len + 3) = (0x80 | (cp & 0x3f)).toByte
+          len += 4
+        } else {
+          put('?'.toByte)
+          char(c)
+        }
+      } else if (c < 0x80) put(c.toByte)
+      else if (c < 0x800) {
+        room(2)
+        buf(len) = (0xc0 | (c >> 6)).toByte
+        buf(len + 1) = (0x80 | (c & 0x3f)).toByte
+        len += 2
+      } else if (Character.isHighSurrogate(c)) high = c
+      else if (Character.isLowSurrogate(c)) put('?'.toByte)
+      else {
+        room(3)
+        buf(len) = (0xe0 | (c >> 12)).toByte
+        buf(len + 1) = (0x80 | ((c >> 6) & 0x3f)).toByte
+        buf(len + 2) = (0x80 | (c & 0x3f)).toByte
+        len += 3
+      }
+
+    override def write(cbuf: Array[Char], off: Int, n: Int): Unit = {
+      val end = off + n
+      var i = off
+      while (i < end) {
+        if (high == 0) {
+          val b = buf
+          val stop = math.min(end, i + b.length - len)
+          var l = len
+          while (i < stop && cbuf(i) < 0x80) {
+            b(l) = cbuf(i).toByte
+            l += 1
+            i += 1
+          }
+          len = l
+        }
+        if (i < end) { char(cbuf(i)); i += 1 }
+      }
+    }
+    override def write(str: String, off: Int, n: Int): Unit = {
+      val end = off + n
+      var i = off
+      while (i < end) {
+        if (high == 0) {
+          val b = buf
+          val stop = math.min(end, i + b.length - len)
+          var l = len
+          while (i < stop && str.charAt(i) < 0x80) {
+            b(l) = str.charAt(i).toByte
+            l += 1
+            i += 1
+          }
+          len = l
+        }
+        if (i < end) { char(str.charAt(i)); i += 1 }
+      }
+    }
+    override def write(str: String): Unit = write(str, 0, str.length)
+    override def write(c: Int): Unit =
+      if (c < 0x80 && high == 0 && len < buf.length) {
+        buf(len) = c.toByte
+        len += 1
+      } else char(c.toChar)
+    override def append(csq: CharSequence): this.type = {
+      val s = String.valueOf(csq)
+      write(s, 0, s.length)
+      this
+    }
+    override def append(c: Char): this.type = { char(c); this }
+    override def flush(): Unit = ()
+    override def close(): Unit = ()
   }
 
   private def pathsOf[A](

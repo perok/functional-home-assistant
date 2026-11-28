@@ -150,6 +150,12 @@ On top of those, the spans that are specific to what this add-on does:
   nodes painted. Usually the one worth looking at: the document is rendered
   *as the response body is streamed*, so its cost is invisible to anything
   timing the handler.
+- `dashboard.stream.open` — what a page's live connection is sent when it
+  opens or reconnects, such as a phone coming back to the app. Tagged with how
+  it caught up (`fh.opening`: `resume` sends only what changed, `repaint` the
+  whole page again, with `fh.repaint.reason`; `reload` asks the page to
+  reload), and the frames and bytes it sent. A reopened app does not load the
+  page again, so `dashboard.page.walk` does not see this.
 - `dashboard.prepare`, with `.dump` and `.eval` beneath it — fetching the
   entity dump and evaluating every dashboard. Not a request, so no HTTP span
   covers it, and it runs on every registry-driven refresh rather than only at

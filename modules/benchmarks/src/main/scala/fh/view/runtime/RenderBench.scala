@@ -1406,7 +1406,7 @@ class RenderBench {
   @Benchmark
   def resumeFlip(bh: Blackhole): Unit = {
     flipRot += 1
-    bh.consume(pullFlip(WireClients))
+    encodeFlip(bh, pullFlip(WireClients))
   }
 
   /** The same flip for ONE connection — the floor the fanout is measured
@@ -1415,8 +1415,16 @@ class RenderBench {
   @Benchmark
   def resumeFlipOne(bh: Blackhole): Unit = {
     flipRot += 1
-    bh.consume(pullFlip(1))
+    encodeFlip(bh, pullFlip(1))
   }
+
+  /** As `Server.resumed` sends a non-empty pull: the cursor last. */
+  private def encodeFlip(bh: Blackhole, pulls: List[List[Addressed]]): Unit =
+    pulls.foreach(patches =>
+      Patches
+        .encode(patches :+ Addressed(Server.versionPatch(flipRot.toLong)))
+        .foreach(f => bh.consume(f.bytes))
+    )
 
   /** A member's element as a clause switch inserts it, its subject alternating
     * between [[clauseSetTree]]'s two clauses on every call. Against
