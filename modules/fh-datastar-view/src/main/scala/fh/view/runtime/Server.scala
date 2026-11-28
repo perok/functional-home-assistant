@@ -658,6 +658,8 @@ class Server(
         .cursorAnomaly(req)
         .traverse_(w => logger.warn(w))
       outlet <- Outlet.create
+      // The body is pulled after this `for` returns (#75).
+      parentSpan <- tracer.currentSpanContext
       healthPatch = (h: Boolean) =>
         Datastar.patchSignals(s"""{"${Server.HaDownSignal}":${!h}}""")
 
@@ -695,9 +697,15 @@ class Server(
         .emits(liveOpt.toList)
         .flatMap { l =>
           Stream.exec(
-            session
-              .attach(outlet) *>
-              session.run(opening(slug, l, session, req, rendererOpt))
+            session.attach(outlet) *> tracer.childOrContinue(parentSpan)(
+              tracer
+                .span("dashboard.stream.open", Attribute("fh.slug", slug))
+                .use(span =>
+                  session
+                    .run(opening(slug, l, session, req, rendererOpt))
+                    .flatMap(opened => span.addAttributes(opened.attributes))
+                )
+            )
           ) ++
             outlet.frames
               .concurrently(
@@ -924,7 +932,7 @@ class Server(
       live: Server.LiveSlug,
       req: Request[IO],
       s: SessionState
-  ): IO[Session.Step[Unit]] =
+  ): IO[Session.Step[Server.Opened]] =
     (
       live.doorbell.get,
       live.renderer.get,
@@ -967,7 +975,7 @@ class Server(
             ()
           )
         }
-      (installed.rendererOf, opening) match
+      ((installed.rendererOf, opening) match
         case (Some(renderer), Opening.Resume(from)) =>
           val env = renderer.vars.env(s.values)
           opened(renderer, covered)(
@@ -1008,6 +1016,11 @@ class Server(
               installed.rendererOf.fold[AnyRef](installed)(_.generation)
             )
           )
+      ).map(
+        Server.Opened.of(
+          if (installed.rendererOf.isDefined) opening else Opening.Reload
+        )
+      )
     }
 
   /** The first step of a stream. A forgotten session's carried variables are
@@ -1020,7 +1033,7 @@ class Server(
       session: Session,
       req: Request[IO],
       served: Option[Renderer]
-  )(s: SessionState): IO[Session.Step[Unit]] =
+  )(s: SessionState): IO[Session.Step[Server.Opened]] =
     served
       .fold(IO.pure(s)) { r =>
         checked(r, s).flatMap(adoptCarriedVars(_, r, req)).flatMap { adopted =>
@@ -2822,6 +2835,41 @@ object Server {
       List(reloadPatch),
       ()
     )
+
+  /** What a stream's opening sent: `dashboard.stream.open`'s attributes. A
+    * phone reopening the app resumes a stream rather than loading the page, so
+    * `dashboard.page.walk` never sees what it costs.
+    */
+  private[runtime] final case class Opened(
+      sent: Opening,
+      frames: Int,
+      bytes: Long
+  ) {
+    def attributes: List[Attribute[?]] =
+      val how = sent match
+        case Opening.Resume(_)       => List(Attribute("fh.opening", "resume"))
+        case Opening.Repaint(reason) =>
+          List(
+            Attribute("fh.opening", "repaint"),
+            Attribute("fh.repaint.reason", reason.toString)
+          )
+        case Opening.Reload => List(Attribute("fh.opening", "reload"))
+      how ++ List(
+        Attribute("fh.frames", frames.toLong),
+        Attribute("fh.bytes", bytes)
+      )
+  }
+
+  private[runtime] object Opened {
+    def of(sent: Opening)(step: Session.Step[Unit]): Session.Step[Opened] =
+      step.copy(answer =
+        Opened(
+          sent,
+          step.frames.size,
+          step.frames.map(_.bytes.size.toLong).sum
+        )
+      )
+  }
 
   /** What a reconnecting browser claims its DOM holds. */
   private[runtime] case class Cursor(
