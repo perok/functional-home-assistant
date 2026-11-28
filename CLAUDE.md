@@ -406,24 +406,18 @@ These are available but load only when invoked — reach for them when the trigg
 - **`scala-code-optimizer`** — refactoring, modernizing, or auditing a `.scala` file.
 - **`scala-weaver-test`** — writing or changing weaver suites (`fh-datastar-view` tests,
   `scripts/fh.test.scala`).
+- **`metals`** — which tool for Scala work: Metals MCP compiles, runs a suite or one test, and
+  answers types and usages; sbt does whole-module runs, snapshots, benches and CI reproduction;
+  jCodeMunch is lookup across every language. Read it before compiling or running tests.
 - **`sbt`** — sbt gotchas specific to this repo.
 - **`datastar`**, **`beercss`** — dashboard work; see `modules/fh-datastar-view/CLAUDE.md`.
-
-### Using `scalex` for Scala navigation
-
-This repo has the `scalex` skill available (a Scalameta-based code-intelligence CLI: `def`,
-`refs`, `impl`, `members`, `body`, `hierarchy`, `explain`, …). Prefer it over `grep`/`Grep` for
-Scala-symbol lookups — finding a definition, enumerating call sites before a rename/move, checking
-what implements a trait — since it understands Scala syntax (givens, extensions, companion
-objects) that plain text search misses or over-matches. It only indexes git-tracked `.scala`/
-`.java` files. **Do not invoke it unprompted** — use it when it's the right tool for a task already
-in progress (e.g. mid-refactor, checking call sites), not proactively at the start of unrelated
-work.
 
 
 ## Code Exploration Policy
 
 Always use jCodeMunch-MCP for code navigation. Never fall back to Read, Grep, Glob, or Bash for code exploration.
+**Exception:** a Scala symbol's type, members or usages is Metals' (`inspect`, `get-usages`; the
+`metals` skill), which knows the types jCodeMunch only parses.
 **Exception:** use `Read` when you are about to edit a file — the harness requires a `Read` before `Edit`/`Write`. Use jCodeMunch to *find and understand* code, then `Read` only the file you are changing.
 
 This server runs the **front door** surface: three tools reach every jCodeMunch capability, so the tool list stays small and the catalogue is fetched only when you need it.

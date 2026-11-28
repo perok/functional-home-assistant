@@ -19,6 +19,11 @@
 
       jdk = pkgs.jdk25_headless;
 
+      # Coursier's app list resolves `metals` at a pinned version but not
+      # `metals-mcp` ("Can't find a scala version suffix"), so the MCP server is
+      # bootstrapped from its coordinates below.
+      metalsVersion = "2.0.0-RC1";
+
       devbox = pkgs.writeShellApplication {
         name = "devbox";
         text = ''
@@ -117,7 +122,7 @@
             # passes -x and fails only when you run it:
             #   /opt/agent/bin/scala: .../bin/scala: No such file or directory
             # so -x alone is not evidence the tool works.
-            # The JVM apps (scalac, scalafmt, metals-mcp) are full bootstrap
+            # The JVM apps (scalac, scalafmt) are full bootstrap
             # scripts instead, hence anchoring to line 2 and to a leading `/` —
             # matching `exec "$JAVA"` deeper in those would refetch every boot.
             needs_cs_install() {
@@ -129,7 +134,7 @@
             }
 
             missing=()
-            for app in sbt scala scalac scalafmt metals-mcp; do
+            for app in sbt scala scalac scalafmt; do
               if needs_cs_install "$app"; then
                 rm -f "${state}/bin/$app"
                 missing+=("$app")
@@ -138,6 +143,17 @@
             if [ ''${#missing[@]} -gt 0 ]; then
               echo "==> cs install ''${missing[*]}" >&2
               cs install --quiet "''${missing[@]}"
+            fi
+
+            # A bootstrap launcher embeds its jars, so its version cannot be read
+            # back from the file: a stamp beside it says which one is installed,
+            # and a changed metalsVersion replaces it on the next boot.
+            metals_stamp="${state}/bin/.metals-mcp.version"
+            if [ ! -x "${state}/bin/metals-mcp" ] || [ "$(cat "$metals_stamp" 2>/dev/null)" != "${metalsVersion}" ]; then
+              echo "==> cs bootstrap metals-mcp ${metalsVersion}" >&2
+              cs bootstrap --quiet "org.scalameta:metals-mcp_2.13:${metalsVersion}" \
+                -M scala.meta.metals.McpMain -o "${state}/bin/metals-mcp" -f \
+                && echo "${metalsVersion}" > "$metals_stamp"
             fi
 
             if needs_cs_install cellar; then
@@ -317,6 +333,7 @@
           nodejs_24 # the frontend build (NpmPlugin), the Playwright driver, `npx skills`
           coursier # installs sbt + the Scala tools into /opt/agent on first run
           jdk
+          pkl
           async-profiler # allocation-site sampling (issue #237); JFR is built-in
           uv
           python3 # runtime for jcodemunch-mcp
