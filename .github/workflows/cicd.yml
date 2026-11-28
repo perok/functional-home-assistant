@@ -55,7 +55,7 @@ jobs:
       # BEFORE ANY sbt STEP, and via $GITHUB_ENV rather than the test step's
       # own `env`: the suite runs IN the sbt server (nothing sets `Test /
       # fork`), and the server inherits its environment from the client that
-      # first STARTED it — `Install Playwright Browsers`, on a cache miss. Set
+      # first STARTED it — `Install Playwright system dependencies`, below. Set
       # on the test step alone, the variable only ever reached a client that
       # connects to that server, `sys.env` in the suite fell back to the
       # in-tree path, and the upload found nothing.
@@ -91,17 +91,44 @@ jobs:
           cache: npm
           cache-dependency-path: modules/fh-datastar-view/package-lock.json
 
-      # Cache Playwright browsers based on lockfile
-      - name: Cache Playwright
+      # Keyed on the Playwright version, NOT on build.sbt: hashing the whole
+      # file meant every dependency bump (otel4s, sbt, Scala, ...) missed and
+      # re-downloaded ~300 MB even though Playwright had not changed.
+      #
+      # Restore and save are separate actions because `actions/cache` saves
+      # from a `success()` post-step: on a run whose tests fail, a miss
+      # downloaded the browsers and then discarded them, so every re-run
+      # missed again. Saving right after the install fixes that.
+      - name: Playwright version
+        id: playwright-version
+        run: |
+          version=$(sed -n 's/.*"com.microsoft.playwright" % "playwright" % "\([^"]*\)".*/\1/p' build.sbt)
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('**/build.sbt') }}
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
 
-      - name: Install Playwright Browsers
+      # OS packages are not in the browser archive, so they are installed on a
+      # cache hit too: the runner image lacks Playwright's fonts, and a hit
+      # that skipped them would change text rendering under the visual suites.
+      - name: Install Playwright system dependencies
+        run: sbt 'fh-datastar-view/Test/runMain com.microsoft.playwright.CLI install-deps chromium'
+
+      - name: Install Playwright browsers
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: sbt 'fh-datastar-view/Test/runMain com.microsoft.playwright.CLI install --with-deps chromium'
+        run: sbt 'fh-datastar-view/Test/runMain com.microsoft.playwright.CLI install chromium'
+
+      - name: Save Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
 
       # The `pkl test` CLI, for the authoring-library suite below. Pinned to the
       # SAME version as the `org.pkl-lang:pkl-core` dep in build.sbt — the tests
