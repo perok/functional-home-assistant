@@ -6,6 +6,7 @@ import io.opentelemetry.sdk.logs.SdkLoggerProvider
 import io.opentelemetry.sdk.logs.`export`.SimpleLogRecordProcessor
 import io.opentelemetry.sdk.testing.exporter.InMemoryLogRecordExporter
 import io.opentelemetry.sdk.trace.SdkTracerProvider
+import io.opentelemetry.sdk.trace.`export`.{SimpleSpanProcessor, SpanExporter}
 import org.typelevel.log4cats.testing.StructuredTestingLogger
 import org.typelevel.otel4s.oteljava.OtelJava
 import org.typelevel.otel4s.trace.Tracer
@@ -32,7 +33,17 @@ class LoggingSuite extends munit.CatsEffectSuite {
             IO(
               OpenTelemetrySdk
                 .builder()
-                .setTracerProvider(SdkTracerProvider.builder().build())
+                // Without a processor the SDK hands out a noop tracer (since
+                // 1.67), whose spans carry an invalid context — the opposite
+                // of the real one this suite needs to observe.
+                .setTracerProvider(
+                  SdkTracerProvider
+                    .builder()
+                    .addSpanProcessor(
+                      SimpleSpanProcessor.create(SpanExporter.noop())
+                    )
+                    .build()
+                )
                 .setLoggerProvider(
                   SdkLoggerProvider
                     .builder()
