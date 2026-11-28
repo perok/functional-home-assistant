@@ -5,7 +5,7 @@ A full bench comparison of `after-regions` (9baea638) against main (574f062c), c
 names its cause, measured; the fixes keep behaviour byte-identical.
 
 **State:** 1–6 merged (#739, #741); Later on #742 (`perf-later`): 7, 10, 11, 8, 12 and 9 built;
-13 (the reconnect): A building on `reconnect-ack`, then B; 14 (circe or jsoniter-scala) to investigate, 15 (`collapse` without the regex) and 16 (send pacing) to try.
+13 (the reconnect): A building on `reconnect-ack`, then B; 14 (circe or jsoniter-scala) to investigate, 15 (`collapse` without the regex) and 17 (send pacing) to try, 16 (the recorder conflates) to measure.
 
 ## Working this plan
 
@@ -235,7 +235,16 @@ order the walk met them.
     `chartWindow`), B/op and time not worse, the output pinned by `FoldingSinkPropertySuite`. If
     it loses, an entry in `docs/experiments.md`.
 
-16. **Send pacing** (to try). A slow client already gets coalesced batches: the doorbell is
+16. **The recorder conflates** (to measure). Per client, a spamming entity already collapses:
+    the log keeps each place's latest and a pull reads from its position, so a node spammed
+    between pulls is one patch. The recorder does not: it records every store frame (one per
+    HA arrival that changed something), per slug, even when the next frame overwrites it.
+    Conflating the frames waiting for it (the union of what changed, at the latest version)
+    would bound that. First check nothing reads a frame in between (transitions,
+    `recoverTransitions`), and measure the recorder's cost under a spamming entity before
+    building it.
+
+17. **Send pacing** (to try). A slow client already gets coalesced batches: the doorbell is
     `discrete`, so it yields only the latest version, and a pull waits on `outlet.drained`. A
     fast client on a busy house gets one batch per frame. A minimum gap per session after each
     pull (`pull *> outlet.drained *> IO.sleep(gap)`) folds whatever lands in the gap into the
@@ -244,15 +253,7 @@ order the walk met them.
     choice is not paced (it runs directly), but a tap's result arriving as a state change
     waits up to the gap: 10 ms is invisible, 100 ms shows on a slider.
 
-    One entity spamming: per client, intermediate values already collapse, because the log
-    keeps each place's latest and a pull reads from its position, so a node spammed between
-    pulls is one patch. The recorder does not collapse: it records every store frame (one per
-    HA arrival that changed something), per slug, even when the next frame overwrites it.
-    Conflating the recorder's frames (the union of what changed, at the latest version) would
-    bound that; first check nothing reads a frame between (transitions, `recoverTransitions`)
-    and measure the recorder's cost under a spamming entity before building it.
-
-Order: 10, 11, 8, 12, 13 (A building; then B), then 9, then 14, 15 and 16.
+Order: 10, 11, 8, 12, 13 (A building; then B), then 9, then 14, 15, 16 and 17.
 9. **No version refers to another** (replaces 5's release). 5 releases a version `Decided` lets
    go: a manual dispose that every holder of versions must remember. The forward offer has a
    customer each frame (the recorder advances, then plans against `prev`, so its late "before"
